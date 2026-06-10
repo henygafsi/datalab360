@@ -74,6 +74,13 @@ export type ScoreCardDimension = KpiDimension | 'prevision';
  */
 export type ScoreCardStatus = 'ok' | 'error' | 'not_computed';
 
+/**
+ * Whether a card's value is scoped to a single project or falls back to
+ * account-level. Account-scoped cards in a project context must be labelled
+ * honestly so the user is never shown account data as if it were per-project.
+ */
+export type ScoreCardScope = 'project' | 'account';
+
 /** One compact scorecard, ready to render. */
 export interface ScoreCard {
   dimension: ScoreCardDimension;
@@ -90,6 +97,13 @@ export interface ScoreCard {
   criticalRecos: number;
   /** Optional note shown under not-computed cards (e.g. "coming soon"). */
   note?: string;
+  /**
+   * Scope of the value. Undefined for the account-wide `getScoreCards` path
+   * (everything is account-level by definition there — no label needed). Set to
+   * 'project' | 'account' by `getProjectScoreCards`, so the UI can mark which
+   * dimensions are honestly per-project vs an account-level fallback.
+   */
+  scope?: ScoreCardScope;
 }
 
 // ── Dimension config ────────────────────────────────────────────────────────
@@ -243,4 +257,85 @@ export async function getScoreCards(days?: number): Promise<ScoreCard[]> {
   );
 
   return [...liveCards, buildPrevisionCard()];
+}
+
+// ── Per-project scores ──────────────────────────────────────────────────────
+//
+// `getScoreCards` above is ACCOUNT-wide. The per-project variant calls the
+// dedicated `GET /command-center/projects/{id}/scores` endpoint, which returns
+// each dimension already scorecard-shaped + flagged `scope` ("project" vs
+// "account"). Only PERF (PROJECT_RUNS) and GOV (contributors + RLS bindings)
+// — and DQ when the project's deployed objects are DMF-monitored — are real
+// per-project; COST (and an un-monitored DQ) come back scope:"account" with a
+// null value and a `note`, NEVER a fabricated number.
+
+/** One backend dimension entry from `/projects/{id}/scores`. */
+interface ProjectScoreDimension {
+  dimension: KpiDimension;
+  label: string;
+  value: number | string | null;
+  unit: string;
+  scope: ScoreCardScope;
+  /** 'ok' (real value) | 'not_computed' (account-fallback, null) | 'error'. */
+  status: string;
+  note?: string | null;
+  supporting?: Record<string, unknown>;
+  source?: string | null;
+}
+
+/** Payload from `GET /command-center/projects/{id}/scores`. */
+interface ProjectScoresResponse {
+  project_id: string;
+  days: number;
+  dimensions: Record<KpiDimension, ProjectScoreDimension>;
+  scopes: Record<KpiDimension, ScoreCardScope>;
+}
+
+function buildProjectCard(
+  dimension: KpiDimension,
+  entry: ProjectScoreDimension | undefined,
+): ScoreCard {
+  // Backend status maps straight to the card status; a missing entry is an error.
+  const backendStatus = entry?.status;
+  const status: ScoreCardStatus =
+    backendStatus === 'ok'
+      ? 'ok'
+      : backendStatus === 'not_computed'
+        ? 'not_computed'
+        : 'error';
+
+  return {
+    dimension,
+    label: DIMENSION_LABEL[dimension],
+    value: entry?.value ?? null,
+    unit: entry?.unit ?? '',
+    status,
+    // Per-project scores have no /recommendations equivalent — zero the badges
+    // rather than borrow account-level recos (which would be misleading).
+    openRecos: 0,
+    criticalRecos: 0,
+    note: entry?.note ?? undefined,
+    scope: entry?.scope ?? 'account',
+  };
+}
+
+/**
+ * Fetch the four DQ/COST/PERF/GOV scores for ONE project. Each card carries a
+ * `scope` flag so the UI can honestly mark account-level fallbacks. PREVISION
+ * is not included (it has no per-project source).
+ *
+ * @param projectId The project to scope to.
+ * @param days      Optional lookback window (defaults to backend default, 30).
+ */
+export async function getProjectScoreCards(
+  projectId: string,
+  days?: number,
+): Promise<ScoreCard[]> {
+  const { data } = await apiClient.get<ProjectScoresResponse>(
+    `${PREFIX}/projects/${encodeURIComponent(projectId)}/scores`,
+    { params: days != null ? { days } : undefined },
+  );
+
+  const dims = data?.dimensions ?? ({} as Record<KpiDimension, ProjectScoreDimension>);
+  return LIVE_DIMENSIONS.map((d) => buildProjectCard(d, dims[d]));
 }

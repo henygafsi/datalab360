@@ -9,19 +9,21 @@
  *   · runs-health digest        (derived from GET /projects/{id}/runs)
  *   · deploy / approval badge    (GET /projects/{id}/deployments)
  *   · activity feed              (GET /projects/{id}/events — PROJECT_EVENTS)
- *   · embedded G6 <ScoreCards>   (account-level — see note below)
+ *   · embedded G6 <ScoreCards>   (per-project via projectId — see note below)
  *   · comments / @mention / presence placeholder (BACKEND GAP — see note)
  *
- * ScoreCards note: <ScoreCards> fetches ACCOUNT-level /command-center/kpis/*
- * (no project_id param exists on the component or the backend). It is rendered
- * here as account-health context and is LABELLED as such — it is deliberately
- * NOT presented as per-project data, because per-project scoring is a backend
- * gap (would need /command-center/kpis/{dim}?project_id= + a ScoreCards prop).
+ * ScoreCards note: <ScoreCards projectId={...}> now fetches per-project scores
+ * from GET /command-center/projects/{id}/scores. PERF (PROJECT_RUNS) and GOV
+ * (contributors + RLS bindings) are REAL per-project; DQ is per-project when the
+ * project's deployed objects are DMF-monitored, else account-level; COST stays
+ * account-level (no per-project cost attribution — G8 gap). Each card carries a
+ * `scope` chip so account-level fallbacks are labelled honestly, never faked.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Lock, Unlock, Activity, Rocket, CheckCircle2, XCircle, Clock,
   PlayCircle, AlertTriangle, GaugeCircle, MessageSquare, Loader2,
+  Send, Trash2, CornerDownRight, Wifi,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -31,6 +33,13 @@ import {
   type ProjectCollaboration,
   type CollabDeployment,
 } from '@/app/services/projects/collaboration';
+import {
+  listComments,
+  addComment,
+  deleteComment,
+  type ProjectComment,
+} from '@/app/services/projects/comments';
+import { useAuth } from '@/hooks/useAuth';
 
 // ── Deployment status → badge style ──────────────────────────────────────────
 
@@ -82,6 +91,213 @@ function safeDistance(iso: string | null | undefined): string | null {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return null;
   return formatDistanceToNow(new Date(iso), { addSuffix: true });
+}
+
+// ── Comments thread (G11) ─────────────────────────────────────────────────────
+
+/** Render a comment body with @mentions highlighted. */
+function renderBody(body: string): React.ReactNode {
+  const parts = body.split(/(@[A-Za-z0-9_.\-]+)/g);
+  return parts.map((part, i) =>
+    part.startsWith('@') ? (
+      <span key={i} className="font-semibold text-sky-600 dark:text-sky-400">{part}</span>
+    ) : (
+      <React.Fragment key={i}>{part}</React.Fragment>
+    ),
+  );
+}
+
+function CommentRow({
+  comment, isReply, canDelete, onReply, onDelete, deleting,
+}: {
+  comment: ProjectComment;
+  isReply: boolean;
+  canDelete: boolean;
+  onReply: (c: ProjectComment) => void;
+  onDelete: (c: ProjectComment) => void;
+  deleting: boolean;
+}) {
+  return (
+    <div className={cn('flex items-start gap-2 text-[11px]', isReply && 'ml-5')}>
+      {isReply && <CornerDownRight className="h-3 w-3 mt-1 shrink-0 text-slate-300 dark:text-slate-600" />}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold text-slate-700 dark:text-slate-200">{comment.author}</span>
+          {safeDistance(comment.created_at) && (
+            <span className="text-slate-400">· {safeDistance(comment.created_at)}</span>
+          )}
+        </div>
+        <p className="text-slate-600 dark:text-slate-300 whitespace-pre-wrap break-words">
+          {renderBody(comment.body)}
+        </p>
+        <div className="flex items-center gap-3 mt-0.5">
+          {!isReply && (
+            <button
+              type="button"
+              onClick={() => onReply(comment)}
+              className="text-[10px] text-slate-400 hover:text-sky-500"
+            >
+              Reply
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(comment)}
+              disabled={deleting}
+              className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-red-500 disabled:opacity-50"
+            >
+              <Trash2 className="h-2.5 w-2.5" /> Delete
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommentsThread({ projectId }: { projectId: string }) {
+  const { username, role } = useAuth();
+  const me = (username || '').toUpperCase();
+  // Delete affordance: authors can always delete their own; account-admins get
+  // the button too. NOTE this is an approximation — the backend authoritatively
+  // gates on author-or-PROJECT-owner (CREATED_BY), which the panel doesn't fetch,
+  // so a non-admin project owner only sees Delete on their own comments.
+  const isAdminRole = ['ACCOUNTADMIN', 'ORGADMIN', 'SECURITYADMIN', 'SYSADMIN'].includes(
+    (role || '').toUpperCase(),
+  );
+
+  const [comments, setComments] = useState<ProjectComment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [draft, setDraft] = useState('');
+  const [replyTo, setReplyTo] = useState<ProjectComment | null>(null);
+  const [posting, setPosting] = useState(false);
+  const [postError, setPostError] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    let ignore = false;
+    setLoading(true);
+    listComments(projectId)
+      .then((rows) => { if (!ignore) setComments(rows); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, [projectId]);
+
+  useEffect(() => refresh(), [refresh]);
+
+  const handlePost = useCallback(async () => {
+    const body = draft.trim();
+    if (!body || posting) return;
+    setPosting(true);
+    setPostError(false);
+    try {
+      await addComment(projectId, body, replyTo?.comment_id ?? null);
+      setDraft('');
+      setReplyTo(null);
+      const rows = await listComments(projectId);
+      setComments(rows);
+    } catch {
+      setPostError(true);
+    } finally {
+      setPosting(false);
+    }
+  }, [draft, posting, projectId, replyTo]);
+
+  const handleDelete = useCallback(async (c: ProjectComment) => {
+    setDeletingId(c.comment_id);
+    try {
+      await deleteComment(projectId, c.comment_id);
+      // Backend soft-deletes only this comment (no cascade); mirror that locally
+      // so replies stay until they're individually deleted, matching a reload.
+      setComments((prev) => prev.filter((x) => x.comment_id !== c.comment_id));
+    } catch {
+      // leave the row in place on failure
+    } finally {
+      setDeletingId(null);
+    }
+  }, [projectId]);
+
+  const canDelete = (c: ProjectComment) => c.author === me || isAdminRole;
+
+  // Build a top-level → replies map (flat list, ordered chronologically).
+  const tops = comments.filter((c) => !c.parent_comment_id);
+  const repliesOf = (id: string) => comments.filter((c) => c.parent_comment_id === id);
+
+  return (
+    <div className="space-y-3">
+      {/* Composer */}
+      <div className="space-y-1.5">
+        {replyTo && (
+          <div className="flex items-center justify-between text-[10px] text-slate-400">
+            <span className="inline-flex items-center gap-1">
+              <CornerDownRight className="h-2.5 w-2.5" /> Replying to {replyTo.author}
+            </span>
+            <button type="button" onClick={() => setReplyTo(null)} className="hover:text-slate-600">Cancel</button>
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void handlePost(); }
+            }}
+            rows={2}
+            placeholder="Add a comment… use @username to mention"
+            className="flex-1 resize-none rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-400"
+          />
+          <button
+            type="button"
+            onClick={() => void handlePost()}
+            disabled={posting || !draft.trim()}
+            className="inline-flex items-center gap-1 rounded-md bg-sky-500 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-600 disabled:opacity-40"
+          >
+            {posting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+            Post
+          </button>
+        </div>
+        {postError && (
+          <p className="text-[10px] text-red-500">Couldn’t post your comment. Please retry.</p>
+        )}
+      </div>
+
+      {/* Thread */}
+      {loading ? (
+        <div className="flex items-center gap-2 py-2 text-[11px] text-slate-400">
+          <Loader2 className="h-3 w-3 animate-spin" /> Loading comments…
+        </div>
+      ) : tops.length === 0 ? (
+        <p className="text-xs text-slate-400">No comments yet — start the conversation.</p>
+      ) : (
+        <ul className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+          {tops.map((c) => (
+            <li key={c.comment_id} className="space-y-2">
+              <CommentRow
+                comment={c}
+                isReply={false}
+                canDelete={canDelete(c)}
+                onReply={setReplyTo}
+                onDelete={handleDelete}
+                deleting={deletingId === c.comment_id}
+              />
+              {repliesOf(c.comment_id).map((r) => (
+                <CommentRow
+                  key={r.comment_id}
+                  comment={r}
+                  isReply
+                  canDelete={canDelete(r)}
+                  onReply={setReplyTo}
+                  onDelete={handleDelete}
+                  deleting={deletingId === r.comment_id}
+                />
+              ))}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 // ── Main panel ───────────────────────────────────────────────────────────────
@@ -243,21 +459,27 @@ export default function ProjectCollaborationPanel({ projectId }: { projectId: st
         </Section>
       )}
 
-      {/* G6 Score Cards — account-level health context */}
+      {/* G6 Score Cards — now per-project where a real source exists.
+          PERF (PROJECT_RUNS) + GOV (contributors/RLS) are real per-project; DQ
+          is per-project when the project's deployed objects are DMF-monitored,
+          else account-level; COST stays account-level (no per-project cost
+          attribution). Each card is flagged with its scope so the labelling is
+          honest — no disclaimer needed, the chips tell the truth per dimension. */}
       <Section icon={GaugeCircle} title="Health score cards (G6)" accent="text-emerald-500">
-        <p className="text-[10px] text-slate-400 mb-2 italic">
-          Account-level health — per-project scoring is not yet available from the backend.
-        </p>
-        <ScoreCards dimensions={['dq', 'cost', 'perf']} />
+        <ScoreCards projectId={projectId} dimensions={['dq', 'cost', 'perf', 'gov']} />
       </Section>
 
-      {/* Comments / @mention / presence — BACKEND GAP placeholder */}
-      <Section icon={MessageSquare} title="Comments & presence" accent="text-sky-500">
-        <p className="text-xs text-slate-400">
-          Threaded comments, @mentions and live presence are not yet available.
-          They require a new <code className="text-[11px] px-1 rounded bg-slate-100 dark:bg-slate-700">PROJECT_COMMENTS</code> table
-          and <code className="text-[11px] px-1 rounded bg-slate-100 dark:bg-slate-700">GET/POST /projects/{'{id}'}/comments</code> endpoints
-          (plus a presence channel) on the backend.
+      {/* Comments & @mentions — wired to PROJECT_COMMENTS (G11) */}
+      <Section icon={MessageSquare} title="Comments & @mentions" accent="text-sky-500">
+        <CommentsThread projectId={projectId} />
+      </Section>
+
+      {/* Live presence — still a labelled placeholder (no presence backend yet) */}
+      <Section icon={Wifi} title="Live presence" accent="text-slate-400">
+        <p className="text-[11px] text-slate-400">
+          Real-time presence (who’s viewing/editing now) is not yet available —
+          it needs a presence channel on the backend. Comments and @mentions above
+          are live.
         </p>
       </Section>
     </div>

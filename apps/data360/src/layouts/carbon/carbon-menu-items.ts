@@ -269,6 +269,12 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: routes.adminPerformance.view,
         icon: PiChartLineDuotone,
       },
+      {
+        name: 'Feature Governance',
+        description: 'Per-account feature & addon enablement matrix',
+        href: '/administration/feature-governance',
+        icon: PiShieldCheckDuotone,
+      },
     ],
   },
 ];

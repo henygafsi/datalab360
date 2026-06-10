@@ -24,6 +24,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import {
   getScoreCards,
+  getProjectScoreCards,
   type ScoreCard,
   type ScoreCardDimension,
 } from '@/app/services/command-center/score-cards';
@@ -35,6 +36,17 @@ interface ScoreCardsProps {
   days?: number;
   /** Optional subset / reordering of cards. Defaults to all five. */
   dimensions?: ScoreCardDimension[];
+  /**
+   * When set, scope the cards to a single project via
+   * `GET /command-center/projects/{id}/scores`. Each card then carries a
+   * `scope` ("project" | "account") that the UI labels honestly — account-level
+   * fallbacks (e.g. COST) are marked as such, never shown as per-project. When
+   * omitted, behaviour is unchanged: account-wide `getScoreCards`.
+   *
+   * Note: the PREVISION placeholder has no per-project source, so the project
+   * path never returns it (DEFAULT_DIMENSIONS still applies in account mode).
+   */
+  projectId?: string;
 }
 
 const DEFAULT_DIMENSIONS: ScoreCardDimension[] = [
@@ -95,6 +107,32 @@ function RecoBadge({ card }: { card: ScoreCard }) {
   );
 }
 
+/**
+ * Honest scope chip. Only rendered when a card carries a `scope` (i.e. the
+ * per-project path). "project" = real per-project value; "account" = an
+ * account-level fallback shown in a project context — labelled so it is never
+ * mistaken for per-project data.
+ */
+function ScopeChip({ scope }: { scope: 'project' | 'account' }) {
+  const isProject = scope === 'project';
+  return (
+    <span
+      title={
+        isProject
+          ? 'Scored from this project’s own data'
+          : 'Account-level — no per-project source for this dimension'
+      }
+      className={
+        isProject
+          ? 'inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+          : 'inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+      }
+    >
+      {isProject ? 'project' : 'account-level'}
+    </span>
+  );
+}
+
 function ScoreCardItem({ card }: { card: ScoreCard }) {
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex flex-col gap-2">
@@ -102,7 +140,9 @@ function ScoreCardItem({ card }: { card: ScoreCard }) {
         <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
           {card.label}
         </span>
-        {card.note ? (
+        {card.scope ? (
+          <ScopeChip scope={card.scope} />
+        ) : card.note ? (
           <span className="text-[10px] text-gray-400 dark:text-gray-500 italic">
             {card.note}
           </span>
@@ -118,7 +158,17 @@ function ScoreCardItem({ card }: { card: ScoreCard }) {
           </span>
         ) : null}
       </div>
-      <RecoBadge card={card} />
+      {/* Project cards have no recos; show the scope rationale note instead so
+          an account-level fallback (e.g. COST) explains itself honestly. */}
+      {card.scope ? (
+        card.note ? (
+          <span className="text-[10px] text-gray-400 dark:text-gray-500 italic leading-tight">
+            {card.note}
+          </span>
+        ) : null
+      ) : (
+        <RecoBadge card={card} />
+      )}
     </div>
   );
 }
@@ -144,7 +194,10 @@ function ScoreCardsError({ onRetry }: { onRetry: () => void }) {
 
 // ── Main component ──────────────────────────────────────────────────────────
 
-export default function ScoreCards({ days, dimensions }: ScoreCardsProps) {
+// Project scope has no PREVISION source — default to the four live dimensions.
+const PROJECT_DIMENSIONS: ScoreCardDimension[] = ['dq', 'cost', 'perf', 'gov'];
+
+export default function ScoreCards({ days, dimensions, projectId }: ScoreCardsProps) {
   const [cards, setCards] = useState<ScoreCard[] | null>(null);
   const [error, setError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -153,7 +206,11 @@ export default function ScoreCards({ days, dimensions }: ScoreCardsProps) {
     let ignore = false;
     setError(false);
     setCards(null);
-    getScoreCards(days)
+    // projectId set → honest per-project scores; otherwise unchanged account-wide.
+    const load = projectId
+      ? getProjectScoreCards(projectId, days)
+      : getScoreCards(days);
+    load
       .then((result) => {
         if (!ignore) setCards(result);
       })
@@ -163,9 +220,10 @@ export default function ScoreCards({ days, dimensions }: ScoreCardsProps) {
     return () => {
       ignore = true;
     };
-  }, [days, reloadKey]);
+  }, [days, projectId, reloadKey]);
 
-  const wanted = dimensions ?? DEFAULT_DIMENSIONS;
+  const wanted =
+    dimensions ?? (projectId ? PROJECT_DIMENSIONS : DEFAULT_DIMENSIONS);
   const gridClass =
     'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3';
 
