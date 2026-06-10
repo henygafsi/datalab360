@@ -245,6 +245,18 @@ type LifecycleState = Partial<Record<LifecycleAction, LifecycleEntry>>;
 
 const UNAVAILABLE_HINT = 'Not available on this backend yet';
 
+// ── Source-selection focus state machine ──────────────────────────────────
+// G2: the source/block picker (ETLPalette) is a click-to-focus surface.
+//   'expanded'  → palette dominates the working area (fills the page) so the
+//                 user can browse/search sources without a cramped rail.
+//   'collapsed' → palette shrinks back to a slim rail, giving the canvas room.
+// Clicking the center canvas collapses an expanded picker (focus shifts to the
+// graph). The preference is persisted to versioned, minimal localStorage —
+// same "draft of menu → preselect on return" pattern as WorkflowSmartPanel's
+// PANEL_SECTION_KEY (client-localstorage-schema).
+type SourcePanelState = 'expanded' | 'collapsed';
+const SOURCE_PANEL_KEY = 'data360.etl.sourcepanel.v1';
+
 // Build CreateWorkflowStepInput array from ReactFlow nodes/edges
 // Payload uses flat keys matching the API (database_name, schema_name, etc.)
 // plus reserved keys: inputs (step_ids this step reads from), cte_alias, position, nodeId
@@ -593,6 +605,34 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [showPalette, setShowPalette] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
+  // Source-selection focus state (G2). Lazy-init from versioned localStorage so
+  // the read happens once at mount, not on every render (rerender-lazy-state-init).
+  // Defaults to 'expanded' on first visit — the picker fills the page so the
+  // user starts by choosing a source, then clicks the canvas to collapse it.
+  const [sourcePanel, setSourcePanel] = useState<SourcePanelState>(() => {
+    try {
+      return window.localStorage.getItem(SOURCE_PANEL_KEY) === 'collapsed'
+        ? 'collapsed'
+        : 'expanded';
+    } catch {
+      return 'expanded';
+    }
+  });
+  // Persist the focus preference whenever it changes.
+  useEffect(() => {
+    try { window.localStorage.setItem(SOURCE_PANEL_KEY, sourcePanel); }
+    catch { /* storage unavailable — keep in-memory state */ }
+  }, [sourcePanel]);
+  // Collapse the expanded picker to a slim rail — fired when the user clicks
+  // into the center canvas (focus shifts to the graph). Stable callback so the
+  // canvas handlers don't re-create on every render.
+  const collapseSourcePanel = useCallback(() => {
+    setSourcePanel((prev) => (prev === 'expanded' ? 'collapsed' : prev));
+  }, []);
+  // Toggle between the slim rail and the full-width picker (chevron / rail click).
+  const toggleSourcePanel = useCallback(() => {
+    setSourcePanel((prev) => (prev === 'expanded' ? 'collapsed' : 'expanded'));
+  }, []);
   // Single intelligent right-bar: `activeTab` doubles as the WorkflowSmartPanel
   // active SECTION (icon-rail flip menu). It carries both the legacy panel
   // bodies (results/runs/sql/schedules/ai) AND the new sections
@@ -1232,11 +1272,16 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     setActiveTab('block');
     // User is following the AI hint — dismiss the banner.
     setAiNextStepHint(false);
-  }, []);
+    // Focus shifted to the graph — collapse the full-width source picker (G2).
+    collapseSourcePanel();
+  }, [collapseSourcePanel]);
 
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
     setShowSidebar(false);
+    // Clicking the center canvas shifts focus to the graph — collapse the
+    // full-width source picker back to a slim rail (G2 click-to-focus).
+    collapseSourcePanel();
     // Dynamically adapt the right-panel tab when the user deselects a node.
     // Without this, a stale Schedule / SQL / Results tab from the previous
     // selection lingers even though the canvas no longer has anything
@@ -1252,7 +1297,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       if (lastExecution) return 'results';
       return 'runs';
     });
-  }, [nodes.length, lastExecution]);
+  }, [nodes.length, lastExecution, collapseSourcePanel]);
 
   // Reveal the schedule editor inline (non-blocking): open the right panel
   // and switch to its existing `schedules` tab instead of a centered modal.
@@ -3237,34 +3282,63 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left palette */}
-        <div
-          className={cn(
-            'bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-all duration-300',
-            showPalette ? 'w-72' : 'w-0'
-          )}
-        >
-          {showPalette && (
-            <ETLPalette
-              className="h-full"
-              projectId={activeWorkflowId ?? undefined}
-            />
+        {/* Left source/block picker — click-to-focus (G2).
+            Width is driven by two orthogonal controls kept non-contradictory:
+              · showPalette === false  → hidden (w-0)
+              · expanded               → dominant working width (fills the page);
+                                         the canvas shrinks to a thin click-strip
+              · collapsed              → slim rail
+            The expanded picker is a flex SIBLING of the canvas (not an overlay)
+            so the ReactFlow pane stays mounted and clickable — clicking it is
+            what collapses the picker back to a rail.
+            Wrapped in a `relative` host so the edge chevron tracks the panel's
+            right edge across any width unit and isn't clipped by overflow. */}
+        <div className="relative flex-shrink-0">
+          <div
+            className={cn(
+              'h-full bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-all duration-300 overflow-hidden',
+              !showPalette
+                ? 'w-0'
+                : sourcePanel === 'expanded'
+                  ? 'w-[72vw] max-w-[1100px]'
+                  : 'w-72'
+            )}
+          >
+            {showPalette ? (
+              <ETLPalette
+                className="h-full"
+                projectId={activeWorkflowId ?? undefined}
+              />
+            ) : null}
+          </div>
+
+          {/* Edge control — anchored to the panel's right edge so it follows
+              whatever width the panel takes. Sits outside the clipped panel.
+              · When hidden: re-show the rail.
+              · When shown: expand/collapse between full-width and slim rail. */}
+          {!showPalette ? (
+            <button
+              onClick={() => setShowPalette(true)}
+              className="absolute right-0 translate-x-full top-1/2 -translate-y-1/2 z-10 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-r-lg shadow-sm"
+              aria-label="Show block palette"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              onClick={toggleSourcePanel}
+              className="absolute right-0 translate-x-full top-1/2 -translate-y-1/2 z-10 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-r-lg shadow-sm"
+              aria-label={sourcePanel === 'expanded' ? 'Collapse source picker to rail' : 'Expand source picker'}
+              aria-expanded={sourcePanel === 'expanded'}
+            >
+              {sourcePanel === 'expanded' ? (
+                <ChevronLeft className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
           )}
         </div>
-
-        {/* Toggle palette button */}
-        <button
-          onClick={() => setShowPalette(!showPalette)}
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-r-lg shadow-sm"
-          style={{ left: showPalette ? '288px' : '0' }}
-          aria-label={showPalette ? 'Hide block palette' : 'Show block palette'}
-        >
-          {showPalette ? (
-            <ChevronLeft className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-        </button>
 
         {/* Canvas */}
         <div ref={reactFlowWrapper} className="flex-1 relative">

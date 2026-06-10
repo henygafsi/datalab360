@@ -24,6 +24,7 @@ import {
 import { getProjectsOverview } from '@/app/services/org-accounts/hooks';
 import type { Project, Contributor, ContributorRole } from '@/app/services/api/types';
 import { getApiErrorMessage } from '@/lib/api-client';
+import ProjectCollaborationPanel from './ProjectCollaborationPanel';
 
 // ---------------------------------------------------------------------------
 // Role Config
@@ -161,6 +162,10 @@ function ProjectRow({
       {/* Expanded members */}
       {expanded && (
         <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+          {/* Unified collaborative view: lock · runs-health · deploy state ·
+              activity feed · G6 score cards · comments placeholder */}
+          <ProjectCollaborationPanel projectId={project.project_id} />
+
           {/* Toolbar */}
           <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-700/50">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
