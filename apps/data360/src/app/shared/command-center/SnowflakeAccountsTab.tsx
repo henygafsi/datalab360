@@ -291,7 +291,7 @@ export default function SnowflakeAccountsTab() {
             warehouses and login activity.
           </p>
           <a
-            href="/connect-data"
+            href="/data-source-connection"
             className="mt-4 inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
           >
             Connect an account
@@ -469,7 +469,7 @@ export default function SnowflakeAccountsTab() {
         </header>
         <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-4">
           <a
-            href="/users"
+            href="/governance/users"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             Manage Users

@@ -526,7 +526,9 @@ export async function getMaskingPolicies(
   database?: string,
   schema?: string,
 ): Promise<MaskingPolicy[]> {
-  const url = `${POLICIES_API}/masking/list`;
+  // The backend has no GET /masking/list (405) — masking policies come from the
+  // unified inventory GET /gouvernance/policies, under data.masking.
+  const url = POLICIES_API;
   const params: Record<string, string> = {};
   if (database) params.database = database;
   else params.database = DEFAULTS.DATABASE;
@@ -535,19 +537,20 @@ export async function getMaskingPolicies(
 
   console.log('🔍 GET Masking Policies API Call:', { url, params });
 
-  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
-  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url, { params });
+  // Backend returns StandardResponse: { status, message, data: { masking, row_access, aggregation, total } }
+  const response = await apiClient.get<
+    StandardResponse<{ masking: BackendPolicy[]; row_access: unknown[]; aggregation: unknown[]; total: number }>
+  >(url, { params });
 
   const responseData = response.data.data;
   console.log('✅ GET Masking Policies Response:', {
     status: response.status,
     message: response.data.message,
-    policiesCount: responseData?.policies?.length,
-    rawData: responseData,
+    policiesCount: responseData?.masking?.length,
   });
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = responseData?.policies;
+  const backendPolicies = responseData?.masking;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
