@@ -38,6 +38,7 @@ import ETLPalette from './components/ETLPalette';
 import ETLConfigSidebar from './components/ETLConfigSidebar';
 import ScheduleManager from './components/ScheduleManager';
 import WorkflowProjectGate from './components/WorkflowProjectGate';
+import WorkflowProjectBar from './components/WorkflowProjectBar';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 import ETLExecutionHistory from './components/ETLExecutionHistory';
@@ -204,10 +205,10 @@ function generateId(): string {
   return `comp_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
-/** True when an error is an HTTP 404 — i.e. the route is unavailable on this backend. */
+/** True when the route is unavailable on this backend — 404 (absent) or 501 (stub). */
 function is404(err: unknown): boolean {
   const r = (err as { response?: { status?: number } } | null)?.response;
-  return r?.status === 404;
+  return r?.status === 404 || r?.status === 501;
 }
 
 // ── Lifecycle state machine ──────────────────────────────────────────────
@@ -2019,7 +2020,6 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           markUnavailable(action);
           const label = dryRun ? 'SQL preview (compile)' : 'Run (execute)';
           setPipelineError(`${label} unavailable: ${UNAVAILABLE_HINT}`);
-          toast.error(UNAVAILABLE_HINT);
         } else {
           console.error('Execution failed:', error);
           const errMsg = getApiErrorMessage(error) || 'Execution failed';
@@ -2027,6 +2027,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           setPipelineError(errMsg);
           if (!dryRun) setActiveTab('runs');
         }
+        // Re-throw so gated callers (InsightActionButton in the SmartPanel)
+        // never report a fake success; fire-and-forget callers use
+        // runExecuteSafe below. 404/501 flips the gate to `unavailable`.
+        throw error;
       } finally {
         setIsExecuting(false);
         // Force execution history to refresh after execution completes
@@ -2035,7 +2039,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     },
     [activeWorkflowId, nodes, setPhase, markUnavailable, loadResultsPreview]
   );
-  handleExecuteRef.current = handleExecute;
+  // Fire-and-forget variant for non-gated callers (toolbar Run button, ⌘Enter
+  // shortcut): the error is already surfaced via pipelineError/phase inside
+  // handleExecute — swallow the re-throw to avoid an unhandled rejection.
+  const runExecuteSafe = useCallback(
+    (dryRun: boolean) => {
+      void handleExecute(dryRun).catch(() => {
+        /* already surfaced in handleExecute */
+      });
+    },
+    [handleExecute],
+  );
+  handleExecuteRef.current = runExecuteSafe;
 
   const handleValidate = useCallback(async () => {
     setPipelineError(null);
@@ -2058,18 +2073,22 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         const errMsg = extractErrorString(result.error) || 'Check the error panel for details';
         setPhase('validate', { phase: 'error', message: errMsg });
         setPipelineError(`Validation: ${errMsg}`);
+        // Surface the failure to gated callers (no fake "DAG validated" toast).
+        throw new Error(`Validation failed: ${errMsg}`);
       }
     } catch (error: any) {
       if (is404(error)) {
         markUnavailable('validate');
         setPipelineError(`Validate unavailable: ${UNAVAILABLE_HINT}`);
-        toast.error(UNAVAILABLE_HINT);
-      } else {
+      } else if (!(error instanceof Error && error.message.startsWith('Validation failed:'))) {
         console.error('Validation failed:', error);
         const errMsg = getApiErrorMessage(error) || 'Validation failed';
         setPhase('validate', { phase: 'error', message: errMsg });
         setPipelineError(errMsg);
       }
+      // Re-throw so InsightActionButton ('Lint DAG') reflects the real outcome;
+      // a 404/501 flips it to the honest `unavailable` chip.
+      throw error;
     }
   }, [activeWorkflowId, setPhase, markUnavailable]);
 
@@ -2128,17 +2147,20 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           message: `${result.connectors_failed} connector(s) failed on the cloned data`,
         });
         setPipelineError(`Clone test: ${result.connectors_failed} connector(s) failed against the cloned data`);
+        // Surface the failure to the gated caller (no fake success toast).
+        throw new Error(`Clone test: ${result.connectors_failed} connector(s) failed`);
       }
     } catch (error: any) {
       if (is404(error)) {
         markUnavailable('cloneTest');
         setPipelineError(`Test on cloned data unavailable: ${UNAVAILABLE_HINT}`);
-        toast.error(UNAVAILABLE_HINT);
-      } else {
+      } else if (!(error instanceof Error && error.message.startsWith('Clone test:'))) {
         const errMsg = getApiErrorMessage(error) || 'Clone test failed';
         setPhase('cloneTest', { phase: 'error', message: errMsg });
         setPipelineError(`Clone test failed: ${errMsg}`);
       }
+      // Re-throw for the gated SmartPanel caller (404/501 → unavailable chip).
+      throw error;
     }
   }, [activeWorkflowId, cloneTestConnectorIds, setPhase, markUnavailable]);
 
@@ -2197,7 +2219,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       if (versions.length === 0) {
         setPhase('deploy', { phase: 'empty', message: 'No version to deploy' });
         toast.error('No version found. Save the pipeline first to create a version.');
-        return;
+        // Throw (not return) so the gated caller doesn't toast a fake success.
+        throw new Error('NO_VERSION');
       }
       const latestVersionId = versions[0].version_id;
 
@@ -2210,11 +2233,15 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       setApprovalStatus('pending');
     } catch (error: any) {
       if (is404(error)) {
-        // The deployment lifecycle routes are purged — honest disabled state.
+        // The deployment lifecycle routes are purged — honest disabled state;
+        // re-throw so the gated caller flips to the `unavailable` chip.
         markUnavailable('deploy');
         setPipelineError(`Submit for approval unavailable: ${UNAVAILABLE_HINT}`);
-        toast.error(UNAVAILABLE_HINT);
-        return;
+        throw error;
+      }
+      if (error instanceof Error && error.message === 'NO_VERSION') {
+        // Already surfaced above — propagate for the gate, skip double-toast.
+        throw new Error('No version found. Save the pipeline first to create a version.');
       }
       console.error('Submit for approval failed:', error);
       // Snowflake compile errors come back as a wall of text. Pipe through
@@ -2225,8 +2252,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       const raw = getApiErrorMessage(error) || 'Failed to submit for approval';
       const { headline, hint } = friendlyError(raw);
       setPhase('deploy', { phase: 'error', message: headline });
-      toast.error(headline);
       setPipelineError(`Approval: ${raw}${hint ? `  —  ${hint}` : ''}`);
+      // Re-throw so the gated SmartPanel caller reports the real outcome.
+      throw new Error(headline);
     }
   }, [activeWorkflowId, readOnlyGuard, setPhase, markUnavailable]);
 
@@ -3340,8 +3368,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           )}
         </div>
 
-        {/* Canvas */}
-        <div ref={reactFlowWrapper} className="flex-1 relative">
+        {/* Canvas — min-w-0 lets it shrink when the right-side panels
+            (SmartPanel + WorkflowProjectBar) are open instead of clipping
+            them past the viewport edge. */}
+        <div ref={reactFlowWrapper} className="flex-1 min-w-0 relative">
           <ReactFlow
             nodes={enrichedNodes}
             edges={enrichedEdges}
@@ -3467,7 +3497,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           onAiCreate={() => setActiveTab('ai')}
           onImport={() => setShowImportTasks(true)}
           onSave={handleSavePipeline}
-          onRun={() => handleExecute(false)}
+          onRun={() => runExecuteSafe(false)}
           onToggleSuspend={() => {
             if (scheduleState.isStarted) handleSuspendTask();
             else handleResumeTask();
@@ -3503,7 +3533,6 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                 leftInputColumns={joinInputColumns.left}
                 rightInputColumns={joinInputColumns.right}
                 embedded
-                className="-mx-4 -mt-4"
               />
             ) : undefined
           }
@@ -4020,6 +4049,24 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           </>
           }
         />
+
+        {/* ── WorkflowProjectBar — the per-project right rail (Runs · Usage ·
+            History · Cost · Governance). A slim icon rail next to the
+            SmartPanel; clicking an icon opens that tab's glass panel with the
+            project's operational context (cost-summary credits, per-project
+            scorecards, run history). Header carries the compact health badges. */}
+        <div data-testid="workflow-project-bar" className="h-full shrink-0 py-1.5 pr-1.5">
+          <WorkflowProjectBar
+            workflowId={activeWorkflowId}
+            entityLabel={activeWorkflowName || pipelineName || undefined}
+            onOpenChange={(o) => {
+              // The expanded source picker (72vw) + SmartPanel + this panel
+              // can't all fit — collapse the picker to its slim rail when the
+              // project panel opens so nothing is clipped offscreen.
+              if (o) collapseSourcePanel();
+            }}
+          />
+        </div>
 
         {/* Docked failed-run fix rail — per-step diagnosis, one-click fixes,
             and live Cortex AI analysis. Opens automatically on a failed run. */}

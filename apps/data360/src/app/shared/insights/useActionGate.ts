@@ -15,7 +15,7 @@
  *
  * See [[_actionable-insights-overlay]] §2 for the four honest states.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { isUnavailable } from '@/lib/http-status';
 import { pingNotifications } from '@/hooks/useNotifications';
@@ -58,6 +58,22 @@ export function useActionGate<T = unknown>(
   );
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<T | null>(null);
+  // Re-entrancy guard: React state updates are async, so two clicks in the same
+  // tick would both observe `pending === false` — the ref blocks the second.
+  const inFlightRef = useRef(false);
+  // True only when the RUNTIME (404/501) flipped us to unavailable — that state
+  // is sticky. Hint-only unavailability (capable === false) is NOT sticky: when
+  // the hint flips back to allowed (e.g. a workflow finishes loading) we re-arm.
+  const runtimeUnavailableRef = useRef(false);
+
+  // Keep the gate in sync when the advisory `capable` hint changes identity.
+  useEffect(() => {
+    if (capable === false) {
+      setState((s) => (s === 'running' ? s : 'unavailable'));
+    } else if (!runtimeUnavailableRef.current) {
+      setState((s) => (s === 'unavailable' ? 'idle' : s));
+    }
+  }, [capable]);
 
   const run = useCallback(
     async (fn: () => Promise<T>): Promise<T | null> => {
@@ -65,6 +81,8 @@ export function useActionGate<T = unknown>(
         setState('unavailable');
         return null;
       }
+      if (inFlightRef.current) return null; // double-submit guard
+      inFlightRef.current = true;
       setState('running');
       setError(null);
       try {
@@ -76,19 +94,24 @@ export function useActionGate<T = unknown>(
         return r;
       } catch (err) {
         if (isUnavailable(err)) {
+          runtimeUnavailableRef.current = true;
           setState('unavailable');
           return null;
         }
         setError(getApiErrorMessage(err));
         setState('error');
         return null;
+      } finally {
+        inFlightRef.current = false;
       }
     },
     [capable, successToast, pingBell],
   );
 
   const reset = useCallback(() => {
-    setState(capable === false ? 'unavailable' : 'idle');
+    setState(
+      capable === false || runtimeUnavailableRef.current ? 'unavailable' : 'idle',
+    );
     setError(null);
     setResult(null);
   }, [capable]);

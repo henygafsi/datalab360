@@ -7,9 +7,10 @@ import {
   HelpCircle, Shield, RefreshCw, Plus, Key, AlertTriangle, Eye,
   Sparkles, CheckCircle, FileText, GitBranch, Lock, Tag, Send,
   Rocket, Play, Search, Info, ArrowRight, ExternalLink,
-  PanelRightClose, PanelRight,
+  PanelRightClose, PanelRight, Ban,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { isUnavailable } from '@/lib/http-status';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { useCanPerform } from '@/hooks/useCanPerform';
@@ -74,6 +75,8 @@ export interface ContextRightBarProps {
   columnClassifications: Map<string, Record<string, string>>;
   classificationDetails: ClassificationResult[];
   isClassifying: boolean;
+  /** The classification endpoint returned 404/501 — honest disabled CTA. */
+  classifyUnavailable?: boolean;
   onRunClassify: () => void;
   onAddEvent: (event: any) => void;
   profileData?: any;
@@ -115,7 +118,7 @@ const TAB_IDS = new Set<RightBarTab>(TABS.map((t) => t.id));
 export default function ContextRightBar({
   selectedTable, tableColumns, projectId, isOpen, onToggle,
   activeTab, onTabChange, focusedAction, onFocusAction,
-  columnClassifications, classificationDetails, isClassifying, onRunClassify,
+  columnClassifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify,
   onAddEvent, profileData, historyEvents,
   pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onOpenDeployModal, onDeselectTable,
 }: ContextRightBarProps) {
@@ -170,6 +173,8 @@ export default function ContextRightBar({
             <Tooltip key={tab.id} content={tab.label} placement="left">
               <button
                 onClick={() => { onTabChange(tab.id); if (!isOpen) onToggle(); }}
+                aria-label={tab.label}
+                aria-pressed={active}
                 className={cn(
                   'p-2 rounded-lg transition-colors',
                   active
@@ -243,6 +248,7 @@ export default function ContextRightBar({
                       classifications={classifications}
                       classificationDetails={classificationDetails}
                       isClassifying={isClassifying}
+                      classifyUnavailable={classifyUnavailable}
                       onRunClassify={onRunClassify}
                     />
                   )}
@@ -570,17 +576,20 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
 // B. AI Assist Panel
 // ---------------------------------------------------------------------------
 
-function AIAssistPanel({ table, columns, classifications, classificationDetails, isClassifying, onRunClassify }: {
+function AIAssistPanel({ table, columns, classifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify }: {
   table: TableItem; columns: ColumnInfo[];
   classifications?: Record<string, string>;
   classificationDetails: ClassificationResult[];
   isClassifying: boolean;
+  classifyUnavailable?: boolean;
   onRunClassify: () => void;
 }) {
   const [prompt, setPrompt] = useState('');
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState<string | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
+  // 404/501 from the completion endpoint — honest disabled state, not an error.
+  const [askUnavailable, setAskUnavailable] = useState(false);
   const hasClassifications = classifications && Object.keys(classifications).length > 0;
 
   const SUGGESTED = [
@@ -611,7 +620,10 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
       const res = await generateCompletion({ prompt: fullPrompt });
       setAnswer(res.response || 'No response returned.');
     } catch (err: any) {
-      setAskError(err?.message || 'Ask AI failed');
+      // 404/501 = the AI route isn't on this backend — disable quietly
+      // (InsightActionButton pattern), don't surface a loud error.
+      if (isUnavailable(err)) setAskUnavailable(true);
+      else setAskError(err?.message || 'Ask AI failed');
     } finally {
       setAsking(false);
     }
@@ -626,13 +638,25 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
           <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">AI Column Classification</h4>
         </div>
         <p className="text-[11px] text-slate-500">Detect identifiers, measures, dimensions, PII, dates and more using AI.</p>
-        <button
-          onClick={onRunClassify}
-          disabled={isClassifying}
-          className="w-full py-2 text-xs font-medium rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white transition-colors flex items-center justify-center gap-1.5"
-        >
-          {isClassifying ? <><Loader size="sm" className="h-3 w-3" /> Classifying...</> : <><Sparkles className="h-3.5 w-3.5" /> Run AI Classification</>}
-        </button>
+        {classifyUnavailable ? (
+          <span
+            role="status"
+            aria-disabled="true"
+            title="Not available on this backend yet"
+            className="w-full py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed flex items-center justify-center gap-1.5"
+          >
+            <Ban className="h-3.5 w-3.5" aria-hidden /> AI Classification unavailable
+          </span>
+        ) : (
+          <button
+            onClick={onRunClassify}
+            disabled={isClassifying}
+            aria-busy={isClassifying}
+            className="w-full py-2 text-xs font-medium rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white transition-colors flex items-center justify-center gap-1.5"
+          >
+            {isClassifying ? <><Loader size="sm" className="h-3 w-3" /> Classifying...</> : <><Sparkles className="h-3.5 w-3.5" /> Run AI Classification</>}
+          </button>
+        )}
 
         {/* Classification Results */}
         {hasClassifications && (
@@ -686,13 +710,14 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') askAI(); }}
-            disabled={asking}
+            disabled={asking || askUnavailable}
             className="w-full pl-3 pr-9 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
           />
           <button
             onClick={askAI}
-            disabled={asking || !prompt.trim()}
-            title="Ask AI"
+            disabled={asking || askUnavailable || !prompt.trim()}
+            aria-busy={asking}
+            title={askUnavailable ? 'Not available on this backend yet' : 'Ask AI'}
             className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-40 disabled:hover:bg-transparent"
           >
             {asking ? <Loader size="sm" className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
@@ -707,6 +732,11 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
         </div>
 
         {/* Result / loading / error */}
+        {askUnavailable && (
+          <p role="status" className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 pt-1">
+            <Ban className="h-3 w-3" aria-hidden /> AI assistant isn&apos;t available on this backend yet
+          </p>
+        )}
         {asking && (
           <div className="flex items-center gap-2 text-[11px] text-slate-500 pt-1">
             <Loader size="sm" className="h-3 w-3" /> Thinking...
@@ -1069,6 +1099,14 @@ function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pending
       setStepStatus((p) => ({ ...p, [stepId]: 'done' }));
       setStepOutput((p) => ({ ...p, [stepId]: result }));
     } catch (err: any) {
+      // 404/501 = endpoint not on this backend — quiet gap, not a red error
+      // (same rule as InsightActionButton's self-disable).
+      if (isUnavailable(err)) {
+        log(`${stepId}: not available on this backend yet`, 'info');
+        setStepStatus((p) => ({ ...p, [stepId]: 'idle' }));
+        setStepOutput((p) => ({ ...p, [stepId]: { unavailable: true } }));
+        return;
+      }
       const raw = err?.response?.data;
       const msg = raw?.detail?.message || raw?.detail || raw?.message || err?.message || 'Failed';
       const hint = typeof msg === 'string' && msg.includes('Missing') ? '\nHint: Ensure database and schema are set from a selected table.' : '';
@@ -1195,6 +1233,13 @@ function StepStatusBadge({ status, index }: { status: StepStatus; index: number 
 }
 
 function StepOutput({ stepId, output, status }: { stepId: StepId; output: any; status: StepStatus }) {
+  if (output?.unavailable) {
+    return (
+      <p role="status" className="flex items-center gap-1.5 text-[10px] italic text-slate-400 dark:text-slate-500">
+        <Ban className="h-3 w-3" aria-hidden /> Not available on this backend yet
+      </p>
+    );
+  }
   if (output?.error) {
     return (
       <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-800">
@@ -1518,12 +1563,15 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
   projectId: string | null; canWrite: boolean; onAddEvent: (e: any) => void;
 }>(({ focused, table, columns, projectId, canWrite, onAddEvent }, ref) => {
   const [scanning, setScanning] = useState(false);
+  // 404/501 from the scan endpoint — honest disabled state (no loud error).
+  const [scanUnavailable, setScanUnavailable] = useState(false);
   const [scanResult, setScanResult] = useState<any>(null);
   const [selectedCols, setSelectedCols] = useState<Set<string>>(new Set());
   const [policyType, setPolicyType] = useState<'SHA2_MASK' | 'PARTIAL_MASK' | 'FULL_MASK' | 'CUSTOM'>('SHA2_MASK');
   const piiCount = columns.filter((c) => c.isSensitive).length;
 
   const runPiiScan = useCallback(async () => {
+    if (scanning) return; // double-submit guard
     setScanning(true);
     try {
       const apiClient = (await import('@/lib/api-client')).default;
@@ -1536,10 +1584,12 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
       setSelectedCols(detected);
       toast.success(`PII scan: ${detected.size} sensitive columns detected`);
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail?.message || 'PII scan failed');
+      if (isUnavailable(err)) setScanUnavailable(true);
+      else toast.error(err?.response?.data?.detail?.message || 'PII scan failed');
+    } finally {
+      setScanning(false);
     }
-    setScanning(false);
-  }, [table]);
+  }, [table, scanning]);
 
   const tablePii = scanResult?.pii_columns?.filter((c: any) => c.table === table.table) || [];
   const tableRecos = scanResult?.by_table?.find((t: any) => t.table === table.table);
@@ -1560,9 +1610,20 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
       </div>
 
       {/* PII Scan */}
-      <button onClick={runPiiScan} disabled={scanning} className="w-full py-1.5 text-[11px] font-medium rounded-lg border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50">
-        {scanning ? <><Loader size="sm" className="h-3 w-3" /> Scanning...</> : <><Search className="h-3 w-3" /> Scan PII & Detect Policies</>}
-      </button>
+      {scanUnavailable ? (
+        <span
+          role="status"
+          aria-disabled="true"
+          title="Not available on this backend yet"
+          className="w-full py-1.5 text-[11px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed flex items-center justify-center gap-1.5"
+        >
+          <Ban className="h-3 w-3" aria-hidden /> PII scan unavailable
+        </span>
+      ) : (
+        <button onClick={runPiiScan} disabled={scanning} aria-busy={scanning} className="w-full py-1.5 text-[11px] font-medium rounded-lg border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50">
+          {scanning ? <><Loader size="sm" className="h-3 w-3" /> Scanning...</> : <><Search className="h-3 w-3" /> Scan PII & Detect Policies</>}
+        </button>
+      )}
 
       {/* Scan results — per column */}
       {tablePii.length > 0 && (

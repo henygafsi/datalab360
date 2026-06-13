@@ -1028,6 +1028,9 @@ export default function ExploreDesignPage() {
   // AI column classification
   const [columnClassifications, setColumnClassifications] = useState<Map<string, Record<string, string>>>(new Map());
   const [isClassifying, setIsClassifying] = useState(false);
+  // 404/501 from the classification endpoint — the CTA self-disables (honest
+  // unavailable state, InsightActionButton pattern) instead of erroring loudly.
+  const [classifyUnavailable, setClassifyUnavailable] = useState(false);
 
   // Data engineering object listing modal
   const [dataEngModal, setDataEngModal] = useState<{
@@ -2871,8 +2874,15 @@ export default function ExploreDesignPage() {
       if (!rightBarOpen) setRightBarOpen(true);
       toast.success(`AI classified ${Object.keys(classRecord).length} columns`);
     } catch (err: any) {
-      const errMsg = err?.response?.data?.message || err?.response?.data?.detail || 'AI classification failed';
-      toast.error(typeof errMsg === 'string' ? errMsg : 'AI classification failed');
+      // 404/501 = endpoint not deployed on this backend — self-disable the CTA
+      // quietly (no loud error); it re-arms on the next project/table switch.
+      const status = err?.response?.status ?? err?.status;
+      if (status === 404 || status === 501) {
+        setClassifyUnavailable(true);
+      } else {
+        const errMsg = err?.response?.data?.message || err?.response?.data?.detail || 'AI classification failed';
+        toast.error(typeof errMsg === 'string' ? errMsg : 'AI classification failed');
+      }
     } finally {
       setIsClassifying(false);
     }
@@ -3864,7 +3874,9 @@ export default function ExploreDesignPage() {
                         </button>
                         <button
                           onClick={() => { setActiveRightTab('ai'); if (!rightBarOpen) setRightBarOpen(true); handleAIClassify(); }}
-                          disabled={isClassifying || !selectedProjectId}
+                          disabled={isClassifying || !selectedProjectId || classifyUnavailable}
+                          aria-busy={isClassifying}
+                          title={classifyUnavailable ? 'Not available on this backend yet' : undefined}
                           className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-purple-600 dark:text-purple-400 rounded-md hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors disabled:opacity-50"
                         >
                           {isClassifying ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI Classify
@@ -4075,6 +4087,7 @@ export default function ExploreDesignPage() {
                 columnClassifications={columnClassifications}
                 classificationDetails={classificationDetails}
                 isClassifying={isClassifying}
+                classifyUnavailable={classifyUnavailable}
                 onRunClassify={handleAIClassify}
                 onAddEvent={addEvent}
                 profileData={inlineProfileData}

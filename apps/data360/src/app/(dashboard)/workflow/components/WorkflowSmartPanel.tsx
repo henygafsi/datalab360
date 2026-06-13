@@ -1175,8 +1175,19 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
         {/* Status hero (deploy/run snapshot from the builder) */}
         {statusHero}
 
-        {/* Active section body */}
-        <div className="flex-1 overflow-y-auto p-4">
+        {/* Active section body — min-h-0 so this flex item can shrink and its
+            scrollbar activates. The block section hosts ETLConfigSidebar
+            full-bleed (it pins its own header/footer and scrolls its form
+            area), so it gets overflow-hidden + no padding instead of an outer
+            scroll that would strand the sidebar footer. */}
+        <div
+          className={cn(
+            'flex-1 min-h-0',
+            activeSection === 'block' && blockSlot
+              ? 'overflow-hidden'
+              : 'overflow-y-auto p-4',
+          )}
+        >
           {!activeWorkflowId &&
           activeSection !== 'changes' &&
           activeSection !== 'ai' &&

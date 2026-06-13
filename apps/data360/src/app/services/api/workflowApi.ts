@@ -4,6 +4,7 @@
  * versions, and deployments for the CTE Pipeline Engine.
  */
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import type {
   CreateWorkflowRequest,
   CreateWorkflowResponse,
@@ -26,6 +27,7 @@ import type {
   WorkflowRunsResponse,
   ListWorkflowRunsParams,
   WorkflowRunSummary,
+  WorkflowCostSummary,
   CreateWorkflowScheduleRequest,
   WorkflowSchedule,
   WorkflowScheduleListResponse,
@@ -213,9 +215,35 @@ export async function listRuns(workflowId: string, params?: ListWorkflowRunsPara
   return data;
 }
 
-export async function getRunSummary(workflowId: string) {
-  const { data } = await apiClient.get<WorkflowRunSummary>(
-    `${PREFIX}/${workflowId}/runs/summary`,
+/**
+ * Run summary for a workflow. `GET /workflow/{id}/runs/summary` does NOT exist
+ * on the backend (404) — the real source is the `metrics` block returned by
+ * `GET /workflow/{id}/runs`, so we derive the same summary shape from it
+ * (page_size=1: we only need the aggregate metrics, not the run rows).
+ */
+export async function getRunSummary(workflowId: string): Promise<WorkflowRunSummary> {
+  const { data } = await apiClient.get<WorkflowRunsResponse>(
+    API.workflow.runs(workflowId),
+    { params: { page_size: 1 } },
+  );
+  const m = data?.metrics;
+  return {
+    total_runs: m?.total_runs ?? data?.total ?? 0,
+    completed: m?.succeeded ?? 0,
+    failed: m?.failed ?? 0,
+    avg_duration_seconds: m?.avg_duration_seconds ?? null,
+    last_run_at: m?.last_run_at ?? null,
+  };
+}
+
+/**
+ * Credit/cost breakdown for one workflow — GET /workflow/{id}/cost-summary
+ * (cached ~30 min server-side). Separates attributed vs total credits so the
+ * UI can be transparent about what is truly per-workflow.
+ */
+export async function getWorkflowCostSummary(workflowId: string) {
+  const { data } = await apiClient.get<WorkflowCostSummary>(
+    API.workflow.costSummary(workflowId),
   );
   return data;
 }

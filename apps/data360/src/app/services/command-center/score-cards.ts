@@ -19,6 +19,7 @@
  */
 // ////dependency//// services.command-center → lib.api-client (apiClient)
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 
 const PREFIX = '/command-center';
 
@@ -332,8 +333,7 @@ export async function getProjectScoreCards(
   days?: number,
 ): Promise<ScoreCard[]> {
   const { data } = await apiClient.get<ProjectScoresResponse>(
-    `${PREFIX}/projects/${encodeURIComponent(projectId)}/scores`,
-    { params: days != null ? { days } : undefined },
+    API.commandCenter.projectScores(projectId, days),
   );
 
   const dims = data?.dimensions ?? ({} as Record<KpiDimension, ProjectScoreDimension>);

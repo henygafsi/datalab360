@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { isUnavailable } from '@/lib/http-status';
 import {
   getCommandCenterRecommendations,
   type CommandCenterRecommendations,
@@ -115,6 +116,9 @@ export function ProjectContextPanel({
   }, [activeTab]);
 
   const [recosError, setRecosError] = useState<string | null>(null);
+  // 404/501 from the recommendations endpoint — quiet "not on this backend"
+  // note instead of a loud error (InsightActionButton degradation rule).
+  const [recosGap, setRecosGap] = useState(false);
   const [recos, setRecos] = useState<CommandCenterRecommendations | null>(null);
   const [ctaBusy, setCtaBusy] = useState<string | null>(null);
 
@@ -138,11 +142,13 @@ export function ProjectContextPanel({
   const loadRecos = useCallback(async () => {
     setRecosLoading(true);
     setRecosError(null);
+    setRecosGap(false);
     try {
       const res = await getCommandCenterRecommendations();
       setRecos(res);
     } catch (err) {
-      setRecosError(getApiErrorMessage(err));
+      if (isUnavailable(err)) setRecosGap(true);
+      else setRecosError(getApiErrorMessage(err));
       setRecos(null);
     } finally {
       setRecosLoading(false);
@@ -210,6 +216,7 @@ export function ProjectContextPanel({
           recos={recos}
           loading={recosLoading}
           error={recosError}
+          gap={recosGap}
           ctaBusy={ctaBusy}
           onReload={loadRecos}
           onCta={handleCta}
@@ -294,6 +301,7 @@ function RecosTab({
   recos,
   loading,
   error,
+  gap,
   ctaBusy,
   onReload,
   onCta,
@@ -301,10 +309,21 @@ function RecosTab({
   recos: CommandCenterRecommendations | null;
   loading: boolean;
   error: string | null;
+  gap: boolean;
   ctaBusy: string | null;
   onReload: () => void | Promise<void>;
   onCta: (reco: Recommendation) => void | Promise<void>;
 }) {
+  if (gap) {
+    return (
+      <div className="p-4">
+        <p role="status" className="text-sm italic text-slate-400 dark:text-slate-500">
+          Recommendations aren&apos;t available on this backend yet.
+        </p>
+      </div>
+    );
+  }
+
   if (loading && recos == null) {
     return (
       <div className="p-4 space-y-2" aria-hidden="true">

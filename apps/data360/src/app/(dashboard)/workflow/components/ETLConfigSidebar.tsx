@@ -1061,8 +1061,11 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         </FormField>
       </div>
 
-      {/* Config form */}
-      <div className="flex-1 overflow-auto p-4">
+      {/* Config form — min-h-0 lets this flex item shrink below its content
+          height so the inner scrollbar activates (without it, tall "advanced"
+          forms overflow the panel with no scroll and push the Save footer
+          out of reach). */}
+      <div className="flex-1 min-h-0 overflow-auto p-4">
         {renderConfig()}
       </div>
 

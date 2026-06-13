@@ -113,6 +113,9 @@ export default function InsightActionButton({
     return (
       <span
         title={unavailableHint}
+        role="status"
+        aria-disabled="true"
+        aria-label={`${label} — ${unavailableHint}`}
         className={cn(
           'inline-flex cursor-not-allowed items-center text-slate-400 dark:text-slate-500',
           SIZE[size],
@@ -131,6 +134,7 @@ export default function InsightActionButton({
       <button
         type="button"
         disabled={gate.pending}
+        aria-busy={gate.pending}
         onClick={handleClick}
         className={cn(
           'inline-flex items-center transition-colors disabled:opacity-60',

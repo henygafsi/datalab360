@@ -554,6 +554,13 @@ export const API = {
     queryIntelligence:    ()               => '/command-center/query-intelligence',
     /** GET /command-center/pipelines — pipeline & ingestion health. */
     pipelines:            ()               => '/command-center/pipelines',
+    /**
+     * GET /command-center/projects/{id}/scores[?days=<n>] — per-project DQ/COST/PERF/GOV
+     * scorecards. Each dimension carries `scope: "project" | "account"` so the UI can
+     * label account-level fallbacks honestly (never shown as per-project data).
+     */
+    projectScores:        (id: string, days?: number) =>
+      `/command-center/projects/${enc(id)}/scores${days != null ? `?days=${days}` : ''}`,
   },
 
   /** Org accounts — backend: /org-accounts/* (modules/org_accounts/router.py). */
