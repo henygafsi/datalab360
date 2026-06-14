@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Modal, Input, Select, Button, Switch } from 'rizzui';
+import { Input, Select, Button, Switch } from 'rizzui';
+import ConfigShell, { type ConfigVariant } from './ConfigShell';
 import { BarChart3, X, Plus, Trash2, Eye, Calculator, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDataSourcePicker } from '../../hooks/useDataSourcePicker';
@@ -10,26 +11,7 @@ import { DynamicChart } from '../DynamicChart';
 import type { BIDashboardChartConfig } from '@/app/services/api/types';
 import { fetchChartData } from '@/app/services/charts/fetchChartData';
 import { getApiErrorMessage } from '@/lib/api-client';
-
-const AGGREGATORS = [
-  { value: 'SUM', label: 'SUM' },
-  { value: 'AVG', label: 'AVG' },
-  { value: 'MIN', label: 'MIN' },
-  { value: 'MAX', label: 'MAX' },
-  { value: 'COUNT', label: 'COUNT' },
-  { value: 'COUNT_DISTINCT', label: 'COUNT DISTINCT' },
-  { value: 'MEDIAN', label: 'MEDIAN' },
-  { value: 'STDDEV', label: 'STDDEV' },
-  { value: 'VARIANCE', label: 'VARIANCE' },
-  { value: 'VAR_POP', label: 'VAR_POP' },
-  { value: 'VAR_SAMP', label: 'VAR_SAMP' },
-  { value: 'STDDEV_POP', label: 'STDDEV_POP' },
-  { value: 'STDDEV_SAMP', label: 'STDDEV_SAMP' },
-  { value: 'APPROX_COUNT_DISTINCT', label: 'APPROX COUNT DISTINCT' },
-  { value: 'BIT_AND', label: 'BIT AND' },
-  { value: 'BIT_OR', label: 'BIT OR' },
-  { value: 'BIT_XOR', label: 'BIT XOR' },
-];
+import { AGGREGATORS } from './aggregators';
 
 const DATE_GRANULARITIES = [
   { value: '', label: '— None —' },
@@ -96,6 +78,15 @@ interface ChartConfigModalProps {
   componentType?: string;
   chartType?: string;
   initialConfig?: ComponentConfig;
+  /**
+   * ADD-mode preselect. When there is no `initialConfig` (palette add flow) and a
+   * default db/schema/table is supplied, the data-source picker is seeded with it
+   * so Database/Schema/Table — and therefore the X-Axis / Measure column lists —
+   * are pre-filled instead of blank. Ignored in EDIT mode (initialConfig wins).
+   */
+  defaultSource?: { database?: string; schema?: string; table?: string };
+  /** 'modal' (popup) or 'panel' (docked in the BI right bar). Default 'modal'. */
+  variant?: ConfigVariant;
 }
 
 /** Collapsible section for grouping advanced options */
@@ -128,13 +119,20 @@ export default function ChartConfigModal({
   onSave,
   chartType,
   initialConfig,
+  defaultSource,
+  variant = 'modal',
 }: ChartConfigModalProps) {
   const initCfg = initialConfig;
-  const picker = useDataSourcePicker(
-    initCfg?.database
+  // Seed precedence: EDIT (initialConfig source) → ADD preselect (defaultSource)
+  // → blank. Only a complete db+schema+table seed cascades to load columns.
+  const seedSource = initialConfig
+    ? initCfg?.database
       ? { database: initCfg.database, schema: initCfg.schema, table: initCfg.table }
       : undefined
-  );
+    : defaultSource?.database && defaultSource.schema && defaultSource.table
+      ? { database: defaultSource.database, schema: defaultSource.schema, table: defaultSource.table }
+      : undefined;
+  const picker = useDataSourcePicker(seedSource);
 
   const [title, setTitle] = useState(initCfg?.title || '');
   const [xAxisColumn, setXAxisColumn] = useState(initCfg?.xAxisColumn || '');
@@ -164,6 +162,9 @@ export default function ChartConfigModal({
   // Preview
   const [previewData, setPreviewData] = useState<Record<string, unknown>[] | null>(null);
   const [previewing, setPreviewing] = useState(false);
+
+  // Narrow (right-panel) host → collapse multi-column rows to a single column.
+  const stacked = variant === 'panel';
 
   // Measures helpers
   const addMeasure = () => setMeasures((prev) => [...prev, { column: '', aggregator: 'SUM' }]);
@@ -256,8 +257,8 @@ export default function ChartConfigModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="750px">
-      <div className="p-6 max-h-[85vh] overflow-y-auto">
+    <ConfigShell variant={variant} isOpen={isOpen} onClose={onClose} customSize="750px">
+      <div className={cn('p-6', variant === 'modal' && 'max-h-[85vh] overflow-y-auto')}>
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
@@ -293,6 +294,7 @@ export default function ChartConfigModal({
             onDatabaseChange={picker.setDatabase}
             onSchemaChange={picker.setSchema}
             onTableChange={picker.setTable}
+            stacked={stacked}
           />
 
           {/* X-Axis */}
@@ -320,25 +322,27 @@ export default function ChartConfigModal({
             </div>
             {measures.map((m, i) => (
               <div key={i} className="flex items-end gap-2">
-                <div className="flex-1">
-                  <Select
-                    label={i === 0 ? 'Column' : undefined}
-                    options={picker.columnOptions}
-                    value={m.column}
-                    onChange={(opt: any) => updateMeasure(i, 'column', opt?.value || '')}
-                    placeholder="Select..."
-                    disabled={!picker.isComplete}
-                    size="sm"
-                  />
-                </div>
-                <div className="w-36">
-                  <Select
-                    label={i === 0 ? 'Aggregator' : undefined}
-                    options={AGGREGATORS}
-                    value={m.aggregator}
-                    onChange={(opt: any) => updateMeasure(i, 'aggregator', opt?.value || 'SUM')}
-                    size="sm"
-                  />
+                <div className={cn('grid gap-2 flex-1', stacked ? 'grid-cols-1' : 'grid-cols-[1fr_9rem]')}>
+                  <div>
+                    <Select
+                      label={i === 0 ? 'Column' : undefined}
+                      options={picker.columnOptions}
+                      value={m.column}
+                      onChange={(opt: any) => updateMeasure(i, 'column', opt?.value || '')}
+                      placeholder="Select..."
+                      disabled={!picker.isComplete}
+                      size="sm"
+                    />
+                  </div>
+                  <div>
+                    <Select
+                      label={i === 0 ? 'Aggregator' : undefined}
+                      options={AGGREGATORS}
+                      value={m.aggregator}
+                      onChange={(opt: any) => updateMeasure(i, 'aggregator', opt?.value || 'SUM')}
+                      size="sm"
+                    />
+                  </div>
                 </div>
                 {measures.length > 1 && (
                   <button
@@ -363,7 +367,7 @@ export default function ChartConfigModal({
           />
 
           {/* Row controls */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className={cn('grid gap-3', stacked ? 'grid-cols-1' : 'grid-cols-2')}>
             <Input
               label="Row Limit"
               type="number"
@@ -381,10 +385,13 @@ export default function ChartConfigModal({
 
           {/* ── Date Intelligence ── */}
           <CollapsibleSection title="Date Intelligence" icon={Calendar}>
+            <p className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 dark:text-amber-300 dark:bg-amber-900/20 dark:border-amber-900/40 px-2 py-1.5 rounded mb-2">
+              Preview-only — date grouping is not saved yet (backend support pending).
+            </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
               Auto-group date/timestamp columns by time granularity.
             </p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={cn('grid gap-3', stacked ? 'grid-cols-1' : 'grid-cols-2')}>
               <Select
                 label="Date Column"
                 options={[{ value: '', label: '— None —' }, ...picker.columnOptions]}
@@ -405,28 +412,33 @@ export default function ChartConfigModal({
 
           {/* ── Calculated Fields ── */}
           <CollapsibleSection title="Calculated Fields" icon={Calculator}>
+            <p className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 dark:text-amber-300 dark:bg-amber-900/20 dark:border-amber-900/40 px-2 py-1.5 rounded mb-2">
+              Preview-only — calculated fields are not saved yet (backend support pending).
+            </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
               Create computed columns using SQL expressions (e.g., <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">col_a / col_b * 100</code>).
             </p>
             {calculatedFields.map((f, i) => (
               <div key={i} className="flex items-end gap-2">
-                <div className="w-32">
-                  <Input
-                    label={i === 0 ? 'Alias' : undefined}
-                    value={f.name}
-                    onChange={(e) => updateCalcField(i, 'name', e.target.value)}
-                    placeholder="e.g., margin_pct"
-                    size="sm"
-                  />
-                </div>
-                <div className="flex-1">
-                  <Input
-                    label={i === 0 ? 'SQL Expression' : undefined}
-                    value={f.expression}
-                    onChange={(e) => updateCalcField(i, 'expression', e.target.value)}
-                    placeholder="e.g., revenue / cost * 100"
-                    size="sm"
-                  />
+                <div className={cn('grid gap-2 flex-1', stacked ? 'grid-cols-1' : 'grid-cols-[8rem_1fr]')}>
+                  <div>
+                    <Input
+                      label={i === 0 ? 'Alias' : undefined}
+                      value={f.name}
+                      onChange={(e) => updateCalcField(i, 'name', e.target.value)}
+                      placeholder="e.g., margin_pct"
+                      size="sm"
+                    />
+                  </div>
+                  <div>
+                    <Input
+                      label={i === 0 ? 'SQL Expression' : undefined}
+                      value={f.expression}
+                      onChange={(e) => updateCalcField(i, 'expression', e.target.value)}
+                      placeholder="e.g., revenue / cost * 100"
+                      size="sm"
+                    />
+                  </div>
                 </div>
                 <button
                   onClick={() => removeCalcField(i)}
@@ -487,6 +499,6 @@ export default function ChartConfigModal({
           </div>
         </div>
       </div>
-    </Modal>
+    </ConfigShell>
   );
 }

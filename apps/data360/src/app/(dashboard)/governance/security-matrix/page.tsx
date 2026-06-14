@@ -56,6 +56,7 @@ import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import { formatApiDetail } from '@/lib/utils';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 // ============= SHARED UI COMPONENTS =============
 
@@ -120,6 +121,10 @@ const TABS = [
 // ============= PAGE COMPONENT =============
 
 export default function SecurityMatrixPage() {
+  // System 2 Action-RBAC: deleting a matrix entry or an enterprise user both
+  // map to gouvernance:delete. Fail-open while the allow-set loads (no flash).
+  const deletePerm = useCanPerform('gouvernance', 'delete');
+  const canDeleteGov = deletePerm.allowed || deletePerm.loading;
   const [activeTab, setActiveTab] = useState('matrix');
 
   // Matrix state
@@ -445,8 +450,8 @@ export default function SecurityMatrixPage() {
   // ============= TANSTACK TABLES =============
 
   const matrixColumns = useMemo(
-    () => getMatrixColumns(matrixData?.available_axes, new Set(dirtyMatrixRows.keys()), handleMatrixCellChange, handleDeleteMatrixRow),
-    [matrixData?.available_axes, dirtyMatrixRows, handleMatrixCellChange]
+    () => getMatrixColumns(matrixData?.available_axes, new Set(dirtyMatrixRows.keys()), handleMatrixCellChange, handleDeleteMatrixRow, canDeleteGov),
+    [matrixData?.available_axes, dirtyMatrixRows, handleMatrixCellChange, canDeleteGov]
   );
 
   const matrixTable = useReactTable({
@@ -458,8 +463,8 @@ export default function SecurityMatrixPage() {
   });
 
   const userColumns = useMemo(
-    () => getEnterpriseUsersColumns(new Set(dirtyUserRows.keys()), handleUserCellChange, handleDeleteUser),
-    [dirtyUserRows, handleUserCellChange]
+    () => getEnterpriseUsersColumns(new Set(dirtyUserRows.keys()), handleUserCellChange, handleDeleteUser, canDeleteGov),
+    [dirtyUserRows, handleUserCellChange, canDeleteGov]
   );
 
   const usersTable = useReactTable({

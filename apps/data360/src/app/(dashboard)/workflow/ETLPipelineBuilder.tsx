@@ -38,7 +38,8 @@ import ETLPalette from './components/ETLPalette';
 import ETLConfigSidebar from './components/ETLConfigSidebar';
 import ScheduleManager from './components/ScheduleManager';
 import WorkflowProjectGate from './components/WorkflowProjectGate';
-import WorkflowProjectBar from './components/WorkflowProjectBar';
+// WorkflowProjectBar's operational tabs (Usage / Cost / Governance) were folded
+// into the single WorkflowSmartPanel rail — the standalone second rail is gone.
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 import ETLExecutionHistory from './components/ETLExecutionHistory';
@@ -49,6 +50,7 @@ import { getBlockByType, convertLegacyType } from './components/etl-blocks';
 import { auditCatalogCoherence } from './components/catalog-coherence';
 import GuidedAiWorkflowWizard from './components/GuidedAiWorkflowWizard';
 import ImportTasksModal from './components/ImportTasksModal';
+import ScanIntentPrefill, { type ScanSuggestionMeta } from './components/ScanIntentPrefill';
 import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
 import UnifiedProjectWizard, {
   type UnifiedProjectWizardResult,
@@ -544,6 +546,21 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   );
   const projectGateDismissedRef = useRef(false);
 
+  // Account-Overview AI advisor deep-link: ?intent=create&from=scan. Captured
+  // ONCE at mount (same pattern as initialProjectIdRef) so we know to surface
+  // the AI-suggested-workflow prefill on the project gate instead of an empty
+  // canvas. The manual create path stays fully intact below it.
+  const scanIntentRef = useRef<{ intent: string | null; from: string | null }>(
+    typeof window !== 'undefined'
+      ? {
+          intent: new URLSearchParams(window.location.search).get('intent'),
+          from: new URLSearchParams(window.location.search).get('from'),
+        }
+      : { intent: null, from: null },
+  );
+  const [scanPrefillDismissed, setScanPrefillDismissed] = useState(false);
+  const [scanApplying, setScanApplying] = useState(false);
+
   // ReactFlow state
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -640,7 +657,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // (changes/submit/deploy/block). 'schedules' is bridged to the panel's
   // 'schedule' id at the prop boundary.
   const [activeTab, setActiveTab] = useState<
-    'runs' | 'schedules' | 'sql' | 'ai' | 'results' | 'changes' | 'submit' | 'deploy' | 'block'
+    | 'runs' | 'schedules' | 'sql' | 'ai' | 'results' | 'changes' | 'submit' | 'deploy' | 'block'
+    // Operational sections folded in from the former WorkflowProjectBar rail.
+    | 'usage' | 'cost' | 'governance'
   >('changes');
   const [showMembers, setShowMembers] = useState(false);
   // Right panel closed by default — gives the canvas full width on landing.
@@ -2723,6 +2742,94 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     [setNodes, setEdges, loadWorkflows],
   );
 
+  // Strip the advisor deep-link params (intent/from) from the URL once the
+  // suggestion is consumed or dismissed, so a refresh doesn't re-prompt and the
+  // ?project=<id> share-link stays clean.
+  const stripScanParams = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has('intent') && !params.has('from')) return;
+      params.delete('intent');
+      params.delete('from');
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : (pathname || '/workflow'), { scroll: false });
+    } catch {
+      /* noop */
+    }
+  }, [router, pathname]);
+
+  // One-click create from the AI-suggested (scan-prefilled) workflow. Mirrors the
+  // NEW-PROJECT branch of handleAiCreated but names the project from the scan
+  // (e.g. "Curate CUSTOMERS") instead of the "[AI Draft] …" prefix, and tags it
+  // `from:scan` for audit. The gate's `activeWorkflowId` is always null here.
+  const applyScanSuggestion = useCallback(
+    async (genNodes: Node[], genEdges: Edge[], meta: ScanSuggestionMeta) => {
+      setScanApplying(true);
+      try {
+        const steps = genNodes.map((n, i) => {
+          const incoming = genEdges.filter((e) => e.target === n.id).map((e) => e.source);
+          return {
+            action_type: convertLegacyType(String(n.type || 'sql')) as WorkflowActionType,
+            step_name: String((n.data as { label?: string } | undefined)?.label ?? `Step ${i + 1}`),
+            description: `AI-suggested ${String(n.type)} block (from scan).`,
+            payload: {
+              ai_generated: true,
+              from_scan: true,
+              node_type: String(n.type),
+              nodeId: n.id,
+              position: n.position,
+              inputs: incoming,
+              ...((n.data as Record<string, unknown>) ?? {}),
+            },
+          };
+        });
+
+        const created = await workflowApi.createWorkflow({
+          project_name: meta.name,
+          description: meta.description,
+          tags: ['ai-suggested', 'from:scan'],
+          steps,
+        });
+
+        projectGateDismissedRef.current = true;
+        setNodes(genNodes as unknown as typeof nodes);
+        setEdges(genEdges as unknown as typeof edges);
+        setActiveWorkflowId(created.project_id);
+        setActiveWorkflowName(created.project_name);
+        setPipelineName(created.project_name);
+        setUserRole('owner');
+        setIsDirty(false);
+        setAiNextStepHint(true);
+        void loadWorkflows();
+        stripScanParams();
+        toast.success(`Created "${created.project_name}" from scan — review & run`);
+
+        try {
+          const validation = await workflowApi.validateWorkflow(created.project_id);
+          const issues = (validation as { errors?: unknown[] })?.errors ?? [];
+          if (Array.isArray(issues) && issues.length > 0) {
+            toast.error(`Validation found ${issues.length} issue${issues.length === 1 ? '' : 's'} — see Runs panel`);
+          }
+        } catch {
+          /* validation is advisory — the draft stands either way */
+        }
+      } catch (err) {
+        toast.error(getApiErrorMessage(err) || 'Could not create workflow from scan');
+      } finally {
+        setScanApplying(false);
+      }
+    },
+    [setNodes, setEdges, loadWorkflows, stripScanParams],
+  );
+
+  // Active only on a fresh advisor deep-link with no workflow yet selected.
+  const scanPrefillActive =
+    scanIntentRef.current.intent === 'create' &&
+    scanIntentRef.current.from === 'scan' &&
+    !activeWorkflowId &&
+    !scanPrefillDismissed;
+
   // Page-level loading state
   if (isLoading && workflows.length === 0) {
     return (
@@ -2765,6 +2872,19 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <span className="text-gray-900 dark:text-white font-medium">Workflow</span>
           </nav>
         </div>
+        {/* AI-suggested workflow prefill — shown when the Account-Overview advisor
+            deep-links with ?intent=create&from=scan. One click creates a named,
+            fully-sourced pipeline from the scanned objects. Manual gate stays below. */}
+        {scanPrefillActive && (
+          <ScanIntentPrefill
+            onApply={applyScanSuggestion}
+            onDismiss={() => {
+              setScanPrefillDismissed(true);
+              stripScanParams();
+            }}
+            applying={scanApplying}
+          />
+        )}
         <ProjectGatePanel
           module="workflow"
           projects={workflows}
@@ -3368,9 +3488,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           )}
         </div>
 
-        {/* Canvas — min-w-0 lets it shrink when the right-side panels
-            (SmartPanel + WorkflowProjectBar) are open instead of clipping
-            them past the viewport edge. */}
+        {/* Canvas — min-w-0 lets it shrink when the right-side panel
+            (the single WorkflowSmartPanel rail) is open instead of clipping
+            it past the viewport edge. */}
         <div ref={reactFlowWrapper} className="flex-1 min-w-0 relative">
           <ReactFlow
             nodes={enrichedNodes}
@@ -4050,23 +4170,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           }
         />
 
-        {/* ── WorkflowProjectBar — the per-project right rail (Runs · Usage ·
-            History · Cost · Governance). A slim icon rail next to the
-            SmartPanel; clicking an icon opens that tab's glass panel with the
-            project's operational context (cost-summary credits, per-project
-            scorecards, run history). Header carries the compact health badges. */}
-        <div data-testid="workflow-project-bar" className="h-full shrink-0 py-1.5 pr-1.5">
-          <WorkflowProjectBar
-            workflowId={activeWorkflowId}
-            entityLabel={activeWorkflowName || pipelineName || undefined}
-            onOpenChange={(o) => {
-              // The expanded source picker (72vw) + SmartPanel + this panel
-              // can't all fit — collapse the picker to its slim rail when the
-              // project panel opens so nothing is clipped offscreen.
-              if (o) collapseSourcePanel();
-            }}
-          />
-        </div>
+        {/* The former WorkflowProjectBar (a SECOND icon rail: Runs · Usage ·
+            History · Cost · Governance) was consolidated into the single
+            WorkflowSmartPanel rail above — its Usage / Cost / Governance tabs
+            now live as sections there (Runs + History/versions were already
+            covered by the panel's Runs + Deploy sections), and the per-project
+            health chips are the panel's ProjectKpiStrip. One rail, not two. */}
 
         {/* Docked failed-run fix rail — per-step diagnosis, one-click fixes,
             and live Cortex AI analysis. Opens automatically on a failed run. */}

@@ -285,17 +285,27 @@ function DataProductsPage() {
           </div>
         </div>
 
-        {/* KPI Stats Row */}
-        <div className="grid grid-cols-6 gap-3 mb-4">
+        {/* KPI Stats Row — Data360 shared score-card visual language
+            (rounded card · uppercase label · big value · null → "—"). */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
           {kpis.map((s) => (
-            <div key={s.label} className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className={cn(`text-${s.color}-500`)}>{s.icon}</span>
-                <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">{s.label}</span>
+            <div
+              key={s.label}
+              className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex flex-col gap-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <span className={cn(`text-${s.color}-500`)}>{s.icon}</span>
+                  {s.label}
+                </span>
                 {s.help && <MetricHelp {...s.help} />}
               </div>
-              <p className="text-lg font-bold text-gray-900 dark:text-white">{loading ? '—' : s.value}</p>
-              <p className="text-[10px] text-gray-400">{s.sub}</p>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-semibold text-gray-900 dark:text-white">
+                  {loading ? '—' : s.value}
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">{s.sub}</p>
             </div>
           ))}
         </div>
@@ -383,15 +393,14 @@ function DataProductsPage() {
           )}
         </div>
 
-        {/* Right Detail Panel — Object-360 takes precedence when open. */}
+        {/* Right Detail Panel — Object-360 takes precedence when open. The
+            docked right-tab bar provides its own shell (border + width). */}
         {object360Fqn ? (
-          <div className="w-[440px] shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-            <Object360Panel
-              tableFqn={object360Fqn.fqn}
-              title={object360Fqn.title}
-              onClose={() => setObject360Fqn(null)}
-            />
-          </div>
+          <Object360Panel
+            tableFqn={object360Fqn.fqn}
+            title={object360Fqn.title}
+            onClose={() => setObject360Fqn(null)}
+          />
         ) : sel ? (
           <div className="w-[380px] shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-y-auto">
             <ProductDetailPanel

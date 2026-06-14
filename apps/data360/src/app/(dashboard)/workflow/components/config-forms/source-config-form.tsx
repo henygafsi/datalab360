@@ -28,6 +28,7 @@ const SourceConfigForm: React.FC<{
   const [tables, setTables] = useState<string[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const config = data.config || data;
 
@@ -36,7 +37,7 @@ const SourceConfigForm: React.FC<{
     setLoading('databases');
     getDatabases()
       .then(setDatabases)
-      .catch(console.error)
+      .catch((e) => { console.error(e); setLoadError("Couldn't load data sources."); })
       .finally(() => setLoading(null));
   }, [accessToken]);
 
@@ -46,7 +47,7 @@ const SourceConfigForm: React.FC<{
     setSchemas([]);
     getSchemas(config.database)
       .then(setSchemas)
-      .catch(console.error)
+      .catch((e) => { console.error(e); setLoadError("Couldn't load data sources."); })
       .finally(() => setLoading(null));
   }, [accessToken, config.database]);
 
@@ -56,7 +57,7 @@ const SourceConfigForm: React.FC<{
     setTables([]);
     getTables(config.database, config.schema)
       .then(setTables)
-      .catch(console.error)
+      .catch((e) => { console.error(e); setLoadError("Couldn't load data sources."); })
       .finally(() => setLoading(null));
   }, [accessToken, config.database, config.schema]);
 
@@ -66,7 +67,7 @@ const SourceConfigForm: React.FC<{
     setColumns([]);
     getTableColumns(config.database, config.schema, config.table)
       .then((cols) => setColumns(cols.map((c) => (c.name ?? (c as any).COLUMN_NAME) || '').filter(Boolean)))
-      .catch(console.error)
+      .catch((e) => { console.error(e); setLoadError("Couldn't load data sources."); })
       .finally(() => setLoading(null));
   }, [accessToken, config.database, config.schema, config.table]);
 
@@ -76,6 +77,9 @@ const SourceConfigForm: React.FC<{
 
   return (
     <div className="space-y-4">
+      {loadError && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{loadError}</p>
+      )}
       <FormField label="Database" required error={errors.database}>
         <Select
           value={config.database || ''}

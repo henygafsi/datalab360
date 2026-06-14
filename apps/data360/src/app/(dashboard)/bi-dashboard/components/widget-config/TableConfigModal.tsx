@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Modal, Input, Select, Button, Checkbox } from 'rizzui';
+import { Input, Select, Button, Checkbox } from 'rizzui';
+import ConfigShell, { type ConfigVariant } from './ConfigShell';
 import { Table2, X } from 'lucide-react';
 import { useDataSourcePicker } from '../../hooks/useDataSourcePicker';
 import DataSourceSection from './DataSourceSection';
@@ -21,6 +22,13 @@ interface TableConfigModalProps {
     title?: string;
     chartConfig?: BIDashboardChartConfig;
   };
+  /**
+   * ADD-mode preselect — seeds the data-source picker (and so the column-checkbox
+   * list) when there is no `initialConfig`. Ignored in EDIT mode.
+   */
+  defaultSource?: { database?: string; schema?: string; table?: string };
+  /** 'modal' (popup) or 'panel' (docked in the BI right bar). Default 'modal'. */
+  variant?: ConfigVariant;
 }
 
 export default function TableConfigModal({
@@ -28,13 +36,17 @@ export default function TableConfigModal({
   onClose,
   onSave,
   initialConfig,
+  defaultSource,
+  variant = 'modal',
 }: TableConfigModalProps) {
   const initCfg = initialConfig?.chartConfig;
-  const picker = useDataSourcePicker(initCfg ? {
-    database: initCfg.database,
-    schema: initCfg.schema,
-    table: initCfg.table,
-  } : undefined);
+  // EDIT seeds from the widget's chart_config; ADD falls back to defaultSource.
+  const seedSource = initCfg
+    ? { database: initCfg.database, schema: initCfg.schema, table: initCfg.table }
+    : defaultSource?.database && defaultSource.schema && defaultSource.table
+      ? { database: defaultSource.database, schema: defaultSource.schema, table: defaultSource.table }
+      : undefined;
+  const picker = useDataSourcePicker(seedSource);
 
   const [title, setTitle] = useState(initialConfig?.title || '');
   const [selectedColumns, setSelectedColumns] = useState<string[]>(
@@ -43,6 +55,9 @@ export default function TableConfigModal({
   const [limit, setLimit] = useState<number>(initCfg?.limit || 100);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Narrow (right-panel) host → stack the data-source selects in one column.
+  const stacked = variant === 'panel';
 
   const toggleColumn = (col: string) => {
     setSelectedColumns((prev) =>
@@ -108,8 +123,8 @@ export default function TableConfigModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="600px">
-      <div className="p-6 max-h-[85vh] overflow-y-auto">
+    <ConfigShell variant={variant} isOpen={isOpen} onClose={onClose} customSize="600px">
+      <div className={`p-6 ${variant === 'panel' ? '' : 'max-h-[85vh] overflow-y-auto'}`}>
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
@@ -147,6 +162,7 @@ export default function TableConfigModal({
             onDatabaseChange={picker.setDatabase}
             onSchemaChange={picker.setSchema}
             onTableChange={picker.setTable}
+            stacked={stacked}
           />
 
           {/* Column Selection */}
@@ -226,6 +242,6 @@ export default function TableConfigModal({
           </div>
         </div>
       </div>
-    </Modal>
+    </ConfigShell>
   );
 }

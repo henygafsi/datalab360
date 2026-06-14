@@ -8,6 +8,7 @@ import AddRoleButton from '@/app/shared/governance/roles/add-role-button';
 import ImportButton from '@/app/shared/import-button';
 import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
 
 export default function RolesManagementPage() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -42,6 +43,9 @@ export default function RolesManagementPage() {
           </>
         }
       />
+
+      {/* Per-page KPI strip — roles · D360 roles · users (honest "—"). */}
+      <GovernanceKpiStrip scope="roles" />
 
       {/* Main Content */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">

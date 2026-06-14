@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Badge, Button, Input, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
@@ -24,6 +25,12 @@ import {
 import { getProjectsOverview } from '@/app/services/org-accounts/hooks';
 import type { Project, Contributor, ContributorRole } from '@/app/services/api/types';
 import { getApiErrorMessage } from '@/lib/api-client';
+import {
+  getProjectRollup,
+  ScoreCardsUnavailableError,
+  type ProjectRollup,
+  type ScoreCard,
+} from '@/app/services/command-center/score-cards';
 import ProjectCollaborationPanel from './ProjectCollaborationPanel';
 
 // ---------------------------------------------------------------------------
@@ -38,6 +45,67 @@ const ROLE_CONFIG: Record<ContributorRole, { icon: React.ElementType; label: str
 
 function getInitials(username: string): string {
   return username.split(/[._\-@]/).filter(Boolean).map((p) => p[0]).join('').toUpperCase().slice(0, 2);
+}
+
+// ---------------------------------------------------------------------------
+// Per-project KPI strip (G7 rollup) — DQ% · PERF fail% · cost · N recos, from
+// the single cheap getProjectRollup call. Null → "—" (never a fake 0); a 404
+// (route not provisioned) hides the strip quietly.
+// ---------------------------------------------------------------------------
+
+function fmtMetric(card: ScoreCard | null): string {
+  if (!card || card.value == null) return '—';
+  const v = typeof card.value === 'number' ? card.value.toLocaleString() : String(card.value);
+  return card.unit ? `${v}${card.unit === '%' ? '%' : ` ${card.unit}`}` : v;
+}
+
+function StripPill({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700/50 text-[10px] font-medium">
+      <span className="text-slate-400 dark:text-slate-500">{label}</span>
+      <span className={cn('text-slate-600 dark:text-slate-300', tone)}>{value}</span>
+    </span>
+  );
+}
+
+function ProjectScoreStrip({ projectId }: { projectId: string }) {
+  const [rollup, setRollup] = useState<ProjectRollup | null>(null);
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    let ignore = false;
+    getProjectRollup(projectId)
+      .then((r) => { if (!ignore) setRollup(r); })
+      .catch((err) => {
+        // Route not provisioned (404/501) → hide the strip quietly. Other errors
+        // just leave it absent (no noisy banner in a list row).
+        if (!ignore && err instanceof ScoreCardsUnavailableError) setHidden(true);
+      });
+    return () => { ignore = true; };
+  }, [projectId]);
+
+  if (hidden || !rollup) return null;
+
+  const card = (d: string) => rollup.cards.find((c) => c.dimension === d) ?? null;
+  const dq = card('dq');
+  const perf = card('perf');
+  const cost = card('cost');
+  const totalRecos = rollup.recos.open + rollup.recos.critical;
+  const recoTone =
+    rollup.recos.critical > 0
+      ? 'text-red-600 dark:text-red-400'
+      : rollup.recos.open > 0
+        ? 'text-amber-600 dark:text-amber-400'
+        : 'text-emerald-600 dark:text-emerald-400';
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+      <StripPill label="DQ" value={fmtMetric(dq)} />
+      <StripPill label="Fail" value={fmtMetric(perf)} />
+      <StripPill label="Cost" value={fmtMetric(cost)} />
+      <StripPill label="Recos" value={`${totalRecos}`} tone={recoTone} />
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +196,8 @@ function ProjectRow({
               <span>Created {formatDistanceToNow(new Date(project.created_at), { addSuffix: true })}</span>
             )}
           </div>
+          {/* G7 per-project KPI strip (DQ% · PERF fail% · cost · N recos) from the rollup */}
+          <ProjectScoreStrip projectId={project.project_id} />
         </div>
 
         {/* Member avatars */}
@@ -342,14 +412,66 @@ function ProjectRow({
 // Main Page
 // ---------------------------------------------------------------------------
 
-export default function ProjectsGovernancePage() {
+// FilterTab values that are valid `?tab=` query values ('all' is the default,
+// represented as the absence of the param).
+function parseTab(raw: string | null): FilterTab {
+  return raw === 'explore_design' || raw === 'workflow' ? raw : 'all';
+}
+
+function ProjectsGovernancePageInner() {
   const { username: currentUsername } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const [projects, setProjects] = useState<ProjectWithMembers[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<FilterTab>('all');
+  // G8: project + filter selection is restorable from the URL so a shared link
+  // reopens the same project panel. Lazy-init from `?project` / `?tab` so the
+  // first paint already reflects the deep-link (localStorage stays the default
+  // elsewhere — the URL is purely additive/shareable here).
+  const [expandedId, setExpandedId] = useState<string | null>(() => searchParams.get('project'));
+  const [activeTab, setActiveTab] = useState<FilterTab>(() => parseTab(searchParams.get('tab')));
   const [search, setSearch] = useState('');
+
+  // Merge a single query param into the current URL via a shallow replace
+  // (preserves sibling params; no scroll jump; null clears the param).
+  const setUrlParam = useCallback(
+    (key: string, value: string | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (value) params.set(key, value);
+      else params.delete(key);
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+  // URL → state sync (covers browser back/forward). Read-only: state only changes
+  // when it differs from the URL, so the writes above never loop back here.
+  useEffect(() => {
+    const p = searchParams.get('project');
+    setExpandedId((prev) => (prev === p ? prev : p));
+    const t = parseTab(searchParams.get('tab'));
+    setActiveTab((prev) => (prev === t ? prev : t));
+  }, [searchParams]);
+
+  const handleToggle = useCallback(
+    (projectId: string) => {
+      const next = expandedId === projectId ? null : projectId;
+      setExpandedId(next);
+      setUrlParam('project', next);
+    },
+    [expandedId, setUrlParam],
+  );
+
+  const handleTabChange = useCallback(
+    (tab: FilterTab) => {
+      setActiveTab(tab);
+      setUrlParam('tab', tab === 'all' ? null : tab);
+    },
+    [setUrlParam],
+  );
 
   // Fetch all projects + their contributors
   const fetchAll = useCallback(async () => {
@@ -526,7 +648,7 @@ export default function ProjectsGovernancePage() {
     } finally {
       setDeployActionLoading(null);
     }
-  }, [rejectModal, deployActionLoading, rejectReason, fetchPendingDeploys]);
+  }, [rejectModal, deployActionLoading, rejectReason, fetchPendingDeploys, fetchAll]);
 
   const tabs: { id: FilterTab; label: string; count: number }[] = [
     { id: 'all', label: 'All', count: stats.total },
@@ -659,7 +781,7 @@ export default function ProjectsGovernancePage() {
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => handleTabChange(tab.id)}
                 className={cn(
                   'px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
                   activeTab === tab.id
@@ -707,7 +829,7 @@ export default function ProjectsGovernancePage() {
                 key={project.project_id}
                 project={project}
                 expanded={expandedId === project.project_id}
-                onToggle={() => setExpandedId(expandedId === project.project_id ? null : project.project_id)}
+                onToggle={() => handleToggle(project.project_id)}
                 onRefreshMembers={() => refreshMembers(project.project_id)}
                 onAddMember={(username, role) => handleAddMember(project.project_id, username, role)}
                 onRemoveMember={(username) => handleRemoveMember(project.project_id, username)}
@@ -719,5 +841,15 @@ export default function ProjectsGovernancePage() {
       </div>
     </div>
     </ErrorBoundary>
+  );
+}
+
+// useSearchParams() requires a Suspense boundary in the App Router (otherwise
+// `next build` throws / the whole page de-opts to client rendering).
+export default function ProjectsGovernancePage() {
+  return (
+    <Suspense fallback={null}>
+      <ProjectsGovernancePageInner />
+    </Suspense>
   );
 }

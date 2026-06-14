@@ -174,8 +174,11 @@ const POLICY_TYPE_LABELS: Record<PolicyType, string> = {
 export default function PolicyGrantsTable() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Per-source failures from the parallel fetch — surfaced inline instead of swallowed.
-  const [partialErrors, setPartialErrors] = useState<string[]>([]);
+  // Per-source outcomes from the parallel fetch. A source that 404/405s (route not
+  // deployed yet — e.g. password/session before the backend restart) degrades
+  // QUIETLY as "unavailable"; a real error gets the louder retry banner.
+  const [unavailableSources, setUnavailableSources] = useState<string[]>([]);
+  const [failedSources, setFailedSources] = useState<string[]>([]);
   const [tableData, setTableData] = useState<PolicyGrant[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<PolicyGrant | null>(null);
@@ -185,7 +188,8 @@ export default function PolicyGrantsTable() {
     setLoading(true);
     setError(null);
 
-    setPartialErrors([]);
+    setUnavailableSources([]);
+    setFailedSources([]);
 
     try {
       // Fetch all available policy types in parallel. Each source can fail
@@ -207,11 +211,18 @@ export default function PolicyGrantsTable() {
         getAggregationPolicies(),
       ]);
 
-      const failures: string[] = [];
+      const unavailable: string[] = [];
+      const failed: string[] = [];
       const unwrap = <T,>(label: string, res: PromiseSettledResult<T[]>): T[] => {
         if (res.status === 'fulfilled') return res.value;
-        const msg = res.reason instanceof Error ? res.reason.message : String(res.reason);
-        failures.push(`${label}: ${msg}`);
+        const status = (res.reason as { response?: { status?: number } })?.response?.status;
+        if (status === 404 || status === 405) {
+          // Route not deployed on this backend — quiet "unavailable", no scary banner.
+          unavailable.push(label);
+        } else {
+          const msg = res.reason instanceof Error ? res.reason.message : String(res.reason);
+          failed.push(`${label}: ${msg}`);
+        }
         return [];
       };
 
@@ -222,7 +233,8 @@ export default function PolicyGrantsTable() {
       const sessionPolicies = unwrap('Session', sessionRes);
       const aggregationPolicies = unwrap('Aggregation', aggregationRes);
 
-      setPartialErrors(failures);
+      setUnavailableSources(unavailable);
+      setFailedSources(failed);
 
       // Transform to unified format
       const policies: PolicyGrant[] = [
@@ -308,7 +320,6 @@ export default function PolicyGrantsTable() {
         })),
       ];
 
-      console.log('[Policy Grants] Total policies loaded:', policies.length);
       setTableData(policies);
     } catch (err: any) {
       console.error('[Policy Grants] Error fetching policies:', err);
@@ -506,7 +517,10 @@ export default function PolicyGrantsTable() {
   }
 
   return (
-    <div className="space-y-4">
+    // Docked right-tab layout: policy table on the left, the Manage-Grants panel
+    // mounts as a flex SIBLING on the right (no overlay) so both stay visible.
+    <div className="flex items-start gap-4">
+      <div className="min-w-0 flex-1 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -526,17 +540,17 @@ export default function PolicyGrantsTable() {
         </Button>
       </div>
 
-      {/* Partial-load errors — some policy sources failed but we still show what loaded */}
-      {partialErrors.length > 0 && (
+      {/* Real failures (non-404/405) — louder banner with retry. */}
+      {failedSources.length > 0 && (
         <div
           role="alert"
           className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-700/60 dark:bg-amber-900/20"
         >
           <p className="font-medium text-amber-800 dark:text-amber-300">
-            {partialErrors.length} policy source{partialErrors.length > 1 ? 's' : ''} failed to load — showing partial results.
+            {failedSources.length} policy source{failedSources.length > 1 ? 's' : ''} failed to load — showing partial results.
           </p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-amber-700 dark:text-amber-400">
-            {partialErrors.map((msg) => (
+            {failedSources.map((msg) => (
               <li key={msg}>{msg}</li>
             ))}
           </ul>
@@ -547,6 +561,14 @@ export default function PolicyGrantsTable() {
             Retry
           </button>
         </div>
+      )}
+
+      {/* Quiet "unavailable" note — a source whose route isn't deployed yet (404/405).
+          No alarm, just an honest muted line so the page doesn't look broken. */}
+      {unavailableSources.length > 0 && (
+        <p className="text-xs italic text-slate-400 dark:text-slate-500">
+          {unavailableSources.join(', ')} {unavailableSources.length > 1 ? 'policies are' : 'policy is'} unavailable on this backend.
+        </p>
       )}
 
       {/* Policy Type Tabs */}
@@ -665,7 +687,9 @@ export default function PolicyGrantsTable() {
         </>
       )}
 
-      {/* Assign Policy Modal */}
+      </div>
+
+      {/* Manage Grants — docked right-tab panel (not a centered modal) */}
       {showAssignModal && (
         <AssignPolicyModal
           policy={selectedPolicy}

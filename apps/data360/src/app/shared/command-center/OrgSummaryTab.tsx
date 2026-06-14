@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Layers,
   ChevronRight,
@@ -36,8 +37,10 @@ import {
   PlugZap,
   Lock,
   AlertTriangle,
+  Database,
 } from 'lucide-react';
 import { getOrgSummary } from '@/app/services/org-accounts/hooks';
+import { getRoleHierarchy } from '@/app/services/command-center';
 import type {
   OrgSummaryResponse,
   OrgSummaryParams,
@@ -47,6 +50,8 @@ import type {
   OrgSummaryAccount,
 } from '@/app/services/org-accounts/types';
 import EmptyState from '@/components/ui/EmptyState';
+import { InsightActionButton } from '@/app/shared/insights';
+import AuditTable, { type Row } from './AuditTable';
 
 // ── Date / filter control state ──────────────────────────────────────────────
 
@@ -117,6 +122,68 @@ const EMPTY_TOTALS: OrgSummaryTotals = {
   distinct_users: 0,
 };
 
+/**
+ * Flatten role → module/project → account into ONE row per leaf for the bottom
+ * audit table. Rows only exist when `roles` is populated, so the numeric counts
+ * are real measured values (not fabricated). A module that reports totals but
+ * carries no per-account breakdown contributes a single fallback row so the
+ * matrix stays lossless. success_rate / denial_rate render "—" when there is no
+ * traffic (never a fake 0%).
+ */
+function buildMatrixRows(data: OrgSummaryResponse | null): Row[] {
+  if (!data?.roles?.length) return [];
+  const pct = (n: number, d: number) => (d > 0 ? `${Math.round((n / d) * 100)}%` : '—');
+  const rows: Row[] = [];
+  for (const role of data.roles) {
+    for (const m of role.modules ?? []) {
+      const accounts = m.accounts ?? [];
+      const leaves: OrgSummaryAccount[] =
+        accounts.length > 0
+          ? accounts
+          : [{ ...(m.totals ?? EMPTY_TOTALS), account: '—' }];
+      for (const a of leaves) {
+        const reqs = a.requests ?? 0;
+        rows.push({
+          role: role.role || '—',
+          module: m.module || '—',
+          project: m.project_id ?? '—',
+          account: a.account || '—',
+          requests: reqs,
+          success: a.success ?? 0,
+          failed: a.failed ?? 0,
+          denied: a.denied ?? 0,
+          distinct_users: a.distinct_users ?? 0,
+          success_rate: pct(a.success ?? 0, reqs),
+          denial_rate: pct(a.denied ?? 0, reqs),
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+/**
+ * Read an explicit provisioning hint from the response `meta`, if the backend
+ * carries one. Returns true (provisioned), false (not provisioned), or null
+ * (unknown — caller falls back to the no-filters heuristic).
+ */
+function readProvisioned(meta: Record<string, unknown> | undefined): boolean | null {
+  if (!meta) return null;
+  for (const k of [
+    'provisioned',
+    'is_provisioned',
+    'activity_store_provisioned',
+    'spine_provisioned',
+    'event_store_provisioned',
+  ]) {
+    if (typeof meta[k] === 'boolean') return meta[k] as boolean;
+  }
+  for (const k of ['not_provisioned', 'unprovisioned', 'activity_store_missing', 'spine_missing']) {
+    if (typeof meta[k] === 'boolean') return !(meta[k] as boolean);
+  }
+  return null;
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function OrgSummaryTab() {
@@ -136,6 +203,22 @@ export default function OrgSummaryTab() {
     accounts: string[];
   }>({ roles: [], modules: [], accounts: [] });
   const [, forceOptions] = useState(0);
+
+  // Role hierarchy (governance SHOW ROLES) — independent of the activity spine,
+  // so it populates even when org-summary is empty. Resilient: getRoleHierarchy
+  // swallows its own errors and degrades to [].
+  const [roleHierarchy, setRoleHierarchy] = useState<Row[]>([]);
+  useEffect(() => {
+    let active = true;
+    void getRoleHierarchy()
+      .then((r) => {
+        if (active) setRoleHierarchy((r?.data ?? []) as Row[]);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const fetchSummary = useCallback(async (c: Controls) => {
     setLoading(true);
@@ -206,6 +289,21 @@ export default function OrgSummaryTab() {
   }, [paramsKey]);
 
   const opts = optionsRef.current;
+
+  // Flat role × module × account leaves for the bottom audit table.
+  const matrixRows = useMemo(() => buildMatrixRows(data), [data]);
+
+  // Honest empty-state cause split. An empty result with NO filters applied (or
+  // an explicit meta hint) means the activity spine isn't provisioned — distinct
+  // from a genuinely-narrowed window/filter combination that returned nothing.
+  const noFilters =
+    !controls.role &&
+    !controls.module &&
+    !controls.account &&
+    !controls.username &&
+    !controls.project_id;
+  const provisioned = readProvisioned(data?.meta);
+  const notProvisioned = provisioned === false || (provisioned === null && noFilters);
 
   // Expand/collapse-all broadcast for the role tree. Roles render COLLAPSED by
   // default; pressing the toggle pushes a new signal that every RoleNode syncs
@@ -495,16 +593,57 @@ export default function OrgSummaryTab() {
               />
             ))}
           </div>
+
+          {/* ── Audit & detail (full-width, paginated, at the bottom) ──── */}
+          <AuditTable
+            rows={matrixRows}
+            title="Activity by role × module × account"
+            subtitle="EVENT_STORE.USER_REQUESTS"
+            pageSize={10}
+          />
+          {roleHierarchy.length > 0 && (
+            <AuditTable
+              rows={roleHierarchy}
+              title="Role hierarchy"
+              subtitle="SHOW ROLES"
+              pageSize={10}
+            />
+          )}
         </>
       ) : (
-        <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-          {data && <TotalsStrip totals={data.totals} embedded />}
-          <EmptyState
-            icon={Activity}
-            title="No activity in this window"
-            description="No events matched the selected date range and filters. Widen the window or clear filters."
-          />
-        </div>
+        <>
+          <div className="rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+            {/* Only show measured totals for a genuinely-narrowed window. When the
+                spine isn't provisioned the totals are structural 0s — suppress the
+                strip rather than paint a 0/0/0/0 dashboard. */}
+            {data && !notProvisioned && (
+              <TotalsStrip totals={data.totals} embedded />
+            )}
+            {notProvisioned ? (
+              <EmptyState
+                icon={Database}
+                title="Activity store not provisioned yet"
+                description="The org activity spine (EVENT_STORE.USER_REQUESTS) hasn't been provisioned or backfilled on this environment yet. Once the activity store is installed, this view populates automatically — no events are fabricated until then."
+              />
+            ) : (
+              <EmptyState
+                icon={Activity}
+                title="No activity in this window"
+                description="No events matched the selected date range and filters. Widen the window or clear filters."
+              />
+            )}
+          </div>
+          {/* Role hierarchy comes from a different source (SHOW ROLES), so it can
+              populate even while the activity spine is empty. */}
+          {roleHierarchy.length > 0 && (
+            <AuditTable
+              rows={roleHierarchy}
+              title="Role hierarchy"
+              subtitle="SHOW ROLES"
+              pageSize={10}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -714,9 +853,13 @@ function RoleNode({
   // Collapsed by default; re-sync whenever the parent broadcasts expand/collapse
   // all. Between broadcasts the row keeps its own open/closed state.
   const [open, setOpen] = useState(false);
+  const router = useRouter();
   useEffect(() => {
     if (expandSignal) setOpen(expandSignal.open);
   }, [expandSignal]);
+  // High denial rate is an actionable governance signal — surface a CTA to
+  // review this role's grants. Rendered OUTSIDE the toggle button (no nesting).
+  const denialRate = rate(role.totals?.denied ?? 0, role.totals?.requests ?? 0);
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
       <button
@@ -739,6 +882,22 @@ function RoleNode({
         </span>
         <Counts totals={role.totals} />
       </button>
+      {denialRate !== null && denialRate > 10 && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-rose-100 bg-rose-50/50 px-3 py-2 dark:border-rose-900/30 dark:bg-rose-900/10">
+          <span className="text-[11px] text-rose-700 dark:text-rose-300">
+            {denialRate}% of requests denied — review this role&apos;s grants.
+          </span>
+          <InsightActionButton
+            label="Review role grants"
+            icon={ShieldX}
+            variant="subtle"
+            size="sm"
+            onAction={async () => {
+              router.push('/governance/roles');
+            }}
+          />
+        </div>
+      )}
       {open && (
         <div className="border-t border-slate-100 dark:border-slate-800">
           {(role.modules ?? []).map((m, i) => (
@@ -755,6 +914,10 @@ function RoleNode({
 
 function ModuleNode({ module }: { module: OrgSummaryModule }) {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
+  // A module present in the tree but with no requests in the window is a
+  // candidate for onboarding — offer the path to provision a project.
+  const noRequests = (module.totals?.requests ?? 0) === 0;
   return (
     <div className="border-b border-slate-100 last:border-b-0 dark:border-slate-800">
       <button
@@ -782,6 +945,22 @@ function ModuleNode({ module }: { module: OrgSummaryModule }) {
         </span>
         <Counts totals={module.totals} />
       </button>
+      {noRequests && (
+        <div className="flex flex-wrap items-center gap-2 py-1.5 pl-14 pr-3">
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            No requests in this window.
+          </span>
+          <InsightActionButton
+            label="Onboard project"
+            icon={PlugZap}
+            variant="subtle"
+            size="sm"
+            onAction={async () => {
+              router.push('/governance/projects');
+            }}
+          />
+        </div>
+      )}
       {open && (
         <div className="bg-slate-50/60 dark:bg-slate-800/30">
           {(module.accounts ?? []).map((a, i) => (

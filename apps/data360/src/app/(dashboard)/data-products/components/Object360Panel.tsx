@@ -3,18 +3,22 @@
 /**
  * Object360Panel — dedicated Object-360 view for a Snowflake object.
  *
- * One tabbed surface over the `/api/snowflake/explorer/objects/{id}/*` routes:
+ * Docked right-tab panel (Data360 2026 right-tab standard) rendered via the
+ * shared `RightTabPanel`: a far-right icon rail flips the body between sections,
+ * one visible at a time. `role="region"` + `aria-modal="false"`, Escape-to-close,
+ * active section persisted to versioned localStorage (`data360.catalog.smartPanel.v1`).
+ * Sections over the `/api/snowflake/explorer/objects/{id}/*` routes:
  *   Columns · Lineage · Governance · Quality · Usage · Cost · Audit · Actions
  *
- * Each tab lazily fetches its own route on first open and runs the
+ * Each section lazily fetches its own route on open and runs the
  * Idle→Running→Completed/Empty/Error state machine independently — a failure in
- * one tab degrades to an inline error and never blocks the others. No fake
+ * one section degrades to an inline error and never blocks the others. No fake
  * zeros: missing numbers render as "—". Cost has no dedicated backend route, so
- * the Cost tab reads the FinOps fields off the `usage` response.
+ * the Cost section reads the FinOps fields off the `usage` response.
  *
- * The Actions tab renders the declarative affordance list from `/actions`
+ * The Actions section renders the declarative affordance list from `/actions`
  * (each carries http.method + http.path) — destructive actions require a
- * confirm; nothing executes blindly.
+ * confirm; nothing executes blindly. It is the object's centralized action shelf.
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -23,16 +27,16 @@ import {
   Columns3,
   DollarSign,
   GitBranch,
-  Loader2,
   RefreshCw,
   ScrollText,
   ShieldCheck,
   Sparkles,
-  X,
+  type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
+import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
 import {
   getObjectActions,
   getObjectAudit,
@@ -56,7 +60,7 @@ type TabKey =
   | 'audit'
   | 'actions';
 
-const TABS: { key: TabKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+const TABS: { key: TabKey; label: string; icon: LucideIcon }[] = [
   { key: 'columns', label: 'Columns', icon: Columns3 },
   { key: 'lineage', label: 'Lineage', icon: GitBranch },
   { key: 'governance', label: 'Governance', icon: ShieldCheck },
@@ -82,64 +86,60 @@ export interface Object360PanelProps {
 
 export default function Object360Panel({ tableFqn, title, onClose }: Object360PanelProps) {
   const objectId = deriveObjectId(tableFqn);
-  const [tab, setTab] = useState<TabKey>('columns');
+  const [activeSection, setActiveSection] = useState<TabKey>('columns');
+
+  // Unresolvable FQN → keep a minimal closable panel rather than a section rail.
+  if (!objectId) {
+    return (
+      <div className="h-full shrink-0 overflow-y-auto py-4 pl-2 pr-4">
+        <div className="sticky top-4 w-[420px] self-start overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+            <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">
+              {title || tableFqn}
+            </h3>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close Object 360"
+              className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+            >
+              <span aria-hidden="true" className="text-lg leading-none">×</span>
+            </button>
+          </div>
+          <div className="p-4">
+            <EmptyState
+              icon={AlertCircle}
+              compact
+              title="Cannot resolve object"
+              description={`"${tableFqn}" is not a fully-qualified DB.SCHEMA.TABLE name, so its Object-360 cannot be loaded.`}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Each section renders only when active (RightTabPanel mounts the active body
+  // alone), so the lazy fetch-on-open behaviour is preserved per section.
+  const sections: RightTabSection[] = TABS.map(({ key, label, icon }) => ({
+    id: key,
+    icon,
+    label,
+    render: () => <TabBody objectId={objectId} tab={key} />,
+  }));
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-700">
-        <div className="min-w-0">
-          <h3 className="truncate text-sm font-bold text-slate-900 dark:text-white">
-            {title || tableFqn}
-          </h3>
-          <p className="truncate font-mono text-[11px] text-slate-500 dark:text-slate-400">
-            {objectId ?? tableFqn}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close Object 360"
-          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      {!objectId ? (
-        <div className="p-5">
-          <EmptyState
-            icon={AlertCircle}
-            compact
-            title="Cannot resolve object"
-            description={`"${tableFqn}" is not a fully-qualified DB.SCHEMA.TABLE name, so its Object-360 cannot be loaded.`}
-          />
-        </div>
-      ) : (
-        <>
-          <div className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-slate-100 px-3 dark:border-slate-800">
-            {TABS.map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setTab(key)}
-                className={cn(
-                  'inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2.5 text-xs font-medium transition-colors',
-                  tab === key
-                    ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
-                    : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200',
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-5">
-            <TabBody objectId={objectId} tab={tab} />
-          </div>
-        </>
-      )}
+    <div className="h-full shrink-0 overflow-y-auto py-4 pl-2 pr-4">
+      <RightTabPanel
+        title={title || tableFqn}
+        subtitle={objectId}
+        sections={sections}
+        activeSection={activeSection}
+        onSectionChange={(id) => setActiveSection(id as TabKey)}
+        onClose={onClose}
+        storageKey="data360.catalog.smartPanel.v1"
+        widthClassName="w-[420px]"
+      />
     </div>
   );
 }

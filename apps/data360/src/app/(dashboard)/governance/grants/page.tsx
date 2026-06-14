@@ -23,7 +23,7 @@ import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
-import apiClient from '@/lib/api-client';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -39,6 +39,7 @@ import {
 import { useCanPerform } from '@/hooks/useCanPerform';
 import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
 import PermissionGate from '@/components/ui/PermissionGate';
+import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
 
 type AsyncStatus = 'idle' | 'running' | 'completed' | 'error';
 
@@ -50,7 +51,10 @@ function SourceProductGrantsPanel() {
   const [loading, setLoading] = useState(true);
   const [grantRole, setGrantRole] = useState('');
   const [grantTarget, setGrantTarget] = useState('');
+  const [grantObjectType, setGrantObjectType] = useState('SCHEMA');
   const [grantPrivilege, setGrantPrivilege] = useState('SELECT');
+  const [granting, setGranting] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -67,15 +71,35 @@ function SourceProductGrantsPanel() {
   }, []);
 
   const handleGrant = useCallback(async () => {
-    if (!grantRole || !grantTarget) return;
+    if (!grantRole.trim() || !grantTarget.trim()) return;
+    setGranting(true);
+    setFeedback(null);
     try {
-      await apiClient.post('/gouvernance/grants', { role: grantRole, object: grantTarget, privilege: grantPrivilege });
-      setGrantRole(''); setGrantTarget(''); setGrantPrivilege('SELECT');
-    } catch { /* handled */ }
-  }, [grantRole, grantTarget, grantPrivilege]);
+      // Real endpoint: POST /gouvernance/grant-permission (query params).
+      // The previous POST /gouvernance/grants silently failed — that route is
+      // GET-only (List grants), so the grant was a 405 swallowed by `catch {}`.
+      await apiClient.post('/gouvernance/grant-permission', null, {
+        params: {
+          privileges: grantPrivilege,
+          object_type: grantObjectType,
+          object_name: grantTarget.trim(),
+          role_name: grantRole.trim(),
+        },
+      });
+      setFeedback({
+        type: 'success',
+        text: `Granted ${grantPrivilege} on ${grantObjectType} ${grantTarget.trim()} to ${grantRole.trim()}.`,
+      });
+      setGrantRole(''); setGrantTarget(''); setGrantObjectType('SCHEMA'); setGrantPrivilege('SELECT');
+    } catch (err) {
+      setFeedback({ type: 'error', text: getApiErrorMessage(err) });
+    } finally {
+      setGranting(false);
+    }
+  }, [grantRole, grantTarget, grantObjectType, grantPrivilege]);
 
   return (
-    <div className="space-y-6">
+    <div role="tabpanel" id="tabpanel-source-product-grants" aria-labelledby="tab-source-product-grants" className="space-y-6">
       <div className="mb-4">
         <div className="flex items-center gap-3 mb-1">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Source & Product Access</h2>
@@ -94,13 +118,23 @@ function SourceProductGrantsPanel() {
       >
       <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-900/10 space-y-3">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Add Grant</h3>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
             <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Role</label>
             <input type="text" placeholder="e.g., DATA_ANALYST" value={grantRole} onChange={(e) => setGrantRole(e.target.value)} className="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800" />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Target (DB.SCHEMA or product)</label>
+            <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Object Type</label>
+            <select value={grantObjectType} onChange={(e) => setGrantObjectType(e.target.value)} className="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800">
+              <option value="DATABASE">DATABASE</option>
+              <option value="SCHEMA">SCHEMA</option>
+              <option value="TABLE">TABLE</option>
+              <option value="VIEW">VIEW</option>
+              <option value="STAGE">STAGE</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Target ({grantObjectType.toLowerCase()} name)</label>
             <input type="text" placeholder="e.g., ANALYTICS.PUBLIC" value={grantTarget} onChange={(e) => setGrantTarget(e.target.value)} className="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800" />
           </div>
           <div>
@@ -114,11 +148,26 @@ function SourceProductGrantsPanel() {
             </select>
           </div>
         </div>
+        {feedback && (
+          <p
+            role="status"
+            aria-live="polite"
+            className={`rounded-lg px-3 py-2 text-sm ${
+              feedback.type === 'success'
+                ? 'border border-green-300 bg-green-50 text-green-700 dark:border-green-700/60 dark:bg-green-900/20 dark:text-green-300'
+                : 'border border-red-300 bg-red-50 text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300'
+            }`}
+          >
+            {feedback.text}
+          </p>
+        )}
         <Button
           size="sm"
           className="bg-emerald-600 hover:bg-emerald-700 text-white"
           onClick={handleGrant}
-          disabled={!grantRole || !grantTarget}
+          isLoading={granting}
+          aria-busy={granting}
+          disabled={!grantRole.trim() || !grantTarget.trim() || granting}
         >
           Grant Access
         </Button>
@@ -608,6 +657,9 @@ export default function GrantsManagementPage() {
         </div>
       </div>
 
+      {/* Per-page KPI strip — module grants · roles · D360 roles · users. */}
+      <GovernanceKpiStrip scope="grants" />
+
       {/* Main Content with Tabs */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
         {/* Tabs Header */}
@@ -701,6 +753,7 @@ export default function GrantsManagementPage() {
             <button
               role="tab"
               aria-selected={activeTab === 'source-product-grants'}
+              aria-controls="tabpanel-source-product-grants"
               onClick={() => setActiveTab('source-product-grants')}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
                 activeTab === 'source-product-grants'

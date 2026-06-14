@@ -279,6 +279,12 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: '/administration/feature-governance',
         icon: PiShieldCheckDuotone,
       },
+      {
+        name: 'Access Control Center',
+        description: 'Module → page → tab → feature → action grants, entitlements & usage',
+        href: '/administration/access-center',
+        icon: PiLockKeyDuotone,
+      },
     ],
   },
 ];

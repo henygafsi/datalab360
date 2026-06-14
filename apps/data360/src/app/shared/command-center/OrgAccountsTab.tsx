@@ -28,11 +28,10 @@ import {
   Layers,
   Lightbulb,
   RefreshCw,
-  Share2,
   ShieldCheck,
   Users,
-  X,
   Zap,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   Bar,
@@ -46,6 +45,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { useRouter } from 'next/navigation';
 import {
   getAccounts,
   getDashboardOverview,
@@ -54,10 +54,11 @@ import {
   getReplication,
   getShares,
 } from '@/app/services/org-accounts/hooks';
-import { getApiErrorMessage } from '@/lib/api-client';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { InsightActionButton } from '@/app/shared/insights';
+import AuditTable, { type Row } from './AuditTable';
 import type {
   AccountsListResponse,
-  ClientAccount,
   DashboardOverviewResponse,
   DashboardTrendsResponse,
   ReplicationResponse,
@@ -129,9 +130,13 @@ export default function OrgAccountsTab() {
     loading: true,
     error: null,
   });
-  const [selectedAccount, setSelectedAccount] = useState<ClientAccount | null>(
-    null,
-  );
+  const router = useRouter();
+  // Flagship per-account audit (/org-accounts/accounts/audit) — ORGADMIN-only,
+  // fetched lazily once overview confirms org-admin scope (see effect below).
+  const [accountsAudit, setAccountsAudit] = useState<{ rows: Row[]; loaded: boolean }>({
+    rows: [],
+    loaded: false,
+  });
 
   const fetchAll = async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
@@ -211,6 +216,55 @@ export default function OrgAccountsTab() {
   useEffect(() => {
     void fetchAll();
   }, []);
+
+  // Flagship per-account audit (/org-accounts/accounts/audit) — ORGADMIN-only.
+  // Fetched lazily once overview resolves and confirms org-admin scope, so a
+  // non-ORGADMIN account never fires this 60s-timeout call. Route-order note:
+  // if the backend hasn't registered /accounts/audit ahead of crud's
+  // /accounts/{name}, this resolves to a 404/garbage — isApiError + catch
+  // degrade it silently and it never blocks the page.
+  // ORCHESTRATOR: promote this inline apiClient call to getAccountsAudit() in
+  // services/org-accounts/hooks.ts + an `orgAccounts.accountsAudit` contract entry.
+  useEffect(() => {
+    if (state.loading) return;
+    const ov = state.overview?.overview;
+    const orgAdmin =
+      typeof ov?.is_org_admin === 'boolean'
+        ? ov.is_org_admin
+        : ov?.org_admin_available !== false;
+    if (!ov || !orgAdmin) {
+      setAccountsAudit({ rows: [], loaded: true });
+      return;
+    }
+    let cancelled = false;
+    apiClient
+      .get('/org-accounts/accounts/audit', { params: { days: 30 }, timeout: 60000 })
+      .then((res) => {
+        if (cancelled) return;
+        const d = res.data as unknown;
+        if (isApiError(d)) {
+          setAccountsAudit({ rows: [], loaded: true });
+          return;
+        }
+        const obj = d as Record<string, unknown>;
+        const arr = Array.isArray(d)
+          ? d
+          : Array.isArray(obj?.data)
+            ? (obj.data as unknown[])
+            : Array.isArray(obj?.accounts)
+              ? (obj.accounts as unknown[])
+              : Array.isArray(obj?.audit)
+                ? (obj.audit as unknown[])
+                : [];
+        setAccountsAudit({ rows: arr as Row[], loaded: true });
+      })
+      .catch(() => {
+        if (!cancelled) setAccountsAudit({ rows: [], loaded: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.loading, state.overview]);
 
   const editionMix = useMemo(() => {
     const o = state.overview?.overview;
@@ -307,17 +361,53 @@ export default function OrgAccountsTab() {
     !state.overview &&
     accountCount === 0;
 
-  // Recent org account events — last 8 by created_on desc
-  const recentEvents = useMemo(() => {
-    const list = (state.accounts?.accounts ?? []).slice();
-    return list
-      .filter((a) => !!a.created_on)
-      .sort(
-        (a, b) =>
-          new Date(b.created_on).getTime() - new Date(a.created_on).getTime(),
-      )
-      .slice(0, 8);
-  }, [state.accounts]);
+  // ----- bottom audit tables (de-capped — every row, paginated via AuditTable) -----
+  // Connected-accounts enumeration. created_on stays a raw ISO so AuditTable
+  // auto-detects a date filter; status is pre-derived so it reads human-friendly.
+  const accountRows: Row[] = useMemo(
+    () =>
+      (state.accounts?.accounts ?? []).map((a) => ({
+        account: a.account_name,
+        locator: a.account_locator,
+        region: a.region,
+        edition: a.edition,
+        cloud: a.cloud,
+        status: a.is_active ? 'active' : 'inactive',
+        created_on: a.created_on,
+      })),
+    [state.accounts],
+  );
+  // Replication / failover transfer footprint (was the capped footer list).
+  const replicationRows: Row[] = useMemo(
+    () =>
+      (state.replication?.replication ?? [])
+        .slice()
+        .sort((a, b) => b.total_credits - a.total_credits)
+        .map((r) => ({
+          account: r.account_name,
+          credits: Math.round(r.total_credits),
+          bytes_transferred: r.total_bytes_transferred,
+        })),
+    [state.replication],
+  );
+  const readerRows: Row[] = useMemo(
+    () =>
+      state.readerList.map((r) => ({
+        name: r.name,
+        cloud: r.cloud ?? '—',
+        region: r.region ?? '—',
+      })),
+    [state.readerList],
+  );
+  const shareRows: Row[] = useMemo(
+    () =>
+      state.shareList.map((s) => ({
+        name: s.name,
+        database: s.database_name ?? '—',
+        kind: s.kind ?? '—',
+      })),
+    [state.shareList],
+  );
 
   // Friendly, non-error empty state for the common case: this account is not a
   // Snowflake Organization account, so there is simply nothing org-level to
@@ -357,28 +447,45 @@ export default function OrgAccountsTab() {
     );
   }
 
-  // Data-driven recommendations derived from the loaded org data. Each entry is
+  // Data-driven recommendations → honestly-gated CTAs. Each entry is
   // conditional, so the panel only ever surfaces real, actionable findings.
-  const recommendations: string[] = [];
+  // `nav` entries route to a real management surface; `unavailable` entries use
+  // the gate's honest disabled affordance when there is no in-app target.
+  type RecoCta =
+    | { kind: 'nav'; text: string; label: string; icon: LucideIcon; href: string }
+    | { kind: 'unavailable'; text: string; label: string; icon: LucideIcon; hint: string };
+  const recoCtas: RecoCta[] = [];
   if (
     replicationGroupsCount === 0 &&
     (state.replication?.replication?.length ?? 0) === 0
   ) {
-    recommendations.push(
-      'No replication detected — activate replication on production accounts to enable disaster recovery.',
-    );
+    recoCtas.push({
+      kind: 'unavailable',
+      text: 'No replication detected — enable replication on production accounts for disaster recovery.',
+      label: 'Activate replication',
+      icon: GitBranch,
+      hint: 'Replication is enabled per-account in the data warehouse',
+    });
   }
   if (inactiveAccounts > 0) {
-    recommendations.push(
-      `Review ${inactiveAccounts} inactive account${
+    recoCtas.push({
+      kind: 'nav',
+      text: `Review ${inactiveAccounts} inactive account${
         inactiveAccounts > 1 ? 's' : ''
       } for decommissioning.`,
-    );
+      label: 'Review inactive accounts',
+      icon: Users,
+      href: '/account-overview?tab=snowflake-accounts',
+    });
   }
   if (totalAccounts > 0 && networkPoliciesCount < totalAccounts) {
-    recommendations.push(
-      `Enable network policies on all accounts (currently ${networkPoliciesCount}/${totalAccounts}).`,
-    );
+    recoCtas.push({
+      kind: 'nav',
+      text: `Enable network policies on all accounts (currently ${networkPoliciesCount}/${totalAccounts}).`,
+      label: 'Enable network policy',
+      icon: ShieldCheck,
+      href: '/governance/network-policies',
+    });
   }
 
   return (
@@ -475,167 +582,6 @@ export default function OrgAccountsTab() {
           </button>
         </div>
       )}
-
-      {/* Accounts grid + drilldown rail */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-        <header className="flex items-center justify-between border-b px-4 py-3 dark:border-slate-700">
-          <div className="flex items-center gap-2">
-            <Users className="h-4 w-4 text-slate-500" />
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Connected accounts
-            </h3>
-            <span className="rounded bg-slate-100 px-1.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              {state.accounts?.accounts?.length ?? 0}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={fetchAll}
-            className="rounded p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-            aria-label="Refresh"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${state.loading ? 'animate-spin' : ''}`}
-            />
-          </button>
-        </header>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/50">
-              <tr>
-                <th className="px-3 py-2 text-left">Account</th>
-                <th className="px-3 py-2 text-left">Region</th>
-                <th className="px-3 py-2 text-left">Edition</th>
-                <th className="px-3 py-2 text-left">Cloud</th>
-                <th className="px-3 py-2 text-right">Status</th>
-                <th className="px-3 py-2 text-left">Created</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {(state.accounts?.accounts ?? []).slice(0, 50).map((a) => (
-                <tr
-                  key={a.account_locator}
-                  onClick={() => setSelectedAccount(a)}
-                  className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${
-                    selectedAccount?.account_locator === a.account_locator
-                      ? 'bg-slate-50 dark:bg-slate-800'
-                      : ''
-                  }`}
-                >
-                  <td className="px-3 py-2 font-medium text-slate-900 dark:text-white">
-                    {a.account_name}
-                    <span className="ml-1 text-[10px] text-slate-400">
-                      ({a.account_locator})
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                    {a.region}
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                      {a.edition}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                    {a.cloud}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        a.is_active
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                      }`}
-                    >
-                      {a.is_active ? 'active' : 'inactive'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-xs text-slate-500">
-                    {a.created_on
-                      ? new Date(a.created_on).toLocaleDateString()
-                      : '—'}
-                  </td>
-                </tr>
-              ))}
-              {!state.loading &&
-                (state.accounts?.accounts?.length ?? 0) === 0 && (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-3 py-8 text-center text-sm text-slate-400"
-                    >
-                      No accounts in this organisation yet.
-                    </td>
-                  </tr>
-                )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-        {/* Right-rail account drilldown */}
-        <aside className="lg:block">
-          {selectedAccount ? (
-            <div className="sticky top-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-slate-400">
-                    Account drilldown
-                  </div>
-                  <div className="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-white">
-                    {selectedAccount.account_name}
-                  </div>
-                  <div className="text-[11px] text-slate-500">
-                    {selectedAccount.account_locator}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedAccount(null)}
-                  className="rounded p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                  aria-label="Close drilldown"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <dl className="mt-3 space-y-2 text-xs">
-                <DrillRow label="Region" value={selectedAccount.region || '—'} />
-                <DrillRow label="Edition" value={selectedAccount.edition || '—'} />
-                <DrillRow label="Cloud" value={selectedAccount.cloud || '—'} />
-                <DrillRow
-                  label="Status"
-                  value={selectedAccount.is_active ? 'active' : 'inactive'}
-                />
-                <DrillRow
-                  label="Created"
-                  value={
-                    selectedAccount.created_on
-                      ? new Date(selectedAccount.created_on).toLocaleDateString()
-                      : '—'
-                  }
-                />
-                <DrillRow
-                  label="Credits (30d)"
-                  value={fmtNumber(
-                    Math.round(
-                      (selectedAccount as any)?.credits_30d ?? 0,
-                    ),
-                  )}
-                />
-                <DrillRow
-                  label="Storage"
-                  value={fmtBytes((selectedAccount as any)?.storage_bytes ?? 0)}
-                />
-              </dl>
-            </div>
-          ) : (
-            <div className="sticky top-4 rounded-xl border border-dashed border-slate-200 bg-white p-4 text-xs text-slate-400 dark:border-slate-700 dark:bg-slate-900">
-              Select an account from the table to see its details here.
-            </div>
-          )}
-        </aside>
-      </div>
 
       {/* Trends */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -763,94 +709,6 @@ export default function OrgAccountsTab() {
         </div>
       )}
 
-      {/* Footer band — 4 panels */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <FooterPanel title="Replication Groups" icon={GitBranch}>
-          {(state.replication?.replication?.length ?? 0) === 0 ? (
-            <EmptyHint label="No replication usage in the last 30 days" />
-          ) : (
-            <ul className="space-y-1.5 text-xs">
-              {(state.replication?.replication ?? [])
-                .slice()
-                .sort((a, b) => b.total_credits - a.total_credits)
-                .slice(0, 5)
-                .map((r) => (
-                  <li
-                    key={`repl-${r.account_name}`}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <span className="truncate text-slate-700 dark:text-slate-300">
-                      {r.account_name}
-                    </span>
-                    <span className="whitespace-nowrap text-[10px] text-slate-500">
-                      {fmtNumber(Math.round(r.total_credits))} cr ·{' '}
-                      {fmtBytes(r.total_bytes_transferred)}
-                    </span>
-                  </li>
-                ))}
-            </ul>
-          )}
-        </FooterPanel>
-        <FooterPanel title="Failover Groups" icon={Zap}>
-          <EmptyHint label="No failover groups exposed" />
-        </FooterPanel>
-        <FooterPanel title="Permissions / Sharing Roles" icon={Share2}>
-          {state.readerList.length === 0 && state.shareList.length === 0 ? (
-            <EmptyHint label="No reader accounts or shares" />
-          ) : (
-            <ul className="space-y-1.5 text-xs">
-              {state.readerList.slice(0, 4).map((r) => (
-                <li
-                  key={`reader-${r.name}`}
-                  className="flex items-center justify-between"
-                >
-                  <span className="truncate text-slate-700 dark:text-slate-300">
-                    {r.name}
-                  </span>
-                  <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                    reader
-                  </span>
-                </li>
-              ))}
-              {state.shareList.slice(0, 4).map((s) => (
-                <li
-                  key={`share-${s.name}`}
-                  className="flex items-center justify-between"
-                >
-                  <span className="truncate text-slate-700 dark:text-slate-300">
-                    {s.name}
-                  </span>
-                  <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                    share
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </FooterPanel>
-        <FooterPanel title="Recent Org Account Events" icon={Users}>
-          {recentEvents.length === 0 ? (
-            <EmptyHint label="No account activity yet" />
-          ) : (
-            <ul className="space-y-1.5 text-xs">
-              {recentEvents.map((a) => (
-                <li
-                  key={`evt-${a.account_locator}`}
-                  className="flex items-center justify-between"
-                >
-                  <span className="truncate text-slate-700 dark:text-slate-300">
-                    Added <span className="font-medium">{a.account_name}</span>
-                  </span>
-                  <span className="ml-2 text-[10px] text-slate-400">
-                    {new Date(a.created_on).toLocaleDateString()}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </FooterPanel>
-      </div>
-
       {/* Recommendations */}
       <div className="grid grid-cols-1 lg:grid-cols-3">
         <div className="lg:col-start-3">
@@ -861,17 +719,42 @@ export default function OrgAccountsTab() {
                 Recommendations
               </h3>
             </header>
-            <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
-              {recommendations.length === 0 ? (
+            <ul className="space-y-3 text-xs text-slate-700 dark:text-slate-300">
+              {recoCtas.length === 0 ? (
                 <li className="flex gap-2">
                   <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
                   No action items — organization configuration looks healthy.
                 </li>
               ) : (
-                recommendations.map((rec, i) => (
-                  <li key={`rec-${i}`} className="flex gap-2">
-                    <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                    {rec}
+                recoCtas.map((c, i) => (
+                  <li key={`rec-${i}`} className="space-y-1.5">
+                    <div className="flex gap-2">
+                      <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                      <span>{c.text}</span>
+                    </div>
+                    <div className="pl-3.5">
+                      {c.kind === 'nav' ? (
+                        <InsightActionButton
+                          label={c.label}
+                          icon={c.icon}
+                          variant="subtle"
+                          size="sm"
+                          onAction={async () => {
+                            router.push(c.href);
+                          }}
+                        />
+                      ) : (
+                        <InsightActionButton
+                          label={c.label}
+                          icon={c.icon}
+                          variant="subtle"
+                          size="sm"
+                          capable={false}
+                          unavailableHint={c.hint}
+                          onAction={async () => undefined}
+                        />
+                      )}
+                    </div>
                   </li>
                 ))
               )}
@@ -879,11 +762,102 @@ export default function OrgAccountsTab() {
           </section>
         </div>
       </div>
+
+      {/* ===== Audit & detail — full-width paginated tables (the page scrolls,
+              never the section). De-capped from the old footer/accounts grid. ===== */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-slate-500" />
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+            Audit &amp; detail
+          </h3>
+        </div>
+
+        {/* Connected accounts enumeration (replaces the old sliced/scrolling table) */}
+        {accountRows.length > 0 ? (
+          <AuditTable
+            rows={accountRows}
+            title="Connected accounts"
+            subtitle="ORGANIZATION_USAGE.ACCOUNTS"
+            pageSize={10}
+          />
+        ) : !state.loading && !orgAdminAvailable ? (
+          <NeedsOrgAdminNote label="Connected accounts" />
+        ) : (
+          !state.loading && (
+            <EmptyCard label="No accounts in this organisation yet." />
+          )
+        )}
+
+        {/* Flagship per-account audit (credits · storage · queries · users).
+            ORGADMIN-only — omitted silently when the role can't read org views. */}
+        {orgAdminAvailable && accountsAudit.rows.length > 0 && (
+          <AuditTable
+            rows={accountsAudit.rows}
+            title="Per-account audit"
+            subtitle="/org-accounts/accounts/audit"
+            pageSize={10}
+          />
+        )}
+
+        {/* Replication / failover transfer footprint (was a 5-row footer cap) */}
+        {replicationRows.length > 0 && (
+          <AuditTable
+            rows={replicationRows}
+            title="Replication & failover footprint"
+            subtitle="ORGANIZATION_USAGE.REPLICATION_USAGE_HISTORY"
+            pageSize={10}
+          />
+        )}
+
+        {/* Reader accounts + outbound shares (were 4-row footer caps) */}
+        {(readerRows.length > 0 || shareRows.length > 0) && (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {readerRows.length > 0 && (
+              <AuditTable
+                rows={readerRows}
+                title="Reader accounts"
+                subtitle="SHOW MANAGED ACCOUNTS"
+                pageSize={10}
+              />
+            )}
+            {shareRows.length > 0 && (
+              <AuditTable
+                rows={shareRows}
+                title="Outbound shares"
+                subtitle="SHOW SHARES"
+                pageSize={10}
+              />
+            )}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
 
 // ----- small UI helpers -----
+
+function NeedsOrgAdminNote({ label }: { label: string }) {
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
+      <p className="font-semibold">{label} — requires ORGADMIN</p>
+      <p className="mt-1 leading-relaxed">
+        Organization-level data is only available when the connected Snowflake
+        account has the <code>ORGADMIN</code> role. Ask a Snowflake org
+        administrator to grant it to enable cross-account roll-ups.
+      </p>
+    </div>
+  );
+}
+
+function EmptyCard({ label }: { label: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs text-slate-400 dark:border-slate-700">
+      {label}
+    </div>
+  );
+}
 
 function KpiCard({
   icon: Icon,
@@ -922,45 +896,6 @@ function KpiCard({
           </span>
         )}
       </div>
-    </div>
-  );
-}
-
-function DrillRow({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="flex items-center justify-between">
-      <dt className="text-slate-500">{label}</dt>
-      <dd className="font-medium text-slate-900 dark:text-white">{value}</dd>
-    </div>
-  );
-}
-
-function FooterPanel({
-  title,
-  icon: Icon,
-  children,
-}: {
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-      <header className="mb-2 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-slate-500" />
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-          {title}
-        </h3>
-      </header>
-      {children}
-    </section>
-  );
-}
-
-function EmptyHint({ label }: { label: string }) {
-  return (
-    <div className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-[11px] text-slate-400 dark:border-slate-700">
-      {label}
     </div>
   );
 }

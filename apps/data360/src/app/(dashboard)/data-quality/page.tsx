@@ -39,6 +39,7 @@ import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
+import SmartRightBar from './components/SmartRightBar';
 
 // ── Types ──
 
@@ -1004,248 +1005,6 @@ function TrendChart({ trendData }: { trendData: MetricRow[] }) {
         </AreaChart>
       </ResponsiveContainer>
     </div>
-  );
-}
-
-// ── SmartRightBar — 8-section contextual panel (spec: .claude/skills/smart-rightbar-spec.md) ──
-
-interface SmartRightBarProps {
-  selectedRow: MetricRow | null;
-  data: {
-    dqScore: number | null;
-    dmfCount: number | null;
-    classificationTags: MetricRow[];
-    ingestionStatus: string | null;
-    owner: string | null;
-    steward: string | null;
-    dmfHistory: MetricRow[];
-  } | null;
-  loading: boolean;
-  onRunCheck: () => void;
-  onAssociateDmf: () => void;
-  onScheduleDmf: () => void;
-  canRunCheck: boolean;
-  canAssociateDmf: boolean;
-  canScheduleDmf: boolean;
-}
-
-function SmartRightBar({
-  selectedRow,
-  data,
-  loading,
-  onRunCheck,
-  onAssociateDmf,
-  onScheduleDmf,
-  canRunCheck,
-  canAssociateDmf,
-  canScheduleDmf,
-}: SmartRightBarProps) {
-  const tableName = selectedRow ? String(selectedRow.TABLE_NAME || selectedRow.table_name || '') : null;
-  const schemaName = selectedRow ? String(selectedRow.SCHEMA_NAME || selectedRow.TABLE_SCHEMA || '') : null;
-
-  return (
-    <aside
-      aria-label="Smart context panel"
-      className="w-[380px] flex-shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col overflow-y-auto"
-      style={{ maxHeight: 'calc(100vh - 120px)', position: 'sticky', top: '0' }}
-    >
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 flex-shrink-0">
-        <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">Smart Context</p>
-        {tableName ? (
-          <p className="text-sm font-bold text-gray-900 dark:text-white truncate mt-0.5">{tableName}</p>
-        ) : (
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Select a row to see context</p>
-        )}
-      </div>
-
-      {!tableName ? (
-        <div className="flex flex-col items-center justify-center flex-1 py-16 gap-3 text-center px-4">
-          <Info className="h-8 w-8 text-gray-300 dark:text-gray-600" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">Click any row in the table to load its context, actions, governance, and history.</p>
-        </div>
-      ) : loading ? (
-        <div className="p-4 space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => <SkeletonBar key={i} className="h-12 w-full rounded-lg" />)}
-        </div>
-      ) : (
-        <div className="divide-y divide-gray-100 dark:divide-gray-800 flex-1">
-
-          {/* S1: Context — DQ score + DMF count */}
-          <div className="px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S1 Context</p>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
-                <p className="text-[10px] text-gray-500 dark:text-gray-400">DQ Score</p>
-                <p className={cn('text-lg font-bold',
-                  data?.dqScore === null ? 'text-gray-400' :
-                  (data?.dqScore ?? 0) >= 80 ? 'text-green-600 dark:text-green-400' :
-                  (data?.dqScore ?? 0) >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
-                )}>
-                  {data?.dqScore !== null && data?.dqScore !== undefined ? `${data.dqScore}%` : '—'}
-                </p>
-              </div>
-              <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
-                <p className="text-[10px] text-gray-500 dark:text-gray-400">DMF Checks</p>
-                <p className="text-lg font-bold text-gray-900 dark:text-white">
-                  {data?.dmfCount ?? '—'}
-                </p>
-              </div>
-            </div>
-            {schemaName && (
-              <p className="mt-2 text-[10px] text-gray-500 dark:text-gray-400 font-mono truncate">Schema: {schemaName}</p>
-            )}
-          </div>
-
-          {/* S2: Actions — Run Check / Associate DMF / Set Schedule */}
-          <div className="px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S2 Actions</p>
-            <div className="space-y-1.5">
-              <button
-                onClick={onRunCheck}
-                disabled={!canRunCheck}
-                className={cn(
-                  'w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors',
-                  canRunCheck
-                    ? 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-800 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/40'
-                    : 'border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-800 cursor-not-allowed'
-                )}
-                title={!canRunCheck ? 'You lack the "run" permission on data quality.' : `Run threshold check on ${tableName}`}
-              >
-                <Play className="h-3.5 w-3.5 flex-shrink-0" />
-                Run Check
-              </button>
-              <button
-                onClick={onAssociateDmf}
-                disabled={!canAssociateDmf}
-                className={cn(
-                  'w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors',
-                  canAssociateDmf
-                    ? 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-400 dark:hover:bg-violet-900/40'
-                    : 'border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-800 cursor-not-allowed'
-                )}
-                title={!canAssociateDmf ? 'You lack the "associate" permission on data quality.' : `Associate a DMF to ${tableName}`}
-              >
-                <Link2 className="h-3.5 w-3.5 flex-shrink-0" />
-                Associate DMF
-              </button>
-              <button
-                onClick={onScheduleDmf}
-                disabled={!canScheduleDmf}
-                className={cn(
-                  'w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors',
-                  canScheduleDmf
-                    ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40'
-                    : 'border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-800 cursor-not-allowed'
-                )}
-                title={!canScheduleDmf ? 'You lack the "schedule" permission on data quality.' : `Set DMF schedule for ${tableName}`}
-              >
-                <CalendarClock className="h-3.5 w-3.5 flex-shrink-0" />
-                Set Schedule
-              </button>
-            </div>
-          </div>
-
-          {/* S3: Governance — classification coverage + PII tags */}
-          <div className="px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S3 Governance</p>
-            {data?.classificationTags && data.classificationTags.length > 0 ? (
-              <div className="space-y-1">
-                {data.classificationTags.slice(0, 4).map((tag, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs">
-                    <Tag className="h-3 w-3 text-amber-500 flex-shrink-0" />
-                    <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{String(tag.COLUMN_NAME || '—')}</span>
-                    <Badge variant="flat" color="warning" className="text-[10px] ml-auto flex-shrink-0">{String(tag.TAG_NAME || tag.CATEGORY || '—')}</Badge>
-                  </div>
-                ))}
-                {data.classificationTags.length > 4 && (
-                  <p className="text-[10px] text-gray-400 dark:text-gray-500">+{data.classificationTags.length - 4} more tags</p>
-                )}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-400 dark:text-gray-500">No classification tags. Run SYSTEM$CLASSIFY to tag sensitive columns.</p>
-            )}
-          </div>
-
-          {/* S4: Lineage — link to /observability/lineage */}
-          <div className="px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S4 Lineage</p>
-            <a
-              href={tableName ? `/observability?tab=lineage&table=${encodeURIComponent(tableName)}` : '/observability'}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              <Activity className="h-3.5 w-3.5" />
-              View in Observability Lineage
-            </a>
-          </div>
-
-          {/* S5: Ingestion — last load status + COPY_HISTORY freshness */}
-          <div className="px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S5 Ingestion</p>
-            <div className="flex items-center gap-2">
-              <Upload className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-              <span className="text-xs text-gray-600 dark:text-gray-300">Last status:</span>
-              <StatusBadge status={data?.ingestionStatus || '—'} />
-            </div>
-          </div>
-
-          {/* S6: Ownership — data owner + steward from catalog */}
-          <div className="px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S6 Ownership</p>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-xs">
-                <Database className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                <span className="text-gray-500 dark:text-gray-400">Owner:</span>
-                <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{data?.owner || '—'}</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <Shield className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                <span className="text-gray-500 dark:text-gray-400">Steward:</span>
-                <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{data?.steward || '—'}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* S7: Alice Tips — AI-generated DQ recommendations */}
-          <div className="px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S7 AI Tips</p>
-            <div className="rounded-lg border border-amber-100 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-900/10 px-3 py-2">
-              <div className="flex items-start gap-2">
-                <Lightbulb className="h-3.5 w-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  {data?.dqScore !== null && data?.dqScore !== undefined && (data.dqScore ?? 0) < 80
-                    ? `DQ score ${data.dqScore}% — associate NULL_COUNT and DUPLICATE_COUNT DMFs to improve coverage.`
-                    : data?.dmfCount === 0
-                      ? `No DMF checks configured. Add NULL_COUNT to key columns to begin continuous monitoring.`
-                      : `Quality looks good. Schedule periodic DMF runs and review classification tags for PII compliance.`
-                  }
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* S8: History — last 5 DMF measurements */}
-          <div className="px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S8 DMF History</p>
-            {data?.dmfHistory && data.dmfHistory.length > 0 ? (
-              <div className="space-y-1">
-                {data.dmfHistory.map((h, i) => (
-                  <div key={i} className="flex items-center justify-between gap-2 rounded border border-gray-100 dark:border-gray-800 px-2 py-1">
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-medium text-gray-700 dark:text-gray-300 truncate">{String(h.METRIC_NAME || h.metric_name || '—')}</p>
-                      <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{String(h.MEASUREMENT_TIME || h.measured_at || '—')}</p>
-                    </div>
-                    <StatusBadge status={h.STATUS || h.status || '—'} />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-gray-400 dark:text-gray-500">No DMF measurements yet for this table.</p>
-            )}
-          </div>
-        </div>
-      )}
-    </aside>
   );
 }
 
@@ -2775,7 +2534,7 @@ export default function DataQualityPage() {
       </ActionRail>
     </div>
 
-    {/* SmartRightBar — 8-section context panel, w-[380px], sticky beside main body */}
+    {/* SmartRightBar — 8-section docked right-tab context panel (shared RightTabPanel) */}
     <SmartRightBar
       selectedRow={selectedRow}
       data={rightbarData}
@@ -2783,6 +2542,7 @@ export default function DataQualityPage() {
       onRunCheck={() => { setThError(null); setThResult(null); dmfPanel.close(); thresholdPanel.open('main'); }}
       onAssociateDmf={() => openDmfPanel('associate')}
       onScheduleDmf={() => openDmfPanel('schedule')}
+      onClose={() => setSelectedRow(null)}
       canRunCheck={canRunCheck}
       canAssociateDmf={canAssociateDmf}
       canScheduleDmf={canScheduleDmf}

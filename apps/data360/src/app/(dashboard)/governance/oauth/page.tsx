@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import { Badge, Input, Tooltip } from 'rizzui';
 import {
   Shield, Key, Lock, Search, RefreshCw, AlertTriangle, Plus, X, ChevronUp,
@@ -1606,13 +1607,13 @@ export default function OAuthManagementPage() {
         {/* Breadcrumb */}
         <nav className="mb-2">
           <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
-            <span className="hover:text-gray-900 dark:hover:text-gray-200 cursor-pointer transition-colors">
+            <Link href="/" className="hover:text-gray-900 dark:hover:text-gray-200 cursor-pointer transition-colors">
               Home
-            </span>
+            </Link>
             <span>/</span>
-            <span className="hover:text-gray-900 dark:hover:text-gray-200 cursor-pointer transition-colors">
+            <Link href="/governance" className="hover:text-gray-900 dark:hover:text-gray-200 cursor-pointer transition-colors">
               Governance
-            </span>
+            </Link>
             <span>/</span>
             <span className="text-gray-900 dark:text-gray-200 font-medium">OAuth & Auth</span>
           </div>

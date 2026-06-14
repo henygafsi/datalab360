@@ -21,12 +21,15 @@
  */
 // ////dependency//// shared.score-cards → services.command-center.score-cards
 import { useEffect, useState } from 'react';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { AlertTriangle, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import {
   getScoreCards,
   getProjectScoreCards,
+  ScoreCardsUnavailableError,
   type ScoreCard,
   type ScoreCardDimension,
+  type Recommendation,
 } from '@/app/services/command-center/score-cards';
 
 export type { ScoreCardDimension } from '@/app/services/command-center/score-cards';
@@ -108,6 +111,89 @@ function RecoBadge({ card }: { card: ScoreCard }) {
 }
 
 /**
+ * G8 — carry the active scope onto a reco CTA so the destination opens in
+ * context. Appends `?dim=<dimension>` (always) and `?project=<id>` (when a
+ * project scope exists) to the backend-supplied `cta.target`. SSR-safe (no
+ * window / URL base) and merge-aware: `target` may already carry a query (e.g.
+ * `/intelligent?tab=…`), so existing params are preserved, never clobbered.
+ */
+function withContext(
+  target: string,
+  dimension: ScoreCardDimension,
+  projectId?: string,
+): string {
+  const qIdx = target.indexOf('?');
+  const path = qIdx === -1 ? target : target.slice(0, qIdx);
+  const params = new URLSearchParams(qIdx === -1 ? '' : target.slice(qIdx + 1));
+  if (projectId) params.set('project', projectId);
+  params.set('dim', dimension);
+  const qs = params.toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
+/** Severity dot color for a recommendation. */
+function severityDot(severity: string): string {
+  const s = (severity || '').toLowerCase();
+  if (s === 'critical' || s === 'high') return 'bg-red-500';
+  if (s === 'medium') return 'bg-amber-500';
+  if (s === 'low') return 'bg-yellow-400';
+  return 'bg-gray-400';
+}
+
+/**
+ * Drill-down list of a dimension's recommendations, each rendered as an
+ * actionable CTA. A `navigate` action becomes a link to the fix location
+ * (e.g. Governance / Explore / Catalog) the backend specified in `cta.target`.
+ */
+function RecoList({
+  recos,
+  dimension,
+  projectId,
+}: {
+  recos: Recommendation[];
+  dimension: ScoreCardDimension;
+  projectId?: string;
+}) {
+  if (!recos.length) {
+    return (
+      <p className="mt-1 text-[11px] italic text-gray-400 dark:text-gray-500">
+        No open recommendations for this dimension.
+      </p>
+    );
+  }
+  return (
+    <ul className="mt-2 flex flex-col gap-2 border-t border-gray-100 pt-2 dark:border-gray-800">
+      {recos.map((r) => {
+        const canNavigate = r.cta?.target && (!r.cta.action || r.cta.action === 'navigate');
+        return (
+          <li key={r.id} className="flex flex-col gap-0.5">
+            <div className="flex items-start gap-1.5">
+              <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${severityDot(r.severity)}`} />
+              <span className="text-[11px] font-medium leading-snug text-gray-700 dark:text-gray-200">
+                {r.title}
+              </span>
+            </div>
+            {r.detail ? (
+              <p className="pl-3 text-[10px] leading-snug text-gray-500 dark:text-gray-400">{r.detail}</p>
+            ) : null}
+            {canNavigate ? (
+              <Link
+                href={withContext(r.cta!.target as string, dimension, projectId)}
+                className="pl-3 text-[10px] font-semibold text-cyan-600 hover:underline dark:text-cyan-400"
+              >
+                {r.cta!.label} →
+              </Link>
+            ) : r.cta?.label ? (
+              <span className="pl-3 text-[10px] text-gray-400 dark:text-gray-500">{r.cta.label}</span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
  * Honest scope chip. Only rendered when a card carries a `scope` (i.e. the
  * per-project path). "project" = real per-project value; "account" = an
  * account-level fallback shown in a project context — labelled so it is never
@@ -133,7 +219,9 @@ function ScopeChip({ scope }: { scope: 'project' | 'account' }) {
   );
 }
 
-function ScoreCardItem({ card }: { card: ScoreCard }) {
+function ScoreCardItem({ card, projectId }: { card: ScoreCard; projectId?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasRecos = !card.scope && (card.recos?.length ?? 0) > 0;
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
@@ -167,7 +255,28 @@ function ScoreCardItem({ card }: { card: ScoreCard }) {
           </span>
         ) : null
       ) : (
-        <RecoBadge card={card} />
+        <>
+          <button
+            type="button"
+            onClick={() => hasRecos && setExpanded((e) => !e)}
+            disabled={!hasRecos}
+            aria-expanded={expanded}
+            className={`flex items-center justify-between gap-2 text-left ${hasRecos ? 'cursor-pointer' : 'cursor-default'}`}
+            title={hasRecos ? 'Show recommendations' : undefined}
+          >
+            <RecoBadge card={card} />
+            {hasRecos ? (
+              expanded ? (
+                <ChevronDown className="h-3 w-3 shrink-0 text-gray-400" />
+              ) : (
+                <ChevronRight className="h-3 w-3 shrink-0 text-gray-400" />
+              )
+            ) : null}
+          </button>
+          {expanded && hasRecos ? (
+            <RecoList recos={card.recos as Recommendation[]} dimension={card.dimension} projectId={projectId} />
+          ) : null}
+        </>
       )}
     </div>
   );
@@ -200,11 +309,13 @@ const PROJECT_DIMENSIONS: ScoreCardDimension[] = ['dq', 'cost', 'perf', 'gov'];
 export default function ScoreCards({ days, dimensions, projectId }: ScoreCardsProps) {
   const [cards, setCards] = useState<ScoreCard[] | null>(null);
   const [error, setError] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let ignore = false;
     setError(false);
+    setUnavailable(false);
     setCards(null);
     // projectId set → honest per-project scores; otherwise unchanged account-wide.
     const load = projectId
@@ -214,8 +325,11 @@ export default function ScoreCards({ days, dimensions, projectId }: ScoreCardsPr
       .then((result) => {
         if (!ignore) setCards(result);
       })
-      .catch(() => {
-        if (!ignore) setError(true);
+      .catch((err) => {
+        if (ignore) return;
+        // Route not provisioned (404/501) → hide quietly, no failing Retry.
+        if (err instanceof ScoreCardsUnavailableError) setUnavailable(true);
+        else setError(true);
       });
     return () => {
       ignore = true;
@@ -226,6 +340,12 @@ export default function ScoreCards({ days, dimensions, projectId }: ScoreCardsPr
     dimensions ?? (projectId ? PROJECT_DIMENSIONS : DEFAULT_DIMENSIONS);
   const gridClass =
     'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3';
+
+  // Feature not provisioned on this backend — render nothing rather than a
+  // permanent error banner with a Retry that can never succeed.
+  if (unavailable) {
+    return null;
+  }
 
   if (error) {
     return <ScoreCardsError onRetry={() => setReloadKey((k) => k + 1)} />;
@@ -257,7 +377,7 @@ export default function ScoreCards({ days, dimensions, projectId }: ScoreCardsPr
   return (
     <div className={gridClass}>
       {visible.map((card) => (
-        <ScoreCardItem key={card.dimension} card={card} />
+        <ScoreCardItem key={card.dimension} card={card} projectId={projectId} />
       ))}
     </div>
   );

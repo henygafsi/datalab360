@@ -3,30 +3,31 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button, Badge, Tooltip } from 'rizzui';
 import {
-  Camera, Download, Loader2, RefreshCw, XCircle,
+  Camera, Download, Loader2, RefreshCw, XCircle, Sparkles,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { isUnavailable } from '@/lib/http-status';
+import { normalizeChartId } from './reporting-catalog-grounding';
 import DrillThroughPanel from './DrillThroughPanel';
 import { useDashboard } from '../hooks/useDashboard';
 import { useExecuteDashboard } from '../hooks/useExecuteDashboard';
 
 import PageTabs from './PageTabs';
 import DashboardGrid from './DashboardGrid';
-import FilterBar from './FilterBar';
+import SmartFilterBar from './SmartFilterBar';
 import AddWidgetPanel from './AddChartPanel';
 import ChartPaletteRail from './ChartPaletteRail';
+import BiSmartRightBar, { type BiPanelSection, type AiProposal } from './BiSmartRightBar';
 //import DashboardTemplates from './DashboardTemplates';
 //import type { DashboardTemplate } from './DashboardTemplates';
-import TimeIntelligenceBar, {
-  createDefaultTimeState,
-  computePreviousRange,
-} from './TimeIntelligenceBar';
-import type { TimeIntelligenceState } from './TimeIntelligenceBar';
+import type { AppliedFilter } from '../hooks/useSmartFilters';
 
 import {
   updateWidget,
   deleteWidget as deleteWidgetApi,
+  createWidget,
+  nlToChart,
   saveSnapshot,
   exportDashboard,
 } from '@/app/services/api/biDashboardApi';
@@ -38,9 +39,10 @@ import TableConfigModal from './widget-config/TableConfigModal';
 import type {
   DashboardPage,
   DashboardWidget,
-  DashboardFilter,
   FullDashboardPage,
   BIDashboardChartConfig,
+  DashboardChartType,
+  WidgetType,
 } from '@/app/services/api/types';
 
 interface DashboardEditorProps {
@@ -90,21 +92,80 @@ function toChartConfig(cfg: ComponentConfig): BIDashboardChartConfig {
   };
 }
 
+/**
+ * Defensively turn the loose chart_config returned by POST /bi-dashboard/nl-to-chart
+ * into a BIDashboardChartConfig, falling back to the dashboard's default db/schema.
+ */
+function nlConfigToChartConfig(
+  raw: Record<string, unknown>,
+  defaults: { database?: string | null; schema?: string | null },
+): BIDashboardChartConfig {
+  const measuresRaw = raw.measures ?? raw.suggestedMeasures ?? raw.y;
+  const measures = Array.isArray(measuresRaw)
+    ? measuresRaw
+        .map((m) =>
+          typeof m === 'string'
+            ? { column: m, aggregator: 'SUM' }
+            : m && typeof m === 'object' && 'column' in m
+              ? {
+                  column: String((m as { column: unknown }).column),
+                  aggregator: String((m as { aggregator?: unknown }).aggregator || 'SUM'),
+                }
+              : null,
+        )
+        .filter((m): m is { column: string; aggregator: string } => !!m && !!m.column)
+    : typeof measuresRaw === 'string'
+      ? [{ column: measuresRaw, aggregator: 'SUM' }]
+      : [];
+
+  const dimRaw = raw.x ?? raw.dimension ?? raw.suggestedDimension ?? raw.groupBy;
+  const x =
+    typeof dimRaw === 'string'
+      ? dimRaw
+      : Array.isArray(dimRaw) && typeof dimRaw[0] === 'string'
+        ? (dimRaw[0] as string)
+        : null;
+
+  const groupByRaw = raw.groupBy;
+  const groupBy = Array.isArray(groupByRaw)
+    ? groupByRaw.filter((g): g is string => typeof g === 'string')
+    : x
+      ? [x]
+      : [];
+
+  return {
+    database: String(raw.database || defaults.database || ''),
+    schema: String(raw.schema || defaults.schema || ''),
+    table: String(raw.table || ''),
+    x,
+    measures,
+    filters: [],
+    groupBy,
+    limit: typeof raw.limit === 'number' ? raw.limit : null,
+  };
+}
+
+/** Stack a freshly added widget below the existing ones (mirrors ChartPaletteRail). */
+function nextWidgetPosition(widgets: DashboardWidget[]): { x: number; y: number } {
+  if (widgets.length === 0) return { x: 0, y: 0 };
+  return { x: 0, y: Math.max(...widgets.map((w) => w.position_y + w.height)) };
+}
+
 export default function DashboardEditor({ projectId, projectName }: DashboardEditorProps) {
   const { data: dashboard, loading, error, refetch } = useDashboard(projectId);
   const {
-    executing, executingWidgetId, results, previousResults, errors,
+    executing, executingWidgetId, results, errors,
     statuses, lastSummary,
     executeAll, executeSingle, clearResults, setWidgetResult,
   } = useExecuteDashboard(projectId);
   const [statusDrawerOpen, setStatusDrawerOpen] = useState(false);
 
-  // Time intelligence state
-  const [timeState, setTimeState] = useState<TimeIntelligenceState>(createDefaultTimeState);
+  // Smart filters — auto-detected from the page's tables (replaces the two dead
+  // bars). Selections are injected per-widget into the render payload.
+  const [appliedFilters, setAppliedFilters] = useState<AppliedFilter[]>([]);
 
   // Local state derived from dashboard data
   const [pages, setPages] = useState<FullDashboardPage[]>([]);
-  const [globalFilters, setGlobalFilters] = useState<DashboardFilter[]>([]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [showAddWidget, setShowAddWidget] = useState(false);
   // ChartPaletteRail collapse state — persisted to localStorage so the
@@ -118,11 +179,65 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     }
   });
   const [editingWidget, setEditingWidget] = useState<DashboardWidget | null>(null);
+  // Add flow — a palette tile was clicked; its config form is hosted in the
+  // right panel (BiSmartRightBar) exactly like the edit flow. Mutually
+  // exclusive with editingWidget.
+  const [addDraft, setAddDraft] = useState<{
+    widgetType: WidgetType;
+    chartType: DashboardChartType | null;
+  } | null>(null);
   const [snapshotting, setSaving] = useState(false);
   const [crossWidgetFilter, setCrossWidgetFilter] = useState<Record<string, string>>({});
   const [isExporting, setIsExporting] = useState(false);
   const [drillWidget, setDrillWidget] = useState<DashboardWidget | null>(null);
-  
+
+  // BiSmartRightBar — docked right panel that hosts widget config (no popup) +
+  // runs / schedule / share / AI. Section + collapse persist to versioned keys.
+  const [panelSection, setPanelSection] = useState<BiPanelSection>(() => {
+    if (typeof window === 'undefined') return 'configure';
+    try {
+      return (window.localStorage.getItem('data360.bi.panel.section.v1') as BiPanelSection) || 'configure';
+    } catch {
+      return 'configure';
+    }
+  });
+  const [panelCollapsed, setPanelCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem('data360.bi.panel.collapsed.v1') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [lastSnapshotId, setLastSnapshotId] = useState<string | null>(null);
+
+  const setPaletteCollapsedPersist = useCallback((c: boolean) => {
+    setPaletteCollapsed(c);
+    try {
+      window.localStorage.setItem('bi-palette-collapsed', c ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // "Hidable bars when click on center" — clicking the empty canvas toggles both
+  // rails so the charts can run full-width, then brings them back on a 2nd click.
+  const handleCanvasBackgroundClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.target !== e.currentTarget) return; // only the empty canvas, not a widget
+      const anyOpen = !panelCollapsed || !paletteCollapsed;
+      setPanelCollapsed(anyOpen);
+      setPaletteCollapsedPersist(anyOpen);
+    },
+    [panelCollapsed, paletteCollapsed, setPaletteCollapsedPersist],
+  );
+
+  // NL-to-chart bar (POST /bi-dashboard/nl-to-chart → createWidget on the active page)
+  const [nlQuestion, setNlQuestion] = useState('');
+  const [nlLoading, setNlLoading] = useState(false);
+  const [nlError, setNlError] = useState<string | null>(null);
+  const [nlUnavailable, setNlUnavailable] = useState(false);
+
   // Pending layout changes for batch saving
   const [pendingLayoutChanges, setPendingLayoutChanges] = useState<Record<string, {x: number; y: number; w: number; h: number}>>({});
   const [hasUnsavedLayoutChanges, setHasUnsavedLayoutChanges] = useState(false);
@@ -131,7 +246,6 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   useEffect(() => {
     if (!dashboard) return;
     setPages(dashboard.pages || []);
-    setGlobalFilters(dashboard.global_filters || []);
     if (!activePageId && dashboard.pages?.length > 0) {
       setActivePageId(dashboard.pages[0].page_id);
     }
@@ -144,11 +258,74 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   );
 
   const pageWidgets = activePage?.widgets || [];
-  const pageFilters = activePage?.filters || [];
-  const allFilters = useMemo(
-    () => [...globalFilters, ...pageFilters],
-    [globalFilters, pageFilters]
-  );
+
+  // Default data source for the ADD flow — the most common complete
+  // db/schema/table among this page's widgets. Passed to the add-mode config
+  // forms so Database/Schema/Table (and their column lists) are pre-filled
+  // instead of starting blank. Undefined when no widget has a complete source.
+  const defaultSource = useMemo<{ database: string; schema: string; table: string } | undefined>(() => {
+    const counts = new Map<string, { database: string; schema: string; table: string; n: number }>();
+    for (const w of pageWidgets) {
+      const c = w.chart_config;
+      if (!c?.database || !c?.schema || !c?.table) continue;
+      const key = `${c.database} ${c.schema} ${c.table}`;
+      const entry = counts.get(key);
+      if (entry) entry.n += 1;
+      else counts.set(key, { database: c.database, schema: c.schema, table: c.table, n: 1 });
+    }
+    let best: { database: string; schema: string; table: string; n: number } | undefined;
+    for (const v of counts.values()) {
+      if (!best || v.n > best.n) best = v;
+    }
+    return best ? { database: best.database, schema: best.schema, table: best.table } : undefined;
+  }, [pageWidgets]);
+
+  // Rule-based AI proposals for the right panel — deterministic, so the "AI"
+  // section never errors. They reference the page's real tables when present.
+  const aiProposals = useMemo<AiProposal[]>(() => {
+    const tables = [
+      ...new Set(pageWidgets.map((w) => w.chart_config?.table).filter(Boolean) as string[]),
+    ];
+    if (pageWidgets.length === 0) {
+      return [
+        {
+          id: 'first-chart',
+          title: 'Generate your first chart',
+          rationale: 'Describe what you want in the AI bar above — e.g. “monthly revenue by region” — and it builds a ready chart.',
+        },
+        {
+          id: 'scan-source',
+          title: 'Pick a data source to chart',
+          rationale: 'Scan your tables and add one from the left palette to start visualizing.',
+          href: '/explore-design',
+          hrefLabel: 'Open Explore',
+        },
+      ];
+    }
+    return [
+      {
+        id: 'enrich',
+        title: 'Enrich with a related source',
+        rationale: tables.length
+          ? `This page reports on ${tables.join(', ')}. Bring in a related table to deepen the analysis.`
+          : 'Scan more tables to enrich this dashboard.',
+        href: '/explore-design',
+        hrefLabel: 'Open Explore',
+      },
+      {
+        id: 'rls',
+        title: 'Secure these reports (RLS)',
+        rationale: 'Apply row-level security so each viewer only sees the rows they’re entitled to.',
+        href: '/governance/policies',
+        hrefLabel: 'Open Policies',
+      },
+      {
+        id: 'snapshot',
+        title: 'Save a restorable version',
+        rationale: 'Snapshot the current design from the Runs section so you can roll back later.',
+      },
+    ];
+  }, [pageWidgets]);
 
   // Simple page objects for PageTabs (without nested widgets/filters)
   const simplifiedPages: DashboardPage[] = useMemo(
@@ -171,12 +348,12 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     [clearResults]
   );
 
-  // Execute single widget with current time range
+  // Execute single widget with the active smart filters
   const handleExecuteSingle = useCallback(
     (widget: DashboardWidget) => {
-      executeSingle(widget, timeState.range);
+      executeSingle(widget, appliedFilters);
     },
-    [executeSingle, timeState.range]
+    [executeSingle, appliedFilters]
   );
 
   // Delete widget
@@ -249,10 +426,25 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     [projectId, activePageId, pageWidgets]
   );
 
-  // Configure widget — open modal
+  // Configure widget — focus the right panel's Configure section (no popup)
   const handleConfigureWidget = useCallback((widget: DashboardWidget) => {
     setEditingWidget(widget);
+    setAddDraft(null);
+    setPanelSection('configure');
+    setPanelCollapsed(false);
   }, []);
+
+  // Start adding a widget from the left palette — host its config in the right
+  // panel (Configure section), mirroring the edit flow. No popup.
+  const handleStartAdd = useCallback(
+    (widgetType: WidgetType, chartType: DashboardChartType | null) => {
+      setAddDraft({ widgetType, chartType });
+      setEditingWidget(null);
+      setPanelSection('configure');
+      setPanelCollapsed(false);
+    },
+    [],
+  );
 
   // Save chart widget config from ConfigurationModal
   const handleSaveChartConfig = useCallback(
@@ -339,6 +531,166 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     }
   }, [activePageId, setWidgetResult]);
 
+  // Save a NEW chart widget from the docked Configure form (add flow). The
+  // ChartConfigModal hands back a ComponentConfig (same shape as the edit
+  // flow's handleSaveChartConfig), so we reuse toChartConfig here.
+  const handleAddChartSave = useCallback(
+    async (config: ComponentConfig) => {
+      if (!activePageId || !addDraft) return;
+      const chartConfig = toChartConfig(config);
+      const title = config.title || 'Untitled chart';
+      const pos = nextWidgetPosition(pageWidgets);
+      try {
+        const response = await createWidget(projectId, {
+          page_id: activePageId,
+          widget_type: 'chart',
+          chart_type: addDraft.chartType,
+          title,
+          chart_config: chartConfig,
+          position_x: pos.x,
+          position_y: pos.y,
+          width: 12,
+          height: 4,
+        });
+        handleWidgetAdded(
+          {
+            widget_id: response.widget_id,
+            page_id: activePageId,
+            widget_type: 'chart',
+            chart_type: addDraft.chartType,
+            title,
+            chart_config: chartConfig,
+            position_x: pos.x,
+            position_y: pos.y,
+            width: 12,
+            height: 4,
+          },
+          config.prefetched?.data,
+        );
+        setAddDraft(null);
+        toast.success(`${title} added`);
+      } catch (err) {
+        toast.error(getApiErrorMessage(err));
+      }
+    },
+    [projectId, activePageId, addDraft, pageWidgets, handleWidgetAdded],
+  );
+
+  // Save a NEW KPI / Table widget from the docked Configure form (add flow).
+  // The Kpi/Table modals hand back { title, chartConfig, prefetchedData } — the
+  // SAME shape the edit flow's handleSaveDataWidgetConfig consumes — so we pass
+  // chartConfig straight through (no toChartConfig conversion).
+  const handleAddDataWidgetSave = useCallback(
+    async (result: { title: string; chartConfig: BIDashboardChartConfig; prefetchedData?: Record<string, unknown>[] }) => {
+      if (!activePageId || !addDraft) return;
+      const isKpi = addDraft.widgetType === 'kpi_card';
+      const width = isKpi ? 4 : 12;
+      const height = isKpi ? 2 : 4;
+      const pos = nextWidgetPosition(pageWidgets);
+      try {
+        const response = await createWidget(projectId, {
+          page_id: activePageId,
+          widget_type: addDraft.widgetType,
+          chart_type: null,
+          title: result.title,
+          chart_config: result.chartConfig,
+          position_x: pos.x,
+          position_y: pos.y,
+          width,
+          height,
+        });
+        handleWidgetAdded(
+          {
+            widget_id: response.widget_id,
+            page_id: activePageId,
+            widget_type: addDraft.widgetType,
+            chart_type: null,
+            title: result.title,
+            chart_config: result.chartConfig,
+            position_x: pos.x,
+            position_y: pos.y,
+            width,
+            height,
+          },
+          result.prefetchedData,
+        );
+        setAddDraft(null);
+        toast.success(`${result.title} added`);
+      } catch (err) {
+        toast.error(getApiErrorMessage(err));
+      }
+    },
+    [projectId, activePageId, addDraft, pageWidgets, handleWidgetAdded],
+  );
+
+  // NL-to-chart: turn a plain-language question into a chart widget on the
+  // active page. POST /bi-dashboard/nl-to-chart → createWidget → append (the
+  // auto-fetch effect then executes & renders it). Honest about backends that
+  // don't expose the endpoint (isUnavailable → quiet disabled state).
+  const handleNlGenerate = useCallback(async () => {
+    const q = nlQuestion.trim();
+    if (!q || !activePageId || nlLoading) return;
+    setNlLoading(true);
+    setNlError(null);
+    try {
+      const res = await nlToChart(
+        q,
+        dashboard?.default_database || undefined,
+        dashboard?.default_schema || undefined,
+      );
+      const cfg = (res?.chart_config ?? null) as Record<string, unknown> | null;
+      if (!cfg || Object.keys(cfg).length === 0) {
+        setNlError(
+          "Couldn't turn that into a chart — try rephrasing, or name the table and measure explicitly.",
+        );
+        return;
+      }
+      const chartType = normalizeChartId(
+        cfg.chartType ?? cfg.chart_type ?? cfg.type,
+        'bar',
+      ) as DashboardChartType;
+      const chartConfig = nlConfigToChartConfig(cfg, {
+        database: dashboard?.default_database,
+        schema: dashboard?.default_schema,
+      });
+      const title = q.length > 60 ? `${q.slice(0, 57)}…` : q;
+      const pos = nextWidgetPosition(pageWidgets);
+      const response = await createWidget(projectId, {
+        page_id: activePageId,
+        widget_type: 'chart',
+        chart_type: chartType,
+        title,
+        chart_config: chartConfig,
+        position_x: pos.x,
+        position_y: pos.y,
+        width: 12,
+        height: 4,
+      });
+      handleWidgetAdded({
+        widget_id: response.widget_id,
+        page_id: activePageId,
+        widget_type: 'chart',
+        chart_type: chartType,
+        title,
+        chart_config: chartConfig,
+        position_x: pos.x,
+        position_y: pos.y,
+        width: 12,
+        height: 4,
+      });
+      setNlQuestion('');
+      toast.success('Chart generated from your question');
+    } catch (err) {
+      if (isUnavailable(err)) {
+        setNlUnavailable(true);
+      } else {
+        setNlError(getApiErrorMessage(err));
+      }
+    } finally {
+      setNlLoading(false);
+    }
+  }, [nlQuestion, activePageId, nlLoading, dashboard, pageWidgets, projectId, handleWidgetAdded]);
+
   // Handle pages change from PageTabs (add/rename/delete)
   const handlePagesChange = useCallback((updatedSimplePages: DashboardPage[]) => {
     setPages((prev) => {
@@ -354,19 +706,11 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     });
   }, []);
 
-  // Handle filters change
-  const handleFiltersChange = useCallback((updatedFilters: DashboardFilter[]) => {
-    const global = updatedFilters.filter((f) => f.scope === 'global');
-    const page = updatedFilters.filter((f) => f.scope === 'page');
-    setGlobalFilters(global);
-    if (activePageId) {
-      setPages((prev) =>
-        prev.map((p) =>
-          p.page_id === activePageId ? { ...p, filters: page } : p
-        )
-      );
-    }
-  }, [activePageId]);
+  // Smart filters applied — store and trigger a re-fetch with the new WHERE clauses.
+  const handleFiltersApply = useCallback((filters: AppliedFilter[]) => {
+    setAppliedFilters(filters);
+    autoFetchedKeyRef.current = null;
+  }, []);
 
   // Apply template — create placeholder widgets from template config
    /**
@@ -419,6 +763,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     setSaving(true);
     try {
       const res = await saveSnapshot(projectId);
+      setLastSnapshotId(res.version_id);
       toast.success(`Snapshot saved (${res.version_id})`);
     } catch (err) {
       toast.error(getApiErrorMessage(err));
@@ -444,16 +789,16 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     setCrossWidgetFilter({});
   }, []);
 
-  // Track which page+timeRange we already auto-fetched to avoid duplicate calls
+  // Track which page+filters we already auto-fetched to avoid duplicate calls
   const autoFetchedKeyRef = useRef<string | null>(null);
 
-  // Build a stable key from page + time range to detect changes
+  // Build a stable key from page + active filters to detect changes
   const fetchKey = useMemo(
-    () => `${activePageId}|${timeState.range.from}|${timeState.range.to}|${timeState.compareEnabled}`,
-    [activePageId, timeState.range.from, timeState.range.to, timeState.compareEnabled]
+    () => `${activePageId}|${JSON.stringify(appliedFilters)}`,
+    [activePageId, appliedFilters]
   );
 
-  // Auto-fetch data for widgets when page loads or time range changes
+  // Auto-fetch data for widgets when the page loads or filters change
   useEffect(() => {
     if (
       activePageId &&
@@ -462,30 +807,18 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
       autoFetchedKeyRef.current !== fetchKey
     ) {
       autoFetchedKeyRef.current = fetchKey;
-      const prevRange = timeState.compareEnabled ? computePreviousRange(timeState.range) : null;
-      executeAll(pageWidgets, timeState.range, prevRange);
+      executeAll(pageWidgets, appliedFilters);
     }
-  }, [fetchKey, pageWidgets.length, executing, executeAll, timeState]);
-
-  // Handle time state change — trigger re-fetch
-  const handleTimeStateChange = useCallback(
-    (newState: TimeIntelligenceState) => {
-      setTimeState(newState);
-      // Reset auto-fetch key so the effect will re-trigger
-      autoFetchedKeyRef.current = null;
-    },
-    []
-  );
+  }, [fetchKey, pageWidgets.length, executing, executeAll, appliedFilters]);
 
   // Handle manual refresh (for auto-refresh timer and refresh button)
   const handleRefreshNow = useCallback(() => {
     autoFetchedKeyRef.current = null;
     clearResults();
     if (pageWidgets.length > 0) {
-      const prevRange = timeState.compareEnabled ? computePreviousRange(timeState.range) : null;
-      executeAll(pageWidgets, timeState.range, prevRange);
+      executeAll(pageWidgets, appliedFilters);
     }
-  }, [pageWidgets, timeState, clearResults, executeAll]);
+  }, [pageWidgets, appliedFilters, clearResults, executeAll]);
 
   if (loading) {
     return (
@@ -636,14 +969,6 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
         </div>
       </div>
 
-      {/* Time Intelligence Bar */}
-      <TimeIntelligenceBar
-        state={timeState}
-        onChange={handleTimeStateChange}
-        onRefreshNow={handleRefreshNow}
-        executing={executing}
-      />
-
       {/* Page Tabs */}
       <PageTabs
         projectId={projectId}
@@ -653,22 +978,75 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
         onPagesChange={handlePagesChange}
       />
 
-      {/* Filter Bar */}
-      <FilterBar
-        projectId={projectId}
-        pageId={activePageId}
-        filters={allFilters}
-        onFiltersChange={handleFiltersChange}
+      {/* Smart Filters — auto-detected date & dimension columns from this page's
+          tables. Replaces the manual FilterBar (filters never reached render) and
+          the TimeIntelligenceBar (time filtering was a no-op). */}
+      <SmartFilterBar
+        widgets={pageWidgets}
+        onChange={handleFiltersApply}
+        onRefreshNow={handleRefreshNow}
+        executing={executing}
       />
 
-      {/* Template Gallery (shown when page has no widgets) 
+      {/* NL-to-chart bar — POST /bi-dashboard/nl-to-chart, appends a widget to the active page */}
+      {activePageId && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <Sparkles className="h-4 w-4 shrink-0 text-cyan-500" />
+            {nlUnavailable ? (
+              <span className="text-xs text-slate-400 dark:text-slate-500">
+                AI chart generation isn&apos;t available on this backend yet.
+              </span>
+            ) : (
+              <>
+                <input
+                  value={nlQuestion}
+                  onChange={(e) => setNlQuestion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void handleNlGenerate();
+                    }
+                  }}
+                  placeholder={'Ask AI to build a chart — e.g. "Monthly revenue by region"'}
+                  aria-label="Describe the chart you want the AI to generate"
+                  disabled={nlLoading}
+                  className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:opacity-60 dark:text-slate-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleNlGenerate()}
+                  disabled={!nlQuestion.trim() || nlLoading}
+                  aria-busy={nlLoading}
+                  className="flex shrink-0 items-center gap-1.5 rounded-md bg-cyan-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-cyan-700 disabled:opacity-40"
+                >
+                  {nlLoading ? (
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</>
+                  ) : (
+                    <><Sparkles className="h-3.5 w-3.5" /> Generate</>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
+          {nlError && (
+            <p className="px-1 text-xs text-red-600 dark:text-red-400" role="alert">
+              {nlError}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Template Gallery (shown when page has no widgets)
       {activePageId && pageWidgets.length === 0 && (
         <div className="mt-4">
           <DashboardTemplates onApplyTemplate={handleApplyTemplate} />
         </div>
       )}*/}
 
-      {/* Dashboard area: ChartPaletteRail (left, replaces popup) + Grid */}
+      {/* Dashboard area: ChartPaletteRail (left, add charts) + Grid (center,
+          click-empty-canvas to hide both rails) + BiSmartRightBar (right, hosts
+          widget config / runs / schedule / share / AI — no popups). */}
       {activePageId && (
         <div className="flex min-h-[480px] gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <ChartPaletteRail
@@ -676,15 +1054,9 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
             pageId={activePageId}
             existingWidgets={pageWidgets}
             onWidgetAdded={handleWidgetAdded}
+            onStartAdd={handleStartAdd}
             collapsed={paletteCollapsed}
-            onCollapsedChange={(c) => {
-              setPaletteCollapsed(c);
-              try {
-                window.localStorage.setItem('bi-palette-collapsed', c ? '1' : '0');
-              } catch {
-                /* ignore */
-              }
-            }}
+            onCollapsedChange={setPaletteCollapsedPersist}
           />
           <div
             data-dashboard-grid
@@ -692,13 +1064,14 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
             id={`tabpanel-${activePageId}`}
             aria-label={activePage?.title || 'Dashboard page'}
             className="min-w-0 flex-1 overflow-auto"
+            onClick={handleCanvasBackgroundClick}
           >
             <DashboardGrid
               widgets={pageWidgets}
               widgetResults={results}
-              previousWidgetResults={timeState.compareEnabled ? previousResults : undefined}
+              previousWidgetResults={undefined}
               widgetErrors={errors}
-              compareEnabled={timeState.compareEnabled}
+              compareEnabled={false}
               executingWidgetId={executingWidgetId}
               onConfigureWidget={handleConfigureWidget}
               onDeleteWidget={handleDeleteWidget}
@@ -710,6 +1083,86 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
               onDrillThrough={(widget) => setDrillWidget(widget)}
             />
           </div>
+          <BiSmartRightBar
+            projectId={projectId}
+            projectName={projectName}
+            projectStatus="draft"
+            pageCount={pages.length}
+            widgetCount={pageWidgets.length}
+            section={panelSection}
+            onSectionChange={setPanelSection}
+            collapsed={panelCollapsed}
+            onCollapsedChange={setPanelCollapsed}
+            editingWidget={editingWidget}
+            configSlot={
+              editingWidget && editingWidget.widget_type === 'chart' && editingWidget.chart_config ? (
+                <ChartConfigModal
+                  variant="panel"
+                  isOpen
+                  onClose={() => setEditingWidget(null)}
+                  onSave={handleSaveChartConfig}
+                  initialConfig={toComponentConfig(editingWidget)}
+                  chartType={editingWidget.chart_type || undefined}
+                />
+              ) : editingWidget && editingWidget.widget_type === 'kpi_card' ? (
+                <KpiCardConfigModal
+                  variant="panel"
+                  isOpen
+                  onClose={() => setEditingWidget(null)}
+                  onSave={handleSaveDataWidgetConfig}
+                  initialConfig={{
+                    title: editingWidget.title || '',
+                    chartConfig: editingWidget.chart_config || undefined,
+                  }}
+                />
+              ) : editingWidget && editingWidget.widget_type === 'table' ? (
+                <TableConfigModal
+                  variant="panel"
+                  isOpen
+                  onClose={() => setEditingWidget(null)}
+                  onSave={handleSaveDataWidgetConfig}
+                  initialConfig={{
+                    title: editingWidget.title || '',
+                    chartConfig: editingWidget.chart_config || undefined,
+                  }}
+                />
+              ) : addDraft && addDraft.widgetType === 'chart' ? (
+                <ChartConfigModal
+                  key="add-chart"
+                  variant="panel"
+                  isOpen
+                  onClose={() => setAddDraft(null)}
+                  onSave={handleAddChartSave}
+                  chartType={addDraft.chartType || undefined}
+                  defaultSource={defaultSource}
+                />
+              ) : addDraft && addDraft.widgetType === 'kpi_card' ? (
+                <KpiCardConfigModal
+                  key="add-kpi"
+                  variant="panel"
+                  isOpen
+                  onClose={() => setAddDraft(null)}
+                  onSave={handleAddDataWidgetSave}
+                  defaultSource={defaultSource}
+                />
+              ) : addDraft && addDraft.widgetType === 'table' ? (
+                <TableConfigModal
+                  key="add-table"
+                  variant="panel"
+                  isOpen
+                  onClose={() => setAddDraft(null)}
+                  onSave={handleAddDataWidgetSave}
+                  defaultSource={defaultSource}
+                />
+              ) : undefined
+            }
+            onSnapshot={handleSnapshot}
+            snapshotting={snapshotting}
+            lastSnapshotId={lastSnapshotId}
+            onRefreshNow={handleRefreshNow}
+            executing={executing}
+            aiProposals={aiProposals}
+          />
         </div>
       )}
 
@@ -725,42 +1178,9 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
         />
       )}
 
-      {/* Edit Chart Widget → ChartConfigModal */}
-      {editingWidget && editingWidget.widget_type === 'chart' && editingWidget.chart_config && (
-        <ChartConfigModal
-          isOpen
-          onClose={() => setEditingWidget(null)}
-          onSave={handleSaveChartConfig}
-          initialConfig={toComponentConfig(editingWidget)}
-          chartType={editingWidget.chart_type || undefined}
-        />
-      )}
+        {/* Widget config (chart / kpi / table) now lives in BiSmartRightBar's
+            Configure section (variant="panel") — no popups. */}
 
-      {/* Edit KPI Card → KpiCardConfigModal */}
-      {editingWidget && editingWidget.widget_type === 'kpi_card' && (
-        <KpiCardConfigModal
-          isOpen
-          onClose={() => setEditingWidget(null)}
-          onSave={handleSaveDataWidgetConfig}
-          initialConfig={{
-            title: editingWidget.title || '',
-            chartConfig: editingWidget.chart_config || undefined,
-          }}
-        />
-      )}
-
-      {/* Edit Data Table → TableConfigModal */}
-      {editingWidget && editingWidget.widget_type === 'table' && (
-        <TableConfigModal
-          isOpen
-          onClose={() => setEditingWidget(null)}
-          onSave={handleSaveDataWidgetConfig}
-          initialConfig={{
-            title: editingWidget.title || '',
-            chartConfig: editingWidget.chart_config || undefined,
-          }}
-        />
-      )}
         {/* Drill-through panel */}
       {drillWidget && (
         <DrillThroughPanel

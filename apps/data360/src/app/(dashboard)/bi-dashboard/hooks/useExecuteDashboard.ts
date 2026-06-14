@@ -10,7 +10,7 @@ import type {
 } from '@/app/services/api/types';
 import { getApiErrorMessage } from '@/lib/api-client';
 import toast from 'react-hot-toast';
-import type { TimeRange } from '../components/TimeIntelligenceBar';
+import type { AppliedFilter } from './useSmartFilters';
 
 interface WidgetDataResult {
   data: Record<string, unknown>[];
@@ -18,21 +18,27 @@ interface WidgetDataResult {
 }
 
 /**
- * Build time range filters to inject into each request.
- * NOTE: Returns empty array because _TIME_RANGE_FROM/_TIME_RANGE_TO are sentinel
- * column names that do not exist in real Snowflake tables and cause SQL compilation
- * errors (invalid identifier). Time intelligence filtering is handled at the UI level.
- * When a widget's chart_config explicitly defines a date/timestamp column in its filters,
- * those are applied directly.
+ * Resolve the smart filters that apply to a given widget. A filter applies only
+ * when the widget's table is one of the filter's source tables — so a STORE_ID
+ * filter detected on FACT_ORDERS is injected into FACT_ORDERS widgets but never
+ * into a table that lacks that column (which would be a SQL "invalid identifier").
+ * This is the path proven to round-trip into SQL (the WHERE clause drops rows).
  */
-function buildTimeFilters(_timeRange?: TimeRange): any[] {
-  return [];
+function injectFilters(
+  cfg: NonNullable<DashboardWidget['chart_config']>,
+  activeFilters?: AppliedFilter[],
+): Array<{ column: string; operator: string; value: unknown }> {
+  if (!activeFilters?.length) return [];
+  const fqtn = `${cfg.database}.${cfg.schema}.${cfg.table}`;
+  return activeFilters
+    .filter((f) => f.tables.includes(fqtn))
+    .map((f) => ({ column: f.column, operator: f.operator, value: f.value }));
 }
 
 /** Build a fetchChartData-compatible request from a widget's chart_config */
-function buildRequest(widget: DashboardWidget, timeRange?: TimeRange) {
+function buildRequest(widget: DashboardWidget, activeFilters?: AppliedFilter[]) {
   const cfg = widget.chart_config!;
-  const timeFilters = buildTimeFilters(timeRange);
+  const smartFilters = injectFilters(cfg, activeFilters);
 
   // Table widgets use raw mode with columns array
   if (widget.widget_type === 'table' || cfg.mode === 'raw') {
@@ -43,7 +49,7 @@ function buildRequest(widget: DashboardWidget, timeRange?: TimeRange) {
       table: cfg.table,
       mode: 'raw' as const,
       columns: cfg.columns || [],
-      filters: [...existingFilters, ...timeFilters] as any,
+      filters: [...existingFilters, ...smartFilters] as any,
       limit: cfg.limit || 100,
     };
   }
@@ -60,7 +66,7 @@ function buildRequest(widget: DashboardWidget, timeRange?: TimeRange) {
       aggregator: (m.aggregator || undefined) as any,
       seuils: m.seuils as any,
     })),
-    filters: [...existingFilters, ...timeFilters] as any,
+    filters: [...existingFilters, ...smartFilters] as any,
     groupBy: cfg.groupBy,
     limit: cfg.limit || undefined,
   };
@@ -103,8 +109,7 @@ export function useExecuteDashboard(projectId?: string) {
    */
   const executeAll = useCallback(async (
     widgets: DashboardWidget[],
-    timeRange?: TimeRange,
-    previousTimeRange?: TimeRange | null,
+    activeFilters?: AppliedFilter[],
   ) => {
     const dataWidgets = widgets.filter(
       (w) => w.chart_config && ['chart', 'kpi_card', 'table'].includes(w.widget_type)
@@ -126,7 +131,7 @@ export function useExecuteDashboard(projectId?: string) {
       );
       const payload: RenderWidgetRequest[] = dataWidgets.map((w) => ({
         widget_id: w.widget_id,
-        config: buildRequest(w, timeRange) as Record<string, unknown>,
+        config: buildRequest(w, activeFilters) as Record<string, unknown>,
       }));
       try {
         const resp = await renderDashboard(projectId, payload);
@@ -194,7 +199,7 @@ export function useExecuteDashboard(projectId?: string) {
       // Fallback path — keeps the hook usable in contexts without a projectId.
       const settled = await Promise.allSettled(
         dataWidgets.map(async (w) => {
-          const req = buildRequest(w, timeRange);
+          const req = buildRequest(w, activeFilters);
           try {
             const response = await fetchChartData(req);
             return { widget: w, data: response.data ?? [], error: null as string | null };
@@ -255,41 +260,10 @@ export function useExecuteDashboard(projectId?: string) {
     }
     // No toast on all-ok / all-empty; the inline summary pill handles those.
 
-    // Fetch comparison data for previous period if requested.
-    if (previousTimeRange) {
-      if (projectId) {
-        const payload: RenderWidgetRequest[] = dataWidgets.map((w) => ({
-          widget_id: w.widget_id,
-          config: buildRequest(w, previousTimeRange) as Record<string, unknown>,
-        }));
-        try {
-          const resp = await renderDashboard(projectId, payload);
-          const prev: Record<string, WidgetDataResult> = {};
-          for (const w of resp.widgets) prev[w.widget_id] = { data: w.data || [] };
-          setPreviousResults(prev);
-        } catch (err) {
-          console.error('[BI] previous-period render failed:', err);
-          setPreviousResults({});
-        }
-      } else {
-        const prevSettled = await Promise.allSettled(
-          dataWidgets.map(async (w) => {
-            const req = buildRequest(w, previousTimeRange);
-            const response = await fetchChartData(req);
-            return { widgetId: w.widget_id, result: { data: response.data } };
-          })
-        );
-        const prevResults: Record<string, WidgetDataResult> = {};
-        for (const s of prevSettled) {
-          if (s.status === 'fulfilled') {
-            prevResults[s.value.widgetId] = s.value.result;
-          }
-        }
-        setPreviousResults(prevResults);
-      }
-    } else {
-      setPreviousResults({});
-    }
+    // Period-over-period comparison was driven by the removed TimeIntelligenceBar,
+    // whose time filtering was a proven no-op — so previous-period results are
+    // always cleared now. Re-introduce here if a real date-compare lands.
+    setPreviousResults({});
 
     setExecuting(false);
   }, [projectId]);
@@ -297,11 +271,11 @@ export function useExecuteDashboard(projectId?: string) {
   /**
    * Execute a single widget's chart data.
    */
-  const executeSingle = useCallback(async (widget: DashboardWidget, timeRange?: TimeRange) => {
+  const executeSingle = useCallback(async (widget: DashboardWidget, activeFilters?: AppliedFilter[]) => {
     if (!widget.chart_config) return;
     setExecutingWidgetId(widget.widget_id);
     try {
-      const response = await fetchChartData(buildRequest(widget, timeRange));
+      const response = await fetchChartData(buildRequest(widget, activeFilters));
       setResults((prev) => ({
         ...prev,
         [widget.widget_id]: { data: response.data },

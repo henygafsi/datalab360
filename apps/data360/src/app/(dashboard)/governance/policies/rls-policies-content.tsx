@@ -36,7 +36,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import PolicyCard from './components/PolicyCard';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
-import { getTablesTarget } from '@/app/services/mapping/getTablesTarget';
+import { getTables } from '@/app/services/mapping/getTables';
 import { DEFAULTS } from '@/config/database.config';
 // Modern Card Component
 const ModernCard = ({ children, className = '', ...props }: { children: React.ReactNode; className?: string }) => {
@@ -175,7 +175,7 @@ export default function RLSPoliciesContent() {
 
   const loadTables = async (database: string, schema: string) => {
     try {
-      const tbls = await getTablesTarget(database, schema);
+      const tbls = await getTables(database, schema);
       setTables(tbls || []);
     } catch (error) {
       console.error('Error loading tables:', error);

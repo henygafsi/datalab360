@@ -15,6 +15,7 @@ import {
   PiWarning,
 } from 'react-icons/pi';
 import toast from 'react-hot-toast';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import type { EnrichedPolicy, GrantedObject } from '@/app/services/governance/policies';
 import { unapplyPolicyFromAll, formatPolicyError } from '@/app/services/governance/policies';
 
@@ -61,6 +62,12 @@ export default function PolicyCard({
   const [revoking, setRevoking] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // System 2 Action-RBAC: deleting a policy → gouvernance:delete; removing it
+  // from an object → gouvernance:revoke. Fail-open while the allow-set loads.
+  const deletePerm = useCanPerform('gouvernance', 'delete');
+  const revokePerm = useCanPerform('gouvernance', 'revoke');
+  const canDeletePolicy = deletePerm.allowed || deletePerm.loading;
+  const canRevokePolicy = revokePerm.allowed || revokePerm.loading;
 
   const accent = ACCENT_CLASSES[accentColor] || ACCENT_CLASSES.purple;
   const { granted_objects, granted_roles, granted_objects_count } = policy;
@@ -155,9 +162,9 @@ export default function PolicyCard({
                   <button
                     type="button"
                     onClick={() => handleRevoke(obj)}
-                    disabled={revoking === obj.display}
+                    disabled={revoking === obj.display || !canRevokePolicy}
                     className="shrink-0 text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
-                    title="Revoke"
+                    title={canRevokePolicy ? 'Revoke' : 'You lack the "revoke" permission on governance. Ask an administrator to grant it.'}
                   >
                     {revoking === obj.display ? (
                       <span className="text-[10px]">...</span>
@@ -248,7 +255,8 @@ export default function PolicyCard({
           variant="outline"
           size="sm"
           onClick={() => setConfirmDelete(true)}
-          disabled={deleting || confirmDelete}
+          disabled={deleting || confirmDelete || !canDeletePolicy}
+          title={!canDeletePolicy ? 'You lack the "delete" permission on governance. Ask an administrator to grant it.' : undefined}
           className="gap-1 text-red-600 hover:bg-red-50 ml-auto"
         >
           {granted_objects_count > 0 && <PiWarning className="w-3.5 h-3.5" />}

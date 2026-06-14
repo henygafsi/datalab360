@@ -499,3 +499,165 @@ export const getMvRefreshCosts = (days = 30) => _kpiTable('/mv-refresh-costs', d
 export const getTaskHistory = (days = 30) => _kpiTable('/task-history', days);
 export const getTableStorage = (days = 30) => _kpiTable('/table-storage', days);
 export const getRoleHierarchy = () => _kpiTable('/role-hierarchy');
+
+// ── Real object lineage graph (OBJECT_DEPENDENCIES + ACCESS_HISTORY) ──────────
+export interface LineageNode {
+  id: string;
+  label: string;
+  kind: string; // 'object' | 'view' | 'source'
+  depth: number; // -1 upstream · 0 self · 1 downstream
+  order?: number;
+  hits?: number | null;
+  domain?: string;
+}
+export interface LineageEdge {
+  source: string;
+  target: string;
+  kind: string; // 'structural' | 'query'
+}
+export interface ObjectLineageResponse {
+  data: { nodes: LineageNode[]; edges: LineageEdge[] };
+  count?: number;
+  meta?: { access_history?: boolean; fqn?: string; days?: number; hops?: number };
+}
+export async function getObjectLineage(p: {
+  database: string;
+  schema: string;
+  object: string;
+  days?: number;
+}): Promise<ObjectLineageResponse | null> {
+  try {
+    const { data } = await apiClient.get<ObjectLineageResponse>(`${PREFIX}/object-lineage`, {
+      params: { database: p.database, schema: p.schema, object: p.object, days: p.days ?? 30 },
+    });
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+// ── Per-object USAGE + COST enrichment (ACCESS_HISTORY + QUERY_ATTRIBUTION) ────
+// One FULL-OUTER payload merged onto the table-storage Explorer rows. Unlike
+// `_kpiTable`, this PRESERVES `meta`/`degraded` so the Explorer can tell
+// "usage/cost unavailable on this edition" apart from "genuinely zero": the
+// backend returns 200 + `degraded:true` when ACCESS_HISTORY /
+// QUERY_ATTRIBUTION_HISTORY are missing (non-Enterprise edition or no IMPORTED
+// PRIVILEGES). `attributed_usd` is attributed COMPUTE (strictly ≤ total), never
+// total object cost. Keys arrive lowercase ({k.lower(): v} on the backend).
+export interface ObjectEnrichmentRow {
+  database_name: string;
+  schema_name: string;
+  table_name: string;
+  access_count: number | null;
+  distinct_users: number | null;
+  distinct_roles: number | null;
+  roles: string[] | null;          // up to 8 accessing-role names (sample)
+  projects: number | null;         // distinct DATA360_PROJECT tag values
+  products: number | null;         // distinct DATA360_PRODUCT tag values
+  last_accessed: string | null;
+  attributed_credits: number | null;
+  attributed_usd: number | null;   // attributed compute (≤ total), not total cost
+  billable_queries: number | null;
+}
+
+export interface KpiMetaResponse<T = Record<string, any>> {
+  data: T[];
+  count: number;
+  columns?: string[];
+  degraded?: boolean;              // true → unavailable (edition/privilege) OR request failed
+  reason?: string;
+  meta?: Record<string, unknown>;
+}
+
+// Meta-preserving sibling of `_kpiTable` — do NOT fold the two together: the
+// existing `_kpiTable` callers rely on the `{data,count,days}` shape and would
+// silently drop the `degraded`/`meta` flags these enrichment endpoints emit.
+async function _kpiTableMeta<T = Record<string, any>>(
+  path: string,
+  params?: Record<string, unknown>
+): Promise<KpiMetaResponse<T>> {
+  try {
+    const { data } = await apiClient.get<KpiMetaResponse<T>>(`${PREFIX}${path}`, { params });
+    return data && Array.isArray(data.data)
+      ? data
+      : { data: [], count: 0, degraded: false };
+  } catch {
+    return { data: [], count: 0, degraded: true, reason: 'request_failed' };
+  }
+}
+
+/**
+ * Per-object usage + attributed compute, single FULL-OUTER payload over one
+ * ACCESS_HISTORY window. `days` is capped ≤ 90 backend-side (heavy scan);
+ * `creditRate` = $/credit. Returns `{ data, count, degraded?, reason?, meta? }`
+ * — keep the `degraded` flag to distinguish "unavailable" from "genuinely zero".
+ */
+export const getObjectEnrichment = (days = 90, creditRate = 3.0) =>
+  _kpiTableMeta<ObjectEnrichmentRow>('/object-enrichment', { days, credit_rate: creditRate });
+
+// =============================================================================
+// Snowflake-features AI Advisor — single guarded payload of actionable insights.
+// Backed by GET /command-center/snowflake-insights (snowflake_insights.py).
+// Each insight already carries its COHERENT action route (security/users/network/
+// governance → governance, cost → finops tab, storage → explore-design, dq →
+// data-quality), so the panel just renders + router.push(action.route).
+// =============================================================================
+
+export type InsightCategory =
+  | 'cost' | 'security' | 'users' | 'network' | 'performance'
+  | 'storage' | 'governance' | 'sharing' | 'reliability';
+
+export type InsightSeverity = 'critical' | 'high' | 'warning' | 'info';
+
+export type InsightActionModule =
+  | 'governance' | 'explore-design' | 'data-quality' | 'workflow'
+  | 'bi-dashboard' | 'connect' | 'finops-tab' | 'security-tab';
+
+export interface InsightAction {
+  label: string;
+  module: InsightActionModule;
+  route: string;   // REAL app route, e.g. /governance/users or /account-overview?tab=finops
+  intent: string;  // slug the target page can prefill on
+}
+
+export interface SnowflakeInsight {
+  id: string;
+  category: InsightCategory;
+  severity: InsightSeverity;
+  title: string;
+  detail: string;
+  metric: number | string | null;
+  unit?: string | null;
+  feature: string; // analysed Snowflake feature, e.g. "USERS", "NETWORK_POLICIES"
+  action: InsightAction;
+}
+
+export interface SnowflakeInsightsPayload {
+  insights: SnowflakeInsight[];
+  generated_at: string;
+  /** Feature keys whose whole analysis class failed (edition/privilege/error). */
+  degraded?: string[];
+}
+
+/**
+ * Fetch the Snowflake-features AI analysis. Tolerates failure `_kpiTableMeta`-style:
+ * on any error returns an empty, explicitly-degraded payload instead of throwing, so
+ * the advisor panel renders an honest "analysis unavailable" state rather than a toast.
+ */
+export async function getSnowflakeInsights(): Promise<SnowflakeInsightsPayload> {
+  try {
+    const { data } = await apiClient.get<SnowflakeInsightsPayload>(
+      `${PREFIX}/snowflake-insights`
+    );
+    if (data && Array.isArray(data.insights)) {
+      return {
+        insights: data.insights,
+        generated_at: data.generated_at ?? new Date().toISOString(),
+        degraded: Array.isArray(data.degraded) ? data.degraded : undefined,
+      };
+    }
+    return { insights: [], generated_at: new Date().toISOString(), degraded: ['request_failed'] };
+  } catch {
+    return { insights: [], generated_at: new Date().toISOString(), degraded: ['request_failed'] };
+  }
+}

@@ -1,5 +1,6 @@
-import axios, { AxiosError } from 'axios';
-import { getAuthHeadersSafe } from '@/lib/auth';
+import { AxiosError } from 'axios';
+import apiClient from '@/lib/api-client';
+import { API_CONTRACTS } from '@/lib/api-contracts';
 
 export interface UserProfile {
   username: string;
@@ -26,22 +27,7 @@ export interface ChangePasswordData {
 
 export const getProfile = async (): Promise<UserProfile> => {
   try {
-    const headers = await getAuthHeadersSafe();
-    if (!headers) {
-      throw new Error('Not authenticated');
-    }
-
-    const { API_CONTRACTS } = await import('@/lib/api-contracts');
-    const endpoint = API_CONTRACTS.user.getProfile.getUrl();
-
-    const response = await axios.get<UserProfile>(endpoint, {
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      timeout: 30000,
-    });
+    const response = await apiClient.get<UserProfile>(API_CONTRACTS.user.getProfile.path);
 
     if (response.status === 200) {
       return response.data;
@@ -78,22 +64,7 @@ export const getProfile = async (): Promise<UserProfile> => {
 
 export const updateProfile = async (data: UpdateProfileData): Promise<UserProfile> => {
   try {
-    const headers = await getAuthHeadersSafe();
-    if (!headers) {
-      throw new Error('Not authenticated');
-    }
-
-    const { API_CONTRACTS } = await import('@/lib/api-contracts');
-    const endpoint = API_CONTRACTS.user.updateProfile.getUrl();
-
-    const response = await axios.put<UserProfile>(endpoint, data, {
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      timeout: 30000,
-    });
+    const response = await apiClient.put<UserProfile>(API_CONTRACTS.user.updateProfile.path, data);
 
     if (response.status === 200) {
       return response.data;
@@ -130,22 +101,10 @@ export const updateProfile = async (data: UpdateProfileData): Promise<UserProfil
 
 export const changePassword = async (passwordData: ChangePasswordData): Promise<{ success: boolean; message: string }> => {
   try {
-    const headers = await getAuthHeadersSafe();
-    if (!headers) {
-      throw new Error('Not authenticated');
-    }
-
-    const { API_CONTRACTS } = await import('@/lib/api-contracts');
-    const endpoint = API_CONTRACTS.user.changePassword.getUrl();
-
-    const response = await axios.post<{ success: boolean; message: string }>(endpoint, passwordData, {
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      timeout: 30000,
-    });
+    const response = await apiClient.post<{ success: boolean; message: string }>(
+      API_CONTRACTS.user.changePassword.path,
+      passwordData
+    );
 
     if (response.status === 200) {
       return response.data;
@@ -187,22 +146,7 @@ export interface UserRoles {
 
 export const getUserRoles = async (): Promise<UserRoles> => {
   try {
-    const headers = await getAuthHeadersSafe();
-    if (!headers) {
-      throw new Error('Not authenticated');
-    }
-
-    const { API_CONTRACTS } = await import('@/lib/api-contracts');
-    const endpoint = API_CONTRACTS.user.getUserRoles.getUrl();
-
-    const response = await axios.get<UserRoles>(endpoint, {
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      timeout: 30000,
-    });
+    const response = await apiClient.get<UserRoles>(API_CONTRACTS.user.getUserRoles.path);
 
     if (response.status === 200) {
       return response.data;
@@ -239,22 +183,7 @@ export const getUserRoles = async (): Promise<UserRoles> => {
 
 export const changeUserRole = async (role: string): Promise<UserRoles> => {
   try {
-    const headers = await getAuthHeadersSafe();
-    if (!headers) {
-      throw new Error('Not authenticated');
-    }
-
-    const { API_CONTRACTS } = await import('@/lib/api-contracts');
-    const endpoint = API_CONTRACTS.user.changeUserRole.getUrl();
-
-    const response = await axios.post<UserRoles>(endpoint, { role }, {
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      timeout: 30000,
-    });
+    const response = await apiClient.post<UserRoles>(API_CONTRACTS.user.changeUserRole.path, { role });
 
     if (response.status === 200) {
       return response.data;

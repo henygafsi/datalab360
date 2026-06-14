@@ -41,6 +41,13 @@ interface AiGuidedModelWizardProps {
    * source tables — they don't have to re-type it.
    */
   initialDescription?: string;
+  /**
+   * Optional source tables to pre-select in the Connect step, seeded from the
+   * Account-overview scan deep-link (?intent=model&from=scan). Lets the wizard
+   * open with the AI-suggested sources already chosen, so the user can advance
+   * straight to detection instead of re-picking them. Read once on mount.
+   */
+  initialSelectedTables?: TableRef[];
 }
 
 interface WizardStep {
@@ -73,12 +80,16 @@ const AiGuidedModelWizard: React.FC<AiGuidedModelWizardProps> = ({
   onClose,
   onApproved,
   initialDescription,
+  initialSelectedTables,
 }) => {
   const { addEvent } = useEventStore(projectId);
   const fullDetail = persona === 'superadmin' || persona === 'qa';
 
   const [stepIndex, setStepIndex] = useState(0);
-  const [selectedTables, setSelectedTables] = useState<TableRef[]>([]);
+  // Seeded once on mount from the scan deep-link suggestion (if any). The
+  // wizard is conditionally mounted per-open, so this re-seeds correctly each
+  // time it opens; the resume-draft prompt can still override it on accept.
+  const [selectedTables, setSelectedTables] = useState<TableRef[]>(initialSelectedTables ?? []);
   const [detectedModel, setDetectedModel] = useState<DetectedModel | null>(null);
   const [ingestionModes, setIngestionModes] = useState<Record<string, IngestionMode>>({});
   const [preChecks, setPreChecks] = useState<PreDeployChecksResult | null>(null);

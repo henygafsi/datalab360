@@ -19,6 +19,7 @@ import {
   PiChartBar,
 } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { setDmfThreshold, type DmfThresholdPayload } from '@/app/services/data-quality';
 
 const PREFIX = '/gouvernance/policies';
@@ -135,6 +136,10 @@ async function disassociateDMF(body: { table_fqn: string; dmf_name: string; colu
 }
 
 export default function DMFContent() {
+  // System 2 Action-RBAC: dropping a data metric function maps to
+  // gouvernance:delete. Fail-open while the allow-set loads (no flash).
+  const deletePerm = useCanPerform('gouvernance', 'delete');
+  const canDeleteDmf = deletePerm.allowed || deletePerm.loading;
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [database, setDatabase] = useState('');
@@ -622,7 +627,7 @@ export default function DMFContent() {
                   <Button variant="outline" size="sm" onClick={() => handleDescribe(name)} className="gap-1">
                     <PiInfo className="w-3.5 h-3.5" /> Details
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setConfirmDeleteDmf(name)} disabled={confirmDeleteDmf === name} className="gap-1 text-red-600 hover:bg-red-50">
+                  <Button variant="outline" size="sm" onClick={() => setConfirmDeleteDmf(name)} disabled={confirmDeleteDmf === name || !canDeleteDmf} title={!canDeleteDmf ? 'You lack the "delete" permission on governance. Ask an administrator to grant it.' : undefined} className="gap-1 text-red-600 hover:bg-red-50">
                     <PiTrash className="w-3.5 h-3.5" /> Drop
                   </Button>
                 </div>

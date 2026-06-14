@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Modal, Input, Select, Button } from 'rizzui';
+import { Input, Select, Button } from 'rizzui';
+import ConfigShell, { type ConfigVariant } from './ConfigShell';
 import { Gauge, X, Plus, Trash2 } from 'lucide-react';
 import { useDataSourcePicker } from '../../hooks/useDataSourcePicker';
 import DataSourceSection from './DataSourceSection';
@@ -9,14 +10,7 @@ import type { BIDashboardChartConfig } from '@/app/services/api/types';
 import { fetchChartData } from '@/app/services/charts/fetchChartData';
 import toast from 'react-hot-toast';
 import { getApiErrorMessage } from '@/lib/api-client';
-
-const AGGREGATORS = [
-  { value: 'SUM', label: 'SUM' },
-  { value: 'AVG', label: 'AVG' },
-  { value: 'MIN', label: 'MIN' },
-  { value: 'MAX', label: 'MAX' },
-  { value: 'COUNT', label: 'COUNT' },
-];
+import { AGGREGATORS } from './aggregators';
 
 const SEUIL_OPERATORS = [
   { value: '<', label: '<' },
@@ -47,6 +41,13 @@ interface KpiCardConfigModalProps {
     title?: string;
     chartConfig?: BIDashboardChartConfig;
   };
+  /**
+   * ADD-mode preselect — seeds the data-source picker (and so the measure-column
+   * list) when there is no `initialConfig`. Ignored in EDIT mode.
+   */
+  defaultSource?: { database?: string; schema?: string; table?: string };
+  /** 'modal' (popup) or 'panel' (docked in the BI right bar). Default 'modal'. */
+  variant?: ConfigVariant;
 }
 
 export default function KpiCardConfigModal({
@@ -54,13 +55,17 @@ export default function KpiCardConfigModal({
   onClose,
   onSave,
   initialConfig,
+  defaultSource,
+  variant = 'modal',
 }: KpiCardConfigModalProps) {
   const initCfg = initialConfig?.chartConfig;
-  const picker = useDataSourcePicker(initCfg ? {
-    database: initCfg.database,
-    schema: initCfg.schema,
-    table: initCfg.table,
-  } : undefined);
+  // EDIT seeds from the widget's chart_config; ADD falls back to defaultSource.
+  const seedSource = initCfg
+    ? { database: initCfg.database, schema: initCfg.schema, table: initCfg.table }
+    : defaultSource?.database && defaultSource.schema && defaultSource.table
+      ? { database: defaultSource.database, schema: defaultSource.schema, table: defaultSource.table }
+      : undefined;
+  const picker = useDataSourcePicker(seedSource);
 
   const [title, setTitle] = useState(initialConfig?.title || '');
   const [measureColumn, setMeasureColumn] = useState(initCfg?.measures?.[0]?.column || '');
@@ -70,6 +75,9 @@ export default function KpiCardConfigModal({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Narrow (right-panel) host → collapse multi-column rows to a single column.
+  const stacked = variant === 'panel';
 
   const addSeuil = () => {
     setSeuils((prev) => [...prev, { operator: '>', value: 0, label: '', color: '#22c55e' }]);
@@ -137,8 +145,8 @@ export default function KpiCardConfigModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="600px">
-      <div className="p-6 max-h-[85vh] overflow-y-auto">
+    <ConfigShell variant={variant} isOpen={isOpen} onClose={onClose} customSize="600px">
+      <div className={`p-6 ${variant === 'panel' ? '' : 'max-h-[85vh] overflow-y-auto'}`}>
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
@@ -176,6 +184,7 @@ export default function KpiCardConfigModal({
             onDatabaseChange={picker.setDatabase}
             onSchemaChange={picker.setSchema}
             onTableChange={picker.setTable}
+            stacked={stacked}
           />
 
           {/* Measure */}
@@ -183,7 +192,7 @@ export default function KpiCardConfigModal({
             <div className="text-sm font-semibold text-slate-700 dark:text-slate-300">
               Measure
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className={`grid gap-3 ${stacked ? 'grid-cols-1' : 'grid-cols-2'}`}>
               <Select
                 label="Column"
                 options={picker.columnOptions}
@@ -226,7 +235,7 @@ export default function KpiCardConfigModal({
                 key={i}
                 className="flex items-end gap-2 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700"
               >
-                <div className="flex-1 grid grid-cols-4 gap-2">
+                <div className={`flex-1 grid gap-2 ${stacked ? 'grid-cols-2' : 'grid-cols-4'}`}>
                   <Select
                     label="Operator"
                     options={SEUIL_OPERATORS}
@@ -317,6 +326,6 @@ export default function KpiCardConfigModal({
           </div>
         </div>
       </div>
-    </Modal>
+    </ConfigShell>
   );
 }

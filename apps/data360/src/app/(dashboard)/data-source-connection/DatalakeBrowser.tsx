@@ -16,6 +16,7 @@ import {
 import { HiRefresh, HiViewGrid, HiViewList, HiDownload, HiUpload } from 'react-icons/hi';
 import { Database, FileText, FileJson, Archive, File as FileIcon, FileSpreadsheet, Braces, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   listSnowflakeStages,
   listSnowflakeStageFiles,
@@ -59,6 +60,15 @@ interface StageGrant {
 }
 
 export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserProps) {
+  // System 2 Action-RBAC: deleting stage files maps to connect:delete. The
+  // permission allow-set keys this module as 'connect' (registry key), NOT the
+  // modules.ts apiName 'connect_datalake' — the apiName key is absent, so it
+  // would deny everyone incl. admin (useCanPerform only fail-opens on HTTP error).
+  // Fail-open while the allow-set loads (no flash of a disabled control).
+  const deletePerm = useCanPerform('connect', 'delete');
+  const canDeleteFiles = deletePerm.allowed || deletePerm.loading;
+  const deleteDeniedReason =
+    'You lack the "delete" permission on connect. Ask an administrator to grant it.';
   const [loading, setLoading] = useState(false);
   const [currentStage, setCurrentStage] = useState<string | null>(null);
   const [files, setFiles] = useState<StageItem[]>([]);
@@ -839,7 +849,8 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                     <Button
                       onClick={handleBulkDelete}
                       className="bg-red-600 hover:bg-red-700 text-white"
-                      disabled={loading}
+                      disabled={loading || !canDeleteFiles}
+                      title={!canDeleteFiles ? deleteDeniedReason : undefined}
                     >
                       <HiOutlineTrash className="h-4 w-4 mr-2" />
                       Delete Selected
@@ -948,8 +959,9 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                           </button>
                           <button
                             onClick={() => handleDelete(file)}
-                            className="p-2 text-slate-600 hover:text-red-600 hover:bg-red-50 dark:text-slate-400 dark:hover:text-red-400 dark:hover:bg-red-950/30 rounded-lg transition-colors"
-                            title="Delete file"
+                            disabled={!canDeleteFiles}
+                            className="p-2 text-slate-600 hover:text-red-600 hover:bg-red-50 dark:text-slate-400 dark:hover:text-red-400 dark:hover:bg-red-950/30 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={canDeleteFiles ? 'Delete file' : deleteDeniedReason}
                           >
                             <HiOutlineTrash className="h-4 w-4" />
                           </button>
@@ -991,7 +1003,8 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                     <Button
                       onClick={handleBulkDelete}
                       className="bg-red-600 hover:bg-red-700 text-white"
-                      disabled={loading}
+                      disabled={loading || !canDeleteFiles}
+                      title={!canDeleteFiles ? deleteDeniedReason : undefined}
                     >
                       <HiOutlineTrash className="h-4 w-4 mr-2" />
                       Delete Selected
@@ -1048,8 +1061,9 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                       </button>
                       <button
                         onClick={() => handleDelete(file)}
-                        className="p-1.5 text-slate-600 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 rounded"
-                        title="Delete"
+                        disabled={!canDeleteFiles}
+                        className="p-1.5 text-slate-600 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={canDeleteFiles ? 'Delete' : deleteDeniedReason}
                       >
                         <HiOutlineTrash className="h-4 w-4" />
                       </button>

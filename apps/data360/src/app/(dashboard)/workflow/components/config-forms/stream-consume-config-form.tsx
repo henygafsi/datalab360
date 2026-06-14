@@ -25,6 +25,7 @@ const StreamConsumeConfigForm: React.FC<{
   const [schemas, setSchemas] = useState<string[]>([]);
   const [tables, setTables] = useState<string[]>([]);
   const [loading, setLoading] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const updateConfig = (updates: Record<string, any>) => {
     onChange({ ...data, config: { ...config, ...updates } });
@@ -33,21 +34,21 @@ const StreamConsumeConfigForm: React.FC<{
   useEffect(() => {
     if (!accessToken) return;
     setLoading('databases');
-    getDatabases().then(setDatabases).catch(console.error).finally(() => setLoading(null));
+    getDatabases().then(setDatabases).catch((e) => { console.error(e); setLoadError("Couldn't load data sources."); }).finally(() => setLoading(null));
   }, [accessToken]);
 
   useEffect(() => {
     if (!config.database) return;
     setLoading('schemas');
     setSchemas([]);
-    getSchemas(config.database).then(setSchemas).catch(console.error).finally(() => setLoading(null));
+    getSchemas(config.database).then(setSchemas).catch((e) => { console.error(e); setLoadError("Couldn't load data sources."); }).finally(() => setLoading(null));
   }, [config.database]);
 
   useEffect(() => {
     if (!config.database || !config.schema) return;
     setLoading('tables');
     setTables([]);
-    getTables(config.database, config.schema).then(setTables).catch(console.error).finally(() => setLoading(null));
+    getTables(config.database, config.schema).then(setTables).catch((e) => { console.error(e); setLoadError("Couldn't load data sources."); }).finally(() => setLoading(null));
   }, [config.database, config.schema]);
 
   return (
@@ -57,6 +58,10 @@ const StreamConsumeConfigForm: React.FC<{
           Creates a Snowflake Stream on a table or view to track changes (INSERT, UPDATE, DELETE). The stream captures CDC data for downstream processing.
         </p>
       </div>
+
+      {loadError && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">{loadError}</p>
+      )}
 
       <FormField label="Stream Name" required error={errors.stream_name}
         hint="Name for the stream object (e.g., MY_TABLE_CHANGES)">

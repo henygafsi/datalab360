@@ -19,7 +19,7 @@ export default function ProjectClientList({
         headerClassName="items-center"
         className={cn('@container dark:bg-gray-100/50', className)}
         action={
-          <Link href={'#'}>
+          <Link href="/client-accounts" aria-label="View all client accounts">
             <Button as="span" variant="text" className="h-auto p-0 underline">
               View All
             </Button>

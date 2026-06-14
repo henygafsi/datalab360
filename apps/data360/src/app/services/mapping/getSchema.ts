@@ -3,6 +3,7 @@
  * Works in both server-side (SSR) and client-side contexts
  */
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 
 interface SchemaObject {
   name: string;
@@ -25,7 +26,7 @@ function isSchemaObject(obj: unknown): obj is SchemaObject {
  */
 export const getSchemas = async (databaseName: string): Promise<string[]> => {
   try {
-    const response = await apiClient.get(`/common/schemas/${databaseName}`);
+    const response = await apiClient.get(API.common.schemas(databaseName));
     const data = response.data;
 
     // If response is an array directly

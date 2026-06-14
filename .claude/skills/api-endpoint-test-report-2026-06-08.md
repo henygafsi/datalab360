@@ -46,7 +46,9 @@ Test **structurel, sans authentification, method-aware**, sur les 911 opération
 | `POST` | `/cache/warmup` | Déclenchement de charge non autorisé |
 | `GET` | `/cache/keys`, `/cache/stats`, `/cache/health`, `/cache/test-connection`, `/cache/svc-health` | Exposition d'infos d'infra (clés, hits/misses, état Redis) |
 
-**Recommandation** : passer tout `/cache/*` derrière `require_module_access()` / rôle Platform Admin (au minimum les `POST clear/*` et `warmup`). À corriger côté backend (`app/modules/cache`).
+**Recommandation** : passer tout `/cache/*` derrière `require_module_access()` / rôle Platform Admin (au minimum les `POST clear/*` et `warmup`).
+
+> **MàJ 2026-06-09** — déjà corrigé dans le code (voir [§ RÉSOLUTION](#-résolution-du-finding-sécurité-cache-2026-06-08) en bas) : toutes les routes sont gatées sur `feat/backlog-v1`. Le live reste exposé tant que la branche n'est pas **mergée+déployée** (P0 utilisateur). **Reste un nit** : `DELETE /cache/keys/{key}` utilise `get_current_user` alors que ses voisins `POST/GET /keys` exigent `require_accountadmin_role` → à durcir pour cohérence.
 
 ## Endpoints publics (intentionnels — OK)
 
@@ -106,9 +108,19 @@ Test **structurel, sans authentification, method-aware**, sur les 911 opération
 | Analytics & KPIs | 2 | 2 | 0 | 0 | 0 |
 | Auth | 1 | 0 | 0 | 1 | 0 |
 
-## Drift code↔déployé
+## Drift code↔déployé (vérifié live 2026-06-08)
 
-L'OpenAPI live (911 ops) **= exactement ce qui est déployé**. L'`endpoint-atlas-2026-06-08` avait identifié ~22 routes présentes sur la branche GitLab `feat/backlog-v1` mais **pas encore déployées** (donc absentes de cet OpenAPI, non testables live) — ex. `GET /workflow/catalog/blocks`, `GET /data-quality/anomalies`, `GET /catalog/tables/{}/{}/{}/lineage`. Elles restent **en attente de merge+deploy**.
+L'OpenAPI live (911 ops) **= exactement ce qui est déployé**. L'`endpoint-atlas-2026-06-08` avait identifié 22 routes présentes sur la branche GitLab `feat/backlog-v1` mais pas encore déployées. **Re-vérification live ce jour** : **21/22 toujours absentes** (404 confirmé), seul `/cache/keys/{key}` a été déployé depuis. Les 21 routes en attente de merge+deploy (404 live, absentes de l'OpenAPI déployé) :
+
+| Domaine | Routes encore non déployées (404 live) |
+|---------|----------------------------------------|
+| catalog | `/catalog/profile/{}/{}/{}`, `/catalog/tables/{}/{}/{}/{context,governance,ingestion,lineage,ownership}`, `/catalog/tags/flow` |
+| data-quality | `/data-quality/anomalies`, `/data-quality/snapshot`, `/data-quality/trust-center/{recommendations,report}` |
+| gouvernance | `/gouvernance/policies`, `/gouvernance/roles/{}/least-privilege` |
+| workflow | `/workflow/catalog/blocks`, `/workflow/{}/contributors` |
+| autres | `/command-center/tabs/{}`, `/connect/connectors/{}`, `/data-products/{}/consumers`, `/data-products/{}/lineage`, `/explore-design/{}/deployment-readiness`, `/org-accounts/cost-simulation/{}/{}` |
+
+**Impact** : ce sont des features riches (détail de table catalog : lineage/ownership/governance ; DQ trust-center ; least-privilege RBAC) codées mais invisibles en prod tant que `feat/backlog-v1` n'est pas mergée+déployée. **Action** : merge+deploy de `feat/backlog-v1`.
 
 ## Artefacts
 - `sweep_results.json` — statut live des 911 ops (job tmp).

@@ -276,16 +276,16 @@ function CrossModuleLineageTab() {
       {data && (
         <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-10 gap-2">
           {[
-            { label: 'Projects', value: s.total_projects || 0, icon: PiTreeStructureDuotone, color: 'text-indigo-600 dark:text-indigo-400' },
-            { label: 'Modules', value: s.total_modules || 0, icon: PiFlowArrowDuotone, color: 'text-fuchsia-600 dark:text-fuchsia-400' },
-            { label: 'Objects', value: s.total_nodes || 0, icon: PiTable, color: 'text-blue-600 dark:text-blue-400' },
-            { label: 'Deps', value: s.total_edges || 0, icon: PiGitBranch, color: 'text-violet-600 dark:text-violet-400' },
-            { label: 'Databases', value: s.total_databases || 0, icon: PiDatabase, color: 'text-purple-600 dark:text-purple-400' },
-            { label: 'Roles', value: s.total_roles || 0, icon: PiUsersThree, color: 'text-teal-600 dark:text-teal-400' },
-            { label: 'Policies', value: s.total_policies || 0, icon: PiLockKey, color: 'text-amber-600 dark:text-amber-400' },
-            { label: 'Sources', value: s.total_sources || 0, icon: PiColumns, color: 'text-cyan-600 dark:text-cyan-400' },
-            { label: 'Accesses', value: (s.total_access_events || 0).toLocaleString(), icon: PiEye, color: 'text-green-600 dark:text-green-400' },
-            { label: 'Events', value: (s.total_module_events || 0).toLocaleString(), icon: PiFlowArrowDuotone, color: 'text-pink-600 dark:text-pink-400' },
+            { label: 'Projects', value: s.total_projects != null ? s.total_projects : '—', icon: PiTreeStructureDuotone, color: 'text-indigo-600 dark:text-indigo-400' },
+            { label: 'Modules', value: s.total_modules != null ? s.total_modules : '—', icon: PiFlowArrowDuotone, color: 'text-fuchsia-600 dark:text-fuchsia-400' },
+            { label: 'Objects', value: s.total_nodes != null ? s.total_nodes : '—', icon: PiTable, color: 'text-blue-600 dark:text-blue-400' },
+            { label: 'Deps', value: s.total_edges != null ? s.total_edges : '—', icon: PiGitBranch, color: 'text-violet-600 dark:text-violet-400' },
+            { label: 'Databases', value: s.total_databases != null ? s.total_databases : '—', icon: PiDatabase, color: 'text-purple-600 dark:text-purple-400' },
+            { label: 'Roles', value: s.total_roles != null ? s.total_roles : '—', icon: PiUsersThree, color: 'text-teal-600 dark:text-teal-400' },
+            { label: 'Policies', value: s.total_policies != null ? s.total_policies : '—', icon: PiLockKey, color: 'text-amber-600 dark:text-amber-400' },
+            { label: 'Sources', value: s.total_sources != null ? s.total_sources : '—', icon: PiColumns, color: 'text-cyan-600 dark:text-cyan-400' },
+            { label: 'Accesses', value: s.total_access_events != null ? s.total_access_events.toLocaleString() : '—', icon: PiEye, color: 'text-green-600 dark:text-green-400' },
+            { label: 'Events', value: s.total_module_events != null ? s.total_module_events.toLocaleString() : '—', icon: PiFlowArrowDuotone, color: 'text-pink-600 dark:text-pink-400' },
           ].map((kpi) => (
             <div key={kpi.label} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
               <kpi.icon className={cn('w-4 h-4 mx-auto mb-0.5', kpi.color)} />
@@ -817,19 +817,19 @@ function CrossModuleLineageTab() {
             <div className="grid grid-cols-4 gap-3 mb-4">
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3">
                 <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
-                <p className="text-xl font-bold text-green-600">{taskLineageData?.summary?.active_tasks || 0}</p>
+                <p className="text-xl font-bold text-green-600">{taskLineageData?.summary?.active_tasks ?? '—'}</p>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3">
                 <p className="text-xs text-gray-500 dark:text-gray-400">Suspended</p>
-                <p className="text-xl font-bold text-amber-600">{taskLineageData?.summary?.suspended_tasks || 0}</p>
+                <p className="text-xl font-bold text-amber-600">{taskLineageData?.summary?.suspended_tasks ?? '—'}</p>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3">
                 <p className="text-xs text-gray-500 dark:text-gray-400">Succeeded (24h)</p>
-                <p className="text-xl font-bold text-blue-600">{taskStats?.succeeded || 0}</p>
+                <p className="text-xl font-bold text-blue-600">{taskStats?.succeeded ?? '—'}</p>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3">
                 <p className="text-xs text-gray-500 dark:text-gray-400">Failed (24h)</p>
-                <p className="text-xl font-bold text-red-600">{taskStats?.failed || 0}</p>
+                <p className="text-xl font-bold text-red-600">{taskStats?.failed ?? '—'}</p>
               </div>
             </div>
           )}
@@ -1069,19 +1069,19 @@ function TasksLineageTab() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
-          <p className="text-2xl font-bold text-green-600">{taskLineageData?.summary?.active_tasks || 0}</p>
+          <p className="text-2xl font-bold text-green-600">{taskLineageData?.summary?.active_tasks ?? '—'}</p>
         </div>
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">Suspended</p>
-          <p className="text-2xl font-bold text-amber-600">{taskLineageData?.summary?.suspended_tasks || 0}</p>
+          <p className="text-2xl font-bold text-amber-600">{taskLineageData?.summary?.suspended_tasks ?? '—'}</p>
         </div>
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">Succeeded (24h)</p>
-          <p className="text-2xl font-bold text-blue-600">{taskStats?.succeeded || 0}</p>
+          <p className="text-2xl font-bold text-blue-600">{taskStats?.succeeded ?? '—'}</p>
         </div>
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">Failed (24h)</p>
-          <p className="text-2xl font-bold text-red-600">{taskStats?.failed || 0}</p>
+          <p className="text-2xl font-bold text-red-600">{taskStats?.failed ?? '—'}</p>
         </div>
       </div>
 

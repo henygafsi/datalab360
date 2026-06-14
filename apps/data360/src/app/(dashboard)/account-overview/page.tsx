@@ -82,34 +82,10 @@ export default function AccountOverviewPage() {
         <Breadcrumb items={[{ label: 'Account Overview', href: '/account-overview' }]} />
       </div>
       <CommandCenterDashboard />
-      {/* Cost & Metering — pricing surface across sources / projects / modules. */}
-      <div className="mx-4 mt-6">
-        <MeteringPanel />
-      </div>
+      {/* Cross-tab "Cost & Metering" + "Explore related" footer removed — it was
+          empty for this org and repeated under every tab. The account ADN axes
+          rating now lives in the Snowflake Objects overview where it belongs. */}
       <OnboardingTour />
-      {/* Related modules */}
-      <nav
-        aria-label="Related modules"
-        className="mx-4 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700"
-      >
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-          Explore related
-        </p>
-        <ul className="flex flex-wrap gap-2">
-          {RELATED_MODULES.map(({ href, label, sublabel, Icon }) => (
-            <li key={href}>
-              <a
-                href={href}
-                className="group inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
-              >
-                <Icon className="h-4 w-4 text-slate-500 group-hover:text-blue-600 dark:text-slate-400 dark:group-hover:text-blue-400" aria-hidden />
-                <span className="font-medium">{label}</span>
-                <span className="text-xs text-slate-400 dark:text-slate-500">{sublabel}</span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      </nav>
     </AccountOverviewErrorBoundary>
   );
 }

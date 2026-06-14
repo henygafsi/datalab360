@@ -9,15 +9,18 @@
  *   · runs-health digest        (derived from GET /projects/{id}/runs)
  *   · deploy / approval badge    (GET /projects/{id}/deployments)
  *   · activity feed              (GET /projects/{id}/events — PROJECT_EVENTS)
- *   · embedded G6 <ScoreCards>   (per-project via projectId — see note below)
+ *   · G7 rollup score cards      (<RollupCards> — one GET /command-center/projects/{id}/rollup)
  *   · comments / @mention / presence placeholder (BACKEND GAP — see note)
  *
- * ScoreCards note: <ScoreCards projectId={...}> now fetches per-project scores
- * from GET /command-center/projects/{id}/scores. PERF (PROJECT_RUNS) and GOV
- * (contributors + RLS bindings) are REAL per-project; DQ is per-project when the
- * project's deployed objects are DMF-monitored, else account-level; COST stays
- * account-level (no per-project cost attribution — G8 gap). Each card carries a
- * `scope` chip so account-level fallbacks are labelled honestly, never faked.
+ * Rollup note: <RollupCards> replaces the old per-project scores fan-out with ONE
+ * GET /command-center/projects/{id}/rollup (precomputed table; cold-miss live
+ * fallback). It carries real per-project reco counts (the scores path zeroed
+ * them). PERF (PROJECT_RUNS), GOV (contributors + RLS) and STORAGE are REAL
+ * per-project; DQ is per-project when deployed objects are DMF-monitored; COST is
+ * per-project when query attribution exists (QUERY_ATTRIBUTION_HISTORY), else an
+ * honest account-level null. Each card carries a `scope` chip so account-level
+ * fallbacks are labelled honestly, never faked. The row-level lists above still
+ * use loadProjectCollaboration (the rollup carries aggregates, not those rows).
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -27,7 +30,12 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
-import ScoreCards from '@/app/shared/score-cards/ScoreCards';
+import {
+  getProjectRollup,
+  ScoreCardsUnavailableError,
+  type ProjectRollup,
+  type ScoreCard,
+} from '@/app/services/command-center/score-cards';
 import {
   loadProjectCollaboration,
   type ProjectCollaboration,
@@ -40,6 +48,7 @@ import {
   type ProjectComment,
 } from '@/app/services/projects/comments';
 import { useAuth } from '@/hooks/useAuth';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 // ── Deployment status → badge style ──────────────────────────────────────────
 
@@ -157,15 +166,20 @@ function CommentRow({
 }
 
 function CommentsThread({ projectId }: { projectId: string }) {
-  const { username, role } = useAuth();
+  const { username } = useAuth();
   const me = (username || '').toUpperCase();
-  // Delete affordance: authors can always delete their own; account-admins get
-  // the button too. NOTE this is an approximation — the backend authoritatively
-  // gates on author-or-PROJECT-owner (CREATED_BY), which the panel doesn't fetch,
-  // so a non-admin project owner only sees Delete on their own comments.
-  const isAdminRole = ['ACCOUNTADMIN', 'ORGADMIN', 'SECURITYADMIN', 'SYSADMIN'].includes(
-    (role || '').toUpperCase(),
+  // Delete affordance: authors can always delete their own; moderators get the
+  // button on every comment. Gated through the granular Action-RBAC matrix
+  // (gouvernance:delete) instead of a hardcoded role-array literal. Fail-open on
+  // loading/error (hard error already folds into `allowed`) so a transient
+  // permissions hiccup never hides a moderator's controls. NOTE this is still an
+  // approximation — the backend authoritatively gates on author-or-PROJECT-owner
+  // (CREATED_BY), which the panel doesn't fetch.
+  const { allowed: canModerate, loading: permLoading } = useCanPerform(
+    'gouvernance',
+    'delete',
   );
+  const isAdminRole = canModerate || permLoading;
 
   const [comments, setComments] = useState<ProjectComment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -296,6 +310,141 @@ function CommentsThread({ projectId }: { projectId: string }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// ── Per-project rollup cards (G7) ─────────────────────────────────────────────
+//
+// One `getProjectRollup` call replaces the per-project scores fan-out and surfaces
+// the real per-project reco counts (the old scores path zeroed them). Null values
+// render "—", never a fake 0; account-level fallbacks (e.g. cost) carry a chip.
+
+function rollupCardTone(card: ScoreCard): string {
+  if (card.status === 'not_computed' || card.status === 'error') return 'text-slate-400 dark:text-slate-500';
+  if (card.criticalRecos > 0) return 'text-red-600 dark:text-red-400';
+  if (card.openRecos > 0) return 'text-amber-600 dark:text-amber-400';
+  return 'text-emerald-600 dark:text-emerald-400';
+}
+
+function rollupValue(card: ScoreCard): string {
+  if (card.value == null) return '—';
+  return typeof card.value === 'number' ? card.value.toLocaleString() : String(card.value);
+}
+
+function ScopeMini({ scope }: { scope: 'project' | 'account' }) {
+  const isProject = scope === 'project';
+  return (
+    <span
+      title={isProject ? 'Scored from this project’s own data' : 'Account-level — no per-project source for this dimension'}
+      className={cn(
+        'inline-flex items-center rounded px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide',
+        isProject
+          ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400',
+      )}
+    >
+      {isProject ? 'project' : 'account'}
+    </span>
+  );
+}
+
+function RecoMini({ open, critical }: { open: number; critical: number }) {
+  const tone =
+    critical > 0
+      ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+      : open > 0
+        ? 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500';
+  return (
+    <span className={cn('inline-flex items-center rounded px-1 py-0.5 text-[9px] font-medium', tone)}>
+      {open} recos · {critical} crit
+    </span>
+  );
+}
+
+function RollupCards({ projectId }: { projectId: string }) {
+  const [rollup, setRollup] = useState<ProjectRollup | null>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'unavailable' | 'error'>('loading');
+
+  useEffect(() => {
+    let ignore = false;
+    setState('loading');
+    getProjectRollup(projectId)
+      .then((r) => { if (!ignore) { setRollup(r); setState('ready'); } })
+      .catch((err) => {
+        if (ignore) return;
+        // Route not provisioned (404/501) → quiet, no failing Retry.
+        if (err instanceof ScoreCardsUnavailableError) setState('unavailable');
+        else setState('error');
+      });
+    return () => { ignore = true; };
+  }, [projectId]);
+
+  if (state === 'unavailable') {
+    return (
+      <p className="text-[11px] text-slate-400">
+        Per-project rollup isn’t available on this backend yet.
+      </p>
+    );
+  }
+  if (state === 'error') {
+    return (
+      <p className="inline-flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400">
+        <AlertTriangle className="h-3 w-3" /> Couldn’t load the per-project rollup.
+      </p>
+    );
+  }
+  if (state === 'loading' || !rollup) {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-16 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" aria-hidden="true" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        {rollup.cards.map((card) => (
+          <div
+            key={card.dimension}
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 flex flex-col gap-1"
+          >
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400 truncate">
+                {card.label}
+              </span>
+              {card.scope ? <ScopeMini scope={card.scope} /> : null}
+            </div>
+            <div className="flex items-baseline gap-1">
+              <span className={cn('text-lg font-semibold', rollupCardTone(card))}>{rollupValue(card)}</span>
+              {card.unit && card.value != null ? (
+                <span className="text-[10px] text-slate-400">{card.unit}</span>
+              ) : null}
+            </div>
+            <RecoMini open={card.openRecos} critical={card.criticalRecos} />
+          </div>
+        ))}
+      </div>
+      {/* Footer: rollup provenance + last deploy/event from the same single call */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400">
+        <span>
+          {rollup.recos.open} open · {rollup.recos.critical} critical recos
+        </span>
+        {rollup.lastDeployStatus ? (
+          <span>
+            Last deploy: {rollup.lastDeployStatus}
+            {safeDistance(rollup.lastDeployAt) ? ` · ${safeDistance(rollup.lastDeployAt)}` : ''}
+          </span>
+        ) : null}
+        {rollup.lastEventAt ? <span>Last activity {safeDistance(rollup.lastEventAt)}</span> : null}
+        <span className="ml-auto opacity-70">
+          {rollup.servedFrom === 'rollup' ? 'precomputed' : 'live'}
+        </span>
+      </div>
     </div>
   );
 }
@@ -459,14 +608,15 @@ export default function ProjectCollaborationPanel({ projectId }: { projectId: st
         </Section>
       )}
 
-      {/* G6 Score Cards — now per-project where a real source exists.
-          PERF (PROJECT_RUNS) + GOV (contributors/RLS) are real per-project; DQ
-          is per-project when the project's deployed objects are DMF-monitored,
-          else account-level; COST stays account-level (no per-project cost
-          attribution). Each card is flagged with its scope so the labelling is
-          honest — no disclaimer needed, the chips tell the truth per dimension. */}
-      <Section icon={GaugeCircle} title="Health score cards (G6)" accent="text-emerald-500">
-        <ScoreCards projectId={projectId} dimensions={['dq', 'cost', 'perf', 'gov']} />
+      {/* G7 per-project rollup — ONE precomputed call (DQ·PERF·GOV·STORAGE+COST)
+          carrying real per-project reco counts, replacing the per-project scores
+          fan-out. PERF (PROJECT_RUNS) + GOV (contributors/RLS) + STORAGE are real
+          per-project; DQ is per-project when deployed objects are DMF-monitored;
+          COST is per-project when query attribution exists, else account-level.
+          Each card carries its scope chip so account-level fallbacks read honestly;
+          null values render "—", never a fake 0. */}
+      <Section icon={GaugeCircle} title="Health score cards (G6 · G7 rollup)" accent="text-emerald-500">
+        <RollupCards projectId={projectId} />
       </Section>
 
       {/* Comments & @mentions — wired to PROJECT_COMMENTS (G11) */}

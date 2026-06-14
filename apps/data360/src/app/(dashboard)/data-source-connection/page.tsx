@@ -3,6 +3,7 @@
 import { useState, useMemo, FormEvent, ChangeEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { Input, Button, Checkbox, Text, Password, Badge, Tooltip } from 'rizzui';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
@@ -324,6 +325,14 @@ function integrationProps(details: unknown): IntegrationProps {
 export default function DataSourceConnectionPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
+  // System 2 Action-RBAC: triggering an ingest maps to connect:ingest. The
+  // allow-set keys this module as 'connect' (registry key), not the modules.ts
+  // apiName 'connect_datalake' — the apiName key is absent → would deny everyone.
+  // Fail-open while the allow-set loads (no flash of a disabled CTA).
+  const ingestPerm = useCanPerform('connect', 'ingest');
+  const canIngest = ingestPerm.allowed || ingestPerm.loading;
+  const ingestDeniedReason =
+    'You lack the "ingest" permission on connect. Ask an administrator to grant it.';
   const [selectedSource, setSelectedSource] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [transitionLoading, setTransitionLoading] = useState<boolean>(false); // Loading state for provider transitions
@@ -2348,7 +2357,7 @@ export default function DataSourceConnectionPage() {
                   </div>
                   <div className="mt-4 flex gap-2">
                       <Button variant="outline" onClick={() => setDatabricksStep('schema')} title="Back"><ArrowLeft className="w-4 h-4 mr-2" />Back</Button>
-                      <Button onClick={handleDbxIngest} disabled={loading}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
+                      <Button onClick={handleDbxIngest} disabled={loading || !canIngest} title={!canIngest ? ingestDeniedReason : undefined}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
                   </div>
               </div>
           );
@@ -2454,7 +2463,7 @@ export default function DataSourceConnectionPage() {
                   </div>
                   <div className="mt-4 flex gap-2">
                       <Button variant="outline" onClick={() => setIcebergStep('namespace')} title="Back"><ArrowLeft className="w-4 h-4 mr-2" />Back</Button>
-                      <Button onClick={handleIceIngest} disabled={loading}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
+                      <Button onClick={handleIceIngest} disabled={loading || !canIngest} title={!canIngest ? ingestDeniedReason : undefined}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
                   </div>
               </div>
           );
@@ -2491,7 +2500,7 @@ export default function DataSourceConnectionPage() {
                   <Input label="Database" value={postgresFormData.database} onChange={(e) => setPostgresFormData((p) => ({ ...p, database: e.target.value }))} required disabled={loading} />
                   <Input label="User" value={postgresFormData.user} onChange={(e) => setPostgresFormData((p) => ({ ...p, user: e.target.value }))} required disabled={loading} />
                   <Password label="Password" value={postgresFormData.password} onChange={(e) => setPostgresFormData((p) => ({ ...p, password: e.target.value }))} disabled={loading} />
-                  <Button type="submit" disabled={loading}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
+                  <Button type="submit" disabled={loading || !canIngest} title={!canIngest ? ingestDeniedReason : undefined}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
               </form>
               <p className="text-xs text-slate-500 mt-2">Public tables will be copied to CP_DATA360.POSTGRES</p>
           </div>
@@ -2527,7 +2536,7 @@ export default function DataSourceConnectionPage() {
                   <Input label="Database" value={mysqlFormData.database} onChange={(e) => setMySQLFormData((p) => ({ ...p, database: e.target.value }))} required disabled={loading} />
                   <Input label="User" value={mysqlFormData.user} onChange={(e) => setMySQLFormData((p) => ({ ...p, user: e.target.value }))} required disabled={loading} />
                   <Password label="Password" value={mysqlFormData.password} onChange={(e) => setMySQLFormData((p) => ({ ...p, password: e.target.value }))} disabled={loading} />
-                  <Button type="submit" disabled={loading}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
+                  <Button type="submit" disabled={loading || !canIngest} title={!canIngest ? ingestDeniedReason : undefined}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
               </form>
               <p className="text-xs text-slate-500 mt-2">Tables will be copied to CP_DATA360.MYSQL</p>
           </div>

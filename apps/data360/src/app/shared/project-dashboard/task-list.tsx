@@ -1,8 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import dayjs from 'dayjs';
 import Calendar from 'react-calendar';
-import { Progressbar, Text, Title } from 'rizzui';
+import { Button, Progressbar, Text, Title } from 'rizzui';
 import { PiArrowRight, PiArrowLeft } from 'react-icons/pi';
 import { projectTaskData } from '@/data/project-dashboard';
 import { LooseValue } from 'node_modules/react-calendar/dist/esm/shared/types';
@@ -26,6 +27,10 @@ const dates = [
 ];
 
 export default function ProjectTaskList({ className }: { className?: string }) {
+  // Clicking a calendar day selects it, highlights the tile and shows how many
+  // tasks fall due that day (derived from the real `dates` list above).
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+
   const tileContent = ({ date, view }: { date: Date; view: string }) => {
     if (view === 'month') {
       if (date.getDay() === 0 || date.getDay() === 6) {
@@ -38,6 +43,22 @@ export default function ProjectTaskList({ className }: { className?: string }) {
     return null;
   };
 
+  const tileClassName = ({ date, view }: { date: Date; view: string }) => {
+    if (
+      view === 'month' &&
+      selectedDate &&
+      date.toDateString() === selectedDate.toDateString()
+    ) {
+      return '!bg-primary/15 rounded-md ring-1 ring-inset ring-primary';
+    }
+    return null;
+  };
+
+  const dueCount = selectedDate
+    ? dates.filter((d) => d.toDateString() === selectedDate.toDateString())
+        .length
+    : 0;
+
   return (
     <WidgetCard
       title="Task List"
@@ -48,13 +69,38 @@ export default function ProjectTaskList({ className }: { className?: string }) {
         next2Label={false}
         selectRange={false}
         tileContent={tileContent}
+        tileClassName={tileClassName}
         value={dates as LooseValue}
         className="job-schedule-calendar task-list-calendar"
         minDate={day.subtract(1, 'year').toDate()}
-        onClickDay={(value) => console.log({ value })}
+        onClickDay={(value) => setSelectedDate(value)}
         prevLabel={<PiArrowLeft className="size-4" />}
         nextLabel={<PiArrowRight className="size-4" />}
       />
+
+      {selectedDate && (
+        <div
+          aria-live="polite"
+          className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-muted bg-gray-50 px-4 py-3 dark:bg-gray-100"
+        >
+          <Text className="text-sm text-gray-600 dark:text-gray-500">
+            {dueCount > 0
+              ? `${dueCount} task${dueCount > 1 ? 's' : ''} due on `
+              : 'No tasks due on '}
+            <Text as="span" className="font-semibold text-gray-900">
+              {dayjs(selectedDate).format('MMM D, YYYY')}
+            </Text>
+          </Text>
+          <Button
+            variant="text"
+            size="sm"
+            className="h-auto p-0 text-xs underline"
+            onClick={() => setSelectedDate(null)}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
 
       <div className="mt-6 flex flex-col @xl:mt-7 @[90rem]:grow">
         <div className="@[90rem]:grow">

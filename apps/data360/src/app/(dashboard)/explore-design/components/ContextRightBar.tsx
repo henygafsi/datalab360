@@ -7,14 +7,16 @@ import {
   HelpCircle, Shield, RefreshCw, Plus, Key, AlertTriangle, Eye,
   Sparkles, CheckCircle, FileText, GitBranch, Lock, Tag, Send,
   Rocket, Play, Search, Info, ArrowRight, ExternalLink,
-  PanelRightClose, PanelRight, Ban,
+  PanelRight, Ban,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isUnavailable } from '@/lib/http-status';
-import { motion, AnimatePresence } from 'framer-motion';
+import RightTabPanel, { type RightTabSection, type QuickAction } from '@/app/shared/governance/right-tab-panel';
 import toast from 'react-hot-toast';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import PermissionGate from '@/components/ui/PermissionGate';
+import ProjectKpiStrip from '@/app/shared/score-cards/ProjectKpiStrip';
+import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -103,13 +105,10 @@ const TABS: { id: RightBarTab; icon: React.ElementType; label: string }[] = [
   { id: 'help', icon: HelpCircle, label: 'Help' },
 ];
 
-// Versioned, minimal localStorage key (client-localstorage-schema): persist the
-// user's last-viewed tab ("draft of menu") so it is preselected on return.
-// activeTab is owned by the parent (controlled prop), so we restore via
-// onTabChange once on mount and write the parent's value as it changes.
-// Validated against the known tab ids so a stale/invalid value is ignored.
+// Versioned, minimal localStorage key (client-localstorage-schema): the shared
+// RightTabPanel persists the user's last-viewed section ("draft of menu") to this
+// key and restores it (validated against the known section ids) on mount.
 const ACTIVE_TAB_KEY = 'data360.exploreDesign.contextTab.v1';
-const TAB_IDS = new Set<RightBarTab>(TABS.map((t) => t.id));
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -127,60 +126,158 @@ export default function ContextRightBar({
   const fqn = selectedTable ? `${selectedTable.database}.${selectedTable.schema}.${selectedTable.table}` : '';
   const classifications = selectedTable ? columnClassifications.get(selectedTable.id) : undefined;
 
-  // Restore the last-used tab ONCE on mount (draft → preselect). activeTab is a
-  // controlled prop, so we restore via onTabChange. Declared BEFORE the persist
-  // effect so the parent's default isn't written back before this reads.
-  const tabRestoredRef = useRef(false);
-  useEffect(() => {
-    if (tabRestoredRef.current) return;
-    tabRestoredRef.current = true;
-    try {
-      const saved = window.localStorage.getItem(ACTIVE_TAB_KEY);
-      if (saved && saved !== activeTab && TAB_IDS.has(saved as RightBarTab)) {
-        onTabChange(saved as RightBarTab);
-      }
-    } catch {
-      /* storage unavailable — keep the current tab */
-    }
-    // run-once on mount only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Per-project KPI strip — only when a project context is in scope (per-PROJECT,
+  // never per-account). The strip is per-project, not per-table, so it shows even
+  // with no table selected; it self-hides (renders null) when the rollup isn't
+  // provisioned. No project id → no strip (don't invent one).
+  const kpiStrip = projectId ? <ProjectKpiStrip projectId={projectId} compact /> : undefined;
 
-  // Persist the active tab as it changes.
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(ACTIVE_TAB_KEY, activeTab);
-    } catch {
-      /* ignore */
-    }
-  }, [activeTab]);
+  // Role-filtered quick-actions (System 2 Action-RBAC, project-scoped). Each one
+  // reuses an EXISTING panel handler — no rebuilt logic. Fail-open while the
+  // allow-set loads (`allowed || loading`), mirroring ActionsPanel below.
+  const canCreate = useCanPerform('explore_design', 'create', projectId);
+  const canApprove = useCanPerform('explore_design', 'approve', projectId);
+  const canDeploy = useCanPerform('explore_design', 'deploy', projectId);
+  const quickActions: QuickAction[] = [];
+  if (canCreate.allowed || canCreate.loading) {
+    quickActions.push({
+      id: 'create',
+      label: 'Add column',
+      icon: Plus,
+      onClick: () => { onTabChange('actions'); onFocusAction('add_column'); },
+    });
+  }
+  if (canApprove.allowed || canApprove.loading) {
+    // The only approval flow in this panel is the Deploy pipeline's request step,
+    // so "Review & approve" focuses that tab (named for the destination, honestly).
+    quickActions.push({
+      id: 'approve',
+      label: 'Review & approve',
+      icon: CheckCircle,
+      onClick: () => onTabChange('deploy'),
+    });
+  }
+  if (canDeploy.allowed || canDeploy.loading) {
+    quickActions.push({
+      id: 'deploy',
+      label: 'Deploy',
+      icon: Rocket,
+      tone: 'primary',
+      onClick: onOpenDeployModal,
+    });
+  }
 
+  // Six docked sections — bodies kept verbatim from the previous panel. Each
+  // guards on `selectedTable` so an unselected table shows the same empty state
+  // across every section (behaviour preserved from the old inline tab content).
+  const sections: RightTabSection[] = [
+    {
+      id: 'actions', icon: Zap, label: 'Actions',
+      render: () => selectedTable ? (
+        <ActionsPanel
+          table={selectedTable}
+          columns={tableColumns}
+          projectId={projectId}
+          focusedAction={focusedAction}
+          onFocusAction={onFocusAction}
+          onAddEvent={onAddEvent}
+          classifications={classifications}
+          userRole={userRole}
+          database={selectedDatabase}
+          onDeselectTable={onDeselectTable}
+        />
+      ) : <EmptyState />,
+    },
+    {
+      id: 'ai', icon: Brain, label: 'AI Assist',
+      render: () => (
+        <div>
+          {/* AI-prefilled cross-module CTA blocks (deep-link with intent), scoped
+              to explore-design + the selected object / active project. Shown above
+              the per-table AI assist so suggestions exist even before a table is
+              picked. */}
+          <div className="p-4 pb-0">
+            <AiActionBlocks
+              context={{
+                scope: 'module',
+                module: 'explore_design',
+                objectFqn: fqn || undefined,
+                projectId: projectId ?? undefined,
+              }}
+              title="Actions IA suggérées"
+            />
+          </div>
+          {selectedTable ? (
+            <AIAssistPanel
+              table={selectedTable}
+              columns={tableColumns}
+              classifications={classifications}
+              classificationDetails={classificationDetails}
+              isClassifying={isClassifying}
+              classifyUnavailable={classifyUnavailable}
+              onRunClassify={onRunClassify}
+            />
+          ) : <EmptyState />}
+        </div>
+      ),
+    },
+    {
+      id: 'quality', icon: BarChart3, label: 'Quality',
+      render: () => selectedTable
+        ? <QualityPanel table={selectedTable} columns={tableColumns} profileData={profileData} onAddEvent={onAddEvent} />
+        : <EmptyState />,
+    },
+    {
+      id: 'deploy', icon: Rocket, label: 'Deploy',
+      render: () => selectedTable ? (
+        <DeployPanel
+          projectId={projectId}
+          pendingEventsCount={pendingEventsCount}
+          pendingEvents={pendingEvents}
+          database={selectedDatabase}
+          schema={selectedSchema}
+          onOpenDeployModal={onOpenDeployModal}
+        />
+      ) : <EmptyState />,
+    },
+    {
+      id: 'history', icon: Clock, label: 'History',
+      render: () => selectedTable ? <HistoryPanel events={historyEvents} /> : <EmptyState />,
+    },
+    {
+      id: 'help', icon: HelpCircle, label: 'Help',
+      render: () => selectedTable ? <HelpPanel table={selectedTable} /> : <EmptyState />,
+    },
+  ];
+
+  // Both branches stay MOUNTED and toggle via `hidden`. Keeping RightTabPanel
+  // mounted across collapse/expand is deliberate: its section-restore effect runs
+  // once per mount, so an unmount-on-collapse ternary would re-restore (and revert
+  // an explicit tab choice) on every expand. Visibility toggling preserves the old
+  // "restore once on page-load mount" behaviour and lets the many openers that set
+  // a tab + open (mini-rail icons, the page's Add Column / Policies / Deploy
+  // quick-actions) land on the section they asked for.
   return (
     <div className="flex h-full shrink-0" style={{ flexShrink: 0, flexGrow: 0 }}>
-      {/* Mini rail — always visible */}
-      <div className="w-12 border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col items-center py-2 gap-1">
+      {/* Collapsed mini-rail — re-expands the panel (and jumps to a section). */}
+      <div className={cn('w-12 border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col items-center py-2 gap-1', isOpen && 'hidden')}>
         <button
           onClick={onToggle}
           className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 mb-2"
-          title={isOpen ? 'Collapse panel' : 'Expand panel'}
+          title="Expand panel"
+          aria-label="Expand panel"
         >
-          {isOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
+          <PanelRight className="h-4 w-4" />
         </button>
         {TABS.map((tab) => {
           const Icon = tab.icon;
-          const active = activeTab === tab.id && isOpen;
           return (
             <Tooltip key={tab.id} content={tab.label} placement="left">
               <button
-                onClick={() => { onTabChange(tab.id); if (!isOpen) onToggle(); }}
+                onClick={() => { onTabChange(tab.id); onToggle(); }}
                 aria-label={tab.label}
-                aria-pressed={active}
-                className={cn(
-                  'p-2 rounded-lg transition-colors',
-                  active
-                    ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400'
-                    : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-600'
-                )}
+                aria-pressed={false}
+                className="p-2 rounded-lg transition-colors text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-600"
               >
                 <Icon className="h-4 w-4" />
               </button>
@@ -189,94 +286,33 @@ export default function ContextRightBar({
         })}
       </div>
 
-      {/* Expanded content */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 380, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex flex-col shrink-0"
-            style={{ minWidth: 0 }}
-          >
-            {/* Header */}
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                {TABS.find((t) => t.id === activeTab)?.icon && (
-                  <span className="text-blue-600">
-                    {React.createElement(TABS.find((t) => t.id === activeTab)!.icon, { className: 'h-4 w-4' })}
-                  </span>
-                )}
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                  {TABS.find((t) => t.id === activeTab)?.label}
-                </h3>
-              </div>
-              {selectedTable && (
-                <Badge size="sm" className="bg-slate-100 dark:bg-slate-800 text-slate-500 text-[9px]">{tableName}</Badge>
-              )}
-            </div>
+      <div className={cn(!isOpen && 'hidden')}>
+        <RightTabPanel
+          title={tableName || 'Table actions'}
+          subtitle={selectedTable ? fqn : undefined}
+          accentClassName="bg-blue-500"
+          kpiStrip={kpiStrip}
+          quickActions={quickActions}
+          sections={sections}
+          activeSection={activeTab}
+          onSectionChange={(id) => onTabChange(id as RightBarTab)}
+          // Escape collapses only when open — never expands a collapsed (hidden) panel.
+          onClose={() => { if (isOpen) onToggle(); }}
+          storageKey={ACTIVE_TAB_KEY}
+          widthClassName="w-[380px]"
+        />
+      </div>
+    </div>
+  );
+}
 
-            {/* Tab content */}
-            <div className="flex-1 overflow-y-auto">
-              {!selectedTable ? (
-                <div className="flex flex-col items-center justify-center h-full text-slate-400 px-6 text-center">
-                  <Info className="h-8 w-8 mb-3 text-slate-300" />
-                  <p className="text-sm font-medium">Select a table</p>
-                  <p className="text-xs mt-1">Choose a table from the list to see contextual actions</p>
-                </div>
-              ) : (
-                <>
-                  {activeTab === 'actions' && (
-                    <ActionsPanel
-                      table={selectedTable}
-                      columns={tableColumns}
-                      projectId={projectId}
-                      focusedAction={focusedAction}
-                      onFocusAction={onFocusAction}
-                      onAddEvent={onAddEvent}
-                      classifications={classifications}
-                      userRole={userRole}
-                      database={selectedDatabase}
-                      onDeselectTable={onDeselectTable}
-                    />
-                  )}
-                  {activeTab === 'ai' && (
-                    <AIAssistPanel
-                      table={selectedTable}
-                      columns={tableColumns}
-                      classifications={classifications}
-                      classificationDetails={classificationDetails}
-                      isClassifying={isClassifying}
-                      classifyUnavailable={classifyUnavailable}
-                      onRunClassify={onRunClassify}
-                    />
-                  )}
-                  {activeTab === 'quality' && (
-                    <QualityPanel table={selectedTable} columns={tableColumns} profileData={profileData} onAddEvent={onAddEvent} />
-                  )}
-                  {activeTab === 'deploy' && (
-                    <DeployPanel
-                      projectId={projectId}
-                      pendingEventsCount={pendingEventsCount}
-                      pendingEvents={pendingEvents}
-                      database={selectedDatabase}
-                      schema={selectedSchema}
-                      onOpenDeployModal={onOpenDeployModal}
-                    />
-                  )}
-                  {activeTab === 'history' && (
-                    <HistoryPanel events={historyEvents} />
-                  )}
-                  {activeTab === 'help' && (
-                    <HelpPanel table={selectedTable} />
-                  )}
-                </>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+// Shown in any section when no table is selected (same copy as before).
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-slate-400 px-6 text-center">
+      <Info className="h-8 w-8 mb-3 text-slate-300" />
+      <p className="text-sm font-medium">Select a table</p>
+      <p className="text-xs mt-1">Choose a table from the list to see contextual actions</p>
     </div>
   );
 }

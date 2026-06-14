@@ -1,5 +1,3 @@
-import apiClient from '@/lib/api-client';
-
 /**
  * The shape of the test mapping payload
  * Expected by the backend test_mapping endpoint
@@ -33,36 +31,16 @@ export interface TestMappingResponse {
 }
 
 /**
- * Sends mapping data to a FastAPI endpoint.
+ * Sends mapping data for server-side validation.
  *
- * NOTE: /explore-design/guided/test_mapping/ DOES NOT EXIST on the current
- * backend router (the /explore-design router has no /guided sub-prefix).
- * Wrapped in try-catch with safe, non-throwing fallback so callers can
- * detect "not implemented" via response.message.
+ * The historical /explore-design/guided/test_mapping/ route DOES NOT EXIST on the
+ * current backend (the /explore-design router has no /guided sub-prefix) and there
+ * is no canonical server-side mapping-validation endpoint. Rather than fabricating
+ * validation results that would read as a passing test, this surfaces an honest
+ * error which the caller already handles (toast + alert).
  */
-export async function postMapping(payload: TestMappingPayload): Promise<TestMappingResponse> {
-    try {
-        const response = await apiClient.post<TestMappingResponse>(
-            '/explore-design/guided/test_mapping/',
-            payload
-        );
-        return response.data;
-    } catch (error) {
-        if (process.env.NODE_ENV === 'development') {
-            console.warn(
-                '[postMapping] /explore-design/guided/test_mapping/ not implemented on backend.',
-                error
-            );
-        }
-        return {
-            message: 'Mapping validation endpoint not implemented on backend.',
-            project_id: payload.project_id,
-            validation_results: payload.mappings.map((m) => ({
-                source_table: `${m.source_database}.${m.source_schema}.${m.source_table}`,
-                target_table: `${m.target_database}.${m.target_schema}.${m.target_table}`,
-                status: 'warning' as const,
-                warnings: ['Backend test_mapping endpoint not available; skipped server-side validation.'],
-            })),
-        };
-    }
+export async function postMapping(_payload: TestMappingPayload): Promise<TestMappingResponse> {
+    throw new Error(
+        'Server-side mapping validation is not available: the backend does not expose a test-mapping endpoint.'
+    );
 }

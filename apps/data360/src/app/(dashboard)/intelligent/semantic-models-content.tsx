@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, memo } from 'react';
 import { Button, Input, Badge, Loader, Select } from 'rizzui';
+import { Database as DatabaseIcon, FileText as FileTextIcon } from 'lucide-react';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { toast } from 'react-hot-toast';
 import {
@@ -43,11 +44,15 @@ import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTables } from '@/app/services/mapping/getTables';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
 
 interface SelectOption {
   value: string;
   label: string;
 }
+
+// Versioned localStorage key for the docked smart-panel's active section.
+const PANEL_STORAGE_KEY = 'data360.intelligent.smartPanel.v1';
 
 // ── Inline error display — keeps the failure visible in-flow instead of a
 // transient toast that disappears before the user can act on it. ──
@@ -154,6 +159,8 @@ function SemanticModelsContent() {
   }, [database, schema]);
 
   const handleViewModel = async (model: SemanticModel) => {
+    // Mutually exclusive with the create panel — only one docked panel at a time.
+    setShowCreateModal(false);
     setSelectedModel(model);
     setShowViewModal(true);
     setLoadingContent(true);
@@ -169,6 +176,14 @@ function SemanticModelsContent() {
     } finally {
       setLoadingContent(false);
     }
+  };
+
+  const handleOpenCreate = () => {
+    // Mutually exclusive with the view panel.
+    setShowViewModal(false);
+    setEditing(false);
+    setCreateError(null);
+    setShowCreateModal(true);
   };
 
   const handleCreate = async () => {
@@ -331,391 +346,184 @@ function SemanticModelsContent() {
     setCreateStep(1);
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Header Actions */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <PiDatabase className="w-7 h-7 text-violet-600" />
-            Semantic Models
-          </h2>
-          <p className="text-slate-600 dark:text-slate-400 mt-1">
-            Define YAML-based semantic models for natural-language queries
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Button
-            variant="outline"
-            onClick={loadModels}
-            className="border-slate-200 dark:border-slate-700"
-          >
-            <HiOutlineArrowPath className="w-4 h-4 mr-2" />
-            Refresh
-          </Button>
-          <Button
-            onClick={() => { setCreateError(null); setShowCreateModal(true); }}
-            disabled={!canCreateModel}
-            title={!canCreateModel ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined}
-            className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-lg shadow-violet-500/25"
-          >
-            <HiOutlinePlus className="w-5 h-5 mr-2" />
-            Create Model
-          </Button>
-        </div>
-      </div>
+  const closeCreatePanel = () => { setShowCreateModal(false); resetCreateForm(); };
+  const closeViewPanel = () => { setShowViewModal(false); setEditing(false); };
 
-      {/* List-level errors (delete / download / fetch) surfaced inline */}
-      {deleteError && <InlineError message={deleteError} onDismiss={() => setDeleteError(null)} />}
-      {downloadError && <InlineError message={downloadError} onDismiss={() => setDownloadError(null)} />}
+  // Which docked panel (if any) is open. Create takes precedence; the open
+  // handlers above keep the two mutually exclusive.
+  const panelMode: 'create' | 'view' | null = showCreateModal
+    ? 'create'
+    : showViewModal
+      ? 'view'
+      : null;
 
-      {/* Models List */}
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="relative">
-            <div className="absolute inset-0 bg-violet-500/20 rounded-full blur-xl animate-pulse" />
-            <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center animate-spin">
-              <HiOutlineSparkles className="w-8 h-8 text-white" />
-            </div>
-          </div>
-          <p className="mt-4 text-slate-600 dark:text-slate-400">Loading semantic models...</p>
-        </div>
-      ) : modelsError ? (
-        <div className="rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-8 text-center">
-          <HiOutlineExclamationTriangle className="w-10 h-10 mx-auto mb-3 text-red-500 dark:text-red-400" />
-          <p className="text-sm text-red-700 dark:text-red-300 mb-4">{modelsError}</p>
-          <Button variant="outline" onClick={loadModels} className="border-red-200 dark:border-red-800">
-            <HiOutlineArrowPath className="w-4 h-4 mr-2" />
-            Retry
-          </Button>
-        </div>
-      ) : (models ?? []).length === 0 ? (
-        <div className="relative overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-12 text-center">
-          <div className="absolute inset-0 bg-gradient-to-br from-violet-50/50 to-purple-50/50 dark:from-violet-950/20 dark:to-purple-950/20" />
-          <div className="relative z-10">
-            <div className="w-16 h-16 mx-auto rounded-2xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center mb-4">
-              <PiFileCode className="w-8 h-8 text-violet-600 dark:text-violet-400" />
-            </div>
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
-              No Semantic Models Yet
-            </h3>
-            <p className="text-slate-600 dark:text-slate-400 mb-6 max-w-md mx-auto">
-              Create your first semantic model to enable natural-language queries.
-              Models define your data structure, relationships, and business terminology.
-            </p>
-            <Button
-              onClick={() => { setCreateError(null); setShowCreateModal(true); }}
-              disabled={!canCreateModel}
-              title={!canCreateModel ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined}
-              className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
-            >
-              <HiOutlinePlus className="w-5 h-5 mr-2" />
-              Create Your First Model
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {(models ?? []).map((model) => (
-            <div
-              key={model.name}
-              className="group relative overflow-hidden rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-violet-300 dark:hover:border-violet-600 hover:shadow-lg hover:shadow-violet-500/10 transition-all duration-300"
-            >
-              {/* Card gradient overlay on hover */}
-              <div className="absolute inset-0 bg-gradient-to-br from-violet-500/0 to-purple-500/0 group-hover:from-violet-500/5 group-hover:to-purple-500/5 transition-all duration-300" />
-
-              <div className="relative p-5">
-                {/* Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
-                      <PiFileCode className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h3
-                        className="font-semibold text-slate-900 dark:text-white group-hover:text-violet-600 dark:group-hover:text-violet-400 cursor-pointer transition-colors truncate max-w-[180px]"
-                        onClick={() => handleViewModel(model)}
-                        title={model.name}
-                      >
-                        {model.name.replace('.yaml', '')}
-                      </h3>
-                      <Badge
-                        variant="flat"
-                        className="bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs"
-                      >
-                        YAML Model
-                      </Badge>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setConfirmDeleteModel(model.name)}
-                    disabled={!canDeleteModel}
-                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-slate-400 disabled:hover:bg-transparent"
-                    title={canDeleteModel ? 'Delete model' : 'You lack the "delete" permission on intelligence. Ask an administrator to grant it.'}
-                  >
-                    <HiOutlineTrash className="w-4 h-4" />
-                  </button>
+  // ── Create panel body (was a centered modal) — the whole build form lives in
+  // one docked section so the form logic is preserved verbatim. ──
+  const createSections: RightTabSection[] = [
+    {
+      id: 'build',
+      icon: DatabaseIcon,
+      label: 'Build Model',
+      render: () => (
+        <div className="space-y-4">
+          {/* Stepper */}
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { step: 1, label: 'Select Source' },
+              { step: 2, label: 'Review YAML' },
+              { step: 3, label: 'Saved' },
+            ].map((s, idx) => (
+              <div key={s.step} className="flex items-center gap-1.5">
+                <div className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center ${
+                  createStep >= s.step
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+                }`}>
+                  {createStep > s.step ? '✓' : s.step}
                 </div>
-
-                {/* Inline delete confirmation */}
-                {confirmDeleteModel === model.name && (
-                  <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-2 mb-3 flex items-center justify-between gap-2">
-                    <span className="text-xs text-red-700 dark:text-red-300 font-medium truncate">
-                      Delete &ldquo;{model.name.replace('.yaml', '')}&rdquo;? This cannot be undone.
-                    </span>
-                    <div className="flex gap-1.5 shrink-0">
-                      <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white text-xs h-7 px-2.5" onClick={() => handleDelete(model)}>
-                        Confirm
-                      </Button>
-                      <Button size="sm" variant="outline" className="text-xs h-7 px-2.5 border-red-200 dark:border-red-800" onClick={() => setConfirmDeleteModel(null)}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Metadata */}
-                <div className="space-y-2 mb-4">
-                  <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                    <HiOutlineCube className="w-4 h-4 text-slate-400" />
-                    <span>Size: {formatFileSize(model.size)}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                    <HiOutlineCalendar className="w-4 h-4 text-slate-400" />
-                    <span>Modified: {formatDate(model.last_modified)}</span>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="flex-1 border-violet-200 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20"
-                    onClick={() => handleViewModel(model)}
-                  >
-                    <HiOutlineEye className="w-4 h-4 mr-1" />
-                    View / Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="border-fuchsia-200 dark:border-fuchsia-700 text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20"
-                    onClick={() => handleUseInChat(model)}
-                    title="Use in AI Chat"
-                  >
-                    <HiOutlineSparkles className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
-                    onClick={async () => {
-                      setDownloadError(null);
-                      try {
-                        const content = await getSemanticModelContent(model.name.replace('.yaml', ''));
-                        if (content?.content) {
-                          const blob = new Blob([content.content], { type: 'text/yaml' });
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = model.name;
-                          a.click();
-                          URL.revokeObjectURL(url);
-                        }
-                      } catch (err) {
-                        setDownloadError(err instanceof Error ? `Failed to download ${model.name}: ${err.message}` : 'Failed to download');
-                      }
-                    }}
-                    title="Download YAML"
-                  >
-                    <PiDownload className="w-4 h-4" />
-                  </Button>
-                </div>
+                <span className={`text-xs ${createStep >= s.step ? 'text-violet-600 dark:text-violet-400 font-medium' : 'text-slate-400'}`}>{s.label}</span>
+                {idx < 2 && <span className="text-slate-300 dark:text-slate-600 mx-1">&rarr;</span>}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Create Model — non-blocking right-side panel (was a centered modal) */}
-      {showCreateModal && (
-      <div
-        role="dialog"
-        aria-modal="false"
-        aria-label="Create Semantic Model"
-        className="fixed inset-y-0 right-0 z-40 flex w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 overflow-y-auto"
-      >
-        <div className="p-6 space-y-6">
-          {/* Stepper Header */}
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
-              <HiOutlineCloudArrowUp className="w-6 h-6 text-white" />
-            </div>
-            <div className="flex-1">
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                Create Semantic Model
-              </h2>
-              <div className="flex items-center gap-2 mt-1">
-                {[
-                  { step: 1, label: 'Select Source' },
-                  { step: 2, label: 'Review YAML' },
-                  { step: 3, label: 'Saved' },
-                ].map((s, idx) => (
-                  <div key={s.step} className="flex items-center gap-1.5">
-                    <div className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center ${
-                      createStep >= s.step
-                        ? 'bg-violet-600 text-white'
-                        : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
-                    }`}>
-                      {createStep > s.step ? '\u2713' : s.step}
-                    </div>
-                    <span className={`text-xs ${createStep >= s.step ? 'text-violet-600 dark:text-violet-400 font-medium' : 'text-slate-400'}`}>{s.label}</span>
-                    {idx < 2 && <span className="text-slate-300 dark:text-slate-600 mx-1">&rarr;</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
+            ))}
           </div>
 
           {/* Form */}
-          <div className="space-y-4">
-            <Input
-              label="Model Name"
-              placeholder="sales_semantic_model"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
-              suffix=".yaml"
-              className="font-mono"
-            />
+          <Input
+            label="Model Name"
+            placeholder="sales_semantic_model"
+            value={modelName}
+            onChange={(e) => setModelName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
+            suffix=".yaml"
+            className="font-mono"
+          />
 
-            <Input
-              label="Description (Optional)"
-              placeholder="Semantic model for sales data analysis"
-              value={modelDescription}
-              onChange={(e) => setModelDescription(e.target.value)}
-            />
+          <Input
+            label="Description (Optional)"
+            placeholder="Semantic model for sales data analysis"
+            value={modelDescription}
+            onChange={(e) => setModelDescription(e.target.value)}
+          />
 
-            {/* Data Source Pickers */}
-            <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
-                <PiDatabase className="w-4 h-4" />
-                Generate from Data Source
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Select
-                  label="Database"
-                  options={dbOptions}
-                  value={database}
-                  onChange={(opt: any) => {
-                    const val = opt?.value || '';
-                    setDatabase(val);
-                    setSchema('');
-                    setSelectedTables([]);
-                  }}
-                  placeholder={dbOptions.length === 0 ? 'Loading...' : 'Select database'}
-                />
-                <Select
-                  label="Schema"
-                  options={schemaOptions}
-                  value={schema}
-                  onChange={(opt: any) => {
-                    setSchema(opt?.value || '');
-                    setSelectedTables([]);
-                  }}
-                  placeholder={!database ? 'Select database first' : schemaOptions.length === 0 ? 'Loading...' : 'Select schema'}
-                  disabled={!database}
-                />
-              </div>
-              {database && schema && tableOptions.length > 0 && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
-                    Tables (optional - leave empty to include all)
-                  </label>
-                  <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto p-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
-                    {tableOptions.map((t) => {
-                      const isSelected = selectedTables.includes(t.value);
-                      return (
-                        <button
-                          key={t.value}
-                          type="button"
-                          onClick={() => {
-                            setSelectedTables((prev) =>
-                              isSelected
-                                ? prev.filter((v) => v !== t.value)
-                                : [...prev, t.value]
-                            );
-                          }}
-                          className={`px-2.5 py-1 text-xs rounded-lg border transition-all ${
-                            isSelected
-                              ? 'bg-violet-100 dark:bg-violet-900/40 border-violet-300 dark:border-violet-600 text-violet-700 dark:text-violet-300 font-medium'
-                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-violet-200 dark:hover:border-violet-700'
-                          }`}
-                        >
-                          {t.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {selectedTables.length > 0 && (
-                    <p className="text-xs text-violet-600 dark:text-violet-400 mt-1">
-                      {selectedTables.length} table(s) selected
-                    </p>
-                  )}
-                </div>
-              )}
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={handleGenerate}
-                  disabled={!database || !schema || generating || !canGenerateModel}
-                  title={!canGenerateModel ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined}
-                  className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white disabled:opacity-50"
-                >
-                  {generating ? (
-                    <>
-                      <Loader className="w-4 h-4 mr-2 animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <PiMagicWand className="w-4 h-4 mr-2" />
-                      Generate YAML
-                    </>
-                  )}
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleGenerateAndSave}
-                  disabled={!database || !schema || generating || !canGenerateModel}
-                  title={!canGenerateModel ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined}
-                  className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white disabled:opacity-50"
-                >
-                  {generating ? (
-                    <>
-                      <Loader className="w-4 h-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <HiOutlineCloudArrowUp className="w-4 h-4 mr-2" />
-                      Generate & Save
-                    </>
-                  )}
-                </Button>
-              </div>
+          {/* Data Source Pickers */}
+          <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+              <PiDatabase className="w-4 h-4" />
+              Generate from Data Source
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Select
+                label="Database"
+                options={dbOptions}
+                value={database}
+                onChange={(opt: any) => {
+                  const val = opt?.value || '';
+                  setDatabase(val);
+                  setSchema('');
+                  setSelectedTables([]);
+                }}
+                placeholder={dbOptions.length === 0 ? 'Loading...' : 'Select database'}
+              />
+              <Select
+                label="Schema"
+                options={schemaOptions}
+                value={schema}
+                onChange={(opt: any) => {
+                  setSchema(opt?.value || '');
+                  setSelectedTables([]);
+                }}
+                placeholder={!database ? 'Select database first' : schemaOptions.length === 0 ? 'Loading...' : 'Select schema'}
+                disabled={!database}
+              />
+            </div>
+            {database && schema && tableOptions.length > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+                  Tables (optional - leave empty to include all)
+                </label>
+                <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto p-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
+                  {tableOptions.map((t) => {
+                    const isSelected = selectedTables.includes(t.value);
+                    return (
+                      <button
+                        key={t.value}
+                        type="button"
+                        onClick={() => {
+                          setSelectedTables((prev) =>
+                            isSelected
+                              ? prev.filter((v) => v !== t.value)
+                              : [...prev, t.value]
+                          );
+                        }}
+                        className={`px-2.5 py-1 text-xs rounded-lg border transition-all ${
+                          isSelected
+                            ? 'bg-violet-100 dark:bg-violet-900/40 border-violet-300 dark:border-violet-600 text-violet-700 dark:text-violet-300 font-medium'
+                            : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-violet-200 dark:hover:border-violet-700'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedTables.length > 0 && (
+                  <p className="text-xs text-violet-600 dark:text-violet-400 mt-1">
+                    {selectedTables.length} table(s) selected
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={handleGenerate}
+                disabled={!database || !schema || generating || !canGenerateModel}
+                title={!canGenerateModel ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined}
+                className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white disabled:opacity-50"
+              >
+                {generating ? (
+                  <>
+                    <Loader className="w-4 h-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <PiMagicWand className="w-4 h-4 mr-2" />
+                    Generate YAML
+                  </>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleGenerateAndSave}
+                disabled={!database || !schema || generating || !canGenerateModel}
+                title={!canGenerateModel ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined}
+                className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white disabled:opacity-50"
+              >
+                {generating ? (
+                  <>
+                    <Loader className="w-4 h-4 mr-2 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <HiOutlineCloudArrowUp className="w-4 h-4 mr-2" />
+                    Generate & Save
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
 
-            {/* YAML Content */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                YAML Content
-              </label>
-              <textarea
-                className="w-full h-72 p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 font-mono text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
-                value={yamlContent}
-                onChange={(e) => setYamlContent(e.target.value)}
-                placeholder={`name: my_semantic_model
+          {/* YAML Content */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              YAML Content
+            </label>
+            <textarea
+              className="w-full h-72 p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 font-mono text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
+              value={yamlContent}
+              onChange={(e) => setYamlContent(e.target.value)}
+              placeholder={`name: my_semantic_model
 description: Describe your semantic model
 
 tables:
@@ -728,153 +536,138 @@ tables:
       - name: id
         expr: ID
         data_type: NUMBER`}
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                Generate from a data source above, or write YAML manually
-              </p>
-            </div>
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Generate from a data source above, or write YAML manually
+            </p>
+          </div>
 
-            {/* Info box */}
-            <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-700/50 rounded-xl p-4">
-              <div className="flex gap-3">
-                <HiOutlineSparkles className="w-5 h-5 text-violet-600 dark:text-violet-400 flex-shrink-0 mt-0.5" />
-                <div className="text-sm">
-                  <p className="font-medium text-violet-900 dark:text-violet-200 mb-1">
-                    Semantic Model Guidelines
-                  </p>
-                  <ul className="text-violet-700 dark:text-violet-300 space-y-1 text-xs">
-                    <li>Define meaningful <strong>synonyms</strong> for columns to improve query understanding</li>
-                    <li>Include <strong>descriptions</strong> for tables and columns</li>
-                    <li>Specify <strong>data types</strong> for accurate SQL generation</li>
-                    <li>Use <strong>time_dimensions</strong> for date/time fields</li>
-                  </ul>
-                </div>
+          {/* Info box */}
+          <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-700/50 rounded-xl p-4">
+            <div className="flex gap-3">
+              <HiOutlineSparkles className="w-5 h-5 text-violet-600 dark:text-violet-400 flex-shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium text-violet-900 dark:text-violet-200 mb-1">
+                  Semantic Model Guidelines
+                </p>
+                <ul className="text-violet-700 dark:text-violet-300 space-y-1 text-xs">
+                  <li>Define meaningful <strong>synonyms</strong> for columns to improve query understanding</li>
+                  <li>Include <strong>descriptions</strong> for tables and columns</li>
+                  <li>Specify <strong>data types</strong> for accurate SQL generation</li>
+                  <li>Use <strong>time_dimensions</strong> for date/time fields</li>
+                </ul>
               </div>
             </div>
           </div>
 
           {createError && <InlineError message={createError} onDismiss={() => setCreateError(null)} />}
-
-          {/* Actions */}
-          <div className="flex gap-3 justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
-            <Button
-              variant="outline"
-              onClick={() => { setShowCreateModal(false); resetCreateForm(); }}
-              disabled={creating}
-            >
-              {createStep === 3 ? 'Close' : 'Cancel'}
-            </Button>
-            {createStep === 3 && modelName && (
-              <Button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  resetCreateForm();
-                  window.location.href = `/intelligent?tab=cortex-chat&model=${encodeURIComponent(modelName)}`;
-                }}
-                className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
-              >
-                <HiOutlineSparkles className="w-5 h-5 mr-2" />
-                Use in Chat
-              </Button>
-            )}
-            {createStep < 3 && (
-              <Button
-                onClick={handleCreate}
-                disabled={creating || !modelName || !yamlContent || !canCreateModel}
-                title={!canCreateModel ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined}
-                className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
-              >
-                {creating ? (
-                  <>
-                    <Loader className="w-4 h-4 mr-2 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <HiOutlineCloudArrowUp className="w-5 h-5 mr-2" />
-                    Save to Stage
-                  </>
-                )}
-              </Button>
-            )}
-          </div>
         </div>
-      </div>
-      )}
+      ),
+    },
+  ];
 
-      {/* View / Edit Model — non-blocking right-side panel (was a centered modal) */}
-      {showViewModal && (
-      <div
-        role="dialog"
-        aria-modal="false"
-        aria-label="Semantic Model Definition"
-        className="fixed inset-y-0 right-0 z-40 flex w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 overflow-y-auto"
+  const createFooter = (
+    <>
+      <Button
+        variant="outline"
+        onClick={closeCreatePanel}
+        disabled={creating}
       >
-        <div className="p-6 space-y-6">
-          {/* Modal Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
-                <HiOutlineDocumentText className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                  {selectedModel?.name.replace('.yaml', '')}
-                </h2>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  Semantic Model Definition
-                </p>
-              </div>
-            </div>
-            {modelContent && (
-              <div className="flex gap-2">
-                {!editing ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleStartEdit}
-                    disabled={!canEditModel}
-                    title={!canEditModel ? 'You lack the "edit" permission on intelligence. Ask an administrator to grant it.' : undefined}
-                    className="border-violet-200 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20"
-                  >
-                    <HiOutlineDocumentDuplicate className="w-4 h-4 mr-1" />
-                    Edit
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={handleSaveEdit}
-                    disabled={saving || !canEditModel}
-                    title={!canEditModel ? 'You lack the "edit" permission on intelligence. Ask an administrator to grant it.' : undefined}
-                    className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
-                  >
-                    {saving ? <Loader className="w-4 h-4 mr-1 animate-spin" /> : <HiOutlineCloudArrowUp className="w-4 h-4 mr-1" />}
-                    Save
-                  </Button>
-                )}
+        {createStep === 3 ? 'Close' : 'Cancel'}
+      </Button>
+      {createStep === 3 && modelName && (
+        <Button
+          onClick={() => {
+            setShowCreateModal(false);
+            resetCreateForm();
+            window.location.href = `/intelligent?tab=cortex-chat&model=${encodeURIComponent(modelName)}`;
+          }}
+          className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
+        >
+          <HiOutlineSparkles className="w-5 h-5 mr-2" />
+          Use in Chat
+        </Button>
+      )}
+      {createStep < 3 && (
+        <Button
+          onClick={handleCreate}
+          disabled={creating || !modelName || !yamlContent || !canCreateModel}
+          title={!canCreateModel ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined}
+          className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
+        >
+          {creating ? (
+            <>
+              <Loader className="w-4 h-4 mr-2 animate-spin" />
+              Creating...
+            </>
+          ) : (
+            <>
+              <HiOutlineCloudArrowUp className="w-5 h-5 mr-2" />
+              Save to Stage
+            </>
+          )}
+        </Button>
+      )}
+    </>
+  );
+
+  // ── View / Edit panel body (was a centered modal) ──
+  const viewSections: RightTabSection[] = [
+    {
+      id: 'definition',
+      icon: FileTextIcon,
+      label: 'Definition',
+      render: () => (
+        <div className="space-y-4">
+          {/* Header actions */}
+          {modelContent && (
+            <div className="flex flex-wrap justify-end gap-2">
+              {!editing ? (
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={handleCopyContent}
-                  className="border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                  onClick={handleStartEdit}
+                  disabled={!canEditModel}
+                  title={!canEditModel ? 'You lack the "edit" permission on intelligence. Ask an administrator to grant it.' : undefined}
+                  className="border-violet-200 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20"
                 >
-                  <HiOutlineClipboard className="w-4 h-4 mr-1" />
-                  Copy
+                  <HiOutlineDocumentDuplicate className="w-4 h-4 mr-1" />
+                  Edit
                 </Button>
-                {selectedModel && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleUseInChat(selectedModel)}
-                    className="border-fuchsia-200 dark:border-fuchsia-700 text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20"
-                  >
-                    <HiOutlineSparkles className="w-4 h-4 mr-1" />
-                    Use in Chat
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={handleSaveEdit}
+                  disabled={saving || !canEditModel}
+                  title={!canEditModel ? 'You lack the "edit" permission on intelligence. Ask an administrator to grant it.' : undefined}
+                  className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
+                >
+                  {saving ? <Loader className="w-4 h-4 mr-1 animate-spin" /> : <HiOutlineCloudArrowUp className="w-4 h-4 mr-1" />}
+                  Save
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCopyContent}
+                className="border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+              >
+                <HiOutlineClipboard className="w-4 h-4 mr-1" />
+                Copy
+              </Button>
+              {selectedModel && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleUseInChat(selectedModel)}
+                  className="border-fuchsia-200 dark:border-fuchsia-700 text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20"
+                >
+                  <HiOutlineSparkles className="w-4 h-4 mr-1" />
+                  Use in Chat
+                </Button>
+              )}
+            </div>
+          )}
 
           {/* Content */}
           {loadingContent ? (
@@ -942,15 +735,255 @@ tables:
               <p>No content available</p>
             </div>
           )}
+        </div>
+      ),
+    },
+  ];
 
-          {/* Actions */}
-          <div className="flex gap-3 justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
-            <Button variant="outline" onClick={() => { setShowViewModal(false); setEditing(false); }}>
-              Close
+  const viewFooter = (
+    <Button variant="outline" onClick={closeViewPanel}>
+      Close
+    </Button>
+  );
+
+  return (
+    <div className="flex items-start gap-6">
+      {/* ── Left column: header + list (stays visible alongside the docked panel) ── */}
+      <div className="min-w-0 flex-1 space-y-6">
+        {/* Header Actions */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <PiDatabase className="w-7 h-7 text-violet-600" />
+              Semantic Models
+            </h2>
+            <p className="text-slate-600 dark:text-slate-400 mt-1">
+              Define YAML-based semantic models for natural-language queries
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              onClick={loadModels}
+              className="border-slate-200 dark:border-slate-700"
+            >
+              <HiOutlineArrowPath className="w-4 h-4 mr-2" />
+              Refresh
+            </Button>
+            <Button
+              onClick={handleOpenCreate}
+              disabled={!canCreateModel}
+              title={!canCreateModel ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined}
+              className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-lg shadow-violet-500/25"
+            >
+              <HiOutlinePlus className="w-5 h-5 mr-2" />
+              Create Model
             </Button>
           </div>
         </div>
+
+        {/* List-level errors (delete / download / fetch) surfaced inline */}
+        {deleteError && <InlineError message={deleteError} onDismiss={() => setDeleteError(null)} />}
+        {downloadError && <InlineError message={downloadError} onDismiss={() => setDownloadError(null)} />}
+
+        {/* Models List */}
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="relative">
+              <div className="absolute inset-0 bg-violet-500/20 rounded-full blur-xl animate-pulse" />
+              <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center animate-spin">
+                <HiOutlineSparkles className="w-8 h-8 text-white" />
+              </div>
+            </div>
+            <p className="mt-4 text-slate-600 dark:text-slate-400">Loading semantic models...</p>
+          </div>
+        ) : modelsError ? (
+          <div className="rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-8 text-center">
+            <HiOutlineExclamationTriangle className="w-10 h-10 mx-auto mb-3 text-red-500 dark:text-red-400" />
+            <p className="text-sm text-red-700 dark:text-red-300 mb-4">{modelsError}</p>
+            <Button variant="outline" onClick={loadModels} className="border-red-200 dark:border-red-800">
+              <HiOutlineArrowPath className="w-4 h-4 mr-2" />
+              Retry
+            </Button>
+          </div>
+        ) : (models ?? []).length === 0 ? (
+          <div className="relative overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-12 text-center">
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-50/50 to-purple-50/50 dark:from-violet-950/20 dark:to-purple-950/20" />
+            <div className="relative z-10">
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center mb-4">
+                <PiFileCode className="w-8 h-8 text-violet-600 dark:text-violet-400" />
+              </div>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+                No Semantic Models Yet
+              </h3>
+              <p className="text-slate-600 dark:text-slate-400 mb-6 max-w-md mx-auto">
+                Create your first semantic model to enable natural-language queries.
+                Models define your data structure, relationships, and business terminology.
+              </p>
+              <Button
+                onClick={handleOpenCreate}
+                disabled={!canCreateModel}
+                title={!canCreateModel ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined}
+                className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
+              >
+                <HiOutlinePlus className="w-5 h-5 mr-2" />
+                Create Your First Model
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {(models ?? []).map((model) => (
+              <div
+                key={model.name}
+                className="group relative overflow-hidden rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-violet-300 dark:hover:border-violet-600 hover:shadow-lg hover:shadow-violet-500/10 transition-all duration-300"
+              >
+                {/* Card gradient overlay on hover */}
+                <div className="absolute inset-0 bg-gradient-to-br from-violet-500/0 to-purple-500/0 group-hover:from-violet-500/5 group-hover:to-purple-500/5 transition-all duration-300" />
+
+                <div className="relative p-5">
+                  {/* Header */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
+                        <PiFileCode className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <h3
+                          className="font-semibold text-slate-900 dark:text-white group-hover:text-violet-600 dark:group-hover:text-violet-400 cursor-pointer transition-colors truncate max-w-[180px]"
+                          onClick={() => handleViewModel(model)}
+                          title={model.name}
+                        >
+                          {model.name.replace('.yaml', '')}
+                        </h3>
+                        <Badge
+                          variant="flat"
+                          className="bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs"
+                        >
+                          YAML Model
+                        </Badge>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setConfirmDeleteModel(model.name)}
+                      disabled={!canDeleteModel}
+                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-slate-400 disabled:hover:bg-transparent"
+                      title={canDeleteModel ? 'Delete model' : 'You lack the "delete" permission on intelligence. Ask an administrator to grant it.'}
+                    >
+                      <HiOutlineTrash className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Inline delete confirmation */}
+                  {confirmDeleteModel === model.name && (
+                    <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-2 mb-3 flex items-center justify-between gap-2">
+                      <span className="text-xs text-red-700 dark:text-red-300 font-medium truncate">
+                        Delete &ldquo;{model.name.replace('.yaml', '')}&rdquo;? This cannot be undone.
+                      </span>
+                      <div className="flex gap-1.5 shrink-0">
+                        <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white text-xs h-7 px-2.5" onClick={() => handleDelete(model)}>
+                          Confirm
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-xs h-7 px-2.5 border-red-200 dark:border-red-800" onClick={() => setConfirmDeleteModel(null)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Metadata */}
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                      <HiOutlineCube className="w-4 h-4 text-slate-400" />
+                      <span>Size: {formatFileSize(model.size)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                      <HiOutlineCalendar className="w-4 h-4 text-slate-400" />
+                      <span>Modified: {formatDate(model.last_modified)}</span>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 border-violet-200 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+                      onClick={() => handleViewModel(model)}
+                    >
+                      <HiOutlineEye className="w-4 h-4 mr-1" />
+                      View / Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-fuchsia-200 dark:border-fuchsia-700 text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20"
+                      onClick={() => handleUseInChat(model)}
+                      title="Use in AI Chat"
+                    >
+                      <HiOutlineSparkles className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      onClick={async () => {
+                        setDownloadError(null);
+                        try {
+                          const content = await getSemanticModelContent(model.name.replace('.yaml', ''));
+                          if (content?.content) {
+                            const blob = new Blob([content.content], { type: 'text/yaml' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = model.name;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }
+                        } catch (err) {
+                          setDownloadError(err instanceof Error ? `Failed to download ${model.name}: ${err.message}` : 'Failed to download');
+                        }
+                      }}
+                      title="Download YAML"
+                    >
+                      <PiDownload className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* ── Docked smart panel (replaces the centered Create / View modals) ── */}
+      {panelMode === 'create' && (
+        <RightTabPanel
+          key="create"
+          title="Create Semantic Model"
+          subtitle={modelName ? `${modelName}.yaml` : 'Define a YAML semantic model'}
+          sections={createSections}
+          activeSection="build"
+          onSectionChange={() => { /* single section */ }}
+          onClose={closeCreatePanel}
+          storageKey={PANEL_STORAGE_KEY}
+          footer={createFooter}
+          widthClassName="w-[480px]"
+        />
+      )}
+      {panelMode === 'view' && (
+        <RightTabPanel
+          key="view"
+          title={selectedModel?.name.replace('.yaml', '') ?? 'Semantic Model'}
+          subtitle="Semantic Model Definition"
+          sections={viewSections}
+          activeSection="definition"
+          onSectionChange={() => { /* single section */ }}
+          onClose={closeViewPanel}
+          storageKey={PANEL_STORAGE_KEY}
+          footer={viewFooter}
+          widthClassName="w-[520px]"
+        />
       )}
     </div>
   );

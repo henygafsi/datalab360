@@ -186,7 +186,7 @@ function RunsTab({ workflowId, enabled }: { workflowId: string; enabled: boolean
   );
 }
 
-function UsageTab({ workflowId, enabled }: { workflowId: string; enabled: boolean }) {
+export function UsageTab({ workflowId, enabled }: { workflowId: string; enabled: boolean }) {
   const { state, data, error, reload } = useFetch<WorkflowRunSummary>(
     () => getRunSummary(workflowId),
     enabled,
@@ -269,7 +269,7 @@ function shortQueryId(id: string | null | undefined): string {
   return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
 }
 
-function CostTab({ workflowId, enabled }: { workflowId: string; enabled: boolean }) {
+export function CostTab({ workflowId, enabled }: { workflowId: string; enabled: boolean }) {
   const { state, data, error, errorStatus, reload } = useFetch<WorkflowCostSummary>(
     () => getWorkflowCostSummary(workflowId),
     enabled,
@@ -445,7 +445,7 @@ function ScopeBadge({ scope }: { scope: 'project' | 'account' }) {
   );
 }
 
-function GovernanceTab({ workflowId, enabled }: { workflowId: string; enabled: boolean }) {
+export function GovernanceTab({ workflowId, enabled }: { workflowId: string; enabled: boolean }) {
   const { state, data, error, errorStatus, reload } = useFetch<ScoreCard[]>(
     () => getProjectScoreCards(workflowId),
     enabled,

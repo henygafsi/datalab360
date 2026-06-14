@@ -21,6 +21,11 @@ interface DataSourceSectionProps {
   onDatabaseChange: (db: string) => void;
   onSchemaChange: (schema: string) => void;
   onTableChange: (table: string) => void;
+  /**
+   * When true (panel/narrow host), render Database/Schema/Table as a single
+   * stacked column instead of 3-across. Defaults to false (wide modal layout).
+   */
+  stacked?: boolean;
 }
 
 export default function DataSourceSection({
@@ -33,6 +38,7 @@ export default function DataSourceSection({
   onDatabaseChange,
   onSchemaChange,
   onTableChange,
+  stacked = false,
 }: DataSourceSectionProps) {
   const [previewRows, setPreviewRows] = useState<Record<string, unknown>[] | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -76,7 +82,7 @@ export default function DataSourceSection({
           </button>
         )}
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className={cn('grid gap-3', stacked ? 'grid-cols-1' : 'grid-cols-3')}>
         <Select
           label="Database"
           options={dbOptions}

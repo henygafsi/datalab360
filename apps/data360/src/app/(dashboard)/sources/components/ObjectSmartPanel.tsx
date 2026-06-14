@@ -3,13 +3,18 @@
 /**
  * ObjectSmartPanel — SmartRightBar for the Sources/Catalog page.
  *
- * Always-visible right rail (w-[380px], NOT a modal). Renders the contextual
- * "story" of the selected Snowflake object across SmartRightBar sections:
- *   S1 Context · S3 Governance · S4 Lineage · S5 Ingestion · S6 Ownership
+ * Docked right-tab panel (Data360 2026 right-tab standard) rendered via the
+ * shared `RightTabPanel`: a far-right icon rail flips the body between sections,
+ * one section visible at a time. `role="region"` + `aria-modal="false"`,
+ * Escape-to-close, active section persisted to versioned localStorage. Renders
+ * the contextual "story" of the selected object across SmartRightBar sections:
+ *   Trust Scores · Recommendations · Context · Governance · Lineage ·
+ *   Ingestion · Ownership · History
  *
  * Each section fetches its own endpoint independently (per-section loading
  * skeleton + per-section error handling), so a slow or undeployed endpoint
- * never blocks the others.
+ * never blocks the others. All eight fetches fire eagerly on selection
+ * (regardless of the active tab); the rail only chooses which body is shown.
  *
  * Degradation (per smart-rightbar-spec):
  *   - loading                 → skeleton rows
@@ -27,14 +32,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Package, Shield, GitBranch, Zap, User, X, ChevronDown, Gauge,
+  Package, Shield, GitBranch, Zap, User, Gauge,
   Lightbulb, Clock, ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
-import { applyRecommendation } from '@/app/services/catalog';
-import type { Recommendation, ObjectHistoryResponse } from '@/app/services/catalog';
+import { applyRecommendation, type Recommendation, type ObjectHistoryResponse } from '@/app/services/catalog';
 import type {
   TableContext,
   TableGovernance,
@@ -42,6 +46,7 @@ import type {
   TableIngestion,
   TableOwnership,
 } from '@/app/services/catalog/rightbar';
+import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
 
 interface SelectedObject {
   database: string;
@@ -213,49 +218,25 @@ function ErrorNote({ code, onRetry }: { code?: number; onRetry?: () => void }) {
   );
 }
 
-/** Collapsible section shell with a fetch state-machine renderer. */
-function Section<T>({
-  title,
-  icon,
+/**
+ * Section body with the fetch state-machine renderer. The collapsible header is
+ * gone — RightTabPanel's icon rail + eyebrow label own section selection now —
+ * but the loading/gap/error/ok degradation is preserved verbatim.
+ */
+function SectionBody<T>({
   state,
   children,
-  defaultOpen = true,
 }: {
-  title: string;
-  icon: React.ReactNode;
   state: SectionState<T> & { refetch?: () => void };
   children: (data: T) => React.ReactNode;
-  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
-
   return (
-    <div className="border-b border-gray-100 dark:border-gray-800">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between px-4 py-2.5 text-left"
-      >
-        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
-          {icon}
-          {title}
-        </span>
-        <ChevronDown
-          className={cn(
-            'h-3.5 w-3.5 text-gray-400 transition-transform',
-            !open && '-rotate-90',
-          )}
-        />
-      </button>
-      {open && (
-        <div className="px-4 pb-3 text-xs text-gray-700 dark:text-gray-300">
-          {state.status === 'loading' && <SkeletonRows />}
-          {state.status === 'gap' && <GapNote />}
-          {state.status === 'error' && <ErrorNote code={state.code} onRetry={state.refetch} />}
-          {state.status === 'ok' && state.data && children(state.data)}
-          {state.status === 'ok' && !state.data && <GapNote />}
-        </div>
-      )}
+    <div className="text-xs text-gray-700 dark:text-gray-300">
+      {state.status === 'loading' && <SkeletonRows />}
+      {state.status === 'gap' && <GapNote />}
+      {state.status === 'error' && <ErrorNote code={state.code} onRetry={state.refetch} />}
+      {state.status === 'ok' && state.data && children(state.data)}
+      {state.status === 'ok' && !state.data && <GapNote />}
     </div>
   );
 }
@@ -334,6 +315,12 @@ function RecoRow({ reco, onApplied }: { reco: Recommendation; onApplied: () => v
 
 export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanelProps) {
   const router = useRouter();
+  // Active section for the icon-rail flip menu. Restored from versioned
+  // localStorage on mount by RightTabPanel (see `storageKey` below).
+  const [activeSection, setActiveSection] = useState('scores');
+
+  // All eight sections fetch eagerly on selection — the rail only chooses which
+  // body is rendered, never which endpoints are hit (preserves prior behavior).
   const context    = useSection<TableContext>(selected ? API.catalog.tableContext : null, selected);
   const governance = useSection<TableGovernance>(selected ? API.catalog.tableGovernance : null, selected);
   const lineage    = useSection<TableLineage>(selected ? API.catalog.tableLineage : null, selected);
@@ -343,270 +330,301 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
   const recos      = useSection<RecommendationsResponse>(selected ? objectRecommendationsUrl : null, selected);
   const history    = useSection<ObjectHistoryResponse>(selected ? objectHistoryUrl : null, selected);
 
-  return (
-    <aside className="flex h-full w-[380px] shrink-0 flex-col overflow-hidden border-l border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
-            Smart Panel
-          </p>
-          {selected ? (
-            <>
-              <h2 className="truncate text-sm font-bold text-gray-900 dark:text-white">{selected.table}</h2>
-              <p className="truncate text-[11px] text-gray-500 dark:text-gray-400">
-                {selected.database}.{selected.schema}
-              </p>
-            </>
-          ) : (
-            <h2 className="text-sm font-bold text-gray-400 dark:text-gray-500">No object selected</h2>
-          )}
-        </div>
-        {selected && onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close panel"
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
+  // Idle state: nothing selected — keep the column footprint with a quiet hint.
+  if (!selected) {
+    return (
+      <div className="flex h-full w-[380px] shrink-0 flex-col items-center justify-center border-l border-gray-200 px-6 text-center dark:border-gray-700">
+        <Package className="mb-2 h-8 w-8 text-gray-300 dark:text-gray-600" />
+        <p className="text-xs text-gray-400 dark:text-gray-500">
+          Select a table to see its context, governance, lineage, ingestion and ownership.
+        </p>
       </div>
+    );
+  }
 
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto">
-        {!selected ? (
-          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-            <Package className="mb-2 h-8 w-8 text-gray-300 dark:text-gray-600" />
-            <p className="text-xs text-gray-400 dark:text-gray-500">
-              Select a table to see its context, governance, lineage, ingestion and ownership.
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* S0 — TRUST SCORES (DQ / GOV / COST / trust rollup + recommended actions) */}
-            <Section title="Trust Scores" icon={<Gauge className="h-3.5 w-3.5" />} state={scores}>
-              {(d) =>
-                d.scores ? (
-                  <div className="space-y-0.5">
-                    <Field label="Trust" value={num(d.scores.trust_score, (n) => n.toFixed(0))} />
-                    <Field label="Quality (DQ)" value={num(d.scores.quality_score, (n) => n.toFixed(0))} />
-                    <Field label="Governance" value={num(d.scores.governance_score, (n) => n.toFixed(0))} />
-                    <Field label="FinOps (Cost)" value={num(d.scores.finops_score, (n) => n.toFixed(0))} />
-                    <Field label="ML-ready" value={num(d.scores.ml_ready_score, (n) => n.toFixed(0))} />
-                    {!!d.recommended_actions?.length && (
-                      <div className="mt-2 space-y-1">
-                        <span className="text-gray-400 dark:text-gray-500">Recommended actions</span>
-                        {d.recommended_actions.slice(0, 4).map((a, i) => {
-                          const target = typeof a === 'string' ? undefined : a.target;
-                          const text = typeof a === 'string' ? a : (a.title || a.label);
-                          return target ? (
-                            <button
-                              key={i}
-                              type="button"
-                              onClick={() => router.push(target)}
-                              className="flex w-full items-center justify-between gap-1.5 rounded border border-amber-200 px-1.5 py-1 text-left text-gray-700 hover:bg-amber-50 dark:border-amber-800 dark:text-gray-300 dark:hover:bg-amber-900/20"
-                            >
-                              <span className="truncate">{text}</span>
-                              <ArrowRight className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
-                            </button>
-                          ) : (
-                            <div key={i} className="flex items-start gap-1.5">
-                              <Pill tone="amber">action</Pill>
-                              <span className="text-gray-700 dark:text-gray-300">{text}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-gray-500 dark:text-gray-400">
-                    Not yet scored.{d.hint ? ` ${d.hint}` : ''}
-                  </div>
-                )
-              }
-            </Section>
-
-            {/* S0b — RECOMMENDATIONS (object-scoped, actionable) */}
-            <Section title="Recommendations" icon={<Lightbulb className="h-3.5 w-3.5" />} state={recos}>
-              {(d) =>
-                d.items && d.items.length > 0 ? (
-                  <div className="space-y-1.5">
-                    {d.items.slice(0, 6).map((r) => (
-                      <RecoRow key={r.reco_id} reco={r} onApplied={() => void recos.refetch()} />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 dark:text-gray-400">No open recommendations.</p>
-                )
-              }
-            </Section>
-
-            {/* S1 — CONTEXT */}
-            <Section title="Context" icon={<Package className="h-3.5 w-3.5" />} state={context}>
-              {(d) => (
-                <div className="space-y-0.5">
-                  <Field label="Type" value={str(d.type)} />
-                  <Field label="Rows" value={num(d.row_count, fmtInt)} />
-                  <Field label="Size (GB)" value={num(d.size_gb, (n) => n.toFixed(2))} />
-                  <Field label="Cluster key" value={str(d.cluster_key)} />
-                  <Field label="Owner" value={str(d.owner)} />
-                  <Field label="Created" value={fmtDate(d.created_at)} />
-                  <Field label="Last altered" value={fmtDate(d.last_altered)} />
-                  {d.tags && d.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pt-1.5">
-                      {d.tags.map((t, i) => (
-                        <Pill key={`${t.tag_name}-${i}`}>{t.tag_name}: {t.tag_value}</Pill>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </Section>
-
-            {/* S3 — GOVERNANCE */}
-            <Section title="Governance" icon={<Shield className="h-3.5 w-3.5" />} state={governance}>
-              {(d) => (
-                <div className="space-y-1.5">
-                  <Field
-                    label="Gov rate"
-                    value={d.gov_rate === null || d.gov_rate === undefined ? '—' : `${Math.round(d.gov_rate * 100)}%`}
-                  />
-                  <Field label="PII columns" value={num(d.pii_columns?.length)} />
-                  <Field label="RLS policies" value={num(d.rls_policies?.length)} />
-                  {d.pii_columns && d.pii_columns.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {d.pii_columns.slice(0, 8).map((c) => (
-                        <Pill
-                          key={c.column_name}
-                          tone={c.masking_status === 'NONE' ? 'rose' : c.masking_status === 'PARTIAL' ? 'amber' : 'emerald'}
+  const sections: RightTabSection[] = [
+    {
+      // S0 — TRUST SCORES (DQ / GOV / COST / trust rollup + recommended actions)
+      id: 'scores',
+      icon: Gauge,
+      label: 'Trust Scores',
+      render: () => (
+        <SectionBody state={scores}>
+          {(d) =>
+            d.scores ? (
+              <div className="space-y-0.5">
+                <Field label="Trust" value={num(d.scores.trust_score, (n) => n.toFixed(0))} />
+                <Field label="Quality (DQ)" value={num(d.scores.quality_score, (n) => n.toFixed(0))} />
+                <Field label="Governance" value={num(d.scores.governance_score, (n) => n.toFixed(0))} />
+                <Field label="FinOps (Cost)" value={num(d.scores.finops_score, (n) => n.toFixed(0))} />
+                <Field label="ML-ready" value={num(d.scores.ml_ready_score, (n) => n.toFixed(0))} />
+                {!!d.recommended_actions?.length && (
+                  <div className="mt-2 space-y-1">
+                    <span className="text-gray-400 dark:text-gray-500">Recommended actions</span>
+                    {d.recommended_actions.slice(0, 4).map((a, i) => {
+                      const target = typeof a === 'string' ? undefined : a.target;
+                      const text = typeof a === 'string' ? a : (a.title || a.label);
+                      return target ? (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => router.push(target)}
+                          className="flex w-full items-center justify-between gap-1.5 rounded border border-amber-200 px-1.5 py-1 text-left text-gray-700 hover:bg-amber-50 dark:border-amber-800 dark:text-gray-300 dark:hover:bg-amber-900/20"
                         >
-                          {c.column_name}
-                        </Pill>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </Section>
-
-            {/* S4 — LINEAGE */}
-            <Section title="Lineage" icon={<GitBranch className="h-3.5 w-3.5" />} state={lineage}>
-              {(d) => (
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <Field label="Impact" value={num(d.impact_count)} />
-                  </div>
-                  {d.risk_level && (
-                    <Field
-                      label="Risk"
-                      value={<Pill tone={d.risk_level === 'HIGH' ? 'rose' : d.risk_level === 'MEDIUM' ? 'amber' : 'emerald'}>{d.risk_level}</Pill>}
-                    />
-                  )}
-                  <div className="pt-1">
-                    <p className="text-[10px] uppercase text-gray-400">Upstream ({d.upstream?.length ?? 0})</p>
-                    {d.upstream && d.upstream.length > 0 ? (
-                      <ul className="mt-0.5 space-y-0.5">
-                        {d.upstream.slice(0, 5).map((n, i) => (
-                          <li key={`u-${n.name}-${i}`} className="truncate text-gray-700 dark:text-gray-300">↑ {n.name}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-gray-400">—</p>
-                    )}
-                  </div>
-                  <div className="pt-1">
-                    <p className="text-[10px] uppercase text-gray-400">Downstream ({d.downstream?.length ?? 0})</p>
-                    {d.downstream && d.downstream.length > 0 ? (
-                      <ul className="mt-0.5 space-y-0.5">
-                        {d.downstream.slice(0, 5).map((n, i) => (
-                          <li key={`d-${n.name}-${i}`} className="truncate text-gray-700 dark:text-gray-300">↓ {n.name}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-gray-400">—</p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </Section>
-
-            {/* S5 — INGESTION */}
-            <Section title="Ingestion" icon={<Zap className="h-3.5 w-3.5" />} state={ingestion}>
-              {(d) => (
-                <div className="space-y-0.5">
-                  <Field label="Mode" value={str(d.mode)} />
-                  <Field label="Status" value={str(d.status)} />
-                  <Field label="Pipeline" value={str(d.pipeline_name)} />
-                  <Field label="Step" value={num(d.pipeline_step)} />
-                  <Field label="Last run" value={fmtDate(d.last_run)} />
-                  <Field label="Next run" value={fmtDate(d.next_run)} />
-                  <Field label="Avg cost (credits)" value={num(d.avg_cost_credits, (n) => n.toFixed(3))} />
-                  <Field label="Avg rows" value={num(d.avg_rows, fmtInt)} />
-                </div>
-              )}
-            </Section>
-
-            {/* S6 — OWNERSHIP */}
-            <Section title="Ownership" icon={<User className="h-3.5 w-3.5" />} state={ownership}>
-              {(d) => (
-                <div className="space-y-0.5">
-                  <Field label="Owner email" value={str(d.owner_email)} />
-                  <Field label="Team" value={str(d.owner_team)} />
-                  <Field label="Role" value={str(d.snowflake_role)} />
-                  <Field
-                    label="Data class"
-                    value={d.data_class ? <Pill>{d.data_class}</Pill> : '—'}
-                  />
-                  <Field label="Pipeline" value={str(d.pipeline_name)} />
-                  <Field label="Step" value={num(d.pipeline_step)} />
-                  <div className="pt-1">
-                    <p className="text-[10px] uppercase text-gray-400">Consumers ({d.consumers?.length ?? 0})</p>
-                    {d.consumers && d.consumers.length > 0 ? (
-                      <ul className="mt-0.5 space-y-0.5">
-                        {d.consumers.slice(0, 5).map((c, i) => (
-                          <li key={`c-${c.user_name}-${i}`} className="flex justify-between gap-2 text-gray-700 dark:text-gray-300">
-                            <span className="truncate">{c.user_name}</span>
-                            <span className="shrink-0 text-gray-400">{num(c.access_count)}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-gray-400">—</p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </Section>
-
-            {/* S7 — HISTORY (recent events across sources for this object) */}
-            <Section title="History" icon={<Clock className="h-3.5 w-3.5" />} state={history} defaultOpen={false}>
-              {(d) =>
-                d.entries && d.entries.length > 0 ? (
-                  <ul className="space-y-1.5">
-                    {d.entries.slice(0, 8).map((e, i) => (
-                      <li key={`${e.ts}-${i}`} className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <Pill tone={e.status === 'error' || e.status === 'failed' ? 'rose' : 'gray'}>{str(e.kind)}</Pill>
-                            <span className="truncate text-gray-700 dark:text-gray-300">{str(e.actor)}</span>
-                          </div>
-                          {e.source && <p className="text-[10px] text-gray-400">{e.source}</p>}
+                          <span className="truncate">{text}</span>
+                          <ArrowRight className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
+                        </button>
+                      ) : (
+                        <div key={i} className="flex items-start gap-1.5">
+                          <Pill tone="amber">action</Pill>
+                          <span className="text-gray-700 dark:text-gray-300">{text}</span>
                         </div>
-                        <span className="shrink-0 text-[10px] text-gray-400">{fmtDate(e.ts)}</span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-gray-500 dark:text-gray-400">
+                Not yet scored.{d.hint ? ` ${d.hint}` : ''}
+              </div>
+            )
+          }
+        </SectionBody>
+      ),
+    },
+    {
+      // S0b — RECOMMENDATIONS (object-scoped, actionable)
+      id: 'recommendations',
+      icon: Lightbulb,
+      label: 'Recommendations',
+      render: () => (
+        <SectionBody state={recos}>
+          {(d) =>
+            d.items && d.items.length > 0 ? (
+              <div className="space-y-1.5">
+                {d.items.slice(0, 6).map((r) => (
+                  <RecoRow key={r.reco_id} reco={r} onApplied={() => void recos.refetch()} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 dark:text-gray-400">No open recommendations.</p>
+            )
+          }
+        </SectionBody>
+      ),
+    },
+    {
+      // S1 — CONTEXT
+      id: 'context',
+      icon: Package,
+      label: 'Context',
+      render: () => (
+        <SectionBody state={context}>
+          {(d) => (
+            <div className="space-y-0.5">
+              <Field label="Type" value={str(d.type)} />
+              <Field label="Rows" value={num(d.row_count, fmtInt)} />
+              <Field label="Size (GB)" value={num(d.size_gb, (n) => n.toFixed(2))} />
+              <Field label="Cluster key" value={str(d.cluster_key)} />
+              <Field label="Owner" value={str(d.owner)} />
+              <Field label="Created" value={fmtDate(d.created_at)} />
+              <Field label="Last altered" value={fmtDate(d.last_altered)} />
+              {d.tags && d.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1.5">
+                  {d.tags.map((t, i) => (
+                    <Pill key={`${t.tag_name}-${i}`}>{t.tag_name}: {t.tag_value}</Pill>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </SectionBody>
+      ),
+    },
+    {
+      // S3 — GOVERNANCE
+      id: 'governance',
+      icon: Shield,
+      label: 'Governance',
+      render: () => (
+        <SectionBody state={governance}>
+          {(d) => (
+            <div className="space-y-1.5">
+              <Field
+                label="Gov rate"
+                value={d.gov_rate === null || d.gov_rate === undefined ? '—' : `${Math.round(d.gov_rate * 100)}%`}
+              />
+              <Field label="PII columns" value={num(d.pii_columns?.length)} />
+              <Field label="RLS policies" value={num(d.rls_policies?.length)} />
+              {d.pii_columns && d.pii_columns.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {d.pii_columns.slice(0, 8).map((c) => (
+                    <Pill
+                      key={c.column_name}
+                      tone={c.masking_status === 'NONE' ? 'rose' : c.masking_status === 'PARTIAL' ? 'amber' : 'emerald'}
+                    >
+                      {c.column_name}
+                    </Pill>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </SectionBody>
+      ),
+    },
+    {
+      // S4 — LINEAGE
+      id: 'lineage',
+      icon: GitBranch,
+      label: 'Lineage',
+      render: () => (
+        <SectionBody state={lineage}>
+          {(d) => (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <Field label="Impact" value={num(d.impact_count)} />
+              </div>
+              {d.risk_level && (
+                <Field
+                  label="Risk"
+                  value={<Pill tone={d.risk_level === 'HIGH' ? 'rose' : d.risk_level === 'MEDIUM' ? 'amber' : 'emerald'}>{d.risk_level}</Pill>}
+                />
+              )}
+              <div className="pt-1">
+                <p className="text-[10px] uppercase text-gray-400">Upstream ({d.upstream?.length ?? 0})</p>
+                {d.upstream && d.upstream.length > 0 ? (
+                  <ul className="mt-0.5 space-y-0.5">
+                    {d.upstream.slice(0, 5).map((n, i) => (
+                      <li key={`u-${n.name}-${i}`} className="truncate text-gray-700 dark:text-gray-300">↑ {n.name}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-400">—</p>
+                )}
+              </div>
+              <div className="pt-1">
+                <p className="text-[10px] uppercase text-gray-400">Downstream ({d.downstream?.length ?? 0})</p>
+                {d.downstream && d.downstream.length > 0 ? (
+                  <ul className="mt-0.5 space-y-0.5">
+                    {d.downstream.slice(0, 5).map((n, i) => (
+                      <li key={`d-${n.name}-${i}`} className="truncate text-gray-700 dark:text-gray-300">↓ {n.name}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-400">—</p>
+                )}
+              </div>
+            </div>
+          )}
+        </SectionBody>
+      ),
+    },
+    {
+      // S5 — INGESTION
+      id: 'ingestion',
+      icon: Zap,
+      label: 'Ingestion',
+      render: () => (
+        <SectionBody state={ingestion}>
+          {(d) => (
+            <div className="space-y-0.5">
+              <Field label="Mode" value={str(d.mode)} />
+              <Field label="Status" value={str(d.status)} />
+              <Field label="Pipeline" value={str(d.pipeline_name)} />
+              <Field label="Step" value={num(d.pipeline_step)} />
+              <Field label="Last run" value={fmtDate(d.last_run)} />
+              <Field label="Next run" value={fmtDate(d.next_run)} />
+              <Field label="Avg cost (credits)" value={num(d.avg_cost_credits, (n) => n.toFixed(3))} />
+              <Field label="Avg rows" value={num(d.avg_rows, fmtInt)} />
+            </div>
+          )}
+        </SectionBody>
+      ),
+    },
+    {
+      // S6 — OWNERSHIP
+      id: 'ownership',
+      icon: User,
+      label: 'Ownership',
+      render: () => (
+        <SectionBody state={ownership}>
+          {(d) => (
+            <div className="space-y-0.5">
+              <Field label="Owner email" value={str(d.owner_email)} />
+              <Field label="Team" value={str(d.owner_team)} />
+              <Field label="Role" value={str(d.snowflake_role)} />
+              <Field
+                label="Data class"
+                value={d.data_class ? <Pill>{d.data_class}</Pill> : '—'}
+              />
+              <Field label="Pipeline" value={str(d.pipeline_name)} />
+              <Field label="Step" value={num(d.pipeline_step)} />
+              <div className="pt-1">
+                <p className="text-[10px] uppercase text-gray-400">Consumers ({d.consumers?.length ?? 0})</p>
+                {d.consumers && d.consumers.length > 0 ? (
+                  <ul className="mt-0.5 space-y-0.5">
+                    {d.consumers.slice(0, 5).map((c, i) => (
+                      <li key={`c-${c.user_name}-${i}`} className="flex justify-between gap-2 text-gray-700 dark:text-gray-300">
+                        <span className="truncate">{c.user_name}</span>
+                        <span className="shrink-0 text-gray-400">{num(c.access_count)}</span>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-gray-500 dark:text-gray-400">No recent activity.</p>
-                )
-              }
-            </Section>
-          </>
-        )}
-      </div>
-    </aside>
+                  <p className="text-gray-400">—</p>
+                )}
+              </div>
+            </div>
+          )}
+        </SectionBody>
+      ),
+    },
+    {
+      // S7 — HISTORY (recent events across sources for this object)
+      id: 'history',
+      icon: Clock,
+      label: 'History',
+      render: () => (
+        <SectionBody state={history}>
+          {(d) =>
+            d.entries && d.entries.length > 0 ? (
+              <ul className="space-y-1.5">
+                {d.entries.slice(0, 8).map((e, i) => (
+                  <li key={`${e.ts}-${i}`} className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <Pill tone={e.status === 'error' || e.status === 'failed' ? 'rose' : 'gray'}>{str(e.kind)}</Pill>
+                        <span className="truncate text-gray-700 dark:text-gray-300">{str(e.actor)}</span>
+                      </div>
+                      {e.source && <p className="text-[10px] text-gray-400">{e.source}</p>}
+                    </div>
+                    <span className="shrink-0 text-[10px] text-gray-400">{fmtDate(e.ts)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-gray-500 dark:text-gray-400">No recent activity.</p>
+            )
+          }
+        </SectionBody>
+      ),
+    },
+  ];
+
+  return (
+    <div className="h-full shrink-0 overflow-y-auto py-4 pl-2 pr-4">
+      <RightTabPanel
+        title={selected.table}
+        subtitle={`${selected.database}.${selected.schema}`}
+        sections={sections}
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+        onClose={() => onClose?.()}
+        storageKey="data360.sources.smartPanel.v1"
+        widthClassName="w-[380px]"
+      />
+    </div>
   );
 }

@@ -11,6 +11,7 @@ import {
   PiFileXls,
   PiFileZip,
   PiTrashBold,
+  PiWarningCircleBold,
   PiXBold,
 } from 'react-icons/pi';
 import { ActionIcon, Title, Text, Button } from 'rizzui';
@@ -19,8 +20,19 @@ import Upload from '@core/ui/upload';
 import { useModal } from '@/app/shared/modal-views/use-modal';
 import SimpleBar from '@core/ui/simplebar';
 import { toast } from 'react-hot-toast';
+import { getApiErrorMessage } from '@/lib/api-client';
 
 type AcceptedFiles = 'img' | 'pdf' | 'csv' | 'imgAndPdf' | 'all';
+
+/**
+ * Real upload handler. When a caller provides `onUpload`, this component performs
+ * an actual upload through it (the caller owns the endpoint/service call) and
+ * reports the true success/error. When it is omitted, the component HONESTLY
+ * disables the action ("Bulk import isn't available yet") instead of faking a
+ * success — silently dropping the file is the bug we are removing. Callers that
+ * gain a real bulk-import endpoint can pass `onUpload` to light the flow up.
+ */
+export type FileUploadHandler = (files: Array<File>) => Promise<void>;
 
 export default function FileUpload({
   label = 'Upload Files',
@@ -28,12 +40,16 @@ export default function FileUpload({
   fieldLabel,
   multiple = true,
   accept = 'all',
+  onUpload,
+  onSuccess,
 }: {
   label?: string;
   fieldLabel?: string;
   btnLabel?: string;
   multiple?: boolean;
   accept?: AcceptedFiles;
+  onUpload?: FileUploadHandler;
+  onSuccess?: () => void;
 }) {
   const { closeModal } = useModal();
 
@@ -58,6 +74,8 @@ export default function FileUpload({
         multiple={multiple}
         label={fieldLabel}
         btnLabel={btnLabel}
+        onUpload={onUpload}
+        onSuccess={onSuccess}
       />
     </div>
   );
@@ -79,16 +97,25 @@ export const FileInput = ({
   multiple = true,
   accept = 'img',
   className,
+  onUpload,
+  onSuccess,
 }: {
   className?: string;
   label?: React.ReactNode;
   multiple?: boolean;
   btnLabel?: string;
   accept?: AcceptedFiles;
+  onUpload?: FileUploadHandler;
+  onSuccess?: () => void;
 }) => {
   const { closeModal } = useModal();
   const [files, setFiles] = useState<Array<File>>([]);
+  const [uploading, setUploading] = useState(false);
   const imageRef = useRef<HTMLInputElement>(null);
+
+  // Honest gate: without a real upload handler there is no backend to receive the
+  // file. We must NOT pretend it worked — show a clear "not available" state.
+  const importAvailable = typeof onUpload === 'function';
 
   function handleFileDrop(event: React.ChangeEvent<HTMLInputElement>) {
     const uploadedFiles = (event.target as HTMLInputElement).files;
@@ -106,17 +133,57 @@ export const FileInput = ({
     (imageRef.current as HTMLInputElement).value = '';
   }
 
-  function handleFileUpload() {
-    if (files.length) {
-      console.log('uploaded files:', files);
-      toast.success(<Text as="b">File successfully added</Text>);
-
+  async function handleFileUpload() {
+    if (!importAvailable || !onUpload) return; // guarded — button is disabled anyway
+    if (!files.length) {
+      toast.error(<Text as="b">Please drop your file</Text>);
+      return;
+    }
+    setUploading(true);
+    try {
+      await onUpload(files);
+      toast.success(
+        <Text as="b">{files.length > 1 ? `${files.length} files imported` : 'File imported'}</Text>
+      );
+      setFiles([]);
+      onSuccess?.();
       setTimeout(() => {
         closeModal();
       }, 200);
-    } else {
-      toast.error(<Text as="b">Please drop your file</Text>);
+    } catch (error) {
+      toast.error(<Text as="b">{getApiErrorMessage(error)}</Text>);
+    } finally {
+      setUploading(false);
     }
+  }
+
+  // No real endpoint wired → present an honest, disabled state instead of a
+  // dropzone that would silently discard the file.
+  if (!importAvailable) {
+    return (
+      <div className={className}>
+        <div className="flex flex-col items-center rounded-xl border border-dashed border-amber-300 bg-amber-50/60 px-5 py-8 text-center dark:border-amber-700/60 dark:bg-amber-900/15">
+          <PiWarningCircleBold className="mb-2 h-7 w-7 text-amber-500" />
+          <Text as="b" className="text-amber-800 dark:text-amber-300">
+            Bulk import isn’t available yet
+          </Text>
+          <Text className="mt-1 max-w-sm text-sm text-amber-700/90 dark:text-amber-300/80">
+            This backend doesn’t expose a bulk-import endpoint for this list. Add
+            entries individually from the table for now.
+          </Text>
+        </div>
+        <div className="mt-4 flex justify-end">
+          <Button
+            className="w-full"
+            disabled
+            title="Import isn’t available on this backend yet"
+          >
+            <PiArrowLineDownBold className="me-1.5 h-[17px] w-[17px]" />
+            {btnLabel}
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -176,10 +243,17 @@ export const FileInput = ({
           variant="outline"
           className={cn(!files.length && 'hidden', 'w-full')}
           onClick={() => setFiles([])}
+          disabled={uploading}
         >
           Reset
         </Button>
-        <Button className="w-full" onClick={() => handleFileUpload()}>
+        <Button
+          className="w-full"
+          onClick={() => handleFileUpload()}
+          isLoading={uploading}
+          aria-busy={uploading}
+          disabled={uploading || !files.length}
+        >
           <PiArrowLineDownBold className="me-1.5 h-[17px] w-[17px]" />
           {btnLabel}
         </Button>

@@ -8,6 +8,7 @@ import AddUserButton from '@/app/shared/governance/users/add-user-button';
 import ImportButton from '@/app/shared/import-button';
 import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
 
 export default function UsersManagementPage() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -41,6 +42,9 @@ export default function UsersManagementPage() {
           </>
         }
       />
+
+      {/* Per-page KPI strip — total · active · disabled · roles (honest "—"). */}
+      <GovernanceKpiStrip scope="users" />
 
       {/* Main Content */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">

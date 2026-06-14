@@ -29,12 +29,15 @@ export function useDataSourcePicker(initial?: Partial<DataSourceState>) {
   const [tableOptions, setTableOptions] = useState<SelectOption[]>([]);
   const [columnOptions, setColumnOptions] = useState<SelectOption[]>([]);
   const [columns, setColumns] = useState<TableColumn[]>([]);
+  // Non-fatal load hint: keeps the picker usable but lets consumers show a
+  // small "couldn't load" message instead of a silently empty dropdown.
+  const [error, setError] = useState<string | null>(null);
 
   // Load databases on mount
   useEffect(() => {
     getDatabases()
-      .then((dbs) => setDbOptions(dbs.map((d) => ({ value: d, label: d }))))
-      .catch(() => {});
+      .then((dbs) => { setDbOptions(dbs.map((d) => ({ value: d, label: d }))); setError(null); })
+      .catch(() => setError("Couldn't load databases."));
   }, []);
 
   // Load schemas when database changes
@@ -45,7 +48,7 @@ export function useDataSourcePicker(initial?: Partial<DataSourceState>) {
     }
     getSchemas(source.database)
       .then((schemas) => setSchemaOptions(schemas.map((s) => ({ value: s, label: s }))))
-      .catch(() => {});
+      .catch(() => setError("Couldn't load schemas."));
   }, [source.database]);
 
   // Load tables when schema changes
@@ -56,7 +59,7 @@ export function useDataSourcePicker(initial?: Partial<DataSourceState>) {
     }
     getTables(source.database, source.schema)
       .then((tables) => setTableOptions(tables.map((t) => ({ value: t, label: t }))))
-      .catch(() => {});
+      .catch(() => setError("Couldn't load tables."));
   }, [source.database, source.schema]);
 
   // Load columns when table changes
@@ -74,7 +77,7 @@ export function useDataSourcePicker(initial?: Partial<DataSourceState>) {
           .filter(Boolean) as string[];
         setColumnOptions(names.map((n) => ({ value: n, label: n })));
       })
-      .catch(() => {});
+      .catch(() => setError("Couldn't load columns."));
   }, [source.database, source.schema, source.table]);
 
   const setDatabase = useCallback((db: string) => {
@@ -96,6 +99,7 @@ export function useDataSourcePicker(initial?: Partial<DataSourceState>) {
     tableOptions,
     columnOptions,
     columns,
+    error,
     setDatabase,
     setSchema,
     setTable,

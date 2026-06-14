@@ -24,9 +24,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from 'rizzui';
-import ChartConfigModal, { ComponentConfig } from './widget-config/ChartConfigModal';
-import KpiCardConfigModal from './widget-config/KpiCardConfigModal';
-import TableConfigModal from './widget-config/TableConfigModal';
 import { createWidget } from '@/app/services/api/biDashboardApi';
 import type {
   DashboardWidget, BIDashboardChartConfig, WidgetType, DashboardChartType,
@@ -96,7 +93,6 @@ type ActiveModal = 'chart' | 'kpi' | 'table' | 'text' | null;
 interface DraftPayload {
   widgetType: WidgetType;
   chartType: DashboardChartType | null;
-  partial?: ComponentConfig;
   savedAt: number;
 }
 
@@ -110,26 +106,18 @@ interface ChartPaletteRailProps {
     widget: DashboardWidget,
     prefetchedData?: Record<string, unknown>[],
   ) => void;
+  /**
+   * Start adding a chart / kpi_card / table — opens its config form docked in
+   * the right panel (BiSmartRightBar's Configure section), never a popup.
+   * Hosted by DashboardEditor, exactly like the edit flow.
+   */
+  onStartAdd: (
+    widgetType: WidgetType,
+    chartType: DashboardChartType | null,
+  ) => void;
   /** Controlled collapse state — page persists it across reloads. */
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
-}
-
-function toChartConfig(cfg: ComponentConfig): BIDashboardChartConfig {
-  return {
-    database: cfg.database || '',
-    schema: cfg.schema || '',
-    table: cfg.table || '',
-    x: cfg.xAxisColumn || null,
-    measures: (cfg.measures || []).map((m) => ({
-      column: m.column,
-      aggregator: m.aggregator || 'SUM',
-      seuils: m.seuils,
-    })),
-    filters: [],
-    groupBy: Array.isArray(cfg.groupBy) ? cfg.groupBy : cfg.groupBy ? [cfg.groupBy] : [],
-    limit: cfg.limit || null,
-  };
 }
 
 function nextPosition(widgets: DashboardWidget[]) {
@@ -143,14 +131,11 @@ export default function ChartPaletteRail({
   pageId,
   existingWidgets,
   onWidgetAdded,
+  onStartAdd,
   collapsed = false,
   onCollapsedChange,
 }: ChartPaletteRailProps) {
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
-  const [selectedItem, setSelectedItem] = useState<{
-    widgetType: WidgetType;
-    chartType: DashboardChartType | null;
-  } | null>(null);
   const [search, setSearch] = useState('');
   const [textTitle, setTextTitle] = useState('');
   const [textContent, setTextContent] = useState('');
@@ -201,12 +186,20 @@ export default function ChartPaletteRail({
     widgetType: WidgetType,
     chartType: DashboardChartType | null,
   ) => {
-    setSelectedItem({ widgetType, chartType });
-    saveDraft({ widgetType, chartType });
-    if (widgetType === 'text') setActiveModal('text');
-    else if (widgetType === 'kpi_card') setActiveModal('kpi');
-    else if (widgetType === 'table') setActiveModal('table');
-    else setActiveModal('chart');
+    if (widgetType === 'text') {
+      // Text keeps its small inline modal + draft/resume flow (cleared on save
+      // by createAndNotify).
+      saveDraft({ widgetType, chartType });
+      setActiveModal('text');
+    } else {
+      // Chart / KPI / Table configs open docked in the right panel
+      // (BiSmartRightBar's Configure section) — no popup. The live form state
+      // now lives in the panel (addDraft in DashboardEditor), so the
+      // localStorage draft for these types is vestigial — clear any stale one
+      // (and the redundant "Saved draft" banner) instead of writing a new one.
+      clearDraft();
+      onStartAdd(widgetType, chartType);
+    }
   };
 
   const resumeDraft = () => {
@@ -258,7 +251,6 @@ export default function ChartPaletteRail({
         onWidgetAdded(newWidget, prefetchedData);
         clearDraft();
         setActiveModal(null);
-        setSelectedItem(null);
         toast.success(`${title} added`);
       } catch (err) {
         toast.error(getApiErrorMessage(err) || 'Failed to add widget');
@@ -266,24 +258,6 @@ export default function ChartPaletteRail({
     },
     [projectId, pageId, existingWidgets, onWidgetAdded, clearDraft],
   );
-
-  const handleChartConfigSave = (cfg: ComponentConfig) => {
-    if (!selectedItem) return;
-    void createAndNotify(
-      'chart',
-      selectedItem.chartType,
-      cfg.title || 'Untitled chart',
-      toChartConfig(cfg),
-    );
-  };
-
-  const handleKpiSave = (cfg: ComponentConfig) => {
-    void createAndNotify('kpi_card', null, cfg.title || 'KPI', toChartConfig(cfg));
-  };
-
-  const handleTableSave = (cfg: ComponentConfig) => {
-    void createAndNotify('table', null, cfg.title || 'Table', toChartConfig(cfg));
-  };
 
   const handleTextSave = () => {
     if (!textTitle.trim()) {
@@ -465,38 +439,9 @@ export default function ChartPaletteRail({
         </div>
       </aside>
 
-      {/* ── Reuse the existing config modals ── */}
-      {activeModal === 'chart' && (
-        <ChartConfigModal
-          isOpen
-          onClose={() => {
-            setActiveModal(null);
-            setSelectedItem(null);
-          }}
-          onSave={handleChartConfigSave}
-          chartType={selectedItem?.chartType || undefined}
-        />
-      )}
-      {activeModal === 'kpi' && (
-        <KpiCardConfigModal
-          isOpen
-          onClose={() => {
-            setActiveModal(null);
-            setSelectedItem(null);
-          }}
-          onSave={handleKpiSave}
-        />
-      )}
-      {activeModal === 'table' && (
-        <TableConfigModal
-          isOpen
-          onClose={() => {
-            setActiveModal(null);
-            setSelectedItem(null);
-          }}
-          onSave={handleTableSave}
-        />
-      )}
+      {/* Chart / KPI / Table configs are hosted in the right panel
+          (BiSmartRightBar) by DashboardEditor — no popup here. The text
+          widget keeps its small inline modal for now. */}
       <AnimatePresence>
         {activeModal === 'text' && (
           <motion.div
@@ -506,7 +451,6 @@ export default function ChartPaletteRail({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
             onClick={() => {
               setActiveModal(null);
-              setSelectedItem(null);
             }}
           >
             <motion.div
@@ -548,7 +492,6 @@ export default function ChartPaletteRail({
                 <button
                   onClick={() => {
                     setActiveModal(null);
-                    setSelectedItem(null);
                   }}
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                 >

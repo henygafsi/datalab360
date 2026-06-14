@@ -145,8 +145,12 @@ apiClient.interceptors.response.use(
     if (status === 401) {
       // Invalidate the cached session so the next request refetches from /api/auth/session.
       invalidateSessionCache();
-      const data = error.response?.data as { error_code?: string; detail?: string } | undefined;
-      const errorCode = data?.error_code;
+      const data = error.response?.data as { error_code?: string; detail?: string | { error_code?: string; detail?: string } } | undefined;
+      // The backend often nests the structured error under `detail`
+      // (`{ detail: { error_code, detail } }`), so read both shapes — otherwise
+      // a non-auth 401 reads as errorCode=undefined → isRealAuth=true and the
+      // logged-in user gets ejected to /signin.
+      const errorCode = data?.error_code ?? (typeof data?.detail === 'object' ? data.detail?.error_code : undefined);
       const isRealAuth = !errorCode || ['NOT_AUTHENTICATED', 'TOKEN_INVALID_OR_EXPIRED', 'SESSION_EXPIRED'].includes(errorCode);
       if (isRealAuth && typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/')) {
         if (process.env.NODE_ENV === 'development') {
