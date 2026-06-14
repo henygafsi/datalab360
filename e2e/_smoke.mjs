@@ -42,7 +42,17 @@ for (const route of routes) {
   await p.waitForTimeout(2500);
   // detect Next error overlay / error boundary / empty shell
   const bodyLen = await p.evaluate(() => document.body?.innerText?.length || 0).catch(() => 0);
-  const hasErrorOverlay = await p.locator('text=/Application error|Unhandled Runtime Error|This page could not be found|500|Internal Server Error/i').count().catch(() => 0);
+  // Detect a REAL error page/overlay (not arbitrary body text — monitoring pages legitimately
+  // render "500"/"Not Found" as DATA). Check the Next.js error portal + title + a tiny error body.
+  const hasErrorOverlay = await p.evaluate(() => {
+    if (document.querySelector('nextjs-portal')) return true;
+    const t = (document.title || '').trim();
+    if (/^(404|500|Application error|Internal Server Error)/i.test(t)) return true;
+    const h1 = document.querySelector('h1');
+    const len = (document.body?.innerText || '').length;
+    if (h1 && /Application error|something went wrong|could not be found/i.test(h1.textContent || '') && len < 400) return true;
+    return false;
+  }).catch(() => false);
   const visibleButtons = await p.locator('button:visible, a:visible').count().catch(() => 0);
   p.off('console', onErr);
   const pass = status > 0 && status < 400 && !hasErrorOverlay && bodyLen > 200;
