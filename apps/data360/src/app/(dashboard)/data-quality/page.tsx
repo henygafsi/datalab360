@@ -512,6 +512,18 @@ function generateRecommendations(allTabData: Record<string, MetricRow[]>, summar
 
 // ── Filter Chips ──
 
+// Humanize a raw STATUS token for a detect-from-data chip label:
+// LOAD_FAILED → "Load Failed". Mirrors the title-casing used by the scan-prefill
+// banner so dynamically-discovered statuses read as clean labels.
+function humanizeStatus(s: string): string {
+  return s
+    .toLowerCase()
+    .split(/[_\s.]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 function FilterChip({ label, active, onClick, onRemove }: {
   label: string; active?: boolean; onClick: () => void; onRemove?: () => void;
 }) {
@@ -1611,6 +1623,21 @@ export default function DataQualityPage() {
     return Array.from(schemas).sort();
   }, [tabData, activeTab]);
 
+  // Extract unique STATUS values for filter — detect-from-data, mirroring
+  // availableSchemas. This replaces the lone static Pass/Fail/Warning triplet:
+  // status chips now surface only on tabs whose rows actually carry a STATUS
+  // column (uniqueness / ingestion / dmf) and reflect the real values present
+  // (e.g. Loaded, Load Failed, Has Duplicates) instead of a hardcoded guess.
+  const availableStatuses = useMemo(() => {
+    const rows = tabData[activeTab] || [];
+    const statuses = new Set<string>();
+    for (const row of rows) {
+      const s = String(row.STATUS ?? row.status ?? '').toUpperCase();
+      if (s) statuses.add(s);
+    }
+    return Array.from(statuses).sort();
+  }, [tabData, activeTab]);
+
   // Recommendations
   const recommendations = useMemo(() => {
     return generateRecommendations(tabData, summary);
@@ -2045,25 +2072,18 @@ export default function DataQualityPage() {
               <Download className="h-3.5 w-3.5" /> Export CSV
             </button>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <Filter className="h-3.5 w-3.5 text-gray-400" />
-              <FilterChip
-                label="Pass"
-                active={statusFilter === 'PASS'}
-                onClick={() => setStatusFilter(statusFilter === 'PASS' ? null : 'PASS')}
-                onRemove={() => setStatusFilter(null)}
-              />
-              <FilterChip
-                label="Fail"
-                active={statusFilter === 'FAIL'}
-                onClick={() => setStatusFilter(statusFilter === 'FAIL' ? null : 'FAIL')}
-                onRemove={() => setStatusFilter(null)}
-              />
-              <FilterChip
-                label="Warning"
-                active={statusFilter === 'WARNING'}
-                onClick={() => setStatusFilter(statusFilter === 'WARNING' ? null : 'WARNING')}
-                onRemove={() => setStatusFilter(null)}
-              />
+              {(availableStatuses.length > 0 || availableSchemas.length > 0) && (
+                <Filter className="h-3.5 w-3.5 text-gray-400" />
+              )}
+              {availableStatuses.map((status) => (
+                <FilterChip
+                  key={status}
+                  label={humanizeStatus(status)}
+                  active={statusFilter === status}
+                  onClick={() => setStatusFilter(statusFilter === status ? null : status)}
+                  onRemove={() => setStatusFilter(null)}
+                />
+              ))}
               {availableSchemas.map((schema) => (
                 <FilterChip
                   key={schema}
@@ -2247,7 +2267,7 @@ export default function DataQualityPage() {
         description={
           dmfPanel.panel === 'associate' ? 'Attach a Data Metric Function to one or more table columns.'
             : dmfPanel.panel === 'custom' ? 'Define a SQL-expression metric, then associate it from the picker.'
-              : 'Choose how often Snowflake re-evaluates DMFs on a table.'
+              : 'Choose how often the analytics engine re-evaluates DMFs on a table.'
         }
         footer={
           <>
@@ -2320,7 +2340,7 @@ export default function DataQualityPage() {
                   className="mt-1 w-full h-8 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 text-xs text-gray-700 dark:text-gray-200"
                 >
                   <option value="">Select a DMF…</option>
-                  <optgroup label="Built-in (SNOWFLAKE.CORE)">
+                  <optgroup label="Built-in">
                     {['NULL_COUNT', 'DUPLICATE_COUNT', 'UNIQUE_COUNT', 'ROW_COUNT', 'NULL_PERCENT', 'FRESHNESS', 'BLANK_COUNT'].map((n) => (
                       <option key={n} value={`builtin:${n}`}>{n}</option>
                     ))}
@@ -2340,7 +2360,7 @@ export default function DataQualityPage() {
               <Input value={assocColumns} onChange={(e) => setAssocColumns(e.target.value)} placeholder="EMAIL, PHONE" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
             </label>
             <p className="text-[11px] text-gray-500 dark:text-gray-400">
-              After associating, set a schedule so Snowflake evaluates the metric automatically.
+              After associating, set a schedule so the analytics engine evaluates the metric automatically.
             </p>
           </div>
         )}
@@ -2421,7 +2441,7 @@ export default function DataQualityPage() {
             )}
             {schedMode === 'trigger' && (
               <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                Snowflake re-evaluates DMFs whenever the table&apos;s data changes (<code>TRIGGER_ON_CHANGES</code>).
+                The analytics engine re-evaluates DMFs whenever the table&apos;s data changes (<code>TRIGGER_ON_CHANGES</code>).
               </p>
             )}
             <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 px-3 py-2">

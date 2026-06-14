@@ -20,6 +20,7 @@ import React, { useState } from 'react';
 import {
   Gauge, Zap, ShieldCheck, GitBranch, Upload, UserCog, Sparkles, History,
   Play, Link2, CalendarClock, Tag, Activity, Database, Shield, Lightbulb,
+  ArrowUpRight, Boxes, EyeOff,
 } from 'lucide-react';
 import { Badge } from 'rizzui';
 import { cn } from '@/lib/utils';
@@ -85,9 +86,22 @@ export default function SmartRightBar({
 
   const tableName = selectedRow ? String(selectedRow.TABLE_NAME || selectedRow.table_name || '') : null;
   const schemaName = selectedRow ? String(selectedRow.SCHEMA_NAME || selectedRow.TABLE_SCHEMA || '') : null;
+  const columnName = selectedRow ? String(selectedRow.COLUMN_NAME || selectedRow.column_name || '') : '';
 
   // Docked panel "opens" only when a table row is selected (open-on-select).
   if (!selectedRow || !tableName) return null;
+
+  // ── Outbound prefilled deep-links (mirror of the inbound scan-prefill pattern
+  // and the lineage CTA below). We carry the selected table (and column) as
+  // honest context breadcrumbs and a truthful `from=data-quality` origin — NOT
+  // `from=scan`, which would fire the destinations' account-wide scan banners
+  // and mis-advertise generic suggestions as "this table". The destination lands
+  // on the right page/tab and can adopt the context params as they're consumed. ──
+  const exploreModelHref =
+    `/explore-design?intent=model&from=data-quality&table=${encodeURIComponent(tableName)}`;
+  const governanceMaskingHref =
+    `/governance/policies?tab=masking&from=data-quality&table=${encodeURIComponent(tableName)}` +
+    (columnName ? `&column=${encodeURIComponent(columnName)}` : '');
 
   // While the context fan-out is in flight, the active section shows skeletons —
   // mirrors the previous inline panel's loading state.
@@ -203,6 +217,41 @@ export default function SmartRightBar({
         ) : (
           <p className="text-xs text-gray-400 dark:text-gray-500">No classification tags. Run SYSTEM$CLASSIFY to tag sensitive columns.</p>
         )
+      ),
+    },
+    {
+      id: 'act',
+      icon: ArrowUpRight,
+      label: 'Act',
+      render: () => (
+        // Outbound prefilled deep-link CTAs — model the table downstream, or
+        // review its masking controls — mirroring the lineage deep-link below.
+        <div className="space-y-2">
+          <a
+            href={exploreModelHref}
+            className="group flex items-start gap-2.5 rounded-lg border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50 dark:bg-indigo-900/10 px-3 py-2 hover:bg-indigo-100 dark:hover:bg-indigo-900/20 transition-colors"
+          >
+            <Boxes className="h-4 w-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-medium text-indigo-700 dark:text-indigo-300">Model this in Explore &amp; Design</span>
+              <span className="block text-[10px] text-indigo-600/70 dark:text-indigo-400/70 truncate">Open the AI-guided modeler with this table carried over.</span>
+            </span>
+            <ArrowUpRight className="h-3.5 w-3.5 text-indigo-400 flex-shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </a>
+          <a
+            href={governanceMaskingHref}
+            className="group flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/10 px-3 py-2 hover:bg-amber-100 dark:hover:bg-amber-900/20 transition-colors"
+          >
+            <EyeOff className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-medium text-amber-700 dark:text-amber-300">Review masking in Governance</span>
+              <span className="block text-[10px] text-amber-600/70 dark:text-amber-400/70 truncate">
+                {columnName ? `Open masking policies for ${columnName}.` : 'Open masking policies for this table.'}
+              </span>
+            </span>
+            <ArrowUpRight className="h-3.5 w-3.5 text-amber-400 flex-shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </a>
+        </div>
       ),
     },
     {
