@@ -38,6 +38,7 @@ import {
 } from '@/app/services/api/exploreDesignApi';
 import type { AiColumnCategory, ClusteringKeysResult } from '@/app/services/api/types';
 import { useAiFeatures } from '../stores/ai-store';
+import { fmtNum } from '@/app/shared/ui/format';
 
 // Adapted column profile shape for rendering (mapped from new API)
 interface ColumnProfile {
@@ -636,7 +637,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
             <div className="flex items-center gap-2">
               <Rows3 className="h-4 w-4 text-slate-400" />
               <span className="text-slate-500">Total Rows:</span>
-              <span className="font-medium">{(profileData.row_count ?? 0).toLocaleString()}</span>
+              <span className="font-medium">{fmtNum(profileData.row_count)}</span>
             </div>
             <div className="flex items-center gap-2">
               <Columns3 className="h-4 w-4 text-slate-400" />
@@ -838,7 +839,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                           {/* Row Stats */}
                           <div className="space-y-1">
                             <p className="text-xs text-slate-500 uppercase tracking-wide">Total Rows</p>
-                            <p className="text-lg font-bold">{(col.total_rows ?? 0).toLocaleString()}</p>
+                            <p className="text-lg font-bold">{fmtNum(col.total_rows)}</p>
                           </div>
 
                           <div className="space-y-1">

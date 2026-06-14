@@ -49,6 +49,7 @@ import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContr
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { isUnavailable } from '@/lib/http-status';
+import { fmtNum } from '@/app/shared/ui/format';
 import { createSchemaClone } from '@/app/services/explore-design';
 import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
 import { useAuth } from '@/hooks/useAuth';
@@ -4085,7 +4086,7 @@ export default function ExploreDesignPage() {
                                             ) : (
                                               <span className="text-[9px] text-green-500">0% null</span>
                                             )}
-                                            <span className="text-[9px] text-slate-400">{(pc.distinct_count ?? 0).toLocaleString()} uniq</span>
+                                            <span className="text-[9px] text-slate-400">{fmtNum(pc.distinct_count)} uniq</span>
                                             <span className="flex items-center gap-0.5">
                                               <span className="w-6 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden inline-block">
                                                 <span className={cn("block h-full rounded-full", qScore >= 80 ? "bg-green-500" : qScore >= 60 ? "bg-yellow-500" : "bg-red-500")} style={{ width: `${qScore}%` }} />

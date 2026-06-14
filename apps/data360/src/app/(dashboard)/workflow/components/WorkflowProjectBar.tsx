@@ -47,6 +47,7 @@ import {
   getProjectScoreCards,
   type ScoreCard,
 } from '@/app/services/command-center/score-cards';
+import { dash } from '@/app/shared/ui/format';
 
 type AsyncState = 'idle' | 'running' | 'done' | 'error';
 
@@ -326,7 +327,7 @@ export function CostTab({ workflowId, enabled }: { workflowId: string; enabled: 
           total {fmtCredits(data.total_credits)}
         </span>
         <span className="inline-flex items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          {data.task_runs ?? 0} runs · {fmtPct(data.success_rate)} success
+          {dash(data.task_runs)} runs · {fmtPct(data.success_rate)} success
         </span>
         {data.lookback_days != null && (
           <span className="text-[9px] text-slate-400">last {data.lookback_days}d</span>
