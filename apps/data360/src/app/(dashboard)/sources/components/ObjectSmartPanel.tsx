@@ -33,12 +33,17 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Package, Shield, GitBranch, Zap, User, Gauge,
-  Lightbulb, Clock, ArrowRight,
+  Lightbulb, Clock, ArrowRight, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
-import { applyRecommendation, type Recommendation, type ObjectHistoryResponse } from '@/app/services/catalog';
+import {
+  applyRecommendation,
+  type Recommendation,
+  type ObjectHistoryResponse,
+  type Object360Response,
+} from '@/app/services/catalog';
 import type {
   TableContext,
   TableGovernance,
@@ -47,6 +52,12 @@ import type {
   TableOwnership,
 } from '@/app/services/catalog/rightbar';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
+import SourceAiSummary, {
+  type SourceDescriptor,
+  type GovernanceContext,
+  type LineageContext,
+  type ProfileContext,
+} from '@/app/shared/source-hub/SourceAiSummary';
 
 interface SelectedObject {
   database: string;
@@ -96,6 +107,13 @@ const objectRecommendationsUrl = (db: string, s: string, t: string) =>
 
 const objectHistoryUrl = (db: string, s: string, t: string) =>
   API.catalog.objectHistory(`${db}.${s}.${t}`);
+
+// Consolidated per-object 360 (catalog.object360). `include_profile=true` runs a
+// sample profiling pass server-side, so this is the one section fetched LAZILY
+// (see the gated useSection below) rather than eagerly with the other eight.
+// Object id format is `TYPE:DB.SCHEMA.NAME` (matches getObject360 / objectIdFromTable).
+const object360Url = (db: string, s: string, t: string) =>
+  `${API.catalog.object360(`TABLE:${db}.${s}.${t}`)}?include_profile=true`;
 
 // ---------------------------------------------------------------------------
 // Per-section fetch state machine
@@ -330,6 +348,15 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
   const recos      = useSection<RecommendationsResponse>(selected ? objectRecommendationsUrl : null, selected);
   const history    = useSection<ObjectHistoryResponse>(selected ? objectHistoryUrl : null, selected);
 
+  // Intentionally LAZY (breaks this file's "all fetches fire eagerly" invariant):
+  // object360 with include_profile=true triggers sample-profiling queries, so we
+  // only hit it once the user opens the AI Summary tab. It enriches the AI brief
+  // (column count, sample null-rate, storage size, owner/comment, persisted scores).
+  const object360  = useSection<Object360Response>(
+    selected && activeSection === 'ai-summary' ? object360Url : null,
+    selected,
+  );
+
   // Idle state: nothing selected — keep the column footprint with a quiet hint.
   if (!selected) {
     return (
@@ -343,6 +370,110 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
   }
 
   const sections: RightTabSection[] = [
+    {
+      // S-AI — AI SUMMARY (ephemeral, per-view brief composed from the data this
+      // panel already fetches + the lazy object360 enrichment). Leads the rail.
+      id: 'ai-summary',
+      icon: Sparkles,
+      label: 'AI Summary',
+      description: 'Plain-language brief of this table from its context, governance, lineage and quality',
+      render: () => {
+        const ctx = context.data;
+        const gov = governance.data;
+        const lin = lineage.data;
+        const own = ownership.data;
+        const sc = scores.data;
+        const o = object360.data;
+        const prof = o?.tiers?.object?.profiling;
+
+        // Storage size in bytes — prefer exact warehouse metadata, then profiled
+        // bytes, then convert the context's GB figure. Honest "absent" → undefined.
+        const sizeBytes =
+          o?.snowflake_metadata?.total_storage_bytes ??
+          prof?.bytes ??
+          (ctx?.size_gb != null ? Math.round(ctx.size_gb * 1024 ** 3) : undefined) ??
+          undefined;
+
+        // Key columns from the profiling sample (only when actually profiled).
+        const entities =
+          prof?.available && prof.per_column?.length
+            ? prof.per_column.slice(0, 12).map((c) => c.column)
+            : undefined;
+
+        // Sample null-rate: real, defensible (over the profiled sample), not faked.
+        let nullRatePct: number | undefined;
+        if (prof?.available && prof.per_column?.length) {
+          const cells = prof.per_column.reduce((a, c) => a + (c.sample_total || 0), 0);
+          const nulls = prof.per_column.reduce((a, c) => a + (c.null_count || 0), 0);
+          if (cells > 0) nullRatePct = Math.round((nulls / cells) * 100);
+        }
+
+        const sensitiveColumns = gov?.pii_columns?.map((c) => c.column_name);
+        const maskedColumns = gov?.pii_columns
+          ?.filter((c) => c.masking_status !== 'NONE')
+          .map((c) => c.column_name);
+
+        const descriptor: SourceDescriptor = {
+          kind: 'table',
+          name: selected.table,
+          database: selected.database,
+          schema: selected.schema,
+          description: o?.snowflake_metadata?.comment ?? undefined,
+          owner: own?.owner_email ?? ctx?.owner ?? o?.snowflake_metadata?.owner ?? undefined,
+          rowCount: ctx?.row_count ?? prof?.rows ?? undefined,
+          columnCount: prof?.available && prof.columns ? prof.columns : undefined,
+          sizeBytes,
+          tags: ctx?.tags?.length ? ctx.tags.map((t) => `${t.tag_name}: ${t.tag_value}`) : undefined,
+          entities,
+        };
+
+        // NOTE: deliberately no `classification` — data_class is a pipeline tier
+        // (SOURCE/INTERMEDIATE/PRODUCT), not a sensitivity label, so feeding it as
+        // a classification would misframe it. Omit rather than guess.
+        const governanceCtx: GovernanceContext = {
+          sensitiveColumns: sensitiveColumns?.length ? sensitiveColumns : undefined,
+          maskedColumns: maskedColumns?.length ? maskedColumns : undefined,
+          policies: gov?.rls_policies?.length ? gov.rls_policies.map((p) => p.policy_name) : undefined,
+        };
+
+        const lineageCtx: LineageContext = {
+          upstream: lin?.upstream?.length ? lin.upstream.map((n) => n.name) : undefined,
+          downstream: lin?.downstream?.length ? lin.downstream.map((n) => n.name) : undefined,
+        };
+
+        const freshnessSrc = ingestion.data?.last_run ?? ctx?.last_altered ?? null;
+        const profileCtx: ProfileContext = {
+          qualityScore:
+            sc?.scores?.quality_score ?? o?.persisted_scores?.scores?.quality_score ?? undefined,
+          nullRatePct,
+          freshness: freshnessSrc ? `updated ${fmtDate(freshnessSrc)}` : undefined,
+          issues: sc?.top_issues?.length ? sc.top_issues : undefined,
+        };
+
+        return (
+          <div className="space-y-2">
+            <p className="text-[11px] leading-relaxed text-gray-400 dark:text-gray-500">
+              A plain-language brief built from this table&apos;s context, governance, lineage
+              and quality signals. Ephemeral — generated on demand, nothing is stored.
+            </p>
+            <SourceAiSummary
+              // Remount on table change: SourceAiSummary keeps its generated text
+              // in local state and (with autoRun off) never self-resets, so without
+              // a key the prior table's summary would linger after selection changes.
+              // Key on the FQN — not the descriptor — so object360 resolving for the
+              // SAME table doesn't wipe an already-generated summary.
+              key={`${selected.database}.${selected.schema}.${selected.table}`}
+              descriptor={descriptor}
+              governance={governanceCtx}
+              lineage={lineageCtx}
+              profile={profileCtx}
+              autoRun={false}
+              title="Object summary"
+            />
+          </div>
+        );
+      },
+    },
     {
       // S0 — TRUST SCORES (DQ / GOV / COST / trust rollup + recommended actions)
       id: 'scores',

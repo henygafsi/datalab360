@@ -15,7 +15,6 @@ import {
 } from 'react-icons/hi2';
 import { Database, ArrowLeft, Sparkles } from 'lucide-react';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
-import { ROLE_PERMISSIONS } from '@/config/constants';
 import { routes } from '@/config/routes';
 
 // Import the new connection services from the same folder
@@ -58,6 +57,8 @@ import { submitS3Form } from '@/app/services/data-source-connection/s3Servicer';
 // Import Label from the correct local path
 import { Label } from '@/components/ui/label';
 import DatalakeBrowser from './DatalakeBrowser';
+import SourceHub, { type SourceSelection } from '@/app/shared/source-hub/SourceHub';
+import SourceAiSummary from '@/app/shared/source-hub/SourceAiSummary';
 import ConnectorAiHelper from './ConnectorAiHelper';
 import ConnectorHealthStrip from './ConnectorHealthStrip';
 import SourceCatalogSection from './SourceCatalogSection';
@@ -324,7 +325,7 @@ function integrationProps(details: unknown): IntegrationProps {
 
 export default function DataSourceConnectionPage() {
   const router = useRouter();
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   // System 2 Action-RBAC: triggering an ingest maps to connect:ingest. The
   // allow-set keys this module as 'connect' (registry key), not the modules.ts
   // apiName 'connect_datalake' — the apiName key is absent → would deny everyone.
@@ -333,6 +334,9 @@ export default function DataSourceConnectionPage() {
   const canIngest = ingestPerm.allowed || ingestPerm.loading;
   const ingestDeniedReason =
     'You lack the "ingest" permission on connect. Ask an administrator to grant it.';
+  // Source Hub selection → ephemeral AI-summary detail surface (keeps clicks honest;
+  // SourceHub always renders interactive cards/rows, so a handler is required).
+  const [hubSelection, setHubSelection] = useState<SourceSelection | null>(null);
   const [selectedSource, setSelectedSource] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [transitionLoading, setTransitionLoading] = useState<boolean>(false); // Loading state for provider transitions
@@ -465,22 +469,20 @@ export default function DataSourceConnectionPage() {
     [dataSources, selectedSource]
   );
 
-  // Check user permissions
-  const userRole = session?.user?.role as keyof typeof ROLE_PERMISSIONS;
-  const canManageConnections = userRole && ROLE_PERMISSIONS[userRole]?.modules?.includes(1);
+  // Action-RBAC: gate this surface on connect:read. Fail-open while the allow-set
+  // loads (useCanPerform also returns allowed on hard error), so we never bounce a
+  // legitimate user to /access-denied on a transient permissions glitch.
+  const readPerm = useCanPerform('connect', 'read');
+  const canManageConnections = readPerm.allowed || readPerm.loading;
 
-  // Redirect if no permission
+  // Only the unauthenticated case redirects (middleware also guards this route);
+  // permission gaps degrade gracefully rather than bouncing the user.
   useEffect(() => {
     if (status === 'loading') return;
     if (status === 'unauthenticated') {
       router.push(routes.signIn);
-      return;
     }
-    if (!canManageConnections) {
-      toast.error('You do not have permission to manage data source connections');
-      router.push('/access-denied');
-    }
-  }, [status, canManageConnections, router]);
+  }, [status, router]);
 
   // Load stages from backend API
   const loadConnections = async () => {
@@ -2753,6 +2755,47 @@ export default function DataSourceConnectionPage() {
                     {/* Browse already-connected sources (GET /connect/source-catalog) */}
                     <SourceCatalogSection />
 
+                    {/* Default-visible source inventory (GET /catalog/sources). This is the
+                        primary source list; the ingestion-stage view below is secondary and
+                        remains the launcher for stage-file browsing. */}
+                    <div className="mb-6">
+                        <SourceHub defaultView="cards" onSelectSource={setHubSelection} />
+                        {hubSelection && (
+                            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-800/60">
+                                <div className="mb-3 flex items-center justify-between gap-3">
+                                    <h4 className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+                                        {hubSelection.kind === 'source' ? hubSelection.source.name : hubSelection.fqn}
+                                    </h4>
+                                    <button
+                                        onClick={() => setHubSelection(null)}
+                                        className="shrink-0 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                                {hubSelection.kind === 'source' ? (
+                                    <SourceAiSummary
+                                        descriptor={{
+                                            kind: 'source',
+                                            name: hubSelection.source.name,
+                                            database: hubSelection.source.database,
+                                        }}
+                                    />
+                                ) : (
+                                    <SourceAiSummary
+                                        descriptor={{
+                                            kind: 'table',
+                                            name: hubSelection.table,
+                                            database: hubSelection.database,
+                                            schema: hubSelection.schema,
+                                            fullName: hubSelection.fqn,
+                                        }}
+                                    />
+                                )}
+                            </div>
+                        )}
+                    </div>
+
                     {/* Quick action: create an internal stage to upload files into */}
                     <div className="mb-6">
                         <InternalStageCreator />
@@ -2785,7 +2828,7 @@ export default function DataSourceConnectionPage() {
                             <div className="flex items-center justify-between mb-6">
                                 <h3 className="text-xl font-semibold text-slate-900 dark:text-white flex items-center">
                                     <Database className="h-6 w-6 mr-2 text-green-600" />
-                                    Connected Data Sources
+                                    Ingestion stages
                                 </h3>
                                 <Badge className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700">
                                     {activeConnections.length} Active
@@ -3147,8 +3190,8 @@ export default function DataSourceConnectionPage() {
         );
     }
 
-    // Don't render anything if unauthenticated or no permission (redirect will happen in useEffect)
-    if (status === 'unauthenticated' || !canManageConnections) {
+    // Don't render anything if unauthenticated (redirect will happen in useEffect)
+    if (status === 'unauthenticated') {
         return null;
     }
 

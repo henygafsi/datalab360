@@ -9,11 +9,11 @@ import SourceCatalog from './SourceCatalog';
  * Collapsible host for the enterprise Source Catalog (`GET /connect/source-catalog`).
  * The `SourceCatalog` component existed but was never routed onto any surface;
  * this section makes it reachable from the connection hub without restructuring
- * the wizard. Collapsed by default so it doesn't push the connector picker down,
- * and only mounts (fetches) when expanded.
+ * the wizard. Open by default and positioned above the provider picker so the
+ * already-connected sources are the first thing a user sees.
  */
 export default function SourceCatalogSection() {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
 
   return (
     <div className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800/60">
