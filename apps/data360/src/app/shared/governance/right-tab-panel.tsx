@@ -34,6 +34,7 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/app/shared/ui/Tooltip';
 import { useIsMobile } from './use-media-query';
 import {
   DesktopRail,
@@ -53,6 +54,13 @@ export interface RightTabSection {
   id: string;
   icon: LucideIcon;
   label: string;
+  /**
+   * Optional one-line description of what this section does. When provided it
+   * becomes the hover/focus tooltip on the icon-rail button (falling back to
+   * `label` when omitted). Additive + backward compatible: existing consumers
+   * keep their label tooltip with no changes.
+   */
+  description?: string;
   /** Section body. Rendered only when this section is active. */
   render: () => React.ReactNode;
 }
@@ -160,14 +168,16 @@ export default function RightTabPanel({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {statusPill ? <StatusPill pill={statusPill} /> : null}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close panel"
-          className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <Tooltip label="Close the inspector panel" side="bottom">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close panel"
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

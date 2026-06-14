@@ -154,7 +154,7 @@ export function DesktopRail({ sections, activeSection, onSectionChange, accentCl
               onClick={() => onSectionChange(item.id)}
               aria-label={item.label}
               aria-pressed={isActive}
-              title={item.label}
+              title={item.description ?? item.label}
               className={cn(
                 'flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-150',
                 isActive
@@ -164,12 +164,14 @@ export function DesktopRail({ sections, activeSection, onSectionChange, accentCl
             >
               <Icon className="h-[18px] w-[18px]" />
             </button>
-            {/* Hover tooltip — floats to the left of the rail. */}
+            {/* Hover/focus tooltip — floats to the left of the rail. Shows the
+                section's `description` when given, else its `label`. */}
             <span
               role="tooltip"
-              className="pointer-events-none absolute right-full top-1/2 z-20 mr-2 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 dark:bg-slate-700"
+              aria-hidden="true"
+              className="pointer-events-none absolute right-full top-1/2 z-20 mr-2 max-w-[14rem] -translate-y-1/2 whitespace-normal rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium leading-snug text-white opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 dark:bg-slate-700"
             >
-              {item.label}
+              {item.description ?? item.label}
             </span>
           </div>
         );
@@ -199,7 +201,7 @@ export function MobileSegmentedBar({
             type="button"
             onClick={() => onSectionChange(item.id)}
             aria-pressed={isActive}
-            title={item.label}
+            title={item.description ?? item.label}
             className={cn(
               'inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
               isActive

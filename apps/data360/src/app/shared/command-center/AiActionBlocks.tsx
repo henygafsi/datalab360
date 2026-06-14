@@ -48,6 +48,7 @@ import {
   getCommandCenterRecommendations,
   type Recommendation,
 } from '@/app/services/command-center/recommendations';
+import { Tooltip } from '@/app/shared/ui/Tooltip';
 
 // ── Public API ──────────────────────────────────────────────────────────────
 export type ActionScope = 'account' | 'module' | 'object' | 'project';
@@ -443,15 +444,17 @@ export default function AiActionBlocks({
             </p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={load}
-          disabled={loading}
-          aria-label="Rafraîchir l’analyse"
-          className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50 dark:hover:bg-slate-800"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <Tooltip label="Relancer l’analyse IA et recharger les actions recommandées" side="left">
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            aria-label="Rafraîchir l’analyse"
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50 dark:hover:bg-slate-800"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </Tooltip>
       </header>
 
       <div className="p-3">
