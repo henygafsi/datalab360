@@ -1710,12 +1710,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         // the header tags chip strip and the draft-restore comparison.
         const [stepsResponse, workflowMeta] = await Promise.all([
           workflowApi.listSteps(wf.id),
-          // Metadata (tags / created_at) is non-critical — the pipeline still
-          // loads from steps if it fails. Surface the failure as a non-blocking
-          // toast instead of silently swallowing it, then degrade to null.
+          // Metadata (tags / created_at) is non-critical and this endpoint may be
+          // unavailable (returns 404) — the pipeline loads fully from steps. Degrade
+          // SILENTLY to null; never surface a "Not Found" toast for optional metadata.
           workflowApi.getWorkflow(wf.id).catch((e) => {
-            console.warn('Failed to load workflow metadata (tags/created_at):', e);
-            toast.error(getApiErrorMessage(e) || 'Could not load workflow tags');
+            console.warn('Workflow metadata unavailable (tags/created_at) — degrading:', e);
             return null;
           }),
         ]);
