@@ -377,6 +377,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       icon: Sparkles,
       label: 'AI Summary',
       description: 'Plain-language brief of this table from its context, governance, lineage and quality',
+      help: 'A plain-language brief of this table, written on demand from its context, governance, lineage and quality signals. Generate it when you need it — it is ephemeral and nothing is stored.',
       render: () => {
         const ctx = context.data;
         const gov = governance.data;
@@ -479,6 +480,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'scores',
       icon: Gauge,
       label: 'Trust Scores',
+      help: 'A 0-100 rollup of how trustworthy this table is, blending its quality, governance, cost and ML-readiness. Follow a recommended action to lift a weak score; "—" means that dimension has not been computed yet.',
       render: () => (
         <SectionBody state={scores}>
           {(d) =>
@@ -529,6 +531,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'recommendations',
       icon: Lightbulb,
       label: 'Recommendations',
+      help: 'Concrete, table-specific fixes we suggest — for example adding masking or documentation. Click Apply on any item to action it right here; the list refreshes once the change lands.',
       render: () => (
         <SectionBody state={recos}>
           {(d) =>
@@ -550,6 +553,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'context',
       icon: Package,
       label: 'Context',
+      help: 'The table’s key facts at a glance: type, row count, size, owner, key dates and tags. Use it to confirm you are looking at the right object before you act on it.',
       render: () => (
         <SectionBody state={context}>
           {(d) => (
@@ -578,6 +582,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'governance',
       icon: Shield,
       label: 'Governance',
+      help: 'Shows how well this table is protected: its governance rate, its sensitive (PII) columns and any row-access policies. Red pills flag sensitive columns with no masking — the ones that most need attention.',
       render: () => (
         <SectionBody state={governance}>
           {(d) => (
@@ -610,6 +615,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'lineage',
       icon: GitBranch,
       label: 'Lineage',
+      help: 'The tables that feed this one (upstream) and the ones that depend on it (downstream), with a risk level for changes. Check downstream impact before you alter, rename or drop this table.',
       render: () => (
         <SectionBody state={lineage}>
           {(d) => (
@@ -657,6 +663,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'ingestion',
       icon: Zap,
       label: 'Ingestion',
+      help: 'How this table is loaded: its pipeline, mode, schedule, last and next run, and the typical cost per refresh. Use it to check whether the data is fresh and what each load costs.',
       render: () => (
         <SectionBody state={ingestion}>
           {(d) => (
@@ -679,6 +686,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'ownership',
       icon: User,
       label: 'Ownership',
+      help: 'Who owns and maintains this table, plus the people who query it most (its top consumers). Use it to find the right contact and to see who relies on the data before you change it.',
       render: () => (
         <SectionBody state={ownership}>
           {(d) => (
@@ -717,6 +725,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'history',
       icon: Clock,
       label: 'History',
+      help: 'A timeline of recent events on this object across sources — loads, edits and access. Use it to trace what changed and when; failed events are shown in red.',
       render: () => (
         <SectionBody state={history}>
           {(d) =>

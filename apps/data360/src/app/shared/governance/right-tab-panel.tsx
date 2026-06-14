@@ -35,6 +35,7 @@ import { createPortal } from 'react-dom';
 import { X, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tooltip } from '@/app/shared/ui/Tooltip';
+import { HelpPopover } from '@/app/shared/ui/HelpPopover';
 import { useIsMobile } from './use-media-query';
 import {
   DesktopRail,
@@ -61,6 +62,13 @@ export interface RightTabSection {
    * keep their label tooltip with no changes.
    */
   description?: string;
+  /**
+   * Optional in-journey help copy. When the section is active, a click-triggered
+   * "?" {@link HelpPopover} is shown next to its title with this text (falling
+   * back to `description`, then `label`). Additive + backward compatible — every
+   * consumer gains click-help with no changes.
+   */
+  help?: string;
   /** Section body. Rendered only when this section is active. */
   render: () => React.ReactNode;
 }
@@ -153,11 +161,20 @@ export default function RightTabPanel({
   const header = (
     <div className="flex items-start justify-between gap-3 border-b border-slate-200/80 px-4 py-3.5 dark:border-slate-800">
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', accentClassName)} />
           <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             {active?.label}
           </p>
+          {active ? (
+            <HelpPopover
+              key={active.id}
+              label={active.help ?? active.description ?? active.label}
+              title={active.label}
+              ariaLabel={`Help: ${active.label}`}
+              side="bottom"
+            />
+          ) : null}
         </div>
         <h2 className="mt-1 truncate text-[15px] font-semibold leading-tight text-slate-900 dark:text-white">
           {title}

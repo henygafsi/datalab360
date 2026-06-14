@@ -78,6 +78,7 @@ import { API } from '@/lib/api-contracts';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import InsightActionButton from '@/app/shared/insights/InsightActionButton';
+import { HelpPopover } from '@/app/shared/ui/HelpPopover';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import ProjectKpiStrip from '@/app/shared/score-cards/ProjectKpiStrip';
 import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
@@ -1121,6 +1122,39 @@ const RAIL: RailItem[] = [
 
 const RAIL_IDS = new Set(RAIL.map((r) => r.id));
 
+// In-journey click "?" help for each section (R14/H3). Shown next to the active
+// section title in the panel header via <HelpPopover>. Typed as a total record
+// so TypeScript flags any missing section — the header is the single help point
+// for ALL sections, including those whose bodies live in other files
+// (Usage/Cost/Governance + the legacy Results/Runs/SQL/Schedule bodies). Plain
+// language, no vendor names.
+const SECTION_HELP: Record<WorkflowPanelSection, string> = {
+  changes:
+    'Shows the blocks you have added, changed or removed since this workflow was last saved. Review it before you submit so you know exactly what will go live.',
+  submit:
+    'Runs a safe validation of the workflow before it touches real data. Pick "cloned data" for production sources or "temp tables" for pipelines, then submit it for deployment approval.',
+  deploy:
+    'Lists every production deployment and saved version of this workflow, with who did what and when. Use it to compare versions or roll back to an earlier one.',
+  block:
+    'Configure the block you selected on the canvas — its source, transform or destination settings. Click any block on the canvas to edit it here.',
+  ai:
+    'Smart suggestions to improve this workflow, such as adding a quality check or scheduling off-peak. Each suggestion can open the right tool or run a safe preview.',
+  results:
+    'The output of the most recent run, so you can confirm the workflow produced the data you expected.',
+  runs:
+    'A history of every time this workflow ran, with status and timing. Use it to spot failed or slow runs.',
+  usage:
+    'How often this workflow runs and how much data it moves over time, so you can track activity at a glance.',
+  cost:
+    'The estimated compute cost of running this workflow. Use it to keep an eye on spend and find the most expensive steps.',
+  governance:
+    'Who can access this workflow and which data policies apply to it. Use it to check permissions and compliance.',
+  sql:
+    'The query this workflow compiles to, shown read-only. Review it to understand exactly what will run before you deploy.',
+  schedule:
+    'Set when this workflow runs automatically on a recurring schedule. You can also pause or resume an existing schedule here.',
+};
+
 // Versioned, minimal localStorage keys (client-localstorage-schema): persist the
 // user's last section ("draft of menu" → preselect on return) and whether the
 // always-on actions strip is collapsed so the active section can run full-height.
@@ -1202,9 +1236,18 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
         {/* Header — active section label + workflow name + actions-collapse toggle */}
         <div className="flex items-start justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
-              {active.label}
-            </p>
+            <div className="flex items-center gap-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                {active.label}
+              </p>
+              {/* In-journey click "?" help for the ACTIVE section (R14/H3). */}
+              <HelpPopover
+                label={SECTION_HELP[active.id]}
+                title={active.label}
+                side="bottom"
+                ariaLabel={`What is the ${active.label} section?`}
+              />
+            </div>
             <h2 className="truncate text-sm font-bold text-gray-900 dark:text-white">
               {activeWorkflowName || 'New workflow'}
             </h2>

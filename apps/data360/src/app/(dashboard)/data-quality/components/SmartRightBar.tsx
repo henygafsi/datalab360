@@ -116,6 +116,7 @@ export default function SmartRightBar({
       id: 'context',
       icon: Gauge,
       label: 'Context',
+      help: "Snapshot of this table's data-quality score and how many metric checks are attached to it. A score below 80% means freshness, completeness or validity needs a closer look.",
       render: () => loading ? loadingBody : (
         <>
           {/* DQ score + DMF count */}
@@ -147,6 +148,7 @@ export default function SmartRightBar({
       id: 'actions',
       icon: Zap,
       label: 'Actions',
+      help: 'Run a quality check on this table right now, attach a new metric check to it, or set checks to run on a schedule. Any action you lack permission for is shown greyed out.',
       render: () => loading ? loadingBody : (
         // Run Check / Associate DMF / Set Schedule — verbatim handlers + RBAC gates.
         <div className="space-y-1.5">
@@ -199,6 +201,7 @@ export default function SmartRightBar({
       id: 'governance',
       icon: ShieldCheck,
       label: 'Governance',
+      help: 'Columns on this table that have been flagged as sensitive (such as PII) and the classification tags applied to them. Use it to confirm regulated data is properly labelled before the table is shared.',
       render: () => loading ? loadingBody : (
         // Classification coverage + PII tags.
         data?.classificationTags && data.classificationTags.length > 0 ? (
@@ -223,6 +226,7 @@ export default function SmartRightBar({
       id: 'act',
       icon: ArrowUpRight,
       label: 'Act',
+      help: 'Shortcuts to a related task for this table — model it downstream in Explore & Design, or review its masking rules in Governance. The table (and column) is carried over so you land in the right place.',
       render: () => (
         // Outbound prefilled deep-link CTAs — model the table downstream, or
         // review its masking controls — mirroring the lineage deep-link below.
@@ -258,6 +262,7 @@ export default function SmartRightBar({
       id: 'lineage',
       icon: GitBranch,
       label: 'Lineage',
+      help: 'Opens this table in the Observability lineage view, where you can trace where its data comes from and what downstream tables depend on it.',
       render: () => loading ? loadingBody : (
         // Deep-link to /observability/lineage.
         <a
@@ -273,6 +278,7 @@ export default function SmartRightBar({
       id: 'ingestion',
       icon: Upload,
       label: 'Ingestion',
+      help: 'The result of the most recent data load into this table. A failed or partial status here often explains a sudden drop in the quality score.',
       render: () => loading ? loadingBody : (
         // Last load status + COPY_HISTORY freshness.
         <div className="flex items-center gap-2">
@@ -286,6 +292,7 @@ export default function SmartRightBar({
       id: 'ownership',
       icon: UserCog,
       label: 'Ownership',
+      help: 'The business owner and data steward responsible for this table. Reach out to them when you spot a quality issue that needs fixing at the source.',
       render: () => loading ? loadingBody : (
         // Data owner + steward from catalog.
         <div className="space-y-1">
@@ -306,6 +313,7 @@ export default function SmartRightBar({
       id: 'ai-tips',
       icon: Sparkles,
       label: 'AI Tips',
+      help: "Plain-language suggestions for raising this table's quality score, generated from its current checks and metrics. Treat them as a starting checklist, not a mandatory to-do list.",
       render: () => loading ? loadingBody : (
         // AI-generated DQ recommendations.
         <div className="rounded-lg border border-amber-100 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-900/10 px-3 py-2">
@@ -327,6 +335,7 @@ export default function SmartRightBar({
       id: 'history',
       icon: History,
       label: 'DMF History',
+      help: 'The most recent metric measurements recorded for this table. Use it to confirm a check is actually running and to see when its quality last changed.',
       render: () => loading ? loadingBody : (
         // Last 5 DMF measurements.
         data?.dmfHistory && data.dmfHistory.length > 0 ? (
