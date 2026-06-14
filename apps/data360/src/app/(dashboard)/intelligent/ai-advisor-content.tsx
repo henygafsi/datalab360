@@ -270,13 +270,13 @@ export default function AiAdvisorContent() {
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">Active recommendations</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-            {loading ? '…' : recos.length}
+            {loading ? '…' : loadError ? '—' : recos.length}
           </p>
         </div>
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
           <p className="text-xs text-gray-500 dark:text-gray-400">Critical findings</p>
           <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">
-            {loading ? '…' : critical}
+            {loading ? '…' : loadError ? '—' : critical}
           </p>
         </div>
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">

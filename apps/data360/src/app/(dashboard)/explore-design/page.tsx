@@ -3,6 +3,7 @@
 // ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.governance (policies)
 import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
 import PermissionGate from '@/components/ui/PermissionGate';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom, useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
@@ -47,10 +48,12 @@ import { generateSnowflakeSQL, DDL_EVENT_TYPES, inferDDLType } from './component
 import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors, listProjects } from '@/app/services/api/projectsApi';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { isUnavailable } from '@/lib/http-status';
+import { createSchemaClone } from '@/app/services/explore-design';
 import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
 import { useAuth } from '@/hooks/useAuth';
 import { useSession } from 'next-auth/react';
-import type { ContributorRole, SchemaHealthResult, ColumnMapping as BackendColumnMapping } from '@/app/services/api/types';
+import type { ContributorRole, SchemaHealthResult, ColumnMapping as BackendColumnMapping, TableRef } from '@/app/services/api/types';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
 import TableDetailPanel, { TableConfig, IngestionMode, IngestionConfig, MaskingConfig } from '../mapping/components/TableDetailPanel';
 import dynamic from 'next/dynamic';
@@ -62,6 +65,7 @@ import EventTable from './components/EventTable';
 import DeploymentValidation from './components/DeploymentValidation';
 import AiGuidedModelButton from './components/ai-guided/AiGuidedModelButton';
 import AiGuidedModelWizard from './components/ai-guided/AiGuidedModelWizard';
+import ScanPrefillBanner, { type ScanSuggestion } from './components/ScanPrefillBanner';
 import SelfServeIngestionModal from './components/SelfServeIngestionModal';
 import ProjectSelector from './components/ProjectSelector';
 import UnifiedProjectWizard, {
@@ -70,7 +74,6 @@ import UnifiedProjectWizard, {
 import ManualAiTemplateFork, {
   type BuildMode,
 } from '@/components/project-onboarding/ManualAiTemplateFork';
-import HistoryRail from './components/HistoryRail';
 import { ProjectContextPanel, SchemaVersionDisplaySwitch } from '@/app/shared/project-context';
 import {
   useEventStore,
@@ -90,7 +93,6 @@ import AlertModal from './components/AlertModal';
 import EventTableModal from './components/EventTableModal';
 import { ActionRail } from '@/app/shared/action-rail';
 import HybridTableModal from './components/HybridTableModal';
-import PolicyAssignmentPanel from './components/PolicyAssignmentPanel';
 import IngestionConfigPanel from './components/IngestionConfigPanel';
 import TemplateLibrary from './components/TemplateLibrary';
 import SqlDiffViewer from './components/SqlDiffViewer';
@@ -915,6 +917,11 @@ export default function ExploreDesignPage() {
 
   // Project State — pre-fill from ?project_id= query param or last used project
   const urlProjectId = searchParams.get('project_id');
+  // Account-overview AI advisor deep-link: ?intent=model&from=scan. When set we
+  // render a ready, pre-filled AI suggestion (ScanPrefillBanner) instead of
+  // leaving the user on empty selectors.
+  const scanDeepLink =
+    searchParams.get('intent') === 'model' && searchParams.get('from') === 'scan';
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
   // Slide-1 redesign: inline wizard replaces the legacy project-creation popup.
@@ -1001,6 +1008,17 @@ export default function ExploreDesignPage() {
   // Plain-English description seeded into the AI model wizard when the user
   // picked the AI fork in the UnifiedProjectWizard / "Change approach".
   const [aiModelSeed, setAiModelSeed] = useState<string>('');
+  // Source tables pre-selected in the AI wizard's Connect step — populated when
+  // the user accepts an AI suggestion from the Account-overview scan deep-link
+  // (?intent=model&from=scan). Reset on wizard close/approve so the manual AI
+  // path (which opens the same wizard) never inherits stale scan selections.
+  const [scanSeedTables, setScanSeedTables] = useState<TableRef[]>([]);
+  // The advisor deep-link arrives WITHOUT a project (it's just
+  // /explore-design?intent=model&from=scan). When the user accepts a suggestion
+  // before picking a project, we stash this flag and auto-open the seeded
+  // wizard the moment a project becomes selected — so the suggestion survives
+  // the "pick a project" step and stays one fluid action.
+  const [pendingScanApply, setPendingScanApply] = useState(false);
   // "Change approach" affordance — re-opens the fork for an existing project.
   const [showApproachFork, setShowApproachFork] = useState(false);
   const [showIngestionModal, setShowIngestionModal] = useState(false);
@@ -1028,6 +1046,9 @@ export default function ExploreDesignPage() {
   // AI column classification
   const [columnClassifications, setColumnClassifications] = useState<Map<string, Record<string, string>>>(new Map());
   const [isClassifying, setIsClassifying] = useState(false);
+  // 404/501 from the classification endpoint — the CTA self-disables (honest
+  // unavailable state, InsightActionButton pattern) instead of erroring loudly.
+  const [classifyUnavailable, setClassifyUnavailable] = useState(false);
 
   // Data engineering object listing modal
   const [dataEngModal, setDataEngModal] = useState<{
@@ -1043,6 +1064,13 @@ export default function ExploreDesignPage() {
     type: 'dynamic_table' | 'stream' | 'alert' | 'schema';
     name: string;
   } | null>(null);
+
+  // System 2 Action-RBAC: dropping data-engineering objects maps to
+  // explore_design:delete. Fail-open while the allow-set loads (no flash).
+  const dropObjPerm = useCanPerform('explore_design', 'delete');
+  const canDropObjects = dropObjPerm.allowed || dropObjPerm.loading;
+  const dropDeniedReason =
+    'You lack the "delete" permission on Explore & Design. Ask an administrator to grant it.';
 
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('catalog');
@@ -1076,7 +1104,6 @@ export default function ExploreDesignPage() {
 
   // Catalog policy & ingestion panels
   const [showCatalogPolicyPanel, setShowCatalogPolicyPanel] = useState(false);
-  const [showIngestionPanel, setShowIngestionPanel] = useState(false);
   const [catalogIngestionMode, setCatalogIngestionMode] = useState<IngestionMode>('full_refresh');
   const [showModelingIngestionPanel, setShowModelingIngestionPanel] = useState(false);
   const [modelingIngestionMode, setModelingIngestionMode] = useState<IngestionMode>('full_refresh');
@@ -1220,6 +1247,33 @@ export default function ExploreDesignPage() {
     }
     return false;
   }, [isReadOnly]);
+
+  // ── Scan deep-link: accept an AI-suggested data product ───────────────────
+  // Seeds the AI-guided wizard with the suggestion's description + source
+  // tables. If a project is already selected we open the wizard immediately;
+  // otherwise we flag the intent and the effect below auto-opens it the moment
+  // the user selects/creates a project (the deep-link carries no project_id).
+  const handleScanSuggestionApply = useCallback((suggestion: ScanSuggestion) => {
+    if (readOnlyGuard()) return;
+    setAiModelSeed(suggestion.seed);
+    setScanSeedTables(suggestion.sources);
+    if (selectedProjectId) {
+      setShowAiGuidedWizard(true);
+    } else {
+      setPendingScanApply(true);
+      setShowProjectWizard(true);
+      toast('Pick or create a project — your AI suggestion is ready and will open automatically.');
+    }
+  }, [readOnlyGuard, selectedProjectId]);
+
+  // Auto-open the seeded wizard once a project becomes available after the user
+  // accepted a scan suggestion without one selected.
+  useEffect(() => {
+    if (pendingScanApply && selectedProjectId) {
+      setPendingScanApply(false);
+      setShowAiGuidedWizard(true);
+    }
+  }, [pendingScanApply, selectedProjectId]);
 
   // ── Conflict Detection ────────────────────────────────────────────────────
   // Checks pending events for conflicts before deploy. Returns true if conflicts
@@ -2606,6 +2660,11 @@ export default function ExploreDesignPage() {
   //   template → select the project, apply the DWH template.
   const handleProjectCreated = useCallback(
     async (result: UnifiedProjectWizardResult) => {
+      // The create-new fork governs its own build mode — cancel any pending
+      // scan auto-resume so the effect below can't force-open the AI wizard
+      // over an explicit Template/Manual choice. (No-op when not from a scan.)
+      setPendingScanApply(false);
+
       // Pre-seed the per-project modeling cache from the recorded build mode
       // so ModelingTemplateModal won't re-prompt a project created with a
       // deliberate choice.
@@ -2617,13 +2676,19 @@ export default function ExploreDesignPage() {
 
       if (result.buildMode === 'ai') {
         setAiModelSeed(result.aiDescription ?? '');
+        // Keep any scan-suggested source tables — they pre-select the AI
+        // wizard's Connect step for an AI-mode create that came from a scan.
         setShowAiGuidedWizard(true);
       } else if (result.buildMode === 'template') {
-        // Apply the DWH template path — same as ModelingTemplateModal's
-        // "dwh_template" branch: pick a location, then enter modeling.
+        // Non-AI choice — drop any scan seed so it can't bleed into a later
+        // manual AI-wizard open. Apply the DWH template path.
+        setAiModelSeed('');
+        setScanSeedTables([]);
         setShowLocationPicker(true);
       } else {
-        // manual → blank modeling canvas.
+        // manual → blank modeling canvas. Drop any scan seed (see above).
+        setAiModelSeed('');
+        setScanSeedTables([]);
         setModelingChoice('scratch');
         setViewMode('modeling');
       }
@@ -2871,8 +2936,15 @@ export default function ExploreDesignPage() {
       if (!rightBarOpen) setRightBarOpen(true);
       toast.success(`AI classified ${Object.keys(classRecord).length} columns`);
     } catch (err: any) {
-      const errMsg = err?.response?.data?.message || err?.response?.data?.detail || 'AI classification failed';
-      toast.error(typeof errMsg === 'string' ? errMsg : 'AI classification failed');
+      // 404/501 = endpoint not deployed on this backend — self-disable the CTA
+      // quietly (no loud error); it re-arms on the next project/table switch.
+      const status = err?.response?.status ?? err?.status;
+      if (status === 404 || status === 501) {
+        setClassifyUnavailable(true);
+      } else {
+        const errMsg = err?.response?.data?.message || err?.response?.data?.detail || 'AI classification failed';
+        toast.error(typeof errMsg === 'string' ? errMsg : 'AI classification failed');
+      }
     } finally {
       setIsClassifying(false);
     }
@@ -2976,8 +3048,10 @@ export default function ExploreDesignPage() {
     setConfirmDrop(null);
 
     if (type === 'schema') {
-      // Schema drop is a placeholder — just queue it
-      toast.error(`Drop schema ${name} - operation queued`);
+      // No schema-drop endpoint exists on this backend — be honest, don't imply
+      // the operation was queued. Users drop individual objects (tables, dynamic
+      // tables, streams, alerts) instead.
+      toast.error(`Dropping a whole schema isn't available here. Drop individual objects instead.`);
       return;
     }
 
@@ -2998,44 +3072,64 @@ export default function ExploreDesignPage() {
     }
   }, [confirmDrop, selectedDatabase, dataEngModal.schema, dataEngModal.type, handleListDataEngObjects]);
 
-  // Schema action handler
-  const handleSchemaAction = useCallback((schema: string, action: string) => {
+  // Schema action handler.
+  // Per-schema "apply to all" governance/ownership/ingestion has no bulk
+  // endpoint on the backend — those operations apply per table (with a chosen
+  // policy + column), which is exactly what the right-rail Policies / Ingestion
+  // Config panels do. Rather than fake a one-click bulk apply, we route the user
+  // to the working per-table flow. Only `clone_schema` maps to a real endpoint.
+  const handleSchemaAction = useCallback(async (schema: string, action: string) => {
     if (readOnlyGuard()) return;
+    const db = selectedDatabase;
     switch (action) {
       case 'transfer_ownership':
-        toast.loading(`Transferring ownership for schema ${schema}...`);
-        // ////to do//// Implement transfer ownership API call (backend + frontend)
-        setTimeout(() => {
-          toast.dismiss();
-          toast.success(`Ownership transfer initiated for ${schema}`);
-        }, 1000);
+        // No schema-level ownership-transfer endpoint exists on this backend.
+        toast.error('Schema ownership transfer is not available on this backend yet.');
         break;
       case 'apply_masking_all':
-        toast.loading(`Applying masking to all tables in ${schema}...`);
-        setTimeout(() => {
-          toast.dismiss();
-          toast.success(`Masking policies applied to ${schema}`);
-        }, 1000);
+        // No bulk endpoint — masking applies per table+column with a chosen
+        // policy. Point the user at the real per-table flow.
+        toast('Select a table, then apply masking from the Policies panel (per table + column).');
         break;
       case 'apply_rls_all':
-        toast.loading(`Applying RLS to all tables in ${schema}...`);
-        setTimeout(() => {
-          toast.dismiss();
-          toast.success(`RLS policies applied to ${schema}`);
-        }, 1000);
+        toast('Select a table, then add row access from the Policies panel (per table).');
         break;
       case 'set_ingestion_all':
-        toast.loading(`Configuring ingestion for ${schema}...`);
-        setTimeout(() => {
-          toast.dismiss();
-          toast.success(`Ingestion configured for ${schema}`);
-        }, 1000);
+        toast('Select a table, then configure ingestion from the Ingestion Config panel.');
         break;
-      case 'clone_schema':
-        toast.success(`Schema ${schema} clone queued`);
+      case 'clone_schema': {
+        if (!db) {
+          toast.error('Select a database first');
+          break;
+        }
+        const cloneToast = toast.loading(`Cloning schema ${schema}...`);
+        try {
+          const res = await createSchemaClone({
+            source_database: db,
+            source_schema: schema,
+            target_database: db,
+            target_schema: schema,
+            naming_strategy: 'version_suffix',
+            include_data: true,
+            include_constraints: true,
+            include_policies: true,
+            include_grants: true,
+          });
+          toast.dismiss(cloneToast);
+          toast.success(`Schema ${schema} cloned (${res.tables_cloned}/${res.tables_total} tables)`);
+        } catch (err: any) {
+          toast.dismiss(cloneToast);
+          if (isUnavailable(err)) {
+            toast.error('Schema clone is not available on this backend yet.');
+          } else {
+            toast.error(getApiErrorMessage(err) || 'Schema clone failed');
+          }
+        }
         break;
+      }
       case 'export_ddl':
-        toast.success(`Exporting DDL for ${schema}...`);
+        // No schema-level DDL export endpoint on this backend.
+        toast.error('Schema DDL export is not available yet.');
         break;
       case 'list_dynamic_tables':
         handleListDataEngObjects(schema, 'dynamic_tables');
@@ -3052,7 +3146,7 @@ export default function ExploreDesignPage() {
       default:
         toast.error(`Unknown action: ${action}`);
     }
-  }, [handleListDataEngObjects]);
+  }, [handleListDataEngObjects, selectedDatabase]);
 
   // Toggle fullscreen mode
   const toggleFullscreen = useCallback(() => {
@@ -3223,6 +3317,10 @@ export default function ExploreDesignPage() {
                   toast.error('Please select a project first');
                   return;
                 }
+                // Manual entry always starts clean — never inherit a scan
+                // suggestion's seed/sources left over from the deep-link path.
+                setAiModelSeed('');
+                setScanSeedTables([]);
                 setShowAiGuidedWizard(true);
               }}
               disabled={!selectedProjectId || isReadOnly}
@@ -3359,6 +3457,19 @@ export default function ExploreDesignPage() {
       </header>
       )}
 
+      {/* AI-suggested-from-scan banner — only when the Account-overview advisor
+          deep-linked here (?intent=model&from=scan). Reads the already-scanned
+          objects and offers a ready, one-click AI-suggested data product so the
+          user lands on a prefilled suggestion, not empty selectors. The manual
+          AI button in the header stays fully intact. */}
+      {!isFullscreen && scanDeepLink && (
+        <ScanPrefillBanner
+          hasProject={!!selectedProjectId}
+          isReadOnly={isReadOnly}
+          onApply={handleScanSuggestionApply}
+        />
+      )}
+
       {/* Wizard overlay — appears centred over the workspace ONLY when the
           user explicitly clicks "New project". Backdrop click cancels. The
           workspace stays mounted underneath so it's not destroyed each time
@@ -3366,7 +3477,14 @@ export default function ExploreDesignPage() {
       {!isFullscreen && (
         <UnifiedProjectWizard
           open={showProjectWizard}
-          onOpenChange={setShowProjectWizard}
+          onOpenChange={(open) => {
+            setShowProjectWizard(open);
+            // Closing the create wizard cancels a pending scan auto-resume so a
+            // later, unrelated project pick can't surprise-open the AI wizard.
+            // (On a real create, handleProjectCreated already cleared it and
+            // drives the build-mode handoff directly.)
+            if (!open) setPendingScanApply(false);
+          }}
           module="explore-design"
           onCreated={(result) => {
             void handleProjectCreated(result);
@@ -3410,6 +3528,7 @@ export default function ExploreDesignPage() {
                   setShowApproachFork(false);
                   if (mode === 'ai') {
                     setAiModelSeed('');
+                    setScanSeedTables([]);
                     setShowAiGuidedWizard(true);
                   } else if (mode === 'template') {
                     setShowLocationPicker(true);
@@ -3864,7 +3983,9 @@ export default function ExploreDesignPage() {
                         </button>
                         <button
                           onClick={() => { setActiveRightTab('ai'); if (!rightBarOpen) setRightBarOpen(true); handleAIClassify(); }}
-                          disabled={isClassifying || !selectedProjectId}
+                          disabled={isClassifying || !selectedProjectId || classifyUnavailable}
+                          aria-busy={isClassifying}
+                          title={classifyUnavailable ? 'Not available on this backend yet' : undefined}
                           className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-purple-600 dark:text-purple-400 rounded-md hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors disabled:opacity-50"
                         >
                           {isClassifying ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI Classify
@@ -4075,6 +4196,7 @@ export default function ExploreDesignPage() {
                 columnClassifications={columnClassifications}
                 classificationDetails={classificationDetails}
                 isClassifying={isClassifying}
+                classifyUnavailable={classifyUnavailable}
                 onRunClassify={handleAIClassify}
                 onAddEvent={addEvent}
                 profileData={inlineProfileData}
@@ -4203,6 +4325,12 @@ export default function ExploreDesignPage() {
                             onClick={() => { setAlertModal(true); setShowCreateMenuModeling(false); }}
                           >
                             <AlertTriangle className="w-4 h-4" /> Alert
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setShowIngestionModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Workflow className="w-4 h-4" /> Guided Ingestion (source → target)
                           </button>
                         </div>
                       )}
@@ -4440,7 +4568,8 @@ export default function ExploreDesignPage() {
       {/* Bulk PK — right-side panel (non-blocking, page stays visible) */}
       {showBulkPKModal && (
         <div
-          role="dialog"
+          role="region"
+          aria-modal="false"
           aria-label="Configure primary keys for selected tables"
           className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
         >
@@ -4495,7 +4624,8 @@ export default function ExploreDesignPage() {
       {/* Bulk Masking — right-side panel (non-blocking) */}
       {showBulkMaskingModal && (
         <div
-          role="dialog"
+          role="region"
+          aria-modal="false"
           aria-label="Apply masking policy to selected tables"
           className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
         >
@@ -4558,7 +4688,8 @@ export default function ExploreDesignPage() {
       {/* Relations — right-side panel (non-blocking) */}
       {showRelationsModal && (
         <div
-          role="dialog"
+          role="region"
+          aria-modal="false"
           aria-label="Configure relations for selected tables"
           className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
         >
@@ -4702,13 +4833,16 @@ export default function ExploreDesignPage() {
           projectId={selectedProjectId}
           persona={userRole === 'owner' ? 'superadmin' : 'admin'}
           initialDescription={aiModelSeed}
+          initialSelectedTables={scanSeedTables}
           onClose={() => {
             setShowAiGuidedWizard(false);
             setAiModelSeed('');
+            setScanSeedTables([]);
           }}
           onApproved={() => {
             setShowAiGuidedWizard(false);
             setAiModelSeed('');
+            setScanSeedTables([]);
             setShowDeploymentModal(true);
           }}
         />
@@ -4961,6 +5095,7 @@ export default function ExploreDesignPage() {
               columns={tableColumns}
               ingestionMode={modelingIngestionMode}
               onModeChange={setModelingIngestionMode}
+              onSave={() => setShowModelingIngestionPanel(false)}
             />
           </div>
         </div>
@@ -5095,7 +5230,9 @@ export default function ExploreDesignPage() {
                           <Tooltip content="Drop">
                             <button
                               aria-label="Drop dynamic table"
-                              className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                              disabled={!canDropObjects}
+                              title={!canDropObjects ? dropDeniedReason : undefined}
+                              className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
                               onClick={() => handleDataEngAction(name, 'drop')}
                             >
                               <Trash2 className="h-3.5 w-3.5 text-red-500" />
@@ -5118,7 +5255,9 @@ export default function ExploreDesignPage() {
                           <Tooltip content="Drop">
                             <button
                               aria-label="Drop stream"
-                              className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                              disabled={!canDropObjects}
+                              title={!canDropObjects ? dropDeniedReason : undefined}
+                              className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
                               onClick={() => handleDataEngAction(name, 'drop')}
                             >
                               <Trash2 className="h-3.5 w-3.5 text-red-500" />
@@ -5131,7 +5270,9 @@ export default function ExploreDesignPage() {
                         <Tooltip content="Drop">
                           <button
                             aria-label="Drop alert"
-                            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                            disabled={!canDropObjects}
+                            title={!canDropObjects ? dropDeniedReason : undefined}
+                            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed"
                             onClick={() => handleDataEngAction(name, 'drop')}
                           >
                             <Trash2 className="h-3.5 w-3.5 text-red-500" />

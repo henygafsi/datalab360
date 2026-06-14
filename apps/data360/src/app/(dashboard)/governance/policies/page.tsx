@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
+import Link from 'next/link';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import {
   PiShieldCheck,
@@ -24,6 +25,11 @@ import PasswordPoliciesContent from './password-policies-content';
 import SessionPoliciesContent from './session-policies-content';
 import DMFContent from './dmf-content';
 import ClassificationContent from './classification-content';
+import GovernanceDepthPanel from '../components/GovernanceDepthPanel';
+import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
+import GovernanceTagsPanel from '../components/GovernanceTagsPanel';
+import MyRolePoliciesContent from './my-role-policies-content';
+import ProposedPoliciesPanel from './components/ProposedPoliciesPanel';
 
 type TabType =
   | 'rls'
@@ -91,8 +97,14 @@ const ACCENT_CLASSES: Record<string, { dot: string; activeBg: string; activeText
   indigo:  { dot: 'bg-indigo-500',  activeBg: 'bg-indigo-50 dark:bg-indigo-900/30',   activeText: 'text-indigo-700 dark:text-indigo-300',  activeRing: 'ring-indigo-500/30',  hoverBg: 'hover:bg-indigo-50/60 dark:hover:bg-indigo-900/20',  headerGrad: 'from-indigo-500 to-blue-600',    headerIconBg: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' },
 };
 
+// Top-level view: the existing admin "All policies" inventory vs the role-scoped
+// "For my role" view (G1). Defaults to 'all' so the accountadmin experience is
+// unchanged; non-admins can switch to the role-scoped view that always works.
+type ViewMode = 'all' | 'mine';
+
 export default function PoliciesPage() {
   const [activeTab, setActiveTab] = useState<TabType>('rls');
+  const [view, setView] = useState<ViewMode>('all');
 
   const active = ALL_TABS.find((t) => t.id === activeTab)!;
   const accent = ACCENT_CLASSES[active.accent];
@@ -100,9 +112,9 @@ export default function PoliciesPage() {
   const Breadcrumb = () => (
     <nav className="mb-6">
       <div className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400">
-        <span className="hover:text-slate-900 dark:hover:text-slate-200 cursor-pointer transition-colors">Home</span>
+        <Link href="/" className="hover:text-slate-900 dark:hover:text-slate-200 cursor-pointer transition-colors">Home</Link>
         <span>/</span>
-        <span className="hover:text-slate-900 dark:hover:text-slate-200 cursor-pointer transition-colors">Governance</span>
+        <Link href="/governance" className="hover:text-slate-900 dark:hover:text-slate-200 cursor-pointer transition-colors">Governance</Link>
         <span>/</span>
         <span className="text-slate-900 dark:text-slate-200 font-medium">Policies</span>
       </div>
@@ -143,6 +155,45 @@ export default function PoliciesPage() {
           </div>
         </div>
 
+        {/* Per-page KPI strip — real counts (masking · RLS · aggregation ·
+            network · tags), honest "—" for any undetermined source. */}
+        <GovernanceKpiStrip scope="policies" />
+
+        {/* AI deep-link prefill (?intent=apply&from=scan). Renders nothing on a
+            manual visit. useSearchParams() lives inside, wrapped in Suspense so
+            the route doesn't deopt to fully client-side rendering at build. */}
+        <Suspense fallback={null}>
+          <ProposedPoliciesPanel />
+        </Suspense>
+
+        {/* View toggle: All policies (admin inventory) vs For my role (role-scoped, G1) */}
+        <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/60">
+          {([
+            { id: 'all' as ViewMode, label: 'All policies' },
+            { id: 'mine' as ViewMode, label: 'For my role' },
+          ]).map((v) => {
+            const isActive = view === v.id;
+            return (
+              <button
+                key={v.id}
+                onClick={() => setView(v.id)}
+                className={[
+                  'px-4 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-white text-violet-700 shadow-sm dark:bg-slate-900 dark:text-violet-300'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200',
+                ].join(' ')}
+              >
+                {v.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {view === 'mine' && <MyRolePoliciesContent />}
+
+        {view === 'all' && (
+          <>
         {/* Grouped tab bar */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm overflow-hidden">
           <div className="p-4 sm:p-6 border-b border-slate-200/60 dark:border-slate-700/60 bg-gradient-to-b from-slate-50 to-white dark:from-slate-900/60 dark:to-slate-900">
@@ -216,6 +267,14 @@ export default function PoliciesPage() {
             {activeTab === 'classification' && <ClassificationContent />}
           </div>
         </div>
+
+        {/* Advisory governance-depth probes (read-only; self-disable if route not deployed) */}
+        <GovernanceDepthPanel />
+
+        {/* Classification & governance-tag inventory (paginated, filterable) */}
+        <GovernanceTagsPanel />
+          </>
+        )}
       </div>
     </ErrorBoundary>
   );

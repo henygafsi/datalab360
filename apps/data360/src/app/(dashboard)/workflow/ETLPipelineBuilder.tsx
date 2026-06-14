@@ -38,6 +38,8 @@ import ETLPalette from './components/ETLPalette';
 import ETLConfigSidebar from './components/ETLConfigSidebar';
 import ScheduleManager from './components/ScheduleManager';
 import WorkflowProjectGate from './components/WorkflowProjectGate';
+// WorkflowProjectBar's operational tabs (Usage / Cost / Governance) were folded
+// into the single WorkflowSmartPanel rail — the standalone second rail is gone.
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 import ETLExecutionHistory from './components/ETLExecutionHistory';
@@ -48,6 +50,7 @@ import { getBlockByType, convertLegacyType } from './components/etl-blocks';
 import { auditCatalogCoherence } from './components/catalog-coherence';
 import GuidedAiWorkflowWizard from './components/GuidedAiWorkflowWizard';
 import ImportTasksModal from './components/ImportTasksModal';
+import ScanIntentPrefill, { type ScanSuggestionMeta } from './components/ScanIntentPrefill';
 import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
 import UnifiedProjectWizard, {
   type UnifiedProjectWizardResult,
@@ -204,10 +207,10 @@ function generateId(): string {
   return `comp_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
-/** True when an error is an HTTP 404 — i.e. the route is unavailable on this backend. */
+/** True when the route is unavailable on this backend — 404 (absent) or 501 (stub). */
 function is404(err: unknown): boolean {
   const r = (err as { response?: { status?: number } } | null)?.response;
-  return r?.status === 404;
+  return r?.status === 404 || r?.status === 501;
 }
 
 // ── Lifecycle state machine ──────────────────────────────────────────────
@@ -244,6 +247,18 @@ interface LifecycleEntry {
 type LifecycleState = Partial<Record<LifecycleAction, LifecycleEntry>>;
 
 const UNAVAILABLE_HINT = 'Not available on this backend yet';
+
+// ── Source-selection focus state machine ──────────────────────────────────
+// G2: the source/block picker (ETLPalette) is a click-to-focus surface.
+//   'expanded'  → palette dominates the working area (fills the page) so the
+//                 user can browse/search sources without a cramped rail.
+//   'collapsed' → palette shrinks back to a slim rail, giving the canvas room.
+// Clicking the center canvas collapses an expanded picker (focus shifts to the
+// graph). The preference is persisted to versioned, minimal localStorage —
+// same "draft of menu → preselect on return" pattern as WorkflowSmartPanel's
+// PANEL_SECTION_KEY (client-localstorage-schema).
+type SourcePanelState = 'expanded' | 'collapsed';
+const SOURCE_PANEL_KEY = 'data360.etl.sourcepanel.v1';
 
 // Build CreateWorkflowStepInput array from ReactFlow nodes/edges
 // Payload uses flat keys matching the API (database_name, schema_name, etc.)
@@ -531,6 +546,21 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   );
   const projectGateDismissedRef = useRef(false);
 
+  // Account-Overview AI advisor deep-link: ?intent=create&from=scan. Captured
+  // ONCE at mount (same pattern as initialProjectIdRef) so we know to surface
+  // the AI-suggested-workflow prefill on the project gate instead of an empty
+  // canvas. The manual create path stays fully intact below it.
+  const scanIntentRef = useRef<{ intent: string | null; from: string | null }>(
+    typeof window !== 'undefined'
+      ? {
+          intent: new URLSearchParams(window.location.search).get('intent'),
+          from: new URLSearchParams(window.location.search).get('from'),
+        }
+      : { intent: null, from: null },
+  );
+  const [scanPrefillDismissed, setScanPrefillDismissed] = useState(false);
+  const [scanApplying, setScanApplying] = useState(false);
+
   // ReactFlow state
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -593,13 +623,43 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [showPalette, setShowPalette] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
+  // Source-selection focus state (G2). Lazy-init from versioned localStorage so
+  // the read happens once at mount, not on every render (rerender-lazy-state-init).
+  // Defaults to 'expanded' on first visit — the picker fills the page so the
+  // user starts by choosing a source, then clicks the canvas to collapse it.
+  const [sourcePanel, setSourcePanel] = useState<SourcePanelState>(() => {
+    try {
+      return window.localStorage.getItem(SOURCE_PANEL_KEY) === 'collapsed'
+        ? 'collapsed'
+        : 'expanded';
+    } catch {
+      return 'expanded';
+    }
+  });
+  // Persist the focus preference whenever it changes.
+  useEffect(() => {
+    try { window.localStorage.setItem(SOURCE_PANEL_KEY, sourcePanel); }
+    catch { /* storage unavailable — keep in-memory state */ }
+  }, [sourcePanel]);
+  // Collapse the expanded picker to a slim rail — fired when the user clicks
+  // into the center canvas (focus shifts to the graph). Stable callback so the
+  // canvas handlers don't re-create on every render.
+  const collapseSourcePanel = useCallback(() => {
+    setSourcePanel((prev) => (prev === 'expanded' ? 'collapsed' : prev));
+  }, []);
+  // Toggle between the slim rail and the full-width picker (chevron / rail click).
+  const toggleSourcePanel = useCallback(() => {
+    setSourcePanel((prev) => (prev === 'expanded' ? 'collapsed' : 'expanded'));
+  }, []);
   // Single intelligent right-bar: `activeTab` doubles as the WorkflowSmartPanel
   // active SECTION (icon-rail flip menu). It carries both the legacy panel
   // bodies (results/runs/sql/schedules/ai) AND the new sections
   // (changes/submit/deploy/block). 'schedules' is bridged to the panel's
   // 'schedule' id at the prop boundary.
   const [activeTab, setActiveTab] = useState<
-    'runs' | 'schedules' | 'sql' | 'ai' | 'results' | 'changes' | 'submit' | 'deploy' | 'block'
+    | 'runs' | 'schedules' | 'sql' | 'ai' | 'results' | 'changes' | 'submit' | 'deploy' | 'block'
+    // Operational sections folded in from the former WorkflowProjectBar rail.
+    | 'usage' | 'cost' | 'governance'
   >('changes');
   const [showMembers, setShowMembers] = useState(false);
   // Right panel closed by default — gives the canvas full width on landing.
@@ -1232,11 +1292,16 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     setActiveTab('block');
     // User is following the AI hint — dismiss the banner.
     setAiNextStepHint(false);
-  }, []);
+    // Focus shifted to the graph — collapse the full-width source picker (G2).
+    collapseSourcePanel();
+  }, [collapseSourcePanel]);
 
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
     setShowSidebar(false);
+    // Clicking the center canvas shifts focus to the graph — collapse the
+    // full-width source picker back to a slim rail (G2 click-to-focus).
+    collapseSourcePanel();
     // Dynamically adapt the right-panel tab when the user deselects a node.
     // Without this, a stale Schedule / SQL / Results tab from the previous
     // selection lingers even though the canvas no longer has anything
@@ -1252,7 +1317,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       if (lastExecution) return 'results';
       return 'runs';
     });
-  }, [nodes.length, lastExecution]);
+  }, [nodes.length, lastExecution, collapseSourcePanel]);
 
   // Reveal the schedule editor inline (non-blocking): open the right panel
   // and switch to its existing `schedules` tab instead of a centered modal.
@@ -1974,7 +2039,6 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           markUnavailable(action);
           const label = dryRun ? 'SQL preview (compile)' : 'Run (execute)';
           setPipelineError(`${label} unavailable: ${UNAVAILABLE_HINT}`);
-          toast.error(UNAVAILABLE_HINT);
         } else {
           console.error('Execution failed:', error);
           const errMsg = getApiErrorMessage(error) || 'Execution failed';
@@ -1982,6 +2046,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           setPipelineError(errMsg);
           if (!dryRun) setActiveTab('runs');
         }
+        // Re-throw so gated callers (InsightActionButton in the SmartPanel)
+        // never report a fake success; fire-and-forget callers use
+        // runExecuteSafe below. 404/501 flips the gate to `unavailable`.
+        throw error;
       } finally {
         setIsExecuting(false);
         // Force execution history to refresh after execution completes
@@ -1990,7 +2058,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     },
     [activeWorkflowId, nodes, setPhase, markUnavailable, loadResultsPreview]
   );
-  handleExecuteRef.current = handleExecute;
+  // Fire-and-forget variant for non-gated callers (toolbar Run button, ⌘Enter
+  // shortcut): the error is already surfaced via pipelineError/phase inside
+  // handleExecute — swallow the re-throw to avoid an unhandled rejection.
+  const runExecuteSafe = useCallback(
+    (dryRun: boolean) => {
+      void handleExecute(dryRun).catch(() => {
+        /* already surfaced in handleExecute */
+      });
+    },
+    [handleExecute],
+  );
+  handleExecuteRef.current = runExecuteSafe;
 
   const handleValidate = useCallback(async () => {
     setPipelineError(null);
@@ -2013,18 +2092,22 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         const errMsg = extractErrorString(result.error) || 'Check the error panel for details';
         setPhase('validate', { phase: 'error', message: errMsg });
         setPipelineError(`Validation: ${errMsg}`);
+        // Surface the failure to gated callers (no fake "DAG validated" toast).
+        throw new Error(`Validation failed: ${errMsg}`);
       }
     } catch (error: any) {
       if (is404(error)) {
         markUnavailable('validate');
         setPipelineError(`Validate unavailable: ${UNAVAILABLE_HINT}`);
-        toast.error(UNAVAILABLE_HINT);
-      } else {
+      } else if (!(error instanceof Error && error.message.startsWith('Validation failed:'))) {
         console.error('Validation failed:', error);
         const errMsg = getApiErrorMessage(error) || 'Validation failed';
         setPhase('validate', { phase: 'error', message: errMsg });
         setPipelineError(errMsg);
       }
+      // Re-throw so InsightActionButton ('Lint DAG') reflects the real outcome;
+      // a 404/501 flips it to the honest `unavailable` chip.
+      throw error;
     }
   }, [activeWorkflowId, setPhase, markUnavailable]);
 
@@ -2083,17 +2166,20 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           message: `${result.connectors_failed} connector(s) failed on the cloned data`,
         });
         setPipelineError(`Clone test: ${result.connectors_failed} connector(s) failed against the cloned data`);
+        // Surface the failure to the gated caller (no fake success toast).
+        throw new Error(`Clone test: ${result.connectors_failed} connector(s) failed`);
       }
     } catch (error: any) {
       if (is404(error)) {
         markUnavailable('cloneTest');
         setPipelineError(`Test on cloned data unavailable: ${UNAVAILABLE_HINT}`);
-        toast.error(UNAVAILABLE_HINT);
-      } else {
+      } else if (!(error instanceof Error && error.message.startsWith('Clone test:'))) {
         const errMsg = getApiErrorMessage(error) || 'Clone test failed';
         setPhase('cloneTest', { phase: 'error', message: errMsg });
         setPipelineError(`Clone test failed: ${errMsg}`);
       }
+      // Re-throw for the gated SmartPanel caller (404/501 → unavailable chip).
+      throw error;
     }
   }, [activeWorkflowId, cloneTestConnectorIds, setPhase, markUnavailable]);
 
@@ -2152,7 +2238,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       if (versions.length === 0) {
         setPhase('deploy', { phase: 'empty', message: 'No version to deploy' });
         toast.error('No version found. Save the pipeline first to create a version.');
-        return;
+        // Throw (not return) so the gated caller doesn't toast a fake success.
+        throw new Error('NO_VERSION');
       }
       const latestVersionId = versions[0].version_id;
 
@@ -2165,11 +2252,15 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       setApprovalStatus('pending');
     } catch (error: any) {
       if (is404(error)) {
-        // The deployment lifecycle routes are purged — honest disabled state.
+        // The deployment lifecycle routes are purged — honest disabled state;
+        // re-throw so the gated caller flips to the `unavailable` chip.
         markUnavailable('deploy');
         setPipelineError(`Submit for approval unavailable: ${UNAVAILABLE_HINT}`);
-        toast.error(UNAVAILABLE_HINT);
-        return;
+        throw error;
+      }
+      if (error instanceof Error && error.message === 'NO_VERSION') {
+        // Already surfaced above — propagate for the gate, skip double-toast.
+        throw new Error('No version found. Save the pipeline first to create a version.');
       }
       console.error('Submit for approval failed:', error);
       // Snowflake compile errors come back as a wall of text. Pipe through
@@ -2180,8 +2271,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       const raw = getApiErrorMessage(error) || 'Failed to submit for approval';
       const { headline, hint } = friendlyError(raw);
       setPhase('deploy', { phase: 'error', message: headline });
-      toast.error(headline);
       setPipelineError(`Approval: ${raw}${hint ? `  —  ${hint}` : ''}`);
+      // Re-throw so the gated SmartPanel caller reports the real outcome.
+      throw new Error(headline);
     }
   }, [activeWorkflowId, readOnlyGuard, setPhase, markUnavailable]);
 
@@ -2635,7 +2727,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
       if (result.buildMode === 'ai') {
         setAiSeedDescription(result.aiDescription ?? '');
-        setShowAiGenerate(true);
+        setActiveTab('ai');
       } else if (result.buildMode === 'template' && result.templateId) {
         const tpl = WORKFLOW_TEMPLATES.find((t) => t.id === result.templateId);
         if (tpl) {
@@ -2649,6 +2741,94 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     },
     [setNodes, setEdges, loadWorkflows],
   );
+
+  // Strip the advisor deep-link params (intent/from) from the URL once the
+  // suggestion is consumed or dismissed, so a refresh doesn't re-prompt and the
+  // ?project=<id> share-link stays clean.
+  const stripScanParams = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has('intent') && !params.has('from')) return;
+      params.delete('intent');
+      params.delete('from');
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : (pathname || '/workflow'), { scroll: false });
+    } catch {
+      /* noop */
+    }
+  }, [router, pathname]);
+
+  // One-click create from the AI-suggested (scan-prefilled) workflow. Mirrors the
+  // NEW-PROJECT branch of handleAiCreated but names the project from the scan
+  // (e.g. "Curate CUSTOMERS") instead of the "[AI Draft] …" prefix, and tags it
+  // `from:scan` for audit. The gate's `activeWorkflowId` is always null here.
+  const applyScanSuggestion = useCallback(
+    async (genNodes: Node[], genEdges: Edge[], meta: ScanSuggestionMeta) => {
+      setScanApplying(true);
+      try {
+        const steps = genNodes.map((n, i) => {
+          const incoming = genEdges.filter((e) => e.target === n.id).map((e) => e.source);
+          return {
+            action_type: convertLegacyType(String(n.type || 'sql')) as WorkflowActionType,
+            step_name: String((n.data as { label?: string } | undefined)?.label ?? `Step ${i + 1}`),
+            description: `AI-suggested ${String(n.type)} block (from scan).`,
+            payload: {
+              ai_generated: true,
+              from_scan: true,
+              node_type: String(n.type),
+              nodeId: n.id,
+              position: n.position,
+              inputs: incoming,
+              ...((n.data as Record<string, unknown>) ?? {}),
+            },
+          };
+        });
+
+        const created = await workflowApi.createWorkflow({
+          project_name: meta.name,
+          description: meta.description,
+          tags: ['ai-suggested', 'from:scan'],
+          steps,
+        });
+
+        projectGateDismissedRef.current = true;
+        setNodes(genNodes as unknown as typeof nodes);
+        setEdges(genEdges as unknown as typeof edges);
+        setActiveWorkflowId(created.project_id);
+        setActiveWorkflowName(created.project_name);
+        setPipelineName(created.project_name);
+        setUserRole('owner');
+        setIsDirty(false);
+        setAiNextStepHint(true);
+        void loadWorkflows();
+        stripScanParams();
+        toast.success(`Created "${created.project_name}" from scan — review & run`);
+
+        try {
+          const validation = await workflowApi.validateWorkflow(created.project_id);
+          const issues = (validation as { errors?: unknown[] })?.errors ?? [];
+          if (Array.isArray(issues) && issues.length > 0) {
+            toast.error(`Validation found ${issues.length} issue${issues.length === 1 ? '' : 's'} — see Runs panel`);
+          }
+        } catch {
+          /* validation is advisory — the draft stands either way */
+        }
+      } catch (err) {
+        toast.error(getApiErrorMessage(err) || 'Could not create workflow from scan');
+      } finally {
+        setScanApplying(false);
+      }
+    },
+    [setNodes, setEdges, loadWorkflows, stripScanParams],
+  );
+
+  // Active only on a fresh advisor deep-link with no workflow yet selected.
+  const scanPrefillActive =
+    scanIntentRef.current.intent === 'create' &&
+    scanIntentRef.current.from === 'scan' &&
+    !activeWorkflowId &&
+    !scanPrefillDismissed;
 
   // Page-level loading state
   if (isLoading && workflows.length === 0) {
@@ -2692,6 +2872,19 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <span className="text-gray-900 dark:text-white font-medium">Workflow</span>
           </nav>
         </div>
+        {/* AI-suggested workflow prefill — shown when the Account-Overview advisor
+            deep-links with ?intent=create&from=scan. One click creates a named,
+            fully-sourced pipeline from the scanned objects. Manual gate stays below. */}
+        {scanPrefillActive && (
+          <ScanIntentPrefill
+            onApply={applyScanSuggestion}
+            onDismiss={() => {
+              setScanPrefillDismissed(true);
+              stripScanParams();
+            }}
+            applying={scanApplying}
+          />
+        )}
         <ProjectGatePanel
           module="workflow"
           projects={workflows}
@@ -2716,6 +2909,90 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       </div>
     );
   }
+
+  // AI Assist agent handlers — shared by the embedded right-pane tab (aiSlot).
+  // (The legacy centered-modal mount below is now inert: its triggers route to
+  // the AI tab via setActiveTab('ai'); it renders null while showAiGenerate stays
+  // false. Kept for one release, slated for removal once the tab is validated.)
+  const handleAiClose = () => {
+    setShowAiGenerate(false);
+    setAiSeedDescription('');
+  };
+  const handleAiCreated = async (
+    genNodes: Node[],
+    genEdges: Edge[],
+    meta: { description: string; compliance_review?: Record<string, 'reviewed' | 'unchecked'> },
+  ) => {
+    setNodes(genNodes as unknown as typeof nodes);
+    setEdges(genEdges as unknown as typeof edges);
+    setIsDirty(true);
+    setAiNextStepHint(true);
+    const draftName = `[AI Draft] ${(meta.description || 'Untitled').slice(0, 30)}`;
+    try {
+      const steps = genNodes.map((n, i) => {
+        const incoming = genEdges.filter((e) => e.target === n.id).map((e) => e.source);
+        return {
+          action_type: String(n.type || 'sql'),
+          step_name: String((n.data as { label?: string } | undefined)?.label ?? `Step ${i + 1}`),
+          description: `AI-generated ${String(n.type)} block.`,
+          payload: {
+            ai_generated: true,
+            node_type: String(n.type),
+            nodeId: n.id,
+            position: n.position,
+            inputs: incoming,
+            ...((n.data as Record<string, unknown>) ?? {}),
+          },
+        };
+      });
+
+      let targetProjectId: string;
+      if (activeWorkflowId) {
+        targetProjectId = activeWorkflowId;
+        try {
+          const existing = await workflowApi.listSteps(activeWorkflowId);
+          for (const s of existing.steps || []) {
+            await workflowApi.deleteStep(activeWorkflowId, s.step_id).catch(() => {});
+          }
+        } catch { /* no steps yet — fine */ }
+        for (const s of steps) {
+          await workflowApi.addStep(activeWorkflowId, s);
+        }
+        void loadWorkflows();
+        toast.success(`AI workflow added to "${activeWorkflowName}" — running validation…`);
+      } else {
+        const complianceMeta = (meta as { compliance_review?: Record<string, 'reviewed' | 'unchecked'> }).compliance_review;
+        const created = await workflowApi.createWorkflow({
+          project_name: draftName,
+          description: meta.description,
+          tags: complianceMeta
+            ? ['ai-draft', 'build:ai', ...Object.entries(complianceMeta).filter(([, v]) => v === 'reviewed').map(([k]) => `compliance:${k}`)]
+            : ['ai-draft', 'build:ai'],
+          steps,
+        });
+        targetProjectId = created.project_id;
+        void loadWorkflows();
+        setActiveWorkflowId(created.project_id);
+        setPipelineName(draftName);
+        toast.success(`Saved as "${draftName}" — running validation…`);
+      }
+
+      try {
+        const validation = await workflowApi.validateWorkflow(targetProjectId);
+        const issues = (validation as { errors?: unknown[] })?.errors ?? [];
+        if (Array.isArray(issues) && issues.length > 0) {
+          toast.error(`Validation found ${issues.length} issue${issues.length === 1 ? '' : 's'} — see Runs panel`);
+        } else {
+          toast.success('Validation passed — ready to run');
+        }
+      } catch (validateErr) {
+        toast.error(`Validation failed: ${getApiErrorMessage(validateErr) || 'backend error'}`);
+      }
+    } catch (err) {
+      const msg = getApiErrorMessage(err) || 'Auto-save failed — click Save to retry';
+      toast.error(msg);
+    }
+  };
 
   return (
     <div className={cn('h-full flex flex-col bg-slate-100 dark:bg-slate-900', className)}>
@@ -2768,7 +3045,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                   setShowApproachFork(false);
                   if (mode === 'ai') {
                     setAiSeedDescription('');
-                    setShowAiGenerate(true);
+                    setActiveTab('ai');
                   } else if (mode === 'template') {
                     setShowCreateWizard(true);
                   }
@@ -3153,37 +3430,68 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left palette */}
-        <div
-          className={cn(
-            'bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-all duration-300',
-            showPalette ? 'w-72' : 'w-0'
-          )}
-        >
-          {showPalette && (
-            <ETLPalette
-              className="h-full"
-              projectId={activeWorkflowId ?? undefined}
-            />
+        {/* Left source/block picker — click-to-focus (G2).
+            Width is driven by two orthogonal controls kept non-contradictory:
+              · showPalette === false  → hidden (w-0)
+              · expanded               → dominant working width (fills the page);
+                                         the canvas shrinks to a thin click-strip
+              · collapsed              → slim rail
+            The expanded picker is a flex SIBLING of the canvas (not an overlay)
+            so the ReactFlow pane stays mounted and clickable — clicking it is
+            what collapses the picker back to a rail.
+            Wrapped in a `relative` host so the edge chevron tracks the panel's
+            right edge across any width unit and isn't clipped by overflow. */}
+        <div className="relative flex-shrink-0">
+          <div
+            className={cn(
+              'h-full bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-all duration-300 overflow-hidden',
+              !showPalette
+                ? 'w-0'
+                : sourcePanel === 'expanded'
+                  ? 'w-[72vw] max-w-[1100px]'
+                  : 'w-72'
+            )}
+          >
+            {showPalette ? (
+              <ETLPalette
+                className="h-full"
+                projectId={activeWorkflowId ?? undefined}
+              />
+            ) : null}
+          </div>
+
+          {/* Edge control — anchored to the panel's right edge so it follows
+              whatever width the panel takes. Sits outside the clipped panel.
+              · When hidden: re-show the rail.
+              · When shown: expand/collapse between full-width and slim rail. */}
+          {!showPalette ? (
+            <button
+              onClick={() => setShowPalette(true)}
+              className="absolute right-0 translate-x-full top-1/2 -translate-y-1/2 z-10 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-r-lg shadow-sm"
+              aria-label="Show block palette"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          ) : (
+            <button
+              onClick={toggleSourcePanel}
+              className="absolute right-0 translate-x-full top-1/2 -translate-y-1/2 z-10 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-r-lg shadow-sm"
+              aria-label={sourcePanel === 'expanded' ? 'Collapse source picker to rail' : 'Expand source picker'}
+              aria-expanded={sourcePanel === 'expanded'}
+            >
+              {sourcePanel === 'expanded' ? (
+                <ChevronLeft className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
           )}
         </div>
 
-        {/* Toggle palette button */}
-        <button
-          onClick={() => setShowPalette(!showPalette)}
-          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-r-lg shadow-sm"
-          style={{ left: showPalette ? '288px' : '0' }}
-          aria-label={showPalette ? 'Hide block palette' : 'Show block palette'}
-        >
-          {showPalette ? (
-            <ChevronLeft className="h-4 w-4" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
-          )}
-        </button>
-
-        {/* Canvas */}
-        <div ref={reactFlowWrapper} className="flex-1 relative">
+        {/* Canvas — min-w-0 lets it shrink when the right-side panel
+            (the single WorkflowSmartPanel rail) is open instead of clipping
+            it past the viewport edge. */}
+        <div ref={reactFlowWrapper} className="flex-1 min-w-0 relative">
           <ReactFlow
             nodes={enrichedNodes}
             edges={enrichedEdges}
@@ -3284,6 +3592,15 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           selectedNode={selectedNode}
           isReadOnly={isReadOnly}
           canDeploy={canWfDeploy}
+          aiSlot={
+            <GuidedAiWorkflowWizard
+              embedded
+              open
+              onClose={handleAiClose}
+              onCreated={handleAiCreated}
+              initialDescription={aiSeedDescription}
+            />
+          }
           hasConnectorSource={cloneTestConnectorIds.length > 0}
           onValidate={async () => { await handleValidate(); }}
           onDryRun={async () => { await handleExecute(true); }}
@@ -3297,10 +3614,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           }}
           // --- Lifecycle / creation actions relocated from the toolbar ---
           onNew={handleNewPipeline}
-          onAiCreate={() => setShowAiGenerate(true)}
+          onAiCreate={() => setActiveTab('ai')}
           onImport={() => setShowImportTasks(true)}
           onSave={handleSavePipeline}
-          onRun={() => handleExecute(false)}
+          onRun={() => runExecuteSafe(false)}
           onToggleSuspend={() => {
             if (scheduleState.isStarted) handleSuspendTask();
             else handleResumeTask();
@@ -3336,7 +3653,6 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                 leftInputColumns={joinInputColumns.left}
                 rightInputColumns={joinInputColumns.right}
                 embedded
-                className="-mx-4 -mt-4"
               />
             ) : undefined
           }
@@ -3853,6 +4169,13 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           </>
           }
         />
+
+        {/* The former WorkflowProjectBar (a SECOND icon rail: Runs · Usage ·
+            History · Cost · Governance) was consolidated into the single
+            WorkflowSmartPanel rail above — its Usage / Cost / Governance tabs
+            now live as sections there (Runs + History/versions were already
+            covered by the panel's Runs + Deploy sections), and the per-project
+            health chips are the panel's ProjectKpiStrip. One rail, not two. */}
 
         {/* Docked failed-run fix rail — per-step diagnosis, one-click fixes,
             and live Cortex AI analysis. Opens automatically on a failed run. */}

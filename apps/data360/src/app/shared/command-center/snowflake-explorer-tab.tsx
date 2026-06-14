@@ -8,8 +8,10 @@ import {
   Layers, Box, ShieldAlert, AlertTriangle,
   Clock, Search, Lock, X, GitBranch,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
+import { InsightActionButton } from '@/app/shared/insights';
 
 // ---------------------------------------------------------------------------
 // Data Catalog Object Explorer — backed by GET /api/snowflake/explorer/*.
@@ -266,7 +268,8 @@ function objectIcon(type?: string): ReactNode {
 function KpiCard({ icon, label, value, accent }: {
   icon: ReactNode;
   label: string;
-  value: number;
+  // `string` lets callers pass an honest "—" for absent metrics (never a fake 0).
+  value: number | string;
   accent: string;
 }) {
   return (
@@ -275,7 +278,7 @@ function KpiCard({ icon, label, value, accent }: {
         {icon}
       </div>
       <div className="text-xl font-bold text-gray-900 dark:text-white leading-none">
-        {value.toLocaleString()}
+        {typeof value === 'number' ? value.toLocaleString() : value}
       </div>
       <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-1">{label}</div>
     </div>
@@ -318,6 +321,7 @@ function FacetGroup({ label, items, activeValue, onToggle }: {
 }
 
 function SnowflakeExplorerTab() {
+  const router = useRouter();
   const [level, setLevel] = useState<BrowseLevel>('databases');
   const [databases, setDatabases] = useState<DbInfo[]>([]);
   const [schemas, setSchemas] = useState<SchemaInfo[]>([]);
@@ -599,8 +603,69 @@ function SnowflakeExplorerTab() {
             value={summary.critical_risks ?? 0}
             accent="bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
           />
+          <KpiCard
+            icon={<FileCode className="w-4 h-4" />}
+            label="No owner/comment"
+            value={summary.objects_without_owner_comment ?? '—'}
+            accent="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+          />
+          <KpiCard
+            icon={<GitBranch className="w-4 h-4" />}
+            label="Failed pipelines"
+            value={summary.failed_pipeline_objects ?? '—'}
+            accent="bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400"
+          />
         </div>
       )}
+
+      {/* Honest CTAs from the account-level summary — surfaced only on real findings. */}
+      {summary &&
+        ((summary.critical_risks ?? 0) > 0 ||
+          (summary.sensitive_objects ?? 0) > 0 ||
+          ((summary.unused_objects_90d ?? 0) > 0 &&
+            level === 'objects' &&
+            objectFilters.freshness_status !== 'stale')) && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-2.5 dark:border-amber-900/40 dark:bg-amber-900/10">
+            <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+              Recommended actions
+            </span>
+            {(summary.critical_risks ?? 0) > 0 && (
+              <InsightActionButton
+                label="Review critical risks"
+                icon={AlertTriangle}
+                variant="subtle"
+                size="sm"
+                onAction={async () => {
+                  router.push('/governance');
+                }}
+              />
+            )}
+            {(summary.sensitive_objects ?? 0) > 0 && (
+              <InsightActionButton
+                label="Apply masking policies"
+                icon={Lock}
+                variant="subtle"
+                size="sm"
+                onAction={async () => {
+                  router.push('/governance/policies');
+                }}
+              />
+            )}
+            {(summary.unused_objects_90d ?? 0) > 0 &&
+              level === 'objects' &&
+              objectFilters.freshness_status !== 'stale' && (
+                <InsightActionButton
+                  label="Filter to stale"
+                  icon={Clock}
+                  variant="subtle"
+                  size="sm"
+                  onAction={async () => {
+                    toggleFilter('freshness_status', 'stale');
+                  }}
+                />
+              )}
+          </div>
+        )}
 
       {breadcrumb}
 

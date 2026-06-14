@@ -39,9 +39,10 @@ import {
 import { IconType } from 'react-icons/lib';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Boxes } from 'lucide-react';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import { GrantsMatrixSkeleton } from '@/components/ui/TableSkeleton';
+import RightTabPanel from '@/app/shared/governance/right-tab-panel';
 
 type RoleGrant = RoleGrantData;
 
@@ -234,30 +235,34 @@ export default function GrantsTable() {
   /* 2. Render                                                           */
   /* ------------------------------------------------------------------ */
   return (
-    <>
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Filters table={table} />
-          {isStale && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <RefreshCw className="h-4 w-4 animate-spin" />
-              <span>Syncing...</span>
-            </div>
-          )}
+    // Docked right-tab layout: table on the left, the Edit-Module-Access panel
+    // mounts as a flex SIBLING on the right (no overlay) so both stay visible.
+    <div className="flex items-start gap-4">
+      <div className="min-w-0 flex-1">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Filters table={table} />
+            {isStale && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Syncing...</span>
+              </div>
+            )}
+          </div>
         </div>
+
+        <Table
+          table={table}
+          variant="modern"
+          classNames={{ container: 'rounded-md border border-muted', rowClassName: 'last:border-0' }}
+        />
+
+        <TableFooter table={table} onExport={handleExportData} />
+        <TablePagination table={table} className="py-4" />
       </div>
 
-      <Table
-        table={table}
-        variant="modern"
-        classNames={{ container: 'rounded-md border border-muted', rowClassName: 'last:border-0' }}
-      />
-
-      <TableFooter table={table} onExport={handleExportData} />
-      <TablePagination table={table} className="py-4" />
-
       {/* ---------------------------------------------------------------- */}
-      {/*  Edit modal */}
+      {/*  Edit Module Access — docked right-tab panel (not a centered modal) */}
       {/* ---------------------------------------------------------------- */}
       {modal.open && modal.role && (
         <EditModal
@@ -306,7 +311,7 @@ export default function GrantsTable() {
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -330,6 +335,7 @@ function EditModal({
   // });
   const [selectedModules, setSelectedModules] = useState<string[]>(initialModules);
   const [saving, setSaving] = useState(false);
+  const [activeSection, setActiveSection] = useState('modules');
 
   const toggleModule = (module: ModuleConfig) => {
     const apiName = module.apiName;
@@ -397,46 +403,44 @@ function EditModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-800">
-        {/* Header */}
-        <div className="mb-6 border-b border-slate-200 pb-4 dark:border-slate-700">
-          <h3 className="text-xl font-bold text-slate-900 dark:text-white">
-            Edit Module Access
-          </h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Configure module permissions for{' '}
-            <span className="font-semibold text-blue-600 dark:text-blue-400">
-              {role.role_name}
-            </span>
-          </p>
-        </div>
+    <RightTabPanel
+      title="Edit Module Access"
+      subtitle={role.role_name}
+      accentClassName="bg-blue-500"
+      storageKey="data360.gov.rolePanel.section.v1"
+      activeSection={activeSection}
+      onSectionChange={setActiveSection}
+      onClose={onClose}
+      sections={[
+        {
+          id: 'modules',
+          icon: Boxes,
+          label: 'Module access',
+          render: () => (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Configure module permissions for{' '}
+                <span className="font-semibold text-blue-600 dark:text-blue-400">
+                  {role.role_name}
+                </span>
+                . Changes take effect on next user login.
+              </p>
 
-        {/* Quick Actions */}
-        <div className="mb-4 flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={selectAll}
-            className="text-xs"
-          >
-            Select All
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={deselectAll}
-            className="text-xs"
-          >
-            Deselect All
-          </Button>
-          <span className="ml-auto text-sm text-slate-500">
-            {selectedModules.length} of {ALL_MODULES.length} selected
-          </span>
-        </div>
+              {/* Quick Actions */}
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={selectAll} className="text-xs">
+                  Select All
+                </Button>
+                <Button size="sm" variant="outline" onClick={deselectAll} className="text-xs">
+                  Deselect All
+                </Button>
+                <span className="ml-auto text-xs text-slate-500">
+                  {selectedModules.length} of {ALL_MODULES.length} selected
+                </span>
+              </div>
 
-        {/* Module List - Hierarchical display */}
-        <div className="max-h-[400px] space-y-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/50">
+              {/* Module List - Hierarchical display */}
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/50">
           {ALL_MODULES.map((module) => {
             const Icon = module.icon;
             const isMainSelected = selectedModules.includes(module.apiName);
@@ -530,15 +534,14 @@ function EditModal({
               </div>
             );
           })}
-        </div>
-
-        {/* Actions */}
-        <div className="mt-6 flex justify-end gap-3">
-          <Button
-            variant="outline"
-            onClick={onClose}
-            disabled={saving}
-          >
+              </div>
+            </div>
+          ),
+        },
+      ]}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button
@@ -548,8 +551,8 @@ function EditModal({
           >
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }

@@ -140,7 +140,7 @@ export default function ContextBar({
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="scrollbar-thin flex-1 overflow-y-auto p-3">{activeTab.content}</div>
+          <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-3">{activeTab.content}</div>
         </GlassPanel>
       )}
 

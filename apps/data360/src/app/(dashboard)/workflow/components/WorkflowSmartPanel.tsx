@@ -53,6 +53,9 @@ import {
   ListChecks,
   Code,
   Calendar,
+  BarChart3,
+  DollarSign,
+  Shield,
   RotateCcw,
   CheckCircle2,
   PlusCircle,
@@ -64,6 +67,8 @@ import {
   Play,
   Pause,
   Loader2,
+  ChevronsDownUp,
+  ChevronsUpDown,
   type LucideIcon,
 } from 'lucide-react';
 import type { Node } from 'reactflow';
@@ -71,13 +76,21 @@ import { cn } from '@/lib/utils';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import InsightActionButton from '@/app/shared/insights/InsightActionButton';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
+import ProjectKpiStrip from '@/app/shared/score-cards/ProjectKpiStrip';
+import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
 import * as workflowApi from '@/app/services/api/workflowApi';
 import type {
   WorkflowDeployment,
   WorkflowVersion,
 } from '@/app/services/api/types';
+// Operational tabs folded in from the former second rail (WorkflowProjectBar /
+// ContextBar). They join THIS single icon rail as the Usage / Cost / Governance
+// sections so the builder shows ONE right-tab, not two. Reused verbatim (same
+// listRuns/cost-summary/scorecards getters) — no logic duplicated.
+import { UsageTab, CostTab, GovernanceTab } from './WorkflowProjectBar';
 
 // ---------------------------------------------------------------------------
 // Section identifiers — the rail order
@@ -91,6 +104,9 @@ export type WorkflowPanelSection =
   | 'ai'
   | 'results'
   | 'runs'
+  | 'usage'
+  | 'cost'
+  | 'governance'
   | 'sql'
   | 'schedule';
 
@@ -199,6 +215,8 @@ export interface WorkflowSmartPanelProps {
   statusHero?: React.ReactNode;
   /** Selected-block config editor (ETLConfigSidebar), rendered in `block`. */
   blockSlot?: React.ReactNode;
+  /** AI Assist agent (embedded GuidedAiWorkflowWizard), rendered in `ai`. */
+  aiSlot?: React.ReactNode;
   /**
    * The legacy tab bodies (results / runs / sql / schedules / ai), each still
    * self-guarded on `activeTab` inside the builder. Rendered as-is whenever the
@@ -437,14 +455,14 @@ function SubmitSection({
     [trackFeatureClick, workflowId, strategy],
   );
 
-  // Temp-tables path: dry-run with a {mode} payload. Whether the backend honours
-  // `mode` is unconfirmed — InsightActionButton self-disables on 404/501, and
-  // this is flagged as Henry P1 in the report.
+  // Temp-tables path: dry-run with a {mode} payload, routed through the typed
+  // workflowApi contract (same POST /workflow/{id}/dry-run). Whether the backend
+  // honours `mode` is unconfirmed — InsightActionButton self-disables on 404/501.
   const runTempTables = useCallback(async () => {
     if (!workflowId) throw new Error('No workflow selected');
-    const res = await apiClient.post(API.workflow.dryRun(workflowId), { mode: 'temp_tables' });
+    const data = await workflowApi.dryRunSavedWorkflow(workflowId, 'temp_tables');
     fireEvent({ outcome: 'ok' });
-    return res.data;
+    return data;
   }, [workflowId, fireEvent]);
 
   const runClone = useCallback(async () => {
@@ -901,6 +919,30 @@ function ActionsCluster(props: WorkflowSmartPanelProps) {
     scheduleCronSummary,
   } = props;
 
+  // System-2 Action-RBAC, owned by the panel. useCanPerform is a module-cached
+  // singleton — these share the builder's existing fetch (no extra request, no
+  // drift). The parent already passes fail-open booleans (allowed||loading) for
+  // the *disabled* state; we additionally read the raw verdict here to HIDE an
+  // action on a *resolved* deny. Loading and hard-error both fail open (keep the
+  // button visible), so a denied role only loses the buttons it truly can't use.
+  const createPerm = useCanPerform('workflow', 'create', activeWorkflowId ?? undefined);
+  const editPerm = useCanPerform('workflow', 'edit', activeWorkflowId ?? undefined);
+  const executePerm = useCanPerform('workflow', 'execute', activeWorkflowId ?? undefined);
+  const isResolvedDeny = (p: { allowed: boolean; loading: boolean; error: boolean }) =>
+    !p.allowed && !p.loading && !p.error;
+  const deniedCreate = isResolvedDeny(createPerm);
+  const deniedEdit = isResolvedDeny(editPerm);
+  const deniedExecute = isResolvedDeny(executePerm);
+
+  // Per-action visibility (task mapping: Run→execute, Save→edit/create,
+  // Schedule→create). New/AI/Import are all create-gated; Suspend/Resume manage
+  // an existing schedule and ride with Schedule under 'create'.
+  const showCreateGroup = !deniedCreate;
+  const showSave = activeWorkflowId ? !deniedEdit : !deniedCreate;
+  const showRun = !deniedExecute;
+  const showScheduleGroup = !deniedCreate;
+  const showLifecycle = showSave || showRun || showScheduleGroup;
+
   const saveDisabled =
     isSaving || isReadOnly || isPendingApproval || (activeWorkflowId ? !canEdit : !canCreate);
   const runDisabled =
@@ -911,9 +953,13 @@ function ActionsCluster(props: WorkflowSmartPanelProps) {
     (isPendingApproval && !isApproved) ||
     !canExecute;
 
+  // Fully-denied role (no create/edit/execute) → no actions to show at all.
+  if (!showCreateGroup && !showLifecycle) return null;
+
   return (
     <div className="border-b border-gray-200 bg-gray-50/60 px-3 py-2.5 dark:border-gray-700 dark:bg-gray-800/40">
       {/* Create cluster */}
+      {showCreateGroup && (
       <div className="mb-2">
         <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
           Create
@@ -945,13 +991,16 @@ function ActionsCluster(props: WorkflowSmartPanelProps) {
           />
         </div>
       </div>
+      )}
 
       {/* Lifecycle cluster */}
+      {showLifecycle && (
       <div>
         <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
           Lifecycle
         </p>
         <div className="grid grid-cols-2 gap-1.5">
+          {showSave && (
           <ActionBtn
             icon={Save}
             label="Save"
@@ -969,6 +1018,8 @@ function ActionsCluster(props: WorkflowSmartPanelProps) {
                     : 'Save workflow (Ctrl+S)'
             }
           />
+          )}
+          {showRun && (
           <ActionBtn
             icon={Play}
             label="Run"
@@ -986,7 +1037,8 @@ function ActionsCluster(props: WorkflowSmartPanelProps) {
                     : 'Run the workflow now (Ctrl+Enter)'
             }
           />
-          {suspendMode === 'suspend' ? (
+          )}
+          {showScheduleGroup && (suspendMode === 'suspend' ? (
             <ActionBtn
               icon={Pause}
               label="Suspend"
@@ -1015,7 +1067,8 @@ function ActionsCluster(props: WorkflowSmartPanelProps) {
               disabled
               title={!activeWorkflowId ? 'Save the workflow first' : 'No schedule yet — create one with Schedule'}
             />
-          )}
+          ))}
+          {showScheduleGroup && (
           <ActionBtn
             icon={Calendar}
             label={hasSchedule ? (scheduleCronSummary ? `Scheduled · ${scheduleCronSummary}` : 'Scheduled') : 'Schedule'}
@@ -1032,8 +1085,10 @@ function ActionsCluster(props: WorkflowSmartPanelProps) {
                     : 'Create a schedule for this workflow'
             }
           />
+          )}
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -1056,9 +1111,21 @@ const RAIL: RailItem[] = [
   { id: 'ai', icon: Sparkles, label: 'AI assist' },
   { id: 'results', icon: Eye, label: 'Results' },
   { id: 'runs', icon: ListChecks, label: 'Run history' },
+  // Operational sections folded in from the former WorkflowProjectBar rail.
+  { id: 'usage', icon: BarChart3, label: 'Usage' },
+  { id: 'cost', icon: DollarSign, label: 'Cost' },
+  { id: 'governance', icon: Shield, label: 'Governance' },
   { id: 'sql', icon: Code, label: 'Compiled SQL' },
   { id: 'schedule', icon: Calendar, label: 'Schedule' },
 ];
+
+const RAIL_IDS = new Set(RAIL.map((r) => r.id));
+
+// Versioned, minimal localStorage keys (client-localstorage-schema): persist the
+// user's last section ("draft of menu" → preselect on return) and whether the
+// always-on actions strip is collapsed so the active section can run full-height.
+const PANEL_SECTION_KEY = 'data360.wf.panel.section.v1';
+const PANEL_ACTIONS_COLLAPSED_KEY = 'data360.wf.panel.actionsCollapsed.v1';
 
 // ---------------------------------------------------------------------------
 // Main panel
@@ -1085,10 +1152,43 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
     onReload,
     statusHero,
     blockSlot,
+    aiSlot,
     legacyBodies,
   } = props;
 
   const active = RAIL.find((r) => r.id === activeSection) ?? RAIL[0];
+
+  // Collapse the always-on actions strip (lazy init from storage; functional
+  // updater keeps the toggle callback stable — rerender-lazy-state-init).
+  const [actionsCollapsed, setActionsCollapsed] = useState<boolean>(() => {
+    try { return window.localStorage.getItem(PANEL_ACTIONS_COLLAPSED_KEY) === '1'; }
+    catch { return false; }
+  });
+  const toggleActions = useCallback(() => setActionsCollapsed((c) => !c), []);
+
+  // Restore the last-used section ONCE on mount (draft → preselect).
+  const restoredRef = React.useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    try {
+      const saved = window.localStorage.getItem(PANEL_SECTION_KEY);
+      if (saved && saved !== activeSection && RAIL_IDS.has(saved as WorkflowPanelSection)) {
+        onSectionChange(saved as WorkflowPanelSection);
+      }
+    } catch { /* storage unavailable — keep current section */ }
+    // run-once on mount only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist section + collapse state as they change.
+  useEffect(() => {
+    try { window.localStorage.setItem(PANEL_SECTION_KEY, activeSection); } catch { /* ignore */ }
+  }, [activeSection]);
+  useEffect(() => {
+    try { window.localStorage.setItem(PANEL_ACTIONS_COLLAPSED_KEY, actionsCollapsed ? '1' : '0'); }
+    catch { /* ignore */ }
+  }, [actionsCollapsed]);
 
   return (
     <div
@@ -1099,25 +1199,63 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
     >
       {/* ── Panel body ── */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Header */}
-        <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
-            {active.label}
-          </p>
-          <h2 className="truncate text-sm font-bold text-gray-900 dark:text-white">
-            {activeWorkflowName || 'New workflow'}
-          </h2>
+        {/* Header — active section label + workflow name + actions-collapse toggle */}
+        <div className="flex items-start justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+              {active.label}
+            </p>
+            <h2 className="truncate text-sm font-bold text-gray-900 dark:text-white">
+              {activeWorkflowName || 'New workflow'}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={toggleActions}
+            aria-pressed={actionsCollapsed}
+            title={actionsCollapsed ? 'Show actions' : 'Hide actions — give this section full height'}
+            aria-label={actionsCollapsed ? 'Show actions' : 'Hide actions'}
+            className="mt-0.5 shrink-0 rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          >
+            {actionsCollapsed
+              ? <ChevronsUpDown className="h-4 w-4" />
+              : <ChevronsDownUp className="h-4 w-4" />}
+          </button>
         </div>
 
-        {/* Actions cluster — always visible (works in the empty/new state too),
-            so the canvas keeps ONLY its viewport controls. */}
-        <ActionsCluster {...props} />
+        {/* Per-project KPI strip (G7). A workflow IS a project — `activeWorkflowId`
+            is the project_id (the builder's setters and WorkflowProjectBar both
+            treat it as one) — so this is honest PER-PROJECT context, never
+            per-account data. Rendered only for a loaded/saved workflow; skipped
+            for the new/unsaved state (no id yet). The strip self-degrades:
+            skeleton while loading, "—" for null KPIs, and renders nothing at all
+            when the rollup isn't provisioned on this backend (404/501). */}
+        {activeWorkflowId && (
+          <div className="px-3 pt-2 pb-1">
+            <ProjectKpiStrip projectId={activeWorkflowId} compact />
+          </div>
+        )}
+
+        {/* Actions strip — collapsible so the active section can run full-height.
+            Hidden state is persisted; the toggle lives in the header above. */}
+        {actionsCollapsed ? null : <ActionsCluster {...props} />}
 
         {/* Status hero (deploy/run snapshot from the builder) */}
         {statusHero}
 
-        {/* Active section body */}
-        <div className="flex-1 overflow-y-auto p-4">
+        {/* Active section body — min-h-0 so this flex item can shrink and its
+            scrollbar activates. The block section hosts ETLConfigSidebar
+            full-bleed (it pins its own header/footer and scrolls its form
+            area), so it gets overflow-hidden + no padding instead of an outer
+            scroll that would strand the sidebar footer. */}
+        <div
+          className={cn(
+            'flex-1 min-h-0',
+            activeSection === 'block' && blockSlot
+              ? 'overflow-hidden'
+              : 'overflow-y-auto p-4',
+          )}
+        >
           {!activeWorkflowId &&
           activeSection !== 'changes' &&
           activeSection !== 'ai' &&
@@ -1152,6 +1290,17 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
                   onReload={onReload}
                 />
               )}
+              {/* Operational sections folded in from the former second rail.
+                  Panel is always open, so `enabled` collapses to "has an id". */}
+              {activeSection === 'usage' && activeWorkflowId && (
+                <UsageTab workflowId={activeWorkflowId} enabled />
+              )}
+              {activeSection === 'cost' && activeWorkflowId && (
+                <CostTab workflowId={activeWorkflowId} enabled />
+              )}
+              {activeSection === 'governance' && activeWorkflowId && (
+                <GovernanceTab workflowId={activeWorkflowId} enabled />
+              )}
               {activeSection === 'block' && (
                 blockSlot ?? (
                   <div className="flex h-full flex-col items-center justify-center px-6 text-center">
@@ -1163,7 +1312,20 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
                 )
               )}
               {activeSection === 'ai' && (
-                <AiSection workflowId={activeWorkflowId} blocks={currentBlocks} />
+                <div className="space-y-4">
+                  {/* AI-prefilled cross-module CTA blocks (deep-link with intent),
+                      scoped to workflow + the active project. Rendered above the
+                      existing AI assist (wizard slot or rule-based suggestions). */}
+                  <AiActionBlocks
+                    context={{
+                      scope: 'module',
+                      module: 'workflow',
+                      projectId: activeWorkflowId ?? undefined,
+                    }}
+                    title="Actions IA suggérées"
+                  />
+                  {aiSlot ?? <AiSection workflowId={activeWorkflowId} blocks={currentBlocks} />}
+                </div>
               )}
               {/* Legacy bodies self-guard on `activeTab` internally; render them
                   for the legacy sections and append the legacy run-analysis body
@@ -1178,7 +1340,7 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
       {/* ── Icon rail (far-right edge, vertical flip menu) ── */}
       <nav
         aria-label="Workflow panel sections"
-        className="flex w-12 shrink-0 flex-col items-center gap-1 border-l border-gray-200 bg-gray-50 py-2 dark:border-gray-700 dark:bg-gray-800/60"
+        className="flex w-12 shrink-0 flex-col items-center gap-1 overflow-y-auto border-l border-gray-200 bg-gray-50 py-2 dark:border-gray-700 dark:bg-gray-800/60"
       >
         {RAIL.map((item) => {
           const Icon = item.icon;
@@ -1192,7 +1354,7 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
               aria-pressed={isActive}
               title={item.label}
               className={cn(
-                'flex h-9 w-9 items-center justify-center rounded-lg transition-colors',
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors',
                 isActive
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200',

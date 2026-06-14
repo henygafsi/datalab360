@@ -41,6 +41,9 @@ export function getEnterpriseUsersColumns(
   dirtyRows: Set<string>,
   onCellChange: (username: string, field: keyof EnterpriseUserUpdate, value: string | null) => void,
   onDelete: (user: EnterpriseUser) => void,
+  // System 2 Action-RBAC: deleting a user maps to gouvernance:delete.
+  // Defaults to true so callers that don't gate stay fail-open.
+  canDelete: boolean = true,
 ) {
   return [
     columnHelper.accessor('USERNAME', {
@@ -163,7 +166,9 @@ export function getEnterpriseUsersColumns(
           <Button
             size="sm"
             variant="text"
-            className="text-red-500 hover:text-red-700 p-1"
+            disabled={!canDelete}
+            title={!canDelete ? 'You lack the "delete" permission on governance. Ask an administrator to grant it.' : undefined}
+            className="text-red-500 hover:text-red-700 p-1 disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={() => onDelete(row.original)}
           >
             <Trash2 className="w-4 h-4" />

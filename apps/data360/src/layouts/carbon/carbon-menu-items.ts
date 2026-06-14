@@ -53,7 +53,9 @@ export interface MenuItemsType {
 
 export const carbonMenuItems: MenuItemsType[] = [
   {
-    id: 1,
+    // MODULES id for account_overview is 13 — sharing id:1 with Connect Data made
+    // the RBAC guard grant/deny both items together (modules.ts:108).
+    id: 13,
     name: 'Account Overview',
     title: 'Account Overview',
     icon: PiHouseLineDuotone,
@@ -235,7 +237,9 @@ export const carbonMenuItems: MenuItemsType[] = [
   // Data Engineering & Developer Tools — merged into Explore & Design and Workflow
   // 11. Observability
   {
-    id: 8,
+    // MODULES id for observability is 9 (modules.ts:147) — id:8 made the RBAC
+    // guard never match, so the entry rendered permanently locked.
+    id: 9,
     name: 'Observability',
     title: 'Observability',
     icon: PiChartLineDuotone,
@@ -262,6 +266,24 @@ export const carbonMenuItems: MenuItemsType[] = [
         description: 'Metadata, tables, date columns, cache & refresh',
         href: routes.data360Config.view,
         icon: PiCubeDuotone,
+      },
+      {
+        name: 'Performance',
+        description: 'Per-account drill-down: endpoints, users, cache, modules, errors',
+        href: routes.adminPerformance.view,
+        icon: PiChartLineDuotone,
+      },
+      {
+        name: 'Feature Governance',
+        description: 'Per-account feature & addon enablement matrix',
+        href: '/administration/feature-governance',
+        icon: PiShieldCheckDuotone,
+      },
+      {
+        name: 'Access Control Center',
+        description: 'Module → page → tab → feature → action grants, entitlements & usage',
+        href: '/administration/access-center',
+        icon: PiLockKeyDuotone,
       },
     ],
   },

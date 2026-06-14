@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import cn from '@core/utils/class-names';
 import { Avatar, Box, Flex, Text, Tooltip } from 'rizzui';
 import WidgetCard from '@core/components/cards/widget-card';
@@ -11,12 +12,20 @@ import {
 } from '@/data/project-dashboard';
 import SimpleBar from 'simplebar-react';
 
+// 1-based grid column of the current calendar month (real `new Date()`),
+// clamped to the 12-month timeline rendered below.
+const currentMonthColumn = Math.min(new Date().getMonth() + 1, 12);
+
 export default function ProjectActiveTasks({
   className,
 }: {
   className?: string;
 }) {
-  function handleChange(viewType: string) {}
+  // `activeTaskViewOptions[0]` is "today"; the dropdown defaults to it.
+  const [viewType, setViewType] = useState(activeTaskViewOptions[0]?.value);
+  // "Today" focuses the timeline on the current month; "Month" shows the full
+  // year. Driven entirely by the real calendar date — no fabricated data.
+  const focusCurrentMonth = viewType === 'today';
 
   return (
     <WidgetCard
@@ -24,7 +33,7 @@ export default function ProjectActiveTasks({
       headerClassName="items-center"
       action={
         <DropdownAction
-          onChange={handleChange}
+          onChange={setViewType}
           dropdownClassName="!z-0"
           className="rounded-md border"
           options={activeTaskViewOptions}
@@ -46,6 +55,17 @@ export default function ProjectActiveTasks({
                 <Text className="text-gray-500">{task.title}</Text>
               </Box>
               <Box className="grid grid-cols-12 gap-1 rounded-md bg-gray-50 group-hover:bg-[#6CA787]/10 dark:bg-gray-100">
+                {focusCurrentMonth && (
+                  <span
+                    aria-hidden
+                    className="rounded-md bg-primary/10 ring-1 ring-inset ring-primary/40"
+                    style={{
+                      gridColumnStart: currentMonthColumn,
+                      gridColumnEnd: currentMonthColumn + 1,
+                      gridRowStart: 1,
+                    }}
+                  />
+                )}
                 <Tooltip
                   placement="top"
                   className="p-0"
@@ -59,6 +79,7 @@ export default function ProjectActiveTasks({
                     style={{
                       gridColumnStart: task.start,
                       gridColumnEnd: task.end,
+                      gridRowStart: 1,
                     }}
                   />
                 </Tooltip>
@@ -68,11 +89,22 @@ export default function ProjectActiveTasks({
           <Box className="grid grid-cols-[120px_1fr] gap-1 text-center">
             <Box />
             <Box className="mt-2 grid grid-cols-12 gap-1 text-center">
-              {activeTaskMonths.map((month, index) => (
-                <Text key={index} className="text-gray-500">
-                  {month}
-                </Text>
-              ))}
+              {activeTaskMonths.map((month, index) => {
+                const isCurrentMonth =
+                  focusCurrentMonth && index + 1 === currentMonthColumn;
+                return (
+                  <Text
+                    key={index}
+                    aria-current={isCurrentMonth ? 'date' : undefined}
+                    className={cn(
+                      'text-gray-500',
+                      isCurrentMonth && 'font-semibold text-primary'
+                    )}
+                  >
+                    {month}
+                  </Text>
+                );
+              })}
             </Box>
           </Box>
         </Box>

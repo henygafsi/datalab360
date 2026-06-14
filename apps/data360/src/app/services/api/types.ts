@@ -1277,6 +1277,24 @@ export interface WorkflowRun {
 export interface WorkflowRunsResponse {
   runs: WorkflowRun[];
   count: number;
+  total?: number;
+  /** Aggregate run metrics computed server-side over the full run history. */
+  metrics?: WorkflowRunMetrics;
+}
+
+/** `metrics` block of GET /workflow/{id}/runs — the real source for run summaries. */
+export interface WorkflowRunMetrics {
+  scope?: string;
+  total_runs: number;
+  succeeded: number;
+  failed: number;
+  running?: number;
+  cancelled?: number;
+  success_rate: number | null;
+  avg_duration_seconds: number | null;
+  max_duration_seconds?: number | null;
+  p95_duration_seconds?: number | null;
+  last_run_at: string | null;
 }
 
 export interface ListWorkflowRunsParams {
@@ -1288,8 +1306,53 @@ export interface WorkflowRunSummary {
   total_runs: number;
   completed: number;
   failed: number;
-  avg_duration_seconds: number;
+  avg_duration_seconds: number | null;
   last_run_at: string | null;
+}
+
+// --- Workflow Cost Summary (GET /workflow/{id}/cost-summary) ---
+
+/** One run row in the cost breakdown (query attribution history). */
+export interface WorkflowCostByRun {
+  query_id?: string | null;
+  state?: string | null;
+  /** Run duration in seconds (backend may omit when unattributed). */
+  duration?: number | null;
+  credits?: number | null;
+}
+
+/** Per-warehouse credit attribution row. */
+export interface WorkflowCostByWarehouse {
+  warehouse?: string | null;
+  warehouse_name?: string | null;
+  credits?: number | null;
+}
+
+/**
+ * Credit/cost breakdown for one workflow. Cached ~30 min server-side.
+ * `attributed_credits` vs `total_credits` is the transparency split: only
+ * query-attributed credits are guaranteed per-workflow; the rest is estimate.
+ */
+export interface WorkflowCostSummary {
+  workflow_id: string;
+  task_name?: string | null;
+  lookback_days?: number;
+  credits: number | null;
+  attributed_credits: number | null;
+  total_credits: number | null;
+  by_run: WorkflowCostByRun[];
+  by_warehouse: WorkflowCostByWarehouse[];
+  task_runs: number;
+  runs_succeeded?: number;
+  runs_failed?: number;
+  success_rate: number | null;
+  estimated_cost_usd: number | null;
+  /** True when the USD figure is an estimate, not billed spend. */
+  estimate?: boolean;
+  warnings: string[];
+  state?: string | null;
+  history_source?: string;
+  credits_source?: string;
 }
 
 // --- Workflow Scheduling ---

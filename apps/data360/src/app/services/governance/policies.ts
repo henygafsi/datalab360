@@ -6,6 +6,7 @@
  */
 
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import { API_CONFIG, DEFAULTS } from '@/config/database.config';
 
 const POLICIES_API = `${API_CONFIG.ENDPOINTS.GOVERNANCE}/policies`;
@@ -65,6 +66,63 @@ export async function listPoliciesEnriched(
     policies: EnrichedPolicy[];
   }>(`${API_CONFIG.ENDPOINTS.GOVERNANCE}/policies/${policyType}`);
   return data?.policies ?? [];
+}
+
+// ============= ROLE-SCOPED VIEW (G1 — /policies/my-scope) =============
+
+/**
+ * One policy in the caller's role scope. `manageable_by_me` / `references_my_role`
+ * are TRI-STATE:
+ *   - `true`  → determined yes
+ *   - `false` → determined no
+ *   - `null`  → could NOT be determined (render "—", never a fake 0/No)
+ */
+export interface MyScopePolicy {
+  name: string;
+  database_name: string | null;
+  schema_name: string | null;
+  policy_type: string; // MASKING | ROW_ACCESS | AGGREGATION
+  owner: string | null;
+  created_on: string | null;
+  comment: string | null;
+  /** Role owns it OR holds a direct APPLY/OWNERSHIP grant (admin bypass). null = unknown. */
+  manageable_by_me: boolean | null;
+  /** Best-effort: role name appears as a token in the policy body. null = unknown. */
+  references_my_role: boolean | null;
+}
+
+export interface MyScopePoliciesResult {
+  role: string;
+  policies: MyScopePolicy[];
+  total: number;
+  /** Honest disclaimer about the precision of the two flags. */
+  note?: string | null;
+}
+
+/**
+ * G1 — policies relevant to the caller's ACTIVE role. Not accountadmin-gated:
+ * any authenticated user gets the policies that apply to / are manageable by
+ * their role. Backend wraps the payload in StandardResponse (`data.data`).
+ */
+export async function getMyScopePolicies(
+  database?: string,
+  schema?: string,
+): Promise<MyScopePoliciesResult> {
+  const params: Record<string, string> = {};
+  if (database) params.database = database;
+  if (schema) params.schema = schema;
+
+  const response = await apiClient.get<StandardResponse<MyScopePoliciesResult>>(
+    API.gouvernance.policiesMyScope(),
+    { params },
+  );
+  const data = response.data?.data;
+  return {
+    role: data?.role ?? '',
+    policies: Array.isArray(data?.policies) ? data.policies : [],
+    total: typeof data?.total === 'number' ? data.total : 0,
+    note: data?.note ?? null,
+  };
 }
 
 export function formatPolicyError(error: any, defaultMessage: string): string {
@@ -291,7 +349,6 @@ export async function getRLSPolicyDetails(
 
   try {
     const response = await apiClient.get<StandardResponse>(url);
-    console.log('✅ GET RLS Policy Details Response:', response.data.data);
     return response.data.data;
   } catch (error: any) {
     console.error(`Failed to get details for policy ${policy_name}:`, error);
@@ -299,55 +356,48 @@ export async function getRLSPolicyDetails(
   }
 }
 
-export async function getRLSPolicies(): Promise<RLSPolicy[]> {
-  const url = `${POLICIES_API}/row-access/list`;
-  // console.log('🔍 GET RLS Policies API Call:', { url });
+export async function getRLSPolicies(
+  database?: string,
+  schema?: string,
+): Promise<RLSPolicy[]> {
+  // The backend has no GET /row-access/list (405) — row-access policies come from
+  // the unified inventory GET /gouvernance/policies, under data.row_access
+  // (mirror getMaskingPolicies). The unified LIST carries no signature/expression,
+  // so those advisory fields default to '(Not available)'; a caller that needs them
+  // fetches per-policy via getRLSPolicyDetails on demand (avoids an N+1 on list).
+  const url = POLICIES_API;
+  const params: Record<string, string> = {
+    database: database || DEFAULTS.DATABASE,
+    schema: schema || DEFAULT_GOVERNANCE_SCHEMA,
+  };
 
-  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
-  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
-
-  const responseData = response.data.data;
-  // console.log('✅ GET RLS Policies Response:', {
-  //   status: response.status,
-  //   message: response.data.message,
-  //   policiesCount: responseData?.policies?.length
-  // });
+  // Backend returns StandardResponse: { status, message, data: { masking, row_access, aggregation, total } }
+  const response = await apiClient.get<
+    StandardResponse<{ masking: unknown[]; row_access: BackendPolicy[]; aggregation: unknown[]; total: number }>
+  >(url, { params });
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = responseData?.policies;
+  const backendPolicies = response.data.data?.row_access;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
 
-  // Map backend response to frontend interface
-  // Backend returns: name, database_name, schema_name, created_on, comment, granted_roles, expiration_date
-  // Frontend expects: policy_name, signature, expression, schema, database, granted_roles, expiration_date
-  const mappedPolicies: RLSPolicy[] = await Promise.all(
-    backendPolicies.map(async (policy: BackendPolicy) => {
-      // Try to fetch details for signature and expression
-      const details = await getRLSPolicyDetails(policy.name, policy.database_name, policy.schema_name);
-      console.log(details)
-      console.log()
-      return {
-        policy_name: details?.details.policy_name,
-        schema: details?.details.schema,
-        database: policy.database_name,
-        signature: details?.details.details.signature || '(Not available)',
-        expression: details?.details.details.body || '(Not available)',
-        filter_expression: '',
-        active: true,
-        description: policy.comment || '',
-        created_at: policy.created_on,
-        table_name: undefined,
-        granted_roles: policy.granted_roles || [],
-        expiration_date: policy.expiration_date || undefined,
-      };
-    })
-  );
-
-  // console.log('🔄 Mapped policies with details:', mappedPolicies);
-
-  return mappedPolicies;
+  // Map backend response to frontend interface.
+  // Unified LIST returns: name, database_name, schema_name, created_on, comment (+ optional granted_roles/expiration_date).
+  return backendPolicies.map((policy: BackendPolicy): RLSPolicy => ({
+    policy_name: policy.name,
+    schema: policy.schema_name,
+    database: policy.database_name,
+    signature: '(Not available)',
+    expression: '(Not available)',
+    filter_expression: '',
+    active: true,
+    description: policy.comment || '',
+    created_at: policy.created_on,
+    table_name: undefined,
+    granted_roles: policy.granted_roles || [],
+    expiration_date: policy.expiration_date || undefined,
+  }));
 }
 
 export async function createRLSPolicy(data: CreateRLSPolicyRequest): Promise<RLSPolicy> {
@@ -525,28 +575,24 @@ export async function getMaskingPolicies(
   database?: string,
   schema?: string,
 ): Promise<MaskingPolicy[]> {
-  const url = `${POLICIES_API}/masking/list`;
+  // The backend has no GET /masking/list (405) — masking policies come from the
+  // unified inventory GET /gouvernance/policies, under data.masking.
+  const url = POLICIES_API;
   const params: Record<string, string> = {};
   if (database) params.database = database;
   else params.database = DEFAULTS.DATABASE;
   if (schema) params.schema = schema;
   else params.schema = DEFAULT_GOVERNANCE_SCHEMA;
 
-  console.log('🔍 GET Masking Policies API Call:', { url, params });
-
-  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
-  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url, { params });
+  // Backend returns StandardResponse: { status, message, data: { masking, row_access, aggregation, total } }
+  const response = await apiClient.get<
+    StandardResponse<{ masking: BackendPolicy[]; row_access: unknown[]; aggregation: unknown[]; total: number }>
+  >(url, { params });
 
   const responseData = response.data.data;
-  console.log('✅ GET Masking Policies Response:', {
-    status: response.status,
-    message: response.data.message,
-    policiesCount: responseData?.policies?.length,
-    rawData: responseData,
-  });
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = responseData?.policies;
+  const backendPolicies = responseData?.masking;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
@@ -625,8 +671,10 @@ export async function applyMaskingPolicy(data: ApplyMaskingPolicyRequest): Promi
         policy_name: data.policy_name,
         database: data.database,
         schema: data.schema,
-        table_name: data.table,
-        column_name: data.column,
+        // Backend POST /masking/apply expects query params `table`/`column`
+        // (NOT table_name/column_name — those are the /masking/replace contract).
+        table: data.table,
+        column: data.column,
         policy_schema: data.policy_schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
     });
@@ -967,20 +1015,13 @@ export async function getPasswordPolicyDetails(
 
 export async function getPasswordPolicies(): Promise<PasswordPolicy[]> {
   const url = `${POLICIES_API}/password/list`;
-  // console.log('🔍 GET Password Policies API Call:', { url });
 
-  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
-  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
-
-  const responseData = response.data.data;
-  // console.log('✅ GET Password Policies Response:', {
-    // status: response.status,
-    // message: response.data.message,
-    // policiesCount: responseData?.policies?.length
-  // });
+  // Backend returns a bare envelope { policy_type, total, policies: [...] }
+  // (mirrors GET /network/list) — NOT the StandardResponse data wrapper.
+  const response = await apiClient.get<{ policy_type: string; total: number; policies: BackendPolicy[] }>(url);
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = responseData?.policies;
+  const backendPolicies = response.data?.policies;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
@@ -1120,20 +1161,13 @@ export async function getSessionPolicyDetails(
 
 export async function getSessionPolicies(): Promise<SessionPolicy[]> {
   const url = `${POLICIES_API}/session/list`;
-  // console.log('🔍 GET Session Policies API Call:', { url });
 
-  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
-  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
-
-  const responseData = response.data.data;
-  // console.log('✅ GET Session Policies Response:', {
-    // status: response.status,
-    // message: response.data.message,
-    // policiesCount: responseData?.policies?.length
-  // });
+  // Backend returns a bare envelope { policy_type, total, policies: [...] }
+  // (mirrors GET /network/list) — NOT the StandardResponse data wrapper.
+  const response = await apiClient.get<{ policy_type: string; total: number; policies: BackendPolicy[] }>(url);
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = responseData?.policies;
+  const backendPolicies = response.data?.policies;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
@@ -1258,41 +1292,39 @@ export async function getAggregationPolicyDetails(
 }
 
 
-export async function getAggregationPolicies(): Promise<AggregationPolicy[]> {
-  const url = `${POLICIES_API}/aggregation/list`;
-  // console.log('🔍 GET Aggregation Policies API Call:', { url });
+export async function getAggregationPolicies(
+  database?: string,
+  schema?: string,
+): Promise<AggregationPolicy[]> {
+  // No GET /aggregation/list (405) — aggregation policies come from the unified
+  // inventory GET /gouvernance/policies under data.aggregation (mirror getMaskingPolicies).
+  const url = POLICIES_API;
+  const params: Record<string, string> = {
+    database: database || DEFAULTS.DATABASE,
+    schema: schema || DEFAULT_GOVERNANCE_SCHEMA,
+  };
 
-  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
-  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
-
-  const responseData = response.data.data;
-  // console.log('✅ GET Aggregation Policies Response:', {
-    // status: response.status,
-    // message: response.data.message,
-    // policiesCount: responseData?.policies?.length
-  // });
+  // Backend returns StandardResponse: { status, message, data: { masking, row_access, aggregation, total } }
+  const response = await apiClient.get<
+    StandardResponse<{ masking: unknown[]; row_access: unknown[]; aggregation: BackendPolicy[]; total: number }>
+  >(url, { params });
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = responseData?.policies;
+  const backendPolicies = response.data.data?.aggregation;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
 
-  // Map backend response to frontend interface
-  // Backend returns: name, database_name, schema_name, created_on, comment, granted_roles, expiration_date
-  // Note: aggregation_constraint is NOT in LIST response - need details endpoint
-  const mappedPolicies: AggregationPolicy[] = backendPolicies.map((policy: BackendPolicy) => ({
+  // Map backend response to frontend interface.
+  // aggregation_constraint is NOT in the unified LIST — fetch via getAggregationPolicyDetails on demand.
+  return backendPolicies.map((policy: BackendPolicy): AggregationPolicy => ({
     policy_name: policy.name,
     schema: policy.schema_name,
-    aggregation_constraint: '', // Not in LIST response - would need details endpoint
+    aggregation_constraint: '',
     created_at: policy.created_on,
     granted_roles: policy.granted_roles || [],
     expiration_date: policy.expiration_date || undefined,
   }));
-
-  // console.log('🔄 Mapped aggregation policies:', mappedPolicies);
-
-  return mappedPolicies;
 }
 
 export async function createAggregationPolicy(data: CreateAggregationPolicyRequest): Promise<AggregationPolicy> {
@@ -1868,6 +1900,89 @@ export async function replaceAggregationPolicy(data: {
     });
     throw error;
   }
+}
+
+// ============= GOVERNANCE DEPTH (advisory, read-only — honest 404 degrade) =============
+// D1 RLS simulate · D2 masking preview · D3 least-privilege.
+// All three are advisory probes (~0 credits). When the route is not deployed the
+// backend returns 404/501; callers must treat any thrown error as "unavailable"
+// and degrade quietly (never fabricate a result).
+
+export interface RowAccessSimulateResult {
+  target?: string;
+  applies?: boolean | null;
+  predicate?: string | null;
+  visible_count?: number | null;
+  hidden_count?: number | null;
+  available: boolean;
+  note?: string | null;
+}
+
+/** D1 — simulate which rows a role/user would see under the row-access policy. */
+export async function simulateRowAccess(input: {
+  database: string;
+  schema: string;
+  table: string;
+  role?: string;
+  user?: string;
+}): Promise<RowAccessSimulateResult> {
+  const res = await apiClient.post<RowAccessSimulateResult>(
+    API.gouvernance.policyRowAccessSimulate(),
+    input
+  );
+  return res.data;
+}
+
+export interface MaskingPreviewColumn {
+  column: string;
+  policy?: string | null;
+  masking_expr?: string | null;
+  preview?: string | null;
+  available: boolean;
+}
+
+export interface MaskingPreviewResult {
+  target?: string;
+  columns: MaskingPreviewColumn[];
+}
+
+/** D2 — preview the masking expression (and sample) applied per column. */
+export async function previewMasking(input: {
+  database: string;
+  schema: string;
+  table: string;
+  column?: string;
+}): Promise<MaskingPreviewResult> {
+  const res = await apiClient.post<MaskingPreviewResult>(
+    API.gouvernance.policyMaskingPreview(),
+    input
+  );
+  return res.data;
+}
+
+export interface LeastPrivilegeGrant {
+  privilege: string;
+  object: string;
+}
+
+export interface LeastPrivilegeResult {
+  role?: string;
+  window_days?: number | null;
+  granted_count?: number | null;
+  used_count?: number | null;
+  unused_grants: LeastPrivilegeGrant[];
+  available: boolean;
+  note?: string | null;
+}
+
+/** D3 — granted-but-unused privileges for a role over a recent window (advisory). */
+export async function getRoleLeastPrivilege(
+  role: string
+): Promise<LeastPrivilegeResult> {
+  const res = await apiClient.get<LeastPrivilegeResult>(
+    API.gouvernance.roleLeastPrivilege(role)
+  );
+  return res.data;
 }
 
 // ============= UTILITY SERVICES =============

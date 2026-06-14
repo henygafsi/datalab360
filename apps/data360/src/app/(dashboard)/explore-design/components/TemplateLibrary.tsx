@@ -294,6 +294,8 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
   const [loadingSchema, setLoadingSchema] = useState(false);
   const [loadingTable, setLoadingTable] = useState(false);
   const [loadingColumns, setLoadingColumns] = useState(false);
+  // Non-fatal hint for the cascading target picker when metadata can't be fetched.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Derive tables from props or from events in the store
   const tableOptions = useMemo(() => {
@@ -315,9 +317,10 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
     if (!isOpen) return;
     let cancelled = false;
     setLoadingDb(true);
+    setLoadError(null);
     getDatabases()
       .then((dbs) => { if (!cancelled) setDbOptions(dbs); })
-      .catch(() => {})
+      .catch(() => setLoadError("Couldn't load target metadata."))
       .finally(() => { if (!cancelled) setLoadingDb(false); });
     return () => { cancelled = true; };
   }, [isOpen]);
@@ -329,7 +332,7 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
     setLoadingSchema(true);
     getSchemas(selectedDb)
       .then((schemas) => { if (!cancelled) setSchemaOptions(schemas); })
-      .catch(() => {})
+      .catch(() => setLoadError("Couldn't load target metadata."))
       .finally(() => { if (!cancelled) setLoadingSchema(false); });
     return () => { cancelled = true; };
   }, [selectedDb]);
@@ -341,7 +344,7 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
     setLoadingTable(true);
     getTables(selectedDb, selectedSchema)
       .then((tables) => { if (!cancelled) setTableOptionsForSchema(tables); })
-      .catch(() => {})
+      .catch(() => setLoadError("Couldn't load target metadata."))
       .finally(() => { if (!cancelled) setLoadingTable(false); });
     return () => { cancelled = true; };
   }, [selectedDb, selectedSchema]);
@@ -355,7 +358,7 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
       .then((cols) => {
         if (!cancelled) setColumnOptions(cols.map((c) => c.name || c.COLUMN_NAME || '').filter(Boolean));
       })
-      .catch(() => {})
+      .catch(() => setLoadError("Couldn't load target metadata."))
       .finally(() => { if (!cancelled) setLoadingColumns(false); });
     return () => { cancelled = true; };
   }, [selectedDb, selectedSchema, selectedTable]);
@@ -800,6 +803,9 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
                                     <Database className="h-3.5 w-3.5" />
                                     Target location
                                   </p>
+                                  {loadError && (
+                                    <p className="text-[10px] text-amber-600 dark:text-amber-400 mb-2">{loadError}</p>
+                                  )}
                                   <div className="grid grid-cols-2 gap-2">
                                     <div>
                                       <label className="text-[10px] font-medium text-slate-500 mb-0.5 flex items-center gap-1">

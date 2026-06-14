@@ -100,6 +100,11 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
   const [selectedAccount, setSelectedAccount] = useState<ClientAccount | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
+  // Shared "some data failed to load" flag — surfaced as one banner instead of
+  // leaving the tab silently empty when individual sections fail to fetch.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const LOAD_ERROR_MSG = 'Some dashboard data could not be loaded. Try refreshing or selecting another period.';
+
   const fetchOverview = useCallback(async () => {
     try {
       const data = await getDashboardOverview();
@@ -108,6 +113,7 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
     } catch (error) {
       console.error('Failed to fetch overview:', error);
       toast.error('Failed to load dashboard');
+      setLoadError(LOAD_ERROR_MSG);
     } finally {
       setOverviewLoading(false);
     }
@@ -127,7 +133,7 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
 
     getDashboardUsage()
       .then((data) => setUsageData(data))
-      .catch((e) => console.error('Failed to fetch usage:', e))
+      .catch((e) => { console.error('Failed to fetch usage:', e); setLoadError(LOAD_ERROR_MSG); })
       .finally(() => setUsageLoading(false));
 
     getDashboardTrends(days)
@@ -135,7 +141,7 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
         setCreditTrends(Array.isArray(data.credits) ? data.credits : []);
         setStorageTrends(Array.isArray(data.storage) ? data.storage : []);
       })
-      .catch((e) => console.error('Failed to fetch trends:', e))
+      .catch((e) => { console.error('Failed to fetch trends:', e); setLoadError(LOAD_ERROR_MSG); })
       .finally(() => setTrendsLoading(false));
 
     getAlerts(days)
@@ -143,54 +149,58 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
         setAlerts(Array.isArray(data.alerts) ? data.alerts : []);
         setAlertsData(data);
       })
-      .catch((e) => console.error('Failed to fetch alerts:', e))
+      .catch((e) => { console.error('Failed to fetch alerts:', e); setLoadError(LOAD_ERROR_MSG); })
       .finally(() => setAlertsLoading(false));
 
     getHealth()
       .then((data) => setHealthScores(Array.isArray(data.health_scores) ? data.health_scores : []))
-      .catch((e) => { console.error('Failed to fetch health:', e); setHealthScores([]); })
+      .catch((e) => { console.error('Failed to fetch health:', e); setHealthScores([]); setLoadError(LOAD_ERROR_MSG); })
       .finally(() => setHealthLoading(false));
 
     getTopConsumers(days, 10)
       .then((data) => setTopConsumers(Array.isArray(data.top_consumers) ? data.top_consumers : []))
-      .catch((e) => console.error('Failed to fetch top consumers:', e))
+      .catch((e) => { console.error('Failed to fetch top consumers:', e); setLoadError(LOAD_ERROR_MSG); })
       .finally(() => setTopConsumersLoading(false));
 
     getCredits(days)
       .then((data) => setCreditAccounts(Array.isArray(data.accounts) ? data.accounts : []))
-      .catch((e) => console.error('Failed to fetch credits:', e));
+      .catch((e) => { console.error('Failed to fetch credits:', e); setLoadError(LOAD_ERROR_MSG); });
 
     getStorage()
       .then((data) => setStorageAccounts(Array.isArray(data.accounts) ? data.accounts : []))
-      .catch((e) => console.error('Failed to fetch storage:', e));
+      .catch((e) => { console.error('Failed to fetch storage:', e); setLoadError(LOAD_ERROR_MSG); });
 
     getDataTransfer(days)
       .then((data) => {
         setDataTransfers(Array.isArray(data.transfers) ? data.transfers : []);
         setDataTransferTotalBytes(data.total_bytes || 0);
       })
-      .catch((e) => console.error('Failed to fetch data transfer:', e))
+      .catch((e) => { console.error('Failed to fetch data transfer:', e); setLoadError(LOAD_ERROR_MSG); })
       .finally(() => setDataTransferLoading(false));
 
     getWarehouses(days)
       .then((data) => setWarehouses(Array.isArray(data.warehouses) ? data.warehouses : []))
-      .catch((e) => console.error('Failed to fetch warehouses:', e))
+      .catch((e) => { console.error('Failed to fetch warehouses:', e); setLoadError(LOAD_ERROR_MSG); })
       .finally(() => setWarehousesLoading(false));
 
     // New endpoints
     getOrgEvents(days)
       .then((data) => setEvents(Array.isArray(data.events) ? data.events.slice(0, 5) : []))
-      .catch((e) => console.error('Failed to fetch events:', e))
+      .catch((e) => { console.error('Failed to fetch events:', e); setLoadError(LOAD_ERROR_MSG); })
       .finally(() => setEventsLoading(false));
 
     getResourceMonitors()
       .then((data) => setResourceMonitors(Array.isArray(data.monitors) ? data.monitors : []))
-      .catch((e) => console.error('Failed to fetch resource monitors:', e))
+      .catch((e) => { console.error('Failed to fetch resource monitors:', e); setLoadError(LOAD_ERROR_MSG); })
       .finally(() => setResourceMonitorsLoading(false));
   }, []);
 
   useEffect(() => {
     const load = async () => {
+      // Reset the shared error flag once per load cycle, before any fetch, so an
+      // overview-only failure keeps its banner instead of being wiped by the
+      // secondary fetches that follow.
+      setLoadError(null);
       await fetchOverview();
       fetchSecondaryData(globalDays);
     };
@@ -230,6 +240,15 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
           </button>
         ))}
       </div>
+
+      {loadError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-2 text-sm text-amber-700 dark:text-amber-300"
+        >
+          {loadError}
+        </div>
+      )}
 
       <OverviewCards
         overview={overview}

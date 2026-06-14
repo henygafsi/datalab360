@@ -1,6 +1,7 @@
 /** Mapping: get databases. Data journey: UI (e.g. explore-design/mapping) → getDatabases() → GET /explore-design/guided/databases → backend. */
 // ////dependency//// service → lib.api-client (auth + base URL)
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 
 interface DatabaseObject {
   name: string;
@@ -22,7 +23,7 @@ function isDatabaseObject(obj: unknown): obj is DatabaseObject {
  */
 export const getDatabases = async (): Promise<string[]> => {
   try {
-    const response = await apiClient.get('/common/databases');
+    const response = await apiClient.get(API.common.databases());
     const data = response.data;
 
     // If response is an array directly

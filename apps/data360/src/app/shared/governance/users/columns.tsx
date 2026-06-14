@@ -41,6 +41,53 @@ function UserRowActions({
   );
 }
 
+// Enable/disable a user is a destructive user-lifecycle admin action. There is
+// no dedicated enable/disable action key in the gouvernance registry, so we gate
+// it with the same `delete` permission that already gates the user row's
+// destructive control (keeps user-management actions under one permission).
+// Fail-open while the allow-set loads.
+function UserStatusToggle({
+  row,
+  onToggle,
+}: {
+  row: UserTableDataType;
+  onToggle: () => void;
+}) {
+  const { allowed, loading } = useCanPerform('gouvernance', 'delete');
+  const canToggle = allowed || loading;
+  const isDisabled = row.status === 'Disabled';
+  return (
+    <Tooltip
+      content={
+        !canToggle
+          ? 'You lack the permission to change a user\'s status. Ask an administrator to grant it.'
+          : isDisabled
+            ? 'Activer l\'utilisateur'
+            : 'Désactiver l\'utilisateur'
+      }
+      placement="top"
+    >
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={!canToggle}
+        className={`px-2 disabled:opacity-40 disabled:cursor-not-allowed ${
+          isDisabled
+            ? 'border-green-500 text-green-600 hover:bg-green-50'
+            : 'border-amber-500 text-amber-600 hover:bg-amber-50'
+        }`}
+        onClick={onToggle}
+      >
+        {isDisabled ? (
+          <Power className="h-4 w-4" />
+        ) : (
+          <PowerOff className="h-4 w-4" />
+        )}
+      </Button>
+    </Tooltip>
+  );
+}
+
 export const userListColumns = [
   columnHelper.display({
     id: 'select',
@@ -177,32 +224,14 @@ export const userListColumns = [
         options: { meta },
       },
     }) => {
-      const isDisabled = row.original.status === 'Disabled';
       return (
         <div className="flex items-center gap-2">
-          <Tooltip
-            content={isDisabled ? 'Activer l\'utilisateur' : 'Désactiver l\'utilisateur'}
-            placement="top"
-          >
-            <Button
-              size="sm"
-              variant="outline"
-              className={`px-2 ${
-                isDisabled
-                  ? 'border-green-500 text-green-600 hover:bg-green-50'
-                  : 'border-amber-500 text-amber-600 hover:bg-amber-50'
-              }`}
-              onClick={() => {
-                (meta as { handleToggleDisabled?: (r: UserTableDataType) => void })?.handleToggleDisabled?.(row.original);
-              }}
-            >
-              {isDisabled ? (
-                <Power className="h-4 w-4" />
-              ) : (
-                <PowerOff className="h-4 w-4" />
-              )}
-            </Button>
-          </Tooltip>
+          <UserStatusToggle
+            row={row.original}
+            onToggle={() => {
+              (meta as { handleToggleDisabled?: (r: UserTableDataType) => void })?.handleToggleDisabled?.(row.original);
+            }}
+          />
           <UserRowActions
             row={row.original}
             onDelete={() => {

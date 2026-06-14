@@ -20,8 +20,11 @@ import {
   ChevronDown,
   AlertTriangle,
   Users,
+  type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { InsightActionButton } from '@/app/shared/insights';
 import {
   ResponsiveContainer,
   LineChart,
@@ -37,12 +40,17 @@ import {
   YAxis,
   CartesianGrid,
 } from 'recharts';
-import { getModuleHealth, getSummary } from '@/app/services/command-center';
+import {
+  getModuleHealth,
+  getSummary,
+  getActivityFeed,
+} from '@/app/services/command-center';
 import type {
   ModuleHealthItem,
   ModuleHealthResponse,
   SummaryResponse,
 } from '@/app/services/command-center/types';
+import AuditTable, { type Row } from './AuditTable';
 
 const KNOWN_MODULES: Array<{
   key: string;
@@ -74,7 +82,7 @@ const KNOWN_MODULES: Array<{
     color: 'green',
     hex: '#10B981',
   },
-  { key: 'cortex', name: 'Cortex', icon: Brain, color: 'purple', hex: '#A855F7' },
+  { key: 'cortex', name: 'AI Intelligence', icon: Brain, color: 'purple', hex: '#A855F7' },
   {
     key: 'governance',
     name: 'Governance',
@@ -129,6 +137,68 @@ const STATUS_BADGE: Record<string, string> = {
   error: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
   inactive: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
 };
+
+/**
+ * Static per-color class strings. Tailwind JIT only emits classes it can see as
+ * complete literal tokens in source; dynamic `bg-${color}-100` interpolation gets
+ * purged → colorless tiles. This lookup keeps every token whole so the brand
+ * colors always render. Unknown keys fall back to `gray`.
+ */
+interface ColorClasses {
+  hoverBorder: string;
+  iconBg: string;
+  iconText: string;
+}
+const COLOR_CLASSES: Record<string, ColorClasses> = {
+  blue: {
+    hoverBorder: 'hover:border-blue-300 dark:hover:border-blue-700',
+    iconBg: 'bg-blue-100 dark:bg-blue-900/30',
+    iconText: 'text-blue-600 dark:text-blue-400',
+  },
+  amber: {
+    hoverBorder: 'hover:border-amber-300 dark:hover:border-amber-700',
+    iconBg: 'bg-amber-100 dark:bg-amber-900/30',
+    iconText: 'text-amber-600 dark:text-amber-400',
+  },
+  violet: {
+    hoverBorder: 'hover:border-violet-300 dark:hover:border-violet-700',
+    iconBg: 'bg-violet-100 dark:bg-violet-900/30',
+    iconText: 'text-violet-600 dark:text-violet-400',
+  },
+  cyan: {
+    hoverBorder: 'hover:border-cyan-300 dark:hover:border-cyan-700',
+    iconBg: 'bg-cyan-100 dark:bg-cyan-900/30',
+    iconText: 'text-cyan-600 dark:text-cyan-400',
+  },
+  green: {
+    hoverBorder: 'hover:border-green-300 dark:hover:border-green-700',
+    iconBg: 'bg-green-100 dark:bg-green-900/30',
+    iconText: 'text-green-600 dark:text-green-400',
+  },
+  purple: {
+    hoverBorder: 'hover:border-purple-300 dark:hover:border-purple-700',
+    iconBg: 'bg-purple-100 dark:bg-purple-900/30',
+    iconText: 'text-purple-600 dark:text-purple-400',
+  },
+  rose: {
+    hoverBorder: 'hover:border-rose-300 dark:hover:border-rose-700',
+    iconBg: 'bg-rose-100 dark:bg-rose-900/30',
+    iconText: 'text-rose-600 dark:text-rose-400',
+  },
+  orange: {
+    hoverBorder: 'hover:border-orange-300 dark:hover:border-orange-700',
+    iconBg: 'bg-orange-100 dark:bg-orange-900/30',
+    iconText: 'text-orange-600 dark:text-orange-400',
+  },
+  gray: {
+    hoverBorder: 'hover:border-gray-300 dark:hover:border-gray-700',
+    iconBg: 'bg-gray-100 dark:bg-gray-800',
+    iconText: 'text-gray-600 dark:text-gray-400',
+  },
+};
+function colorClasses(color: string): ColorClasses {
+  return COLOR_CLASSES[color] ?? COLOR_CLASSES.gray;
+}
 
 /** Color a KPI value by its backend kpi*_status. */
 function kpiValueClass(status?: string): string {
@@ -240,19 +310,20 @@ function ModuleCardView({ mod }: { mod: ModuleCard }) {
   const [issuesOpen, setIssuesOpen] = useState(false);
   const Icon = mod.icon;
   const badgeClass = STATUS_BADGE[mod.status] || STATUS_BADGE.inactive;
+  const cls = colorClasses(mod.color);
 
   return (
     <div
-      className={`group overflow-hidden rounded-xl border border-gray-200 bg-white transition-all hover:shadow-md dark:border-gray-700 dark:bg-gray-900 hover:border-${mod.color}-300 dark:hover:border-${mod.color}-700`}
+      className={`group overflow-hidden rounded-xl border border-gray-200 bg-white transition-all hover:shadow-md dark:border-gray-700 dark:bg-gray-900 ${cls.hoverBorder}`}
     >
       <Link href={mod.href} className="block p-5">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div
-              className={`h-10 w-10 rounded-lg bg-${mod.color}-100 dark:bg-${mod.color}-900/30 flex items-center justify-center`}
+              className={`h-10 w-10 rounded-lg ${cls.iconBg} flex items-center justify-center`}
             >
               <Icon
-                className={`h-5 w-5 text-${mod.color}-600 dark:text-${mod.color}-400`}
+                className={`h-5 w-5 ${cls.iconText}`}
               />
             </div>
             <div>
@@ -372,12 +443,16 @@ function ModuleCardView({ mod }: { mod: ModuleCard }) {
 }
 
 function ModulesTab() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [moduleCards, setModuleCards] = useState<ModuleCard[]>([]);
   // rawModules stays loosely-typed: it carries last_7_days_events (not on the
   // ModuleHealthItem contract) consumed by the sparklines / usage trend below.
   const [rawModules, setRawModules] = useState<any[]>([]);
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
+  // Flagship "Module activity" audit rows (ACTIVITY_FEED) — own .catch so a 404
+  // on the feed never errors the whole tab.
+  const [activityRows, setActivityRows] = useState<Row[]>([]);
   // Default 30d to match the other command-center endpoints / sibling tabs.
   const [days, setDays] = useState<number>(30);
   const [error, setError] = useState<string | null>(null);
@@ -388,14 +463,16 @@ function ModulesTab() {
       setLoading(true);
       setError(null);
       try {
-        const [health, summaryRes] = await Promise.all([
+        const [health, summaryRes, feed] = await Promise.all([
           getModuleHealth({ days }),
           getSummary(),
+          getActivityFeed(200, { days }).catch(() => ({ events: [] })),
         ]);
         if (cancelled) return;
         setModuleCards(buildModuleCards(health));
         setSummary(summaryRes);
         setRawModules(Array.isArray(health?.modules) ? health.modules : []);
+        setActivityRows((feed?.events ?? []) as unknown as Row[]);
       } catch (err: any) {
         if (!cancelled) {
           setError(err?.message || 'Failed to load module health');
@@ -468,25 +545,82 @@ function ModulesTab() {
     (m) => m.status === 'inactive'
   ).length;
 
-  // Recommendations derived from module-health data — never hardcoded text.
-  const moduleRecommendations: string[] = [];
+  // Recommendations derived from module-health data → actionable CTAs (never
+  // hardcoded text). Degraded → open the module page; inactive → set up
+  // monitoring; open issues → view them in observability.
+  type ModuleCta = {
+    text: string;
+    label: string;
+    icon: LucideIcon;
+    href: string;
+  };
+  const moduleCtas: ModuleCta[] = [];
   moduleCards
     .filter((m) => m.status === 'degraded')
     .slice(0, 3)
     .forEach((m) => {
-      moduleRecommendations.push(`Investigate ${m.name} — status is ${m.status}.`);
+      moduleCtas.push({
+        text: `Investigate ${m.name} — status is ${m.status}.`,
+        label: `Open ${m.name}`,
+        icon: ArrowRight,
+        href: m.href,
+      });
     });
   moduleCards
     .filter((m) => m.status === 'inactive')
     .slice(0, 3)
     .forEach((m) => {
-      moduleRecommendations.push(`${m.name} has no recent activity — onboard a project or remove the module from the navigation.`);
+      moduleCtas.push({
+        text: `${m.name} has no recent activity — set up monitoring or onboard a project.`,
+        label: 'Set up monitoring',
+        icon: Eye,
+        href: '/observability',
+      });
     });
 
   // ── Iter 5 — sparkline tiles, usage trend, and issues donut ──────────────
   const moduleByKey: Record<string, any> = {};
   rawModules.forEach((m) => {
     if (m?.module_key) moduleByKey[m.module_key] = m;
+  });
+
+  // Sum a module's last_7_days_events into a single 7d-events count (null when
+  // the spine is empty so the table renders an em-dash, never a fake 0).
+  const sum7d = (raw: any): number | null => {
+    const series = Array.isArray(raw?.last_7_days_events)
+      ? raw.last_7_days_events
+      : [];
+    if (series.length === 0) return null;
+    return series.reduce(
+      (s: number, v: any) =>
+        s + (typeof v === 'number' ? v : (v?.count ?? v?.value ?? 0)),
+      0
+    );
+  };
+
+  // Module Health Matrix — flatten the already-loaded module-health into one
+  // row per module (no new fetch). Fed to a paginated AuditTable at the bottom.
+  const healthMatrixRows: Row[] = moduleCards.map((m) => {
+    const raw = moduleByKey[m.id];
+    const events7d = sum7d(raw);
+    const kpiVal = (k?: ModuleKpi) =>
+      k == null
+        ? '—'
+        : `${k.label}: ${
+            typeof k.value === 'number' ? k.value.toLocaleString() : k.value
+          }`;
+    return {
+      Module: m.name,
+      Status: m.status,
+      'Health Score':
+        typeof m.healthScore === 'number' ? Math.round(m.healthScore) : '—',
+      'KPI 1': kpiVal(m.kpis[0]),
+      'KPI 2': kpiVal(m.kpis[1]),
+      'KPI 3': kpiVal(m.kpis[2]),
+      Issues: m.issues.length,
+      '7d Events': events7d ?? '—',
+      'Status Reason': m.statusReason || '—',
+    };
   });
 
   const sparkTiles = KNOWN_MODULES.map((spec) => {
@@ -516,6 +650,16 @@ function ModulesTab() {
       hex: KNOWN_MODULES.find((k) => k.key === m.id)?.hex || '#9CA3AF',
     }));
   const totalIssues = issuesByModule.reduce((s, d) => s + d.value, 0);
+  if (totalIssues > 0) {
+    moduleCtas.push({
+      text: `${totalIssues} open issue${
+        totalIssues === 1 ? '' : 's'
+      } across modules.`,
+      label: 'View issues',
+      icon: AlertTriangle,
+      href: '/observability/alerts',
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -558,25 +702,25 @@ function ModulesTab() {
             Modules enabled
           </p>
           <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
-            {totalModules}
+            {totalModules === 0 ? '—' : totalModules}
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
           <p className="text-xs text-gray-500 dark:text-gray-400">Healthy</p>
           <p className="mt-1 text-2xl font-bold text-green-600 dark:text-green-400">
-            {healthyCount}
+            {totalModules === 0 ? '—' : healthyCount}
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
           <p className="text-xs text-gray-500 dark:text-gray-400">Degraded</p>
           <p className="mt-1 text-2xl font-bold text-amber-600 dark:text-amber-400">
-            {degradedCount}
+            {totalModules === 0 ? '—' : degradedCount}
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
           <p className="text-xs text-gray-500 dark:text-gray-400">Inactive</p>
           <p className="mt-1 text-2xl font-bold text-gray-500 dark:text-gray-400">
-            {inactiveCount}
+            {totalModules === 0 ? '—' : inactiveCount}
           </p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
@@ -592,10 +736,24 @@ function ModulesTab() {
         </div>
       </div>
 
+      {moduleCards.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center dark:border-gray-700 dark:bg-gray-900/40">
+          <AlertTriangle className="mx-auto mb-2 h-6 w-6 text-amber-500" />
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+            No module health data for this account / window
+          </p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            No module reported health for the selected {days}-day window. Widen
+            the window or check that modules are emitting activity.
+          </p>
+        </div>
+      ) : (
+        <>
       {/* Iter 5 — Sparkline KPI tiles per module */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
         {sparkTiles.map((tile) => {
           const Icon = tile.icon;
+          const tileCls = colorClasses(tile.color);
           return (
             <div
               key={tile.key}
@@ -603,10 +761,10 @@ function ModulesTab() {
             >
               <div className="mb-2 flex items-center gap-2">
                 <div
-                  className={`flex h-7 w-7 items-center justify-center rounded-md bg-${tile.color}-100 dark:bg-${tile.color}-900/30`}
+                  className={`flex h-7 w-7 items-center justify-center rounded-md ${tileCls.iconBg}`}
                 >
                   <Icon
-                    className={`h-3.5 w-3.5 text-${tile.color}-600 dark:text-${tile.color}-400`}
+                    className={`h-3.5 w-3.5 ${tileCls.iconText}`}
                   />
                 </div>
                 <span className="truncate text-[11px] font-medium text-gray-700 dark:text-gray-300">
@@ -614,7 +772,7 @@ function ModulesTab() {
                 </span>
               </div>
               <p className="text-lg font-bold text-gray-900 dark:text-white">
-                {tile.count.toLocaleString()}
+                {tile.hasData ? tile.count.toLocaleString() : '—'}
               </p>
               {tile.hasData && tile.sparkData.length > 1 ? (
                 <div className="mt-1 h-7">
@@ -738,25 +896,52 @@ function ModulesTab() {
           <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
             Cross-module Recommendations
           </h3>
-          {moduleRecommendations.length === 0 ? (
+          {moduleCtas.length === 0 ? (
             <p className="text-xs text-gray-500 dark:text-gray-400">
               All modules look healthy — no recommendations right now.
             </p>
           ) : (
             <ul className="space-y-2">
-              {moduleRecommendations.map((rec, i) => (
+              {moduleCtas.map((c, i) => (
                 <li
                   key={i}
-                  className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
                 >
-                  <Lightbulb className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-                  <p className="text-xs text-gray-700 dark:text-gray-300">{rec}</p>
+                  <Lightbulb className="h-4 w-4 flex-shrink-0 text-amber-500" />
+                  <p className="flex-1 text-xs text-gray-700 dark:text-gray-300">
+                    {c.text}
+                  </p>
+                  <InsightActionButton
+                    label={c.label}
+                    icon={c.icon}
+                    variant="subtle"
+                    size="sm"
+                    onAction={async () => {
+                      router.push(c.href);
+                    }}
+                  />
                 </li>
               ))}
             </ul>
           )}
         </div>
       </div>
+        </>
+      )}
+
+      {/* ── Audit tables (full width, paginated) — bottom of the tab ───────── */}
+      <AuditTable
+        rows={healthMatrixRows}
+        title="Module health matrix"
+        subtitle="MODULE-HEALTH"
+        pageSize={10}
+      />
+      <AuditTable
+        rows={activityRows}
+        title="Module activity"
+        subtitle="ACTIVITY-FEED"
+        pageSize={10}
+      />
     </div>
   );
 }

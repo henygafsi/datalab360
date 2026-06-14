@@ -63,6 +63,24 @@ export const ROLES = {
   Customer: 'Customer',
 } as const;
 
+/**
+ * Canonical Data360 admin Snowflake roles — the single source of truth for the
+ * coarse "is this caller a platform admin" check used where the granular
+ * Action-RBAC matrix (useCanPerform) has no registered action to gate on
+ * (e.g. account-overview maintenance/provisioning). Mirrors the set in
+ * useAuth.ts. Prefer `isAdminRole(role)` over inlining this array at call sites.
+ */
+export const D360_ADMIN_ROLES: string[] = [
+  'ACCOUNTADMIN',
+  'SYSADMIN',
+  'SECURITYADMIN',
+];
+
+/** True when `role` is one of the platform admin roles (case-insensitive). */
+export function isAdminRole(role?: string | null): boolean {
+  return D360_ADMIN_ROLES.includes((role ?? '').toUpperCase());
+}
+
 // Role-based module access
 export const ROLE_PERMISSIONS = {
   // Admin roles — full access to all modules

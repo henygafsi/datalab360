@@ -14,6 +14,7 @@
  * See: Screens/Account-overview/09-snowflake-accounts/_features.md
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Activity,
   CheckCircle2,
@@ -46,7 +47,16 @@ import {
   getAccountLoginHistory,
   getAccountWarehouses,
   getAccounts,
+  getDashboardOverview,
 } from '@/app/services/org-accounts/hooks';
+import {
+  getSummary,
+  getTableStorage,
+  getRoleHierarchy,
+} from '@/app/services/command-center';
+import type { SummaryResponse } from '@/app/services/command-center/types';
+import { InsightActionButton } from '@/app/shared/insights';
+import AuditTable, { type Row } from './AuditTable';
 import type {
   AccountCreditHistoryResponse,
   AccountDetailResponse,
@@ -60,6 +70,8 @@ const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
 interface SfAccountsState {
   accounts: AccountsListResponse | null;
   selected: string | null;
+  /** Explicit backend ORGADMIN signal (is_org_admin). null = unknown. */
+  orgAdmin: boolean | null;
   detail: AccountDetailResponse | null;
   creditsHistory: AccountCreditHistoryResponse | null;
   warehouses: AccountWarehousesResponse | null;
@@ -116,9 +128,11 @@ function isApiError(data: unknown): boolean {
 }
 
 export default function SnowflakeAccountsTab() {
+  const router = useRouter();
   const [state, setState] = useState<SfAccountsState>({
     accounts: null,
     selected: null,
+    orgAdmin: null,
     detail: null,
     creditsHistory: null,
     warehouses: null,
@@ -128,35 +142,35 @@ export default function SnowflakeAccountsTab() {
     error: null,
   });
 
-  // 1. Fetch the account list on mount, auto-select the first one.
+  // 1. Fetch the account list + the explicit ORGADMIN signal on mount, then
+  //    auto-select the first account. The org-admin gate is driven off the
+  //    backend `is_org_admin` flag (dashboard/overview) — NOT inferred from an
+  //    empty list — so the empty-state can honestly distinguish "ORGADMIN not
+  //    granted" from "no accounts registered in this org yet".
   useEffect(() => {
     (async () => {
-      try {
-        const raw = await getAccounts();
-        // An error envelope (role can't read org views) → degrade to an empty
-        // list so the friendly "No Snowflake accounts" panel renders, not a
-        // red error banner.
-        const accounts = isApiError(raw)
-          ? ({ accounts: [], count: 0 } as unknown as AccountsListResponse)
-          : raw;
-        const first = accounts?.accounts?.[0]?.account_name ?? null;
-        setState((s) => ({
-          ...s,
-          accounts,
-          selected: first,
-          loadingList: false,
-        }));
-      } catch (e) {
-        // Network/HTTP failure listing accounts is also treated as an empty
-        // org rather than a hard error — the empty-state panel already
-        // explains the /org-accounts/accounts endpoint returned nothing.
-        setState((s) => ({
-          ...s,
-          accounts: { accounts: [], count: 0 } as unknown as AccountsListResponse,
-          selected: null,
-          loadingList: false,
-        }));
-      }
+      const [raw, overview] = await Promise.all([
+        getAccounts().catch(() => null),
+        getDashboardOverview().catch(() => null),
+      ]);
+      // An error envelope / failure (role can't read org views) → degrade to an
+      // empty list so the home-account fallback renders, not a red error banner.
+      const accounts =
+        raw && !isApiError(raw)
+          ? raw
+          : ({ accounts: [], count: 0 } as unknown as AccountsListResponse);
+      const first = accounts?.accounts?.[0]?.account_name ?? null;
+      const orgAdmin =
+        typeof overview?.overview?.is_org_admin === 'boolean'
+          ? overview.overview.is_org_admin
+          : null;
+      setState((s) => ({
+        ...s,
+        accounts,
+        selected: first,
+        orgAdmin,
+        loadingList: false,
+      }));
     })();
   }, []);
 
@@ -209,8 +223,14 @@ export default function SnowflakeAccountsTab() {
     }));
   }, [state.creditsHistory]);
 
-  const warehouseRows = state.warehouses?.warehouses ?? [];
-  const loginRows = state.logins?.logins ?? [];
+  const warehouseRows = useMemo(
+    () => state.warehouses?.warehouses ?? [],
+    [state.warehouses],
+  );
+  const loginRows = useMemo(
+    () => state.logins?.logins ?? [],
+    [state.logins],
+  );
 
   const activeWarehouses = useMemo(
     () =>
@@ -236,6 +256,26 @@ export default function SnowflakeAccountsTab() {
       const inWindow = Number.isFinite(tsMs) && tsMs >= cutoff;
       return acc + (isFail && inWindow ? 1 : 0);
     }, 0);
+  }, [loginRows]);
+
+  // Distinct from the 24h failed-login count: the login FAILURE RATE over the
+  // full 30d window (loginRows = /logins/{account}?days=30). A percentage, so it
+  // never restates the 24h count under a second label, and it surfaces login
+  // health even though the detail endpoint returns no logins summary.
+  const loginFailRate30d = useMemo(() => {
+    let total = 0;
+    let fail = 0;
+    for (const r of loginRows as any[]) {
+      total += 1;
+      const status = String(
+        r?.is_success ?? r?.status ?? r?.event_status ?? '',
+      ).toUpperCase();
+      const isFail =
+        status === 'FAIL' || status === 'FAILED' || status === 'FALSE' ||
+        status === 'NO' || r?.is_success === false || r?.error_code != null;
+      if (isFail) fail += 1;
+    }
+    return total > 0 ? (fail / total) * 100 : null;
   }, [loginRows]);
 
   const accountSummary = state.detail?.account ?? null;
@@ -268,6 +308,51 @@ export default function SnowflakeAccountsTab() {
     [state.accounts, state.selected]
   );
 
+  // ── Pre-shaped rows for the bottom AuditTables ──────────────────────────────
+  // All Snowflake accounts (promote the already-fetched picker list to a
+  // paginated, auto-filterable table). region/edition/cloud/status auto-detect.
+  const accountRows: Row[] = useMemo(
+    () =>
+      (state.accounts?.accounts ?? []).map((a) => ({
+        account_name: a.account_name,
+        account_locator: a.account_locator,
+        region: a.region,
+        edition: a.edition,
+        cloud: a.cloud,
+        status: a.is_active ? 'active' : 'inactive',
+        created_on: a.created_on,
+      })),
+    [state.accounts],
+  );
+
+  // Warehouse credit breakdown — keep credits/metering NUMERIC so formatCell
+  // renders them and the only auto-detected filter is the useful Warehouse one.
+  const warehouseDetailRows: Row[] = useMemo(
+    () =>
+      detailWarehouses.map((w) => ({
+        warehouse: w.warehouse_name || '—',
+        compute_credits: w.compute_credits ?? null,
+        cloud_services: w.cloud_credits ?? null,
+        metering_hours: w.metering_hours ?? null,
+      })),
+    [detailWarehouses],
+  );
+
+  // Recent logins — pre-derive a human-readable `status` so a Status filter
+  // (success/failed) auto-detects; keep `when` as the ISO date for the range.
+  const loginTableRows: Row[] = useMemo(
+    () =>
+      (loginRows as any[]).map((r) => ({
+        when: r.event_timestamp ?? r.timestamp ?? null,
+        user: r.user_name ?? '—',
+        client: r.client_application ?? r.client_type ?? '—',
+        client_ip: r.client_ip ?? '—',
+        status: r.is_success === false || r.error_code ? 'failed' : 'success',
+        error: r.error_message ?? r.error_code ?? '—',
+      })),
+    [loginRows],
+  );
+
   if (state.loadingList) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900">
@@ -277,28 +362,7 @@ export default function SnowflakeAccountsTab() {
   }
 
   if (!state.selected) {
-    return (
-      <div className="rounded-xl border border-slate-200 bg-white p-8 dark:border-slate-700 dark:bg-slate-900">
-        <div className="mx-auto max-w-md text-center">
-          <Cloud className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-600" />
-          <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-white">
-            No Snowflake accounts in this organization
-          </h3>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            The backend's <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] dark:bg-slate-800">/org-accounts/accounts</code> endpoint
-            returned an empty list. Once a Snowflake account is registered
-            against this Data360 org, it will appear here with credits,
-            warehouses and login activity.
-          </p>
-          <a
-            href="/connect-data"
-            className="mt-4 inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-          >
-            Connect an account
-          </a>
-        </div>
-      </div>
-    );
+    return <HomeAccountFallback orgAdmin={state.orgAdmin} />;
   }
 
   return (
@@ -354,6 +418,40 @@ export default function SnowflakeAccountsTab() {
       {state.error && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-300">
           {state.error}
+        </div>
+      )}
+
+      {/* Honest CTAs — surfaced only when the loaded data warrants action. */}
+      {(failedLogins24h > 0 ||
+        selectedAccount?.is_active === false ||
+        (accountSummary as any)?.databases_count === 0) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-900/10">
+          <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+            Recommended actions
+          </span>
+          {failedLogins24h > 0 && (
+            <InsightActionButton
+              label="Investigate failed logins"
+              icon={Shield}
+              variant="subtle"
+              size="sm"
+              onAction={async () => {
+                router.push('/account-overview?tab=security');
+              }}
+            />
+          )}
+          {(selectedAccount?.is_active === false ||
+            (accountSummary as any)?.databases_count === 0) && (
+            <InsightActionButton
+              label="Connect account"
+              icon={Database}
+              variant="subtle"
+              size="sm"
+              onAction={async () => {
+                router.push('/data-source-connection');
+              }}
+            />
+          )}
         </div>
       )}
 
@@ -469,7 +567,7 @@ export default function SnowflakeAccountsTab() {
         </header>
         <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-4">
           <a
-            href="/users"
+            href="/governance/users"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             Manage Users
@@ -653,9 +751,13 @@ export default function SnowflakeAccountsTab() {
           />
           <HealthTile
             icon={Activity}
-            label="Errors 24h"
-            value={fmt(failedLogins24h)}
-            tone={failedLogins24h > 0 ? 'warn' : 'ok'}
+            label="Login fail rate (30d)"
+            value={
+              loginFailRate30d == null ? '—' : `${loginFailRate30d.toFixed(0)}%`
+            }
+            tone={
+              loginFailRate30d != null && loginFailRate30d > 5 ? 'warn' : 'ok'
+            }
           />
         </div>
       </section>
@@ -716,132 +818,150 @@ export default function SnowflakeAccountsTab() {
         </ResponsiveContainer>
       </ChartPanel>
 
-      {/* Warehouse credit breakdown (from account detail) */}
-      <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-        <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
-          <Zap className="h-4 w-4 text-slate-500" />
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-            Warehouse Credit Breakdown (30d)
-          </h3>
-          <span className="rounded bg-slate-100 px-1.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            {detailWarehouses.length}
-          </span>
-        </header>
-        <div className="max-h-72 overflow-y-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/50">
-              <tr>
-                <th className="px-3 py-2 text-left">Warehouse</th>
-                <th className="px-3 py-2 text-right">Compute</th>
-                <th className="px-3 py-2 text-right">Cloud svcs</th>
-                <th className="px-3 py-2 text-right">Metering (h)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {detailWarehouses.map((w, i) => (
-                <tr key={`${w.warehouse_name}-${i}`} className="hover:bg-slate-50 dark:hover:bg-slate-800">
-                  <td className="px-3 py-1.5 text-slate-700 dark:text-slate-300">
-                    {w.warehouse_name || '—'}
-                  </td>
-                  <td className="px-3 py-1.5 text-right text-slate-900 dark:text-white">
-                    {fmtCredits(w.compute_credits)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right text-slate-900 dark:text-white">
-                    {fmtCredits(w.cloud_credits)}
-                  </td>
-                  <td className="px-3 py-1.5 text-right text-slate-900 dark:text-white">
-                    {w.metering_hours == null ? '—' : w.metering_hours.toFixed(1)}
-                  </td>
-                </tr>
-              ))}
-              {!state.loadingDetail && detailWarehouses.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-3 py-6 text-center text-xs text-slate-400">
-                    No warehouse credit usage in the last 30 days.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {/* ── Audit & detail tables (full width, paginated, no internal scroll) ── */}
+      {/* Warehouse credit breakdown + Recent logins (from account detail) — gated
+          on loadingDetail so they don't flash an empty state while fetching. */}
+      {state.loadingDetail ? (
+        <div className="h-40 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+      ) : (
+        <>
+          <AuditTable
+            rows={warehouseDetailRows}
+            columns={['warehouse', 'compute_credits', 'cloud_services', 'metering_hours']}
+            pageSize={10}
+            title="Warehouse Credit Breakdown (30d)"
+            subtitle="ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY"
+          />
+          <AuditTable
+            rows={loginTableRows}
+            columns={['when', 'user', 'client', 'client_ip', 'status', 'error']}
+            pageSize={10}
+            title="Recent logins"
+            subtitle="ORG_ACCOUNTS.LOGINS"
+          />
+        </>
+      )}
 
-      {/* Recent logins */}
-      <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-        <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
-          <Shield className="h-4 w-4 text-slate-500" />
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-            Recent logins
-          </h3>
-          <span className="rounded bg-slate-100 px-1.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-            {loginRows.length}
-          </span>
-        </header>
-        <div className="max-h-72 overflow-y-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/50">
-              <tr>
-                <th className="px-3 py-2 text-left">When</th>
-                <th className="px-3 py-2 text-left">User</th>
-                <th className="px-3 py-2 text-left">Client</th>
-                <th className="px-3 py-2 text-left">Client IP</th>
-                <th className="px-3 py-2 text-center">Status</th>
-                <th className="px-3 py-2 text-left">Error</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {loginRows.slice(0, 50).map((row: any, i: number) => (
-                <tr
-                  key={i}
-                  className="hover:bg-slate-50 dark:hover:bg-slate-800"
-                >
-                  <td className="px-3 py-1.5 text-xs text-slate-500">
-                    {row.event_timestamp ?? row.timestamp ?? '—'}
-                  </td>
-                  <td className="px-3 py-1.5 text-slate-700 dark:text-slate-300">
-                    {row.user_name ?? '—'}
-                  </td>
-                  <td className="px-3 py-1.5 text-xs text-slate-500">
-                    {row.client_application ?? '—'}
-                  </td>
-                  <td className="px-3 py-1.5 font-mono text-xs text-slate-500">
-                    {row.client_ip ?? '—'}
-                  </td>
-                  <td className="px-3 py-1.5 text-center">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                        row.is_success === false || row.error_code
-                          ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
-                          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                      }`}
-                    >
-                      {row.is_success === false || row.error_code
-                        ? 'failed'
-                        : 'success'}
-                    </span>
-                  </td>
-                  <td
-                    className="max-w-[18rem] truncate px-3 py-1.5 text-xs text-slate-500"
-                    title={row.error_message ?? row.error_code ?? ''}
-                  >
-                    {row.error_message ?? row.error_code ?? '—'}
-                  </td>
-                </tr>
-              ))}
-              {!state.loadingDetail && loginRows.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-3 py-6 text-center text-xs text-slate-400"
-                  >
-                    No login history in the last 30 days.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {/* All Snowflake accounts — promoted from the picker list (zero-cost win) */}
+      <AuditTable
+        rows={accountRows}
+        columns={['account_name', 'account_locator', 'region', 'edition', 'cloud', 'status', 'created_on']}
+        pageSize={10}
+        title="All Snowflake accounts"
+        subtitle="ORGANIZATION_USAGE.ACCOUNTS"
+      />
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Home-account fallback (ORGADMIN not granted, or no accounts registered yet).
+// Org-level enumeration needs the ORGADMIN role; when it isn't available we still
+// show THIS account's own metrics from /command-center/summary (home-account) +
+// account-scoped audit tables, instead of a dead-end empty panel.
+// ──────────────────────────────────────────────────────────────────────────────
+function HomeAccountFallback({ orgAdmin }: { orgAdmin: boolean | null }) {
+  const [summary, setSummary] = useState<SummaryResponse | null>(null);
+  const [storage, setStorage] = useState<Row[]>([]);
+  const [roles, setRoles] = useState<Row[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      getSummary().catch(() => null),
+      getTableStorage(120),
+      getRoleHierarchy(),
+    ])
+      .then(([s, st, rh]) => {
+        if (!active) return;
+        setSummary(s);
+        setStorage((st?.data ?? []) as Row[]);
+        setRoles((rh?.data ?? []) as Row[]);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Honest cause split: role-gated vs genuinely-empty org (a real ORGADMIN with
+  // no registered accounts must NOT be told "ORGADMIN not granted").
+  const roleGated = orgAdmin === false;
+  const p = summary?.platform;
+  const q = summary?.quality;
+  const c = summary?.cost;
+  const sec = summary?.security;
+
+  return (
+    <div className="space-y-6">
+      {/* Honest needs-ORGADMIN / empty-org note */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-900/10">
+        <div className="flex items-start gap-2">
+          <Shield className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" />
+          <div>
+            <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+              {roleGated
+                ? 'Organization-level access requires the ORGADMIN role'
+                : 'No Snowflake accounts registered in this organization yet'}
+            </h3>
+            <p className="mt-1 text-xs leading-relaxed text-amber-700/90 dark:text-amber-200/80">
+              {roleGated
+                ? 'The ORGADMIN role is not granted on this connection, so multi-account enumeration is unavailable. Showing this account’s own metrics below.'
+                : 'Once a Snowflake account is registered against this org it appears here with credits, warehouses and login activity. Showing this account’s own metrics below.'}
+            </p>
+            <a
+              href="/data-source-connection"
+              className="mt-2 inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+            >
+              Connect an account
+            </a>
+          </div>
         </div>
-      </section>
+      </div>
+
+      {/* Home-account KPI strip (real metrics for THIS account; — when absent) */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
+        <KpiCard icon={Users} label="Total users" value={fmt(p?.total_users)} />
+        <KpiCard icon={Activity} label="Active users 7d" value={fmt(p?.active_users_7d)} />
+        <KpiCard icon={Database} label="Projects" value={fmt(p?.total_projects)} />
+        <KpiCard icon={Database} label="Tables" value={fmt(q?.total_tables)} />
+        <KpiCard
+          icon={HardDrive}
+          label="Storage"
+          value={c?.storage_tb == null ? '—' : `${c.storage_tb.toFixed(2)} TB`}
+        />
+        <KpiCard
+          icon={CreditCard}
+          label="Credits 30d"
+          value={fmt(c?.credits_30d == null ? null : Math.round(c.credits_30d))}
+        />
+        <KpiCard icon={Heart} label="Health score" value={fmt(q?.health_score)} />
+        <KpiCard icon={Shield} label="Failed logins 7d" value={fmt(sec?.failed_logins_7d)} />
+      </div>
+
+      {/* Account-scoped audit tables (populate even without ORGADMIN) */}
+      {loading ? (
+        <div className="h-40 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+      ) : (
+        <>
+          <AuditTable
+            rows={storage}
+            pageSize={10}
+            title="Storage by table"
+            subtitle="ACCOUNT_USAGE.TABLE_STORAGE_METRICS"
+          />
+          <AuditTable
+            rows={roles}
+            pageSize={10}
+            title="Role hierarchy"
+            subtitle="SHOW ROLES"
+          />
+        </>
+      )}
     </div>
   );
 }

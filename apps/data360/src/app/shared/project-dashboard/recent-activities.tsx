@@ -3,7 +3,7 @@
 import { projectRecentActivitiesData } from '@/data/project-dashboard';
 import WidgetCard from '@core/components/cards/widget-card';
 import cn from '@core/utils/class-names';
-import { Box, Flex, Tab, Text } from 'rizzui';
+import { Box, Flex, Text } from 'rizzui';
 import SimpleBar from 'simplebar-react';
 
 export default function RecentActivities({
@@ -11,29 +11,17 @@ export default function RecentActivities({
 }: {
   className?: string;
 }) {
+  // Previously two tabs ("Activity" / "Update") rendered the identical feed —
+  // the data has no type field to split on, so they are collapsed into one
+  // honest list rather than showing the same content twice.
   return (
     <WidgetCard
       title="Recent Activities"
       className={cn('@container dark:bg-gray-100/50', className)}
     >
-      <Tab className="mt-4">
-        <Tab.List className="grid w-full grid-cols-2 gap-0">
-          <Tab.ListItem className="justify-center py-4">Activity</Tab.ListItem>
-          <Tab.ListItem className="justify-center py-4">Update</Tab.ListItem>
-        </Tab.List>
-        <Tab.Panels>
-          <Tab.Panel>
-            <SimpleBar className="h-[505px] @3xl/pd:h-[700px] @7xl/pd:h-[380px]">
-              <ActivityCard />
-            </SimpleBar>
-          </Tab.Panel>
-          <Tab.Panel>
-            <SimpleBar className="h-[505px] @3xl/pd:h-[700px] @7xl/pd:h-[380px]">
-              <ActivityCard />
-            </SimpleBar>
-          </Tab.Panel>
-        </Tab.Panels>
-      </Tab>
+      <SimpleBar className="mt-4 h-[505px] @3xl/pd:h-[700px] @7xl/pd:h-[380px]">
+        <ActivityCard />
+      </SimpleBar>
     </WidgetCard>
   );
 }

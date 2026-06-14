@@ -667,7 +667,7 @@ export default function GouvernanceDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <KPICard
           title="Total Events"
-          value={dashboardData?.total_events || 0}
+          value={dashboardData?.total_events != null ? dashboardData.total_events : '—'}
           subtitle={dashboardData?.period_days ? `Last ${dashboardData.period_days} days` : 'All platform activities'}
           icon={<PiChartLine className="w-6 h-6" />}
           color="blue"
@@ -676,7 +676,7 @@ export default function GouvernanceDashboard() {
 
         <KPICard
           title="Active Users (7d)"
-          value={dashboardData?.active_users_7d ?? dashboardData?.active_users_30d ?? 0}
+          value={dashboardData?.active_users_7d ?? dashboardData?.active_users_30d ?? '—'}
           subtitle="Distinct users in period"
           icon={<PiUsers className="w-6 h-6" />}
           color="indigo"
@@ -699,7 +699,7 @@ export default function GouvernanceDashboard() {
 
         <KPICard
           title="Credits (7d)"
-          value={dashboardData?.credits_7d ?? dashboardData?.credits_30d ?? 0}
+          value={dashboardData?.credits_7d ?? dashboardData?.credits_30d ?? '—'}
           subtitle="Snowflake warehouse credits"
           icon={<PiDatabase className="w-6 h-6" />}
           color="blue"
@@ -726,7 +726,7 @@ export default function GouvernanceDashboard() {
 
         <KPICard
           title="Success Rate"
-          value={`${dashboardData?.success_rate || 0}%`}
+          value={dashboardData?.success_rate != null ? `${dashboardData.success_rate}%` : '—%'}
           subtitle="Event completion rate"
           change={{
             value: dashboardData?.success_rate ? dashboardData.success_rate - 90 : 0,
@@ -740,7 +740,7 @@ export default function GouvernanceDashboard() {
 
         <KPICard
           title="Failed Events"
-          value={dashboardData?.failed_events || 0}
+          value={dashboardData?.failed_events != null ? dashboardData.failed_events : '—'}
           subtitle="Requires attention"
           icon={<PiWarning className="w-6 h-6" />}
           color="red"

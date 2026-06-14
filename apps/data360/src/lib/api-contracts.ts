@@ -314,6 +314,10 @@ export const API = {
     updateGrants: () => '/gouvernance/update-grants',
     securityMatrix: () => '/gouvernance/security-matrix',
     policies: () => '/gouvernance/policies',
+    /** GET /gouvernance/policies/my-scope — role-scoped view: policies relevant to the
+     *  caller's active role, annotated manageable_by_me / references_my_role (G1).
+     *  NOT accountadmin-gated. (policies.ts:getMyScopePolicies). */
+    policiesMyScope: () => '/gouvernance/policies/my-scope',
     /** GET /gouvernance/policies/health — policy health check across all policy types. */
     policiesHealth: () => '/gouvernance/policies/health',
     /** GET /gouvernance/policies/tags/list — list all governance tags (policies.ts:getTags). */
@@ -554,6 +558,21 @@ export const API = {
     queryIntelligence:    ()               => '/command-center/query-intelligence',
     /** GET /command-center/pipelines — pipeline & ingestion health. */
     pipelines:            ()               => '/command-center/pipelines',
+    /**
+     * GET /command-center/projects/{id}/scores[?days=<n>] — per-project DQ/COST/PERF/GOV
+     * scorecards. Each dimension carries `scope: "project" | "account"` so the UI can
+     * label account-level fallbacks honestly (never shown as per-project data).
+     */
+    projectScores:        (id: string, days?: number) =>
+      `/command-center/projects/${enc(id)}/scores${days != null ? `?days=${days}` : ''}`,
+    /**
+     * GET /command-center/projects/{id}/rollup[?days=<n>] — precomputed per-project
+     * KPI rollup (DQ·PERF·GOV·STORAGE + per-project COST + reco counts + last
+     * deploy/event), served cheaply from the batch-materialised PROJECT_ROLLUP
+     * table; cold miss falls back to a live compute. `served_from` flags which.
+     */
+    projectRollup:        (id: string, days?: number) =>
+      `/command-center/projects/${enc(id)}/rollup${days != null ? `?days=${days}` : ''}`,
   },
 
   /** Org accounts — backend: /org-accounts/* (modules/org_accounts/router.py). */
@@ -629,6 +648,22 @@ export const API = {
     autoCreate: ()                      => '/bi-dashboard/auto-create',
     templates:  ()                      => '/bi-dashboard/templates',
     retailKpis: ()                      => '/bi-dashboard/retail-kpis',
+    /** GET /bi-dashboard/{id}/cost[?days=N] — honest-partial per-dashboard usage/cost proxy. */
+    cost:       (id: string, days?: number) =>
+      `/bi-dashboard/${enc(id)}/cost${days != null ? `?days=${days}` : ''}`,
+    /** GET /bi-dashboard/{id}/status — draft/live publish state + share count. */
+    status:     (id: string)            => `/bi-dashboard/${enc(id)}/status`,
+    /** POST /bi-dashboard/{id}/publish — draft → live + notify (activity log). */
+    publish:    (id: string)            => `/bi-dashboard/${enc(id)}/publish`,
+    /** POST /bi-dashboard/{id}/unpublish — live → draft. */
+    unpublish:  (id: string)            => `/bi-dashboard/${enc(id)}/unpublish`,
+    /** GET /bi-dashboard/{id}/shares — list current share grants. */
+    shares:     (id: string)            => `/bi-dashboard/${enc(id)}/shares`,
+    /** POST /bi-dashboard/{id}/share — grant view to a user or D360 role. */
+    share:      (id: string)            => `/bi-dashboard/${enc(id)}/share`,
+    /** DELETE /bi-dashboard/{id}/shares/{shareId} — revoke a share grant. */
+    revokeShare:(id: string, shareId: string) =>
+      `/bi-dashboard/${enc(id)}/shares/${enc(shareId)}`,
   },
 
   /** Data Products — backend: /data-products/* (modules/data_products/router.py). */
@@ -851,6 +886,38 @@ export const API = {
   /** Platform API — backend: /api/* (keep-rule endpoints). */
   platform: {
     path: (p: string) => `/api/${p.replace(/^\//, '')}`,
+  },
+
+  /**
+   * Administration — platform admin surfaces under /administration/*.
+   * `performance.*` is the per-account, multi-axis Performance page contract
+   * (backend built in parallel; FE degrades quietly on 404 — "not deployed yet").
+   * All paths are scoped per account: /administration/performance/{account}/...
+   */
+  administration: {
+    performance: {
+      /** GET /administration/performance/{account}/overview?hours= — KPI block. */
+      overview: (account: string, hours?: number) =>
+        `/administration/performance/${enc(account)}/overview${qs({ hours })}`,
+      /** GET /administration/performance/{account}/by-endpoint?hours=&limit= */
+      byEndpoint: (account: string, opts?: { hours?: number; limit?: number }) =>
+        `/administration/performance/${enc(account)}/by-endpoint${qs({ hours: opts?.hours, limit: opts?.limit })}`,
+      /** GET /administration/performance/{account}/by-user?hours=&limit= */
+      byUser: (account: string, opts?: { hours?: number; limit?: number }) =>
+        `/administration/performance/${enc(account)}/by-user${qs({ hours: opts?.hours, limit: opts?.limit })}`,
+      /** GET /administration/performance/{account}/by-cache?axis=page|tab|module|project&hours= */
+      byCache: (account: string, axis: 'page' | 'tab' | 'module' | 'project', hours?: number) =>
+        `/administration/performance/${enc(account)}/by-cache${qs({ axis, hours })}`,
+      /** GET /administration/performance/{account}/by-module?hours= */
+      byModule: (account: string, hours?: number) =>
+        `/administration/performance/${enc(account)}/by-module${qs({ hours })}`,
+      /** GET /administration/performance/{account}/errors?hours=&limit= */
+      errors: (account: string, opts?: { hours?: number; limit?: number }) =>
+        `/administration/performance/${enc(account)}/errors${qs({ hours: opts?.hours, limit: opts?.limit })}`,
+      /** GET /administration/performance/{account}/user/{username}?hours= — user drill-down. */
+      userDetail: (account: string, username: string, hours?: number) =>
+        `/administration/performance/${enc(account)}/user/${enc(username)}${qs({ hours })}`,
+    },
   },
 } as const;
 

@@ -8,6 +8,7 @@ import {
   Layers, Search, Filter, ChevronDown, ChevronRight, BarChart3, AlertTriangle,
 } from 'lucide-react';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 
 // ============================================
 // TYPES
@@ -320,7 +321,7 @@ export default function SourceCatalog() {
   useEffect(() => {
     const loadDatabases = async () => {
       try {
-        const res = await apiClient.get('/common/databases');
+        const res = await apiClient.get(API.common.databases());
         const rawDbs = res.data?.databases || res.data || [];
         const safeDbs = Array.isArray(rawDbs) ? rawDbs : [];
         const dbs = safeDbs.map((d: any) =>

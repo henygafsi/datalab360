@@ -791,6 +791,12 @@ interface Props {
    * user doesn't re-type text they already gave the UnifiedProjectWizard.
    */
   initialDescription?: string;
+  /**
+   * Render inline (no modal backdrop / centered card) so the flow can live
+   * as the "AI Assist" tab inside the workflow right pane. When true, the
+   * component fills its parent container instead of floating as a dialog.
+   */
+  embedded?: boolean;
 }
 
 export default function GuidedAiWorkflowWizard({
@@ -799,6 +805,7 @@ export default function GuidedAiWorkflowWizard({
   onCreated,
   creditsAvailable = 12_450,
   initialDescription,
+  embedded = false,
 }: Props) {
   const [state, setState] = useState<WizardState>({
     step: 1,
@@ -1369,7 +1376,7 @@ export default function GuidedAiWorkflowWizard({
     handleClose();
   };
 
-  if (!open) return null;
+  if (!open && !embedded) return null;
 
   return (
     <AnimatePresence>
@@ -1377,8 +1384,12 @@ export default function GuidedAiWorkflowWizard({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-stretch justify-stretch bg-slate-900/50 backdrop-blur-sm"
-        onClick={handleClose}
+        className={
+          embedded
+            ? 'relative flex h-full w-full'
+            : 'fixed inset-0 z-50 flex items-stretch justify-stretch bg-slate-900/50 backdrop-blur-sm'
+        }
+        onClick={embedded ? undefined : handleClose}
       >
         <motion.div
           initial={{ scale: 0.98, opacity: 0 }}
@@ -1386,7 +1397,11 @@ export default function GuidedAiWorkflowWizard({
           exit={{ scale: 0.98, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 380, damping: 28 }}
           onClick={(e) => e.stopPropagation()}
-          className="m-auto flex h-[min(900px,95vh)] w-[min(1100px,95vw)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+          className={
+            embedded
+              ? 'flex h-full w-full flex-col overflow-hidden bg-white dark:bg-slate-900'
+              : 'm-auto flex h-[min(900px,95vh)] w-[min(1100px,95vw)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900'
+          }
         >
           {/* ── Top bar: title + phase progress + credits ── */}
           <TopBar

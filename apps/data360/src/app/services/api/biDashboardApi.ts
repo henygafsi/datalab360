@@ -4,6 +4,7 @@
  * Handles: dashboard CRUD, pages, widgets, filters, chart data, retail KPIs, snapshots.
  */
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import type {
   CreateDashboardRequest,
   CreateDashboardResponse,
@@ -289,5 +290,138 @@ export async function exportDashboard(projectId: string): Promise<Blob> {
     `${PREFIX}/${projectId}/export`,
     { responseType: 'blob' }
   );
+  return data;
+}
+
+// ============================================================================
+// Publish / status + Sharing (Office365-style draft/live + share with user/role)
+//
+// These routes are NEW on the local backend. Until uvicorn is restarted they
+// 404 — so callers should treat 404/501 as "feature not provisioned yet"
+// (mirrors the score-cards `isUnavailable` pattern) rather than a hard error.
+// ============================================================================
+
+export type DashboardLiveStatus = 'draft' | 'live';
+
+export interface DashboardStatus {
+  project_id: string;
+  name?: string | null;
+  status: DashboardLiveStatus;
+  published_by?: string | null;
+  published_at?: string | null;
+  unpublished_by?: string | null;
+  unpublished_at?: string | null;
+  share_count: number;
+}
+
+export interface PublishResult {
+  project_id: string;
+  status: DashboardLiveStatus;
+  published_by?: string | null;
+  published_at?: string | null;
+  unpublished_by?: string | null;
+  unpublished_at?: string | null;
+  notified?: string[];
+  notified_count?: number;
+  notification_channel?: string;
+}
+
+export interface DashboardShare {
+  share_id: string;
+  project_id: string;
+  grantee_type: 'user' | 'role';
+  grantee: string;
+  access_level: string;
+  granted_by?: string | null;
+  created_at?: string | null;
+}
+
+export interface ShareInput {
+  grantee_type: 'user' | 'role';
+  grantee: string;
+  access_level?: string;
+}
+
+export interface DashboardCostRenderActivity {
+  render_count: number | null;
+  chart_query_count: number | null;
+  distinct_users: number | null;
+  first_rendered: string | null;
+  last_rendered: string | null;
+  period_days: number;
+  instrumented: boolean;
+}
+
+export interface DashboardCost {
+  dashboard_id: string;
+  name?: string | null;
+  /** Credits — intentionally null (not attributable on a shared warehouse). */
+  cost: number | null;
+  credits: number | null;
+  bytes_scanned: number | null;
+  partial: boolean;
+  attributable: boolean;
+  note?: string;
+  render_activity?: DashboardCostRenderActivity;
+  widget_count?: number | null;
+  page_count?: number | null;
+  estimated_render_queries?: number | null;
+}
+
+/** A 404/501 means the route isn't provisioned on this backend yet (unavailable),
+ * not a genuine failure. Callers degrade to an honest disabled/"—" state. */
+export function isBiRouteUnavailable(err: unknown): boolean {
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  return status === 404 || status === 501;
+}
+
+export async function getDashboardStatus(projectId: string): Promise<DashboardStatus> {
+  const { data } = await apiClient.get<DashboardStatus>(API.biDashboard.status(projectId));
+  return data;
+}
+
+export async function publishDashboard(projectId: string): Promise<PublishResult> {
+  const { data } = await apiClient.post<PublishResult>(API.biDashboard.publish(projectId));
+  return data;
+}
+
+export async function unpublishDashboard(projectId: string): Promise<PublishResult> {
+  const { data } = await apiClient.post<PublishResult>(API.biDashboard.unpublish(projectId));
+  return data;
+}
+
+export async function listDashboardShares(projectId: string): Promise<DashboardShare[]> {
+  const { data } = await apiClient.get<{ shares?: DashboardShare[]; count?: number }>(
+    API.biDashboard.shares(projectId)
+  );
+  return Array.isArray(data?.shares) ? data.shares : [];
+}
+
+export async function shareDashboard(
+  projectId: string,
+  input: ShareInput
+): Promise<DashboardShare> {
+  const { data } = await apiClient.post<DashboardShare>(
+    API.biDashboard.share(projectId),
+    input
+  );
+  return data;
+}
+
+export async function revokeDashboardShare(
+  projectId: string,
+  shareId: string
+): Promise<{ revoked: number }> {
+  const { data } = await apiClient.delete<{ revoked: number }>(
+    API.biDashboard.revokeShare(projectId, shareId)
+  );
+  return data;
+}
+
+export async function getDashboardCost(
+  projectId: string,
+  days?: number
+): Promise<DashboardCost> {
+  const { data } = await apiClient.get<DashboardCost>(API.biDashboard.cost(projectId, days));
   return data;
 }

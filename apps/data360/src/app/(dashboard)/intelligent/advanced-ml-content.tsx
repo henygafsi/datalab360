@@ -19,6 +19,7 @@ import {
   PiSparkle,
 } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
@@ -463,6 +464,10 @@ function ClassificationSection() {
   const [metricsModel, setMetricsModel] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDropModel, setConfirmDropModel] = useState<string | null>(null);
+  // System 2 Action-RBAC: dropping a model maps to cortex:delete. Fail-open
+  // while the allow-set loads (no flash of a disabled control).
+  const deletePerm = useCanPerform('cortex', 'delete');
+  const canDeleteModel = deletePerm.allowed || deletePerm.loading;
 
   const fetchModels = useCallback(async () => {
     const result = await listClassificationModels();
@@ -623,7 +628,7 @@ function ClassificationSection() {
                   <Button variant="outline" size="sm" onClick={() => handleViewMetrics(modelName)} className="gap-1" aria-expanded={metricsModel === modelName}>
                     <PiEye className="w-3.5 h-3.5" /> Metrics
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setConfirmDropModel(modelName)} className="gap-1 text-red-600 hover:bg-red-50">
+                  <Button variant="outline" size="sm" disabled={!canDeleteModel} title={!canDeleteModel ? 'You lack the "delete" permission on intelligence. Ask an administrator to grant it.' : undefined} onClick={() => setConfirmDropModel(modelName)} className="gap-1 text-red-600 hover:bg-red-50">
                     <PiTrash className="w-3.5 h-3.5" /> Drop
                   </Button>
                 </div>

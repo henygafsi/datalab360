@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Badge, Button, Input, Loader, Select } from 'rizzui';
 import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold } from 'react-icons/pi';
+import { Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import cn from '@core/utils/class-names';
 import Breadcrumb from '@/components/ui/Breadcrumb';
@@ -10,7 +11,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import CostOverviewCard from '@/app/shared/observability/cost-overview-card';
 import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer';
-import ActionRail from '@/app/shared/action-rail/ActionRail';
+import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
 import {
   getWarehouseUsage,
   getStorageMetrics,
@@ -29,7 +30,9 @@ import { getResourceMonitors } from '@/app/services/org-accounts/hooks';
 import { getApiErrorMessage } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
-// Create Resource Monitor dialog
+// Create Resource Monitor — docked right-tab panel (no centered overlay; the
+// cost cards and monitors table stay visible alongside). Mirrors the Data360
+// right-tab pattern via the shared RightTabPanel.
 // ---------------------------------------------------------------------------
 const FREQUENCY_OPTIONS = [
   { label: 'Daily', value: 'DAILY' },
@@ -41,7 +44,7 @@ const ACTION_OPTIONS = [
   { label: 'Suspend', value: 'SUSPEND' },
 ];
 
-function CreateMonitorModal({
+function CreateMonitorPanel({
   isOpen,
   onClose,
   onCreated,
@@ -55,6 +58,7 @@ function CreateMonitorModal({
   const [frequency, setFrequency] = useState<string>('MONTHLY');
   const [action, setAction] = useState<string>('SUSPEND_IMMEDIATE');
   const [submitting, setSubmitting] = useState(false);
+  const [section, setSection] = useState('create');
 
   const reset = () => {
     setName('');
@@ -94,12 +98,58 @@ function CreateMonitorModal({
     }
   };
 
+  if (!isOpen) return null;
+
+  const sections: RightTabSection[] = [
+    {
+      id: 'create',
+      icon: Plus,
+      label: 'New monitor',
+      render: () => (
+        <div className="space-y-4">
+          <Input
+            label="Monitor name"
+            placeholder="my_monitor"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+
+          <Input
+            label="Credit quota"
+            type="number"
+            min={1}
+            placeholder="100"
+            value={quota}
+            onChange={(e) => setQuota(e.target.value)}
+          />
+
+          <Select
+            label="Frequency"
+            options={FREQUENCY_OPTIONS}
+            value={frequency}
+            onChange={(opt) => setFrequency((opt as { value: string }).value)}
+          />
+
+          <Select
+            label="Action at 100%"
+            options={ACTION_OPTIONS}
+            value={action}
+            onChange={(opt) => setAction((opt as { value: string }).value)}
+          />
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <ActionRail
-      isOpen={isOpen}
-      onClose={handleClose}
+    <RightTabPanel
       title="Create Resource Monitor"
-      description="Enforce a credit budget on one or more warehouses"
+      subtitle="Enforce a credit budget on one or more warehouses"
+      sections={sections}
+      activeSection={section}
+      onSectionChange={setSection}
+      onClose={handleClose}
+      storageKey="data360.observability.smartPanel.v1"
       accentClassName="bg-green-500"
       footer={
         <>
@@ -115,37 +165,7 @@ function CreateMonitorModal({
           </Button>
         </>
       }
-    >
-      <Input
-        label="Monitor name"
-        placeholder="my_monitor"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-
-      <Input
-        label="Credit quota"
-        type="number"
-        min={1}
-        placeholder="100"
-        value={quota}
-        onChange={(e) => setQuota(e.target.value)}
-      />
-
-      <Select
-        label="Frequency"
-        options={FREQUENCY_OPTIONS}
-        value={frequency}
-        onChange={(opt) => setFrequency((opt as { value: string }).value)}
-      />
-
-      <Select
-        label="Action at 100%"
-        options={ACTION_OPTIONS}
-        value={action}
-        onChange={(opt) => setAction((opt as { value: string }).value)}
-      />
-    </ActionRail>
+    />
   );
 }
 
@@ -253,149 +273,153 @@ export default function BudgetPage() {
   }, [loadCost, loadMonitors]);
 
   return (
-    <div className="@container space-y-6 p-4">
-      <Breadcrumb
-        items={[
-          { label: 'Observability', href: '/observability' },
-          { label: 'Budget & Resource Monitors', href: '/observability/budget' },
-        ]}
-      />
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <PiGaugeDuotone className="h-6 w-6 text-green-500" />
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Budget & Resource Monitors</h1>
-        </div>
-        <Button size="sm" variant="outline" onClick={refresh} disabled={loading || monitorsLoading} className="gap-1">
-          {loading || monitorsLoading ? (
-            <Loader variant="spinner" size="sm" />
-          ) : (
-            <PiArrowsClockwise className="h-3.5 w-3.5" />
-          )}
-          Refresh
-        </Button>
-      </div>
-
-      {/* Cost overview (warehouse credits, storage, daily trend) */}
-      {error ? (
-        <div className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
-          <PiWarningCircleBold className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
-          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-        </div>
-      ) : (
-        <CostOverviewCard
-          warehouseData={warehouse}
-          storageData={storage}
-          dailyCredits={daily}
-          isLoading={loading}
-        />
-      )}
-
-      {/* Resource monitors — the credit-budget surface */}
-      <div>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Resource Monitors</h2>
-          <Button
-            size="sm"
-            className="gap-1 bg-green-600 text-white hover:bg-green-700"
-            onClick={() => setCreateOpen(true)}
-          >
-            <PiPlusBold className="h-3.5 w-3.5" />
-            Create Monitor
-          </Button>
-        </div>
-        <FreshnessDisclaimer
-          className="mb-3"
-          detail="Resource monitor usage reflects Snowflake's SHOW RESOURCE MONITORS, which lags real-time consumption."
-        />
-        {monitorsLoading ? (
-          <TableSkeleton rows={4} columns={5} />
-        ) : monitorsNotDeployed ? (
-          <EmptyState
-            icon={PiWarningCircleBold}
-            title="Resource monitors are not available yet"
-            description="The resource-monitors capability is not deployed on the connected backend. It will appear here once /org-accounts/resource-monitors is exposed."
+    <div className="@container p-4">
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1 space-y-6">
+          <Breadcrumb
+            items={[
+              { label: 'Observability', href: '/observability' },
+              { label: 'Budget & Resource Monitors', href: '/observability/budget' },
+            ]}
           />
-        ) : monitorsError ? (
-          <div className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
-            <PiWarningCircleBold className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
-            <p className="text-sm text-red-600 dark:text-red-400">{monitorsError}</p>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <PiGaugeDuotone className="h-6 w-6 text-green-500" />
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">Budget & Resource Monitors</h1>
+            </div>
+            <Button size="sm" variant="outline" onClick={refresh} disabled={loading || monitorsLoading} className="gap-1">
+              {loading || monitorsLoading ? (
+                <Loader variant="spinner" size="sm" />
+              ) : (
+                <PiArrowsClockwise className="h-3.5 w-3.5" />
+              )}
+              Refresh
+            </Button>
           </div>
-        ) : monitors.length === 0 ? (
-          <EmptyState
-            icon={PiGaugeDuotone}
-            title="No resource monitors configured"
-            description="Create resource monitors in Snowflake to enforce credit budgets and get usage alerts."
-            action={
+
+          {/* Cost overview (warehouse credits, storage, daily trend) */}
+          {error ? (
+            <div className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
+              <PiWarningCircleBold className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            </div>
+          ) : (
+            <CostOverviewCard
+              warehouseData={warehouse}
+              storageData={storage}
+              dailyCredits={daily}
+              isLoading={loading}
+            />
+          )}
+
+          {/* Resource monitors — the credit-budget surface */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">Resource Monitors</h2>
               <Button
                 size="sm"
-                className="mt-3 gap-1 bg-green-600 text-white hover:bg-green-700"
+                className="gap-1 bg-green-600 text-white hover:bg-green-700"
                 onClick={() => setCreateOpen(true)}
               >
                 <PiPlusBold className="h-3.5 w-3.5" />
                 Create Monitor
               </Button>
-            }
-          />
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                  <th className="px-3 py-2">Monitor</th>
-                  <th className="px-3 py-2">Quota</th>
-                  <th className="px-3 py-2">Used</th>
-                  <th className="px-3 py-2">Remaining</th>
-                  <th className="px-3 py-2">Usage</th>
-                  <th className="px-3 py-2">Frequency</th>
-                </tr>
-              </thead>
-              <tbody>
-                {monitors.map((m, i) => {
-                  const pct = m.used_percent ?? null;
-                  const over = pct != null && pct >= 90;
-                  const warn = pct != null && pct >= 75 && pct < 90;
-                  return (
-                    <tr
-                      key={m.name ?? i}
-                      className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-700/30"
-                    >
-                      <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">{m.name ?? '—'}</td>
-                      <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{fmt(m.credit_quota ?? null)}</td>
-                      <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{fmt(m.used_credits ?? null)}</td>
-                      <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{fmt(m.remaining_credits ?? null)}</td>
-                      <td className="px-3 py-2">
-                        <Badge
-                          size="sm"
-                          className={cn(
-                            over
-                              ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                              : warn
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
-                                : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-                          )}
-                        >
-                          {fmt(pct, '%')}
-                        </Badge>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">{m.frequency ?? '—'}</td>
+            </div>
+            <FreshnessDisclaimer
+              className="mb-3"
+              detail="Resource monitor usage reflects Snowflake's SHOW RESOURCE MONITORS, which lags real-time consumption."
+            />
+            {monitorsLoading ? (
+              <TableSkeleton rows={4} columns={5} />
+            ) : monitorsNotDeployed ? (
+              <EmptyState
+                icon={PiWarningCircleBold}
+                title="Resource monitors are not available yet"
+                description="The resource-monitors capability is not deployed on the connected backend. It will appear here once /org-accounts/resource-monitors is exposed."
+              />
+            ) : monitorsError ? (
+              <div className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
+                <PiWarningCircleBold className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+                <p className="text-sm text-red-600 dark:text-red-400">{monitorsError}</p>
+              </div>
+            ) : monitors.length === 0 ? (
+              <EmptyState
+                icon={PiGaugeDuotone}
+                title="No resource monitors configured"
+                description="Create resource monitors in Snowflake to enforce credit budgets and get usage alerts."
+                action={
+                  <Button
+                    size="sm"
+                    className="mt-3 gap-1 bg-green-600 text-white hover:bg-green-700"
+                    onClick={() => setCreateOpen(true)}
+                  >
+                    <PiPlusBold className="h-3.5 w-3.5" />
+                    Create Monitor
+                  </Button>
+                }
+              />
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                      <th className="px-3 py-2">Monitor</th>
+                      <th className="px-3 py-2">Quota</th>
+                      <th className="px-3 py-2">Used</th>
+                      <th className="px-3 py-2">Remaining</th>
+                      <th className="px-3 py-2">Usage</th>
+                      <th className="px-3 py-2">Frequency</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {monitors.map((m, i) => {
+                      const pct = m.used_percent ?? null;
+                      const over = pct != null && pct >= 90;
+                      const warn = pct != null && pct >= 75 && pct < 90;
+                      return (
+                        <tr
+                          key={m.name ?? i}
+                          className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-700/30"
+                        >
+                          <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">{m.name ?? '—'}</td>
+                          <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{fmt(m.credit_quota ?? null)}</td>
+                          <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{fmt(m.used_credits ?? null)}</td>
+                          <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{fmt(m.remaining_credits ?? null)}</td>
+                          <td className="px-3 py-2">
+                            <Badge
+                              size="sm"
+                              className={cn(
+                                over
+                                  ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                  : warn
+                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                                    : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+                              )}
+                            >
+                              {fmt(pct, '%')}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">{m.frequency ?? '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
 
-      <CreateMonitorModal
-        isOpen={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={() => {
-          setCreateOpen(false);
-          loadMonitors();
-        }}
-      />
+        <CreateMonitorPanel
+          isOpen={createOpen}
+          onClose={() => setCreateOpen(false)}
+          onCreated={() => {
+            setCreateOpen(false);
+            loadMonitors();
+          }}
+        />
+      </div>
     </div>
   );
 }

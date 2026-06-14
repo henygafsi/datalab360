@@ -203,12 +203,9 @@ e2e/results/screenshots/account-overview.png
 ### Henry Tasks — account-overview (backend delegation)
 
 #### P1
-- [ ] **BI self-service module (19 routes)** — tout le domaine `/bi-dashboard/*` est dans api-contracts.ts mais AUCUNE route backend n'existe. À créer (CRUD dashboards/pages/widgets/filters + render/snapshot/drill-through/export + nl-to-chart/auto-create/templates/retail-kpis).
-      Fichier: nouveau `backend/app/modules/bi_dashboard/router.py` + service + schemas + mount dans `app/main.py`. (Module volumineux — découper en sous-tâches.)
-- [ ] **BI retail (2 routes)** — `/bi/sales/overview`, `/bi/sales/dashboard` absents. Endpoints démo retail KPIs.
-      Fichier: `backend/app/modules/bi_dashboard/` ou analytics.
-- [ ] **`/command-center/tabs/{tab}` absent** — contrat FE `API.commandCenter.tab(tab, days)` existe, route absente. Le backend expose les tabs individuels (overview-kpis, cost-breakdown, etc.) mais pas l'enveloppe générique `/tabs/{tab}`. Ajouter le dispatcher ou retirer le contrat.
-      Fichier: `backend/app/modules/command_center/router.py`.
+- [x] ~~**BI self-service module (19 routes)**~~ ✅ FAIT (2026-06-08) — module `bi_dashboard` restauré (`b8ccc459`), **18 routes enregistrées** (`/bi-dashboard/{project_id}/{widgets,pages,filters,render,snapshot,export,drill-through,cost}` + nl-to-chart/auto-create/templates/retail-kpis). 22 entrées contrat FE alignées.
+- [x] ~~**BI retail (2 routes)**~~ ⚰ DÉPRÉCIÉ — `/bi/sales/*` sans consommateur FE, 404 partout, superseded par `/bi-dashboard/*`. Contrats marqués `@deprecated`.
+- [x] ~~**`/command-center/tabs/{tab}`**~~ ✅ FAIT (`ed31f308`) — dispatcher 9 tabs composant les services existants, enveloppe `{kpis,charts,tables,...}` attendue par `getTab()`.
 
 #### P2
 - [ ] Vérifier que les 57 endpoints registered exposent bien des données (test live requis quand dev server up — actuellement NON VÉRIFIÉ).

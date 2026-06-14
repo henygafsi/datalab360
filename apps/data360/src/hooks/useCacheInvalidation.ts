@@ -91,6 +91,7 @@ export const CACHE_KEYS = {
 
   // ── Analytics / Dashboard ─────────────────────────────────────────────
   DASHBOARD: 'dashboard',
+  BI_DASHBOARDS: 'bi_dashboards',
   KPI: 'kpi',
 
   // ── Organization Accounts ─────────────────────────────────────────────

@@ -30,12 +30,27 @@ export const routes = {
     securityMatrix: '/governance/security-matrix',
     oauth: '/governance/oauth',
     projects: '/governance/projects',
+    /**
+     * G8 shareable deep-link to the Projects page with a project panel expanded
+     * (`?project=<id>`) and, optionally, the active filter tab (`?tab=`). Read on
+     * mount + written on select via a shallow `router.replace`.
+     */
+    projectDeepLink: (projectId: string, tab?: 'explore_design' | 'workflow') =>
+      `/governance/projects?project=${encodeURIComponent(projectId)}${tab ? `&tab=${tab}` : ''}`,
   },
   biReporting: {
     viewReporting: '/bi-dashboard'
   },
   biDashboard: {
     view: '/bi-dashboard',
+    /** Open a dashboard project's editor. */
+    project: (projectId: string) => `/bi-dashboard/${projectId}`,
+    /**
+     * G8 shareable deep-link to the BI list scoped to a project
+     * (`?project=<id>`): scopes the health score cards and rings/scrolls the
+     * matching project card. Additive — no redirect.
+     */
+    scopedView: (projectId: string) => `/bi-dashboard?project=${encodeURIComponent(projectId)}`,
   },
   dataQuality: {
     viewReports: '/data-quality'
@@ -53,6 +68,10 @@ export const routes = {
   data360Config: {
     /** Config Data360 : metadata, tables, colonnes date, cache/refresh */
     view: '/admin/data360-config',
+  },
+  adminPerformance: {
+    /** Per-account, multi-axis Performance admin page (endpoint/user/cache/module/project/errors). */
+    view: '/admin/performance',
   },
   clientAccounts: {
     dashboard: '/client-accounts',

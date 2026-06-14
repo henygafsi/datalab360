@@ -1,13 +1,17 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
 import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, ExternalLink, Clock } from 'lucide-react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { cn } from '@/lib/utils';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { createDashboard } from '@/app/services/api/biDashboardApi';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
 import ActionRail from '@/app/shared/action-rail/ActionRail';
+import ScoreCards from '@/app/shared/score-cards/ScoreCards';
+import AutoCreateModal from './components/AutoCreateModal';
 
 // ---------------------------------------------------------------------------
 // Empty state
@@ -178,10 +182,22 @@ function FeatureGrid() {
 function ProjectList({
   projects,
   isLoading,
+  highlightId,
 }: {
   projects: UnifiedProject[];
   isLoading: boolean;
+  /** G8: project id from `?project=<id>` — ring + scroll into view on deep-link. */
+  highlightId?: string | null;
 }) {
+  const highlightRef = useRef<HTMLAnchorElement | null>(null);
+
+  // Bring a deep-linked project card into view once the list has loaded.
+  useEffect(() => {
+    if (highlightId && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [highlightId, projects]);
+
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
@@ -194,11 +210,19 @@ function ProjectList({
   if (projects.length === 0) return null;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
-      {projects.map((p) => (
+      {projects.map((p) => {
+        const isHighlighted = !!highlightId && p.project_id === highlightId;
+        return (
         <Link
           key={p.project_id}
+          ref={isHighlighted ? highlightRef : undefined}
           href={`/bi-dashboard/${p.project_id}`}
-          className="block p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-cyan-400 dark:hover:border-cyan-500 hover:shadow-sm transition-all group"
+          className={cn(
+            'block p-4 rounded-xl border bg-white dark:bg-gray-900 hover:border-cyan-400 dark:hover:border-cyan-500 hover:shadow-sm transition-all group',
+            isHighlighted
+              ? 'border-cyan-400 dark:border-cyan-500 ring-2 ring-cyan-400/60 dark:ring-cyan-500/50'
+              : 'border-gray-200 dark:border-gray-700',
+          )}
         >
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -218,14 +242,21 @@ function ProjectList({
             )}
           </div>
         </Link>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-export default function BIDashboardPage() {
+function BIDashboardPage() {
   const { trackFeatureClick } = useTrackEvent();
+  // G8: an inbound `?project=<id>` deep-link scopes the health score cards to
+  // that project and rings/scrolls its card — additive, no redirect, no new
+  // selection UI. Opening a project still routes to `/bi-dashboard/[projectId]`.
+  const searchParams = useSearchParams();
+  const urlProjectId = searchParams.get('project');
   const [showCreate, setShowCreate] = useState(false);
+  const [showAutoCreate, setShowAutoCreate] = useState(false);
   const [projects, setProjects] = useState<UnifiedProject[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
 
@@ -251,6 +282,12 @@ export default function BIDashboardPage() {
     window.location.href = `/bi-dashboard/${projectId}`;
   }, [trackFeatureClick]);
 
+  const handleAutoCreated = useCallback((projectId: string) => {
+    trackFeatureClick('bi_dashboard_auto_created', { projectId });
+    setShowAutoCreate(false);
+    window.location.href = `/bi-dashboard/${projectId}`;
+  }, [trackFeatureClick]);
+
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
@@ -268,36 +305,53 @@ export default function BIDashboardPage() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => {
-                trackFeatureClick('bi_dashboard_open_create');
-                setShowCreate(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              New Dashboard
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  trackFeatureClick('bi_dashboard_open_auto_create');
+                  setShowAutoCreate(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2 border border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 text-sm font-medium rounded-lg transition-colors"
+              >
+                <Sparkles className="w-4 h-4" />
+                Auto-create
+              </button>
+              <button
+                onClick={() => {
+                  trackFeatureClick('bi_dashboard_open_create');
+                  setShowCreate(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                New Dashboard
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Cross-module context */}
         <div className="px-6 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
           <span>Related:</span>
-          <a href="/explore-design" className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
+          <Link href="/explore-design" className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
             <Compass className="w-3 h-3" /> Explore &amp; Design (Source Tables)
-          </a>
-          <a href="/workflow" className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
+          </Link>
+          <Link href="/workflow" className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
             <GitBranch className="w-3 h-3" /> Workflow (ETL Pipelines)
-          </a>
+          </Link>
         </div>
 
         {/* Content */}
         <div className="p-6 max-w-5xl mx-auto">
+          {/* Cross-module health score cards (Data360 G6). A `?project=` deep-link
+              scopes them to that project; otherwise account-wide as before. */}
+          <div className="mb-6">
+            <ScoreCards projectId={urlProjectId ?? undefined} />
+          </div>
           {!projectsLoading && projects.length === 0 && (
             <EmptyState onCreate={() => { setShowCreate(true); }} />
           )}
-          <ProjectList projects={projects} isLoading={projectsLoading} />
+          <ProjectList projects={projects} isLoading={projectsLoading} highlightId={urlProjectId} />
           {(!projectsLoading || projects.length > 0) && <FeatureGrid />}
         </div>
 
@@ -308,7 +362,23 @@ export default function BIDashboardPage() {
             onCreated={handleCreated}
           />
         )}
+
+        {/* Auto-create from table/schema — POST /bi-dashboard/auto-create */}
+        <AutoCreateModal
+          isOpen={showAutoCreate}
+          onClose={() => setShowAutoCreate(false)}
+          onCreated={(projectId) => handleAutoCreated(projectId)}
+        />
       </div>
     </ErrorBoundary>
+  );
+}
+
+// useSearchParams() requires a Suspense boundary in the App Router.
+export default function BIDashboardPageWrapper() {
+  return (
+    <Suspense fallback={null}>
+      <BIDashboardPage />
+    </Suspense>
   );
 }

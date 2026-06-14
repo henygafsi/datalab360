@@ -1,8 +1,5 @@
 'use client';
 
-import axios from "axios";
-import apiClient from '@/lib/api-client';
-
 /**
  * Defines the payload for any table structure management operation.
  * This aligns with the query parameters of the backend's /manage_table endpoint.
@@ -21,46 +18,19 @@ export interface ManageTablePayload {
 }
 
 /**
- * Calls the backend's generic /manage_table endpoint to alter table structures.
- * This single function handles PK, FK, and other constraints by specifying the CONSTRAINT_TYPE.
+ * Generic table-structure management (PK, FK, columns, etc.) keyed by CONSTRAINT_TYPE.
  *
- * @param payload - The details of the management operation.
- * @returns The API response.
+ * The historical /explore-design/guided/manage_table route DOES NOT EXIST on the
+ * current backend (the /explore-design router has no /guided sub-prefix). This helper
+ * has no active consumers; rather than call a dead route it returns an honest
+ * "unavailable" result so any future caller degrades visibly instead of silently failing.
+ *
+ * @param _payload - The details of the management operation (currently unused).
+ * @returns An honest "unavailable" result.
  */
-export const manageTableStructure = async (payload: ManageTablePayload): Promise<any> => {
-    try {
-        const response = await apiClient.get(`/explore-design/guided/manage_table`, {
-            params: payload,
-        });
-        return response.data;
-    } catch (error) {
-        console.error("Service: manageTableStructure - Error managing table structure:", error);
-        if (axios.isAxiosError(error) && error.response) {
-            let errorDetailMessage = '';
-
-            if (error.response.data && typeof error.response.data.detail === 'string') {
-                errorDetailMessage = error.response.data.detail;
-            } else if (error.response.data && Array.isArray(error.response.data.detail)) {
-                errorDetailMessage = error.response.data.detail.map((item: any) => item.msg || item).join('; ');
-            } else if (error.response.data) {
-                errorDetailMessage = JSON.stringify(error.response.data);
-            } else {
-                errorDetailMessage = 'An unknown error occurred during table management.';
-            }
-
-            const status = error.response.status;
-
-            if (status === 500) {
-                if (errorDetailMessage.includes("primary key already exists for table")) {
-                    return { status: 'info', message: `Primary key already exists for table ${payload.SOURCE_TABLE.replace(/"/g, '')}. Skipping operation.` };
-                }
-                if (errorDetailMessage.includes("foreign key already exists for table")) {
-                    return { status: 'info', message: `Foreign key already exists for table ${payload.SOURCE_TABLE.replace(/"/g, '')} on column ${payload.COLUMN_NAME}. Skipping operation.` };
-                }
-            }
-
-            throw new Error(errorDetailMessage || 'An unknown error occurred during table management.');
-        }
-        throw error;
-    }
+export const manageTableStructure = async (_payload: ManageTablePayload): Promise<any> => {
+    return {
+        status: 'unavailable',
+        message: 'Table structure management is not available: the backend does not expose a manage-table endpoint.',
+    };
 };

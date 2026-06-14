@@ -12,6 +12,7 @@ import React, {
   lazy,
   Suspense,
 } from 'react';
+import Link from 'next/link';
 import { Text, Title, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
@@ -44,10 +45,12 @@ import {
   Rocket,
   ChevronUp,
   ChevronDown,
+  ArrowUpRight,
   Download,
   Search,
   X,
   Filter,
+  PanelRight,
   ArrowUpDown,
   Check,
   XCircle,
@@ -84,6 +87,7 @@ import {
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 import LoginHistoryTable from '@/components/audit/LoginHistoryTable';
 import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
+import SmartAuditTable, { type Row as SmartRow } from './AuditTable';
 
 import {
   getSummary,
@@ -121,8 +125,15 @@ import {
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import AIActionFlow, { type Suggestion as AISuggestion } from '@/app/shared/insights/AIActionFlow';
+import ProjectKpiStrip from '@/app/shared/score-cards/ProjectKpiStrip';
+import {
+  getCommandCenterRecommendationsForDimension,
+  type Recommendation as CcRecommendation,
+  type RecommendationCta as CcRecommendationCta,
+} from '@/app/services/command-center/recommendations';
 import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 import { useAuth } from '@/hooks/useAuth';
+import { isAdminRole } from '@/config/constants';
 
 // Lazy-loaded new tabs
 const ModulesTab = lazy(() => import('./modules-tab'));
@@ -131,7 +142,17 @@ const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
 const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
 const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
+import CommandCenterActionsPanel from './ActionsPanel';
 import ServerlessFinOpsCards from './serverless-finops-cards';
+import TopProblemsPanel from './TopProblemsPanel';
+import ExecutiveOverview from './ExecutiveOverview';
+import AiAdvisor from './AiAdvisor';
+import SnowflakeInsightsAdvisor from './SnowflakeInsightsAdvisor';
+import SecurityMap from './SecurityMap';
+import ObjectStorageAudit from './ObjectStorageAudit';
+import SnowflakeObjectsTab from './SnowflakeObjectsTab';
+import AdnBadge from './AdnBadge';
+import CostPreview from './CostPreview';
 import type {
   SecurityOverviewResponse,
   PerformanceOverviewResponse,
@@ -203,6 +224,7 @@ const tabs: TabItem[] = [
   { id: 'platform-activity', label: 'Platform Activity', icon: Layers },
   { id: 'projects', label: 'Projects', icon: Rocket },
   { id: 'security', label: 'Security', icon: Lock },
+  { id: 'security-map', label: 'Security Map', icon: ShieldCheck },
   { id: 'snowflake-accounts', label: 'Snowflake Accounts', icon: Database },
 ];
 
@@ -355,6 +377,24 @@ function coalesceActivityEvents<
   return out;
 }
 
+/**
+ * Honest KPI display string (Data360 score-card standard): null / undefined /
+ * NaN / empty → "—" (never a fabricated 0). A real numeric 0 is preserved.
+ * Defends against unexpected API-error objects reaching the value slot.
+ */
+function formatKpiValue(value: string | number | null | undefined): string {
+  if (value == null) return '—';
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value.toLocaleString() : '—';
+  }
+  if (typeof value === 'object') {
+    return (value as unknown as { message?: string }).message ?? '—';
+  }
+  const s = String(value).trim();
+  if (!s || /^(nan|undefined|null)$/i.test(s)) return '—';
+  return s;
+}
+
 const KpiCard = memo(function KpiCard({
   label,
   value,
@@ -365,9 +405,11 @@ const KpiCard = memo(function KpiCard({
   previousValue,
   invertTrend,
   help,
+  href,
+  onActivate,
 }: {
   label: string;
-  value: string | number;
+  value: string | number | null | undefined;
   icon: React.ElementType;
   trend?: number;
   color?: string;
@@ -375,8 +417,17 @@ const KpiCard = memo(function KpiCard({
   previousValue?: number;
   invertTrend?: boolean;
   help?: MetricHelpProps;
+  /** Optional drill-down to another route — turns the headline value into a link. */
+  href?: string;
+  /** Optional in-module drill-down (e.g. switch dashboard tab) — turns the
+   *  headline value into a button. Ignored when `href` is set. */
+  onActivate?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+
+  // Honest display string + suffix only shown when there's a real value.
+  const display = formatKpiValue(value);
+  const showSuffix = suffix && display !== '—';
 
   // Compute delta from previous period if provided
   const delta = useMemo(() => {
@@ -418,7 +469,7 @@ const KpiCard = memo(function KpiCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: 'easeOut' }}
       whileHover={{ y: -2 }}
-      className="group relative overflow-hidden rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-shadow duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600"
+      className="group relative overflow-hidden rounded-xl border border-gray-200 bg-white p-3 shadow-sm transition-shadow duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600"
     >
       {/* Subtle gradient halo on hover — sits behind the icon, fades in only
           when the card is hovered. Adds depth without competing with data. */}
@@ -432,10 +483,10 @@ const KpiCard = memo(function KpiCard({
         <motion.div
           whileHover={{ rotate: -4, scale: 1.05 }}
           transition={{ type: 'spring', stiffness: 380, damping: 20 }}
-          className={`rounded-lg bg-${color}-100 dark:bg-${color}-900/30 p-2`}
+          className={`rounded-lg bg-${color}-100 dark:bg-${color}-900/30 p-1.5`}
         >
           <Icon
-            className={`h-5 w-5 text-${color}-600 dark:text-${color}-400`}
+            className={`h-4 w-4 text-${color}-600 dark:text-${color}-400`}
           />
         </motion.div>
         <div className="flex items-center gap-1.5">
@@ -474,11 +525,34 @@ const KpiCard = memo(function KpiCard({
           </button>
         </div>
       </div>
-      <p className="mt-3 text-2xl font-bold text-gray-900 dark:text-white">
-        {typeof value === 'object' && value !== null
-          ? ((value as any)?.message ?? '—')
-          : value}
-        {suffix}
+      <p className="mt-2 text-xl font-bold text-gray-900 dark:text-white">
+        {href && display !== '—' ? (
+          <Link
+            href={href}
+            aria-label={`View ${label}`}
+            className="inline-flex items-center gap-1 transition-colors hover:text-primary focus:outline-none focus-visible:text-primary"
+          >
+            {display}
+            {showSuffix ? suffix : null}
+            <ArrowUpRight className="h-4 w-4 text-gray-300 transition-colors group-hover:text-primary dark:text-gray-600" />
+          </Link>
+        ) : onActivate && display !== '—' ? (
+          <button
+            type="button"
+            onClick={onActivate}
+            aria-label={`View ${label}`}
+            className="inline-flex items-center gap-1 transition-colors hover:text-primary focus:outline-none focus-visible:text-primary"
+          >
+            {display}
+            {showSuffix ? suffix : null}
+            <ArrowUpRight className="h-4 w-4 text-gray-300 transition-colors group-hover:text-primary dark:text-gray-600" />
+          </button>
+        ) : (
+          <>
+            {display}
+            {showSuffix ? suffix : null}
+          </>
+        )}
       </p>
       <p className="mt-1 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
         {label}
@@ -499,8 +573,8 @@ const KpiCard = memo(function KpiCard({
           <p className="text-[11px] text-gray-500 dark:text-gray-400">
             Current:{' '}
             <strong className="text-gray-700 dark:text-gray-300">
-              {typeof value === 'object' ? '—' : value}
-              {suffix}
+              {display}
+              {showSuffix ? suffix : null}
             </strong>
             {delta !== undefined && (
               <>
@@ -716,48 +790,10 @@ const GlobalFilterBar = memo(function GlobalFilterBar({
   );
   const isCustom = !!filters.start_date;
 
-  // Build active-filter chip list. Each entry includes a clearer so users
-  // can drop one filter without nuking the whole bar.
-  const activeChips: { label: string; value: string; clear: () => void }[] = [];
-  if (filters.project_type)
-    activeChips.push({
-      label: 'Project',
-      value: filters.project_type.replace(/_/g, ' '),
-      clear: () => setFilters({ ...filters, project_type: undefined }),
-    });
-  if (filters.username)
-    activeChips.push({
-      label: 'User',
-      value: filters.username,
-      clear: () => setFilters({ ...filters, username: undefined }),
-    });
-  if (filters.role_name)
-    activeChips.push({
-      label: 'Role',
-      value: filters.role_name,
-      clear: () => setFilters({ ...filters, role_name: undefined }),
-    });
-  if (filters.environment)
-    activeChips.push({
-      label: 'Env',
-      value: filters.environment,
-      clear: () => setFilters({ ...filters, environment: undefined }),
-    });
-  if (filters.status)
-    activeChips.push({
-      label: 'Status',
-      value: filters.status,
-      clear: () => setFilters({ ...filters, status: undefined }),
-    });
-  if (filters.module_name)
-    activeChips.push({
-      label: 'Module',
-      value: filters.module_name,
-      clear: () => setFilters({ ...filters, module_name: undefined }),
-    });
-
-  const hasFilters =
-    activeChips.length > 0 || filters.days !== 30 || filters.start_date;
+  // Static field filters (project/user/role/env/status/module) removed — they
+  // were decorative and didn't reflect real data. Per-tab dynamic filters now
+  // detect date + distinct categorical fields from each table's actual data
+  // (see AuditTable), the way the BI dashboard detects filters from queries.
 
   const handlePresetClick = useCallback(
     (preset: TimePreset) => {
@@ -890,120 +926,6 @@ const GlobalFilterBar = memo(function GlobalFilterBar({
         </div>
       )}
 
-      {/* Data Filters Row */}
-      <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-700 dark:bg-gray-800/50">
-        <div className="mr-1 flex items-center gap-1.5">
-          <Filter className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
-            Filters
-          </span>
-        </div>
-        <FilterSelect
-          label="Project Type"
-          value={filters.project_type || ''}
-          options={
-            options?.project_types || [
-              'explore_design',
-              'workflow',
-              'bi_dashboard',
-            ]
-          }
-          onChange={(v) =>
-            setFilters({ ...filters, project_type: v || undefined })
-          }
-          icon={Rocket}
-        />
-        <FilterSelect
-          label="User"
-          value={filters.username || ''}
-          options={options?.usernames || []}
-          onChange={(v) => setFilters({ ...filters, username: v || undefined })}
-          icon={Users}
-        />
-        <FilterSelect
-          label="Role"
-          value={filters.role_name || ''}
-          options={options?.roles || []}
-          onChange={(v) =>
-            setFilters({ ...filters, role_name: v || undefined })
-          }
-          icon={Shield}
-        />
-        <FilterSelect
-          label="Environment"
-          value={filters.environment || ''}
-          options={options?.environments || ['production', 'staging', 'dev']}
-          onChange={(v) =>
-            setFilters({ ...filters, environment: v || undefined })
-          }
-          icon={Server}
-        />
-        <FilterSelect
-          label="Status"
-          value={filters.status || ''}
-          options={
-            options?.deployment_statuses || [
-              'active',
-              'draft',
-              'archived',
-              'deployed',
-              'failed',
-            ]
-          }
-          onChange={(v) => setFilters({ ...filters, status: v || undefined })}
-          icon={CheckCircle}
-        />
-        <FilterSelect
-          label="Module"
-          value={filters.module_name || ''}
-          options={options?.modules || []}
-          onChange={(v) =>
-            setFilters({ ...filters, module_name: v || undefined })
-          }
-          icon={Layers}
-        />
-        {hasFilters && (
-          <button
-            onClick={() => setFilters({ days: 30 })}
-            title="Clear all filters (Esc)"
-            className="ml-auto flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
-          >
-            <X className="h-3 w-3" />
-            Clear all
-            {activeChips.length > 0 && (
-              <span className="ml-1 rounded-full bg-red-100 px-1.5 text-[10px] font-semibold text-red-700 dark:bg-red-800/60 dark:text-red-200">
-                {activeChips.length}
-              </span>
-            )}
-          </button>
-        )}
-      </div>
-
-      {/* Active filter chips — shows exactly what's narrowing the data right now */}
-      {activeChips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 px-1">
-          <span className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
-            Active:
-          </span>
-          {activeChips.map((chip) => (
-            <span
-              key={`${chip.label}:${chip.value}`}
-              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[11px] text-primary dark:border-primary/40 dark:bg-primary/10"
-            >
-              <span className="font-medium">{chip.label}:</span>
-              <span className="max-w-[14ch] truncate">{chip.value}</span>
-              <button
-                type="button"
-                onClick={chip.clear}
-                aria-label={`Clear ${chip.label} filter`}
-                className="rounded-full p-0.5 transition-colors hover:bg-primary/20"
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 });
@@ -1342,6 +1264,13 @@ function CommandCenterDashboardInner() {
     }
   }, []);
   const [isTabTransitioning, startTabTransition] = useTransition();
+  // Docked actions right-bar (the module's single centralized action surface).
+  const [panelOpen, setPanelOpen] = useState(false);
+  // Drill-down: switch tabs from a KPI card without a full navigation.
+  const goToTab = useCallback(
+    (id: string) => startTabTransition(() => setActiveTab(id)),
+    [setActiveTab],
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // True when the overview fetcher attempted all four backend calls and every
@@ -1699,7 +1628,7 @@ function CommandCenterDashboardInner() {
         // null so the tab stays usable.
         getCortexCosts(filters.days, filters).catch((e) => {
           console.warn('[CommandCenter] cortex-costs failed:', e);
-          toast.error(getApiErrorMessage(e) || 'Could not load Cortex cost overlay');
+          toast.error(getApiErrorMessage(e) || 'Could not load AI cost overlay');
           return null;
         }),
       ]);
@@ -1936,6 +1865,9 @@ function CommandCenterDashboardInner() {
 
   return (
     <div className="@container">
+      {/* Flex row: content column + the docked Actions right-bar sibling. */}
+      <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1">
       {/* ── Header ────────────────────────────────────────────────── */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
@@ -1951,23 +1883,29 @@ function CommandCenterDashboardInner() {
             Your Data360 platform at a glance
           </Text>
         </div>
+        <div className="flex items-center gap-3">
+        <div className="hidden lg:block">
+          <AdnBadge />
+        </div>
         <motion.button
-          whileHover={!isLoading ? { scale: 1.03 } : undefined}
-          whileTap={!isLoading ? { scale: 0.97 } : undefined}
-          onClick={handleRefresh}
-          disabled={isLoading}
-          className="group relative flex items-center gap-2 overflow-hidden rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm transition-all hover:border-gray-300 hover:shadow-md disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-600"
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={() => setPanelOpen((o) => !o)}
+          aria-expanded={panelOpen}
+          aria-label="Toggle actions panel"
+          className={cn(
+            'group relative flex items-center gap-2 overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-sm transition-all hover:shadow-md',
+            panelOpen
+              ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+              : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-600',
+          )}
         >
           {/* Subtle gradient shimmer on hover */}
           <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-blue-500/10 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-          <RefreshCw
-            className={cn(
-              'h-4 w-4 transition-transform duration-500',
-              isLoading ? 'animate-spin' : 'group-hover:rotate-180',
-            )}
-          />
-          {isLoading ? 'Loading…' : 'Refresh'}
+          <PanelRight className="h-4 w-4" />
+          Actions
         </motion.button>
+        </div>
       </motion.div>
 
       {/* ── Error Banner ──────────────────────────────────────────── */}
@@ -2097,14 +2035,10 @@ function CommandCenterDashboardInner() {
         </div>
       </LayoutGroup>
 
-      {/* ── Global Filter Bar ──────────────────────────────────────── */}
-      <GlobalFilterBar
-        filters={filters}
-        setFilters={setFilters}
-        options={filterOptions}
-        lastUpdated={lastUpdated}
-        isRefreshing={!!tabLoading[activeTab]}
-      />
+      {/* Cross-tab filter bar removed — each tab now detects its own filters
+          (date + distinct categorical fields) from its displayed data via
+          AuditTable, the way the BI dashboard detects filters from queries.
+          `filters.days` stays at its default window for the data fetches. */}
 
       </div>
       {/* /sticky cluster ───────────────────────────────────────────── */}
@@ -2133,6 +2067,7 @@ function CommandCenterDashboardInner() {
                 loading={tabLoading.overview}
                 onRetry={fetchOverview}
                 globalDays={filters.days}
+                onNavigateTab={goToTab}
               />
             )}
             {activeTab === 'org-summary' && (
@@ -2143,12 +2078,19 @@ function CommandCenterDashboardInner() {
               </Suspense>
             )}
             {activeTab === 'snowflake-objects' && (
-              <Suspense fallback={<LoadingSection />}>
-                <SnowflakeExplorerTab />
-              </Suspense>
+              /* Refactored Data Catalog Explorer (UI-first, sample data on the
+                 not-yet-wired fields): 8 sub-tabs, KPI grid, AI Discovery,
+                 rich object explorer + detail panel with Data360 migration
+                 classification. Real ACCOUNT_USAGE on the data sub-tabs. */
+              <SnowflakeObjectsTab />
             )}
             {activeTab === 'finops' && (
-              <CostTab data={costData} loading={tabLoading.finops} days={filters.days} />
+              <CostTab
+                data={costData}
+                loading={tabLoading.finops}
+                days={filters.days}
+                onNavigateTab={goToTab}
+              />
             )}
             {activeTab === 'modules' && (
               <Suspense fallback={<LoadingSection />}>
@@ -2166,6 +2108,7 @@ function CommandCenterDashboardInner() {
                 activityFeed={activityFeed}
                 summary={summary}
                 loading={tabLoading['platform-activity']}
+                onNavigateTab={goToTab}
               />
             )}
             {activeTab === 'projects' && (
@@ -2179,6 +2122,7 @@ function CommandCenterDashboardInner() {
               <SecurityAdvTab
                 data={securityData}
                 loading={tabLoading['security']}
+                onNavigateTab={goToTab}
               />
             )}
             {activeTab === 'snowflake-accounts' && (
@@ -2186,8 +2130,20 @@ function CommandCenterDashboardInner() {
                 <SnowflakeAccountsTab />
               </Suspense>
             )}
+            {activeTab === 'security-map' && <SecurityMap days={filters.days} />}
           </motion.div>
         </AnimatePresence>
+      </div>
+        </div>
+        {/* ── Docked Actions right-bar (module action surface) ───────── */}
+        {panelOpen && (
+          <CommandCenterActionsPanel
+            onRefresh={handleRefresh}
+            lastUpdated={lastUpdated}
+            refreshing={!!tabLoading[activeTab]}
+            onClose={() => setPanelOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
@@ -2472,6 +2428,261 @@ function ProvisionKpisBanner({
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// Cross-cutting actionable CTAs (recommendations + deterministic chips)
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// `useRecommendations(dimension)` reads the backend's structured, CTA-bearing
+// recommendations for ONE dimension (valid: dq · gov · perf · storage · cost).
+// A 404 (route not provisioned) or 400 (unknown dimension) resolves to an empty
+// list, so `RecoCtaList` renders nothing rather than a broken panel — the CTAs
+// light up automatically when the backend ships them (no redeploy).
+
+function useRecommendations(dimension: string, days?: number) {
+  const [recommendations, setRecommendations] = useState<CcRecommendation[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let ignore = false;
+    setLoading(true);
+    getCommandCenterRecommendationsForDimension(dimension, days)
+      .then((res) => {
+        if (ignore) return;
+        setRecommendations(
+          Array.isArray(res?.recommendations) ? res.recommendations : [],
+        );
+        setLoading(false);
+      })
+      .catch(() => {
+        // 404 (not provisioned) / 400 (unknown dimension) / network → no
+        // actionable recos on this backend; render nothing (never a fake panel).
+        if (ignore) return;
+        setRecommendations([]);
+        setLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [dimension, days]);
+  return { recommendations, loading };
+}
+
+/** Same-page tab targets (e.g. `/account-overview?tab=finops`) must switch the
+ *  active tab in-place — the dashboard only reads `?tab=` at mount, so a plain
+ *  <Link> would change the URL without switching tabs. */
+const SAME_PAGE_TAB_RE = /^\/account-overview\?tab=([\w-]+)/;
+
+function recoSevDot(sev?: string): string {
+  const s = (sev || '').toLowerCase();
+  if (s === 'critical' || s === 'high') return 'bg-red-500';
+  if (s === 'warning' || s === 'medium') return 'bg-amber-500';
+  return 'bg-blue-500';
+}
+
+const CTA_CHIP_CLS =
+  'inline-flex flex-shrink-0 items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors';
+
+const CTA_TONE: Record<'amber' | 'red' | 'blue' | 'green', string> = {
+  amber:
+    'border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30',
+  red: 'border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900/30',
+  blue: 'border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-900/30',
+  green:
+    'border-emerald-300 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/30',
+};
+
+/** A deterministic, threshold-driven CTA chip (navigate to a route or switch a
+ *  tab). Use for the honest, computed-on-the-client calls to action. */
+function ActionChip({
+  label,
+  href,
+  onClick,
+  tone = 'amber',
+  icon: Icon = ArrowUpRight,
+}: {
+  label: string;
+  href?: string;
+  onClick?: () => void;
+  tone?: 'amber' | 'red' | 'blue' | 'green';
+  icon?: React.ElementType;
+}) {
+  const cls = cn(CTA_CHIP_CLS, CTA_TONE[tone]);
+  const inner = (
+    <>
+      {Icon ? <Icon className="h-3 w-3" /> : null}
+      {label}
+    </>
+  );
+  if (href) {
+    return (
+      <Link href={href} className={cls}>
+        {inner}
+      </Link>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} className={cls}>
+      {inner}
+    </button>
+  );
+}
+
+/** Renders one backend recommendation's CTA — routing same-page `?tab=` targets
+ *  through `onNavigateTab` and everything else through a real <Link>. */
+function RecoCtaButton({
+  cta,
+  onNavigateTab,
+}: {
+  cta: CcRecommendationCta;
+  onNavigateTab?: (id: string) => void;
+}) {
+  const cls = cn(CTA_CHIP_CLS, CTA_TONE.blue);
+  const inner = (
+    <>
+      {cta.label}
+      <ArrowUpRight className="h-3 w-3" />
+    </>
+  );
+  const m = SAME_PAGE_TAB_RE.exec(cta.target || '');
+  if (m && onNavigateTab) {
+    const tab = m[1];
+    return (
+      <button type="button" onClick={() => onNavigateTab(tab)} className={cls}>
+        {inner}
+      </button>
+    );
+  }
+  return (
+    <Link href={cta.target || '#'} className={cls}>
+      {inner}
+    </Link>
+  );
+}
+
+/** A compact, self-contained list of the backend's actionable recommendations
+ *  for one dimension. Renders nothing when there are none (honest empty). CTAs
+ *  that point at the tab we're already on are dropped (circular). */
+function RecoCtaList({
+  dimension,
+  days,
+  currentTab,
+  onNavigateTab,
+  title = 'Recommended actions',
+  max = 4,
+  exclude,
+}: {
+  dimension: string;
+  days?: number;
+  currentTab?: string;
+  onNavigateTab?: (id: string) => void;
+  title?: string;
+  max?: number;
+  /** Drop recos already covered by a deterministic chip (avoids dup CTAs). */
+  exclude?: (r: CcRecommendation) => boolean;
+}) {
+  const { recommendations } = useRecommendations(dimension, days);
+  const items = useMemo(
+    () =>
+      recommendations
+        .filter((r) => r?.cta?.label && r?.cta?.target)
+        .filter((r) => !(exclude && exclude(r)))
+        .filter((r) => {
+          const m = SAME_PAGE_TAB_RE.exec(r.cta?.target || '');
+          return !(m && currentTab && m[1] === currentTab);
+        })
+        .slice(0, max),
+    [recommendations, currentTab, max, exclude],
+  );
+
+  if (items.length === 0) return null;
+
+  return (
+    <SectionCard title={title}>
+      <ul className="space-y-2">
+        {items.map((r) => (
+          <li
+            key={r.id}
+            className="flex items-start justify-between gap-3 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
+          >
+            <div className="flex min-w-0 items-start gap-2">
+              <span
+                className={cn(
+                  'mt-1 h-2 w-2 flex-shrink-0 rounded-full',
+                  recoSevDot(r.severity),
+                )}
+              />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-900 dark:text-white">
+                  {r.title}
+                </p>
+                {r.detail ? (
+                  <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                    {r.detail}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <RecoCtaButton cta={r.cta} onNavigateTab={onNavigateTab} />
+          </li>
+        ))}
+      </ul>
+    </SectionCard>
+  );
+}
+
+/** Inline body for the FinOps "Optimization Recommendations" panel — wires the
+ *  real `cost`-dimension recommendations (Create budget / review sizing …) as
+ *  CTAs. Drops the circular "open finops" CTA. Honest empty when none. */
+function FinOpsCostRecos({
+  onNavigateTab,
+}: {
+  onNavigateTab?: (id: string) => void;
+}) {
+  const { recommendations } = useRecommendations('cost');
+  const items = recommendations
+    .filter((r) => r?.cta?.label && r?.cta?.target)
+    .filter((r) => {
+      const m = SAME_PAGE_TAB_RE.exec(r.cta?.target || '');
+      return !(m && m[1] === 'finops'); // we're already on FinOps — drop circular
+    })
+    .slice(0, 5);
+
+  if (items.length === 0) {
+    return (
+      <p className="py-8 text-center text-xs text-gray-400">
+        No optimization recommendations yet.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="space-y-3">
+      {items.map((r) => (
+        <li
+          key={r.id}
+          className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/10"
+        >
+          <div className="flex items-start gap-2">
+            <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-gray-900 dark:text-white">
+                {r.title}
+              </p>
+              {r.detail ? (
+                <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                  {r.detail}
+                </p>
+              ) : null}
+              <div className="mt-2">
+                <RecoCtaButton cta={r.cta} onNavigateTab={onNavigateTab} />
+              </div>
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // TAB 1: OVERVIEW
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -2482,12 +2693,15 @@ const OverviewTab = memo(function OverviewTab({
   loading,
   onRetry,
   globalDays,
+  onNavigateTab,
 }: {
   onRetry?: () => void;
   summary: SummaryResponse | null;
   moduleHealth: ModuleHealthResponse | null;
   activityFeed: ActivityFeedResponse | null;
   loading: boolean;
+  /** Drill-down: switch the parent dashboard to another tab. */
+  onNavigateTab?: (id: string) => void;
   /**
    * The global Time Range value (days) coming from the parent filter bar.
    * The hero-strip range picker syncs to this so the user only has ONE
@@ -2581,9 +2795,10 @@ const OverviewTab = memo(function OverviewTab({
   // When NOT provisioned we must NOT trust its all-zero fields — fall the
   // cards back to /command-center/summary, or render "—" (no fake 0s).
   const provisioned = kpis?._provisioned !== false;
-  const isAdmin = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'].includes(
-    role.toUpperCase(),
-  );
+  // KPI-cache provisioning has no granular Action-RBAC action to gate on, so
+  // this stays a coarse admin-role check — via the shared isAdminRole helper
+  // rather than an inline role-array literal.
+  const isAdmin = isAdminRole(role);
 
   // Prefer cache row over legacy summary call.
   // NOTE: `Number(x) ?? 0` is a trap — Number(undefined) is NaN and `?? 0`
@@ -2621,6 +2836,13 @@ const OverviewTab = memo(function OverviewTab({
     if (Number.isNaN(d.getTime())) return kpis.subscription_end;
     const diffDays = Math.round((d.getTime() - Date.now()) / 86_400_000);
     return `${d.toLocaleDateString()} (${diffDays >= 0 ? `${diffDays}d left` : `${Math.abs(diffDays)}d ago`})`;
+  })();
+  // Days until subscription end (null when unknown) — drives the expiry banner.
+  const subscriptionDaysLeft = (() => {
+    if (!kpis?.subscription_end) return null;
+    const d = new Date(kpis.subscription_end);
+    if (Number.isNaN(d.getTime())) return null;
+    return Math.round((d.getTime() - Date.now()) / 86_400_000);
   })();
 
   // ── P1 zero-cost derived KPIs (all fields already in the response types).
@@ -2801,6 +3023,71 @@ const OverviewTab = memo(function OverviewTab({
         </div>
       </div>
 
+      {/* Subscription-expiry banner — only when a real end date is within 30d. */}
+      {subscriptionDaysLeft != null && subscriptionDaysLeft < 30 ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
+          <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+            <Calendar className="h-4 w-4 flex-shrink-0" />
+            <span>
+              {subscriptionDaysLeft >= 0
+                ? `Subscription expires in ${subscriptionDaysLeft} day${subscriptionDaysLeft === 1 ? '' : 's'}.`
+                : `Subscription expired ${Math.abs(subscriptionDaysLeft)} day${Math.abs(subscriptionDaysLeft) === 1 ? '' : 's'} ago.`}
+            </span>
+          </div>
+          <ActionChip
+            label="Review accounts"
+            tone="amber"
+            onClick={() => onNavigateTab?.('snowflake-accounts')}
+          />
+        </div>
+      ) : null}
+
+      {/* Tab-level actionable CTAs — drill into cost, enforce MFA, enable
+          modules. Each is gated on a real signal (no fake prompts). */}
+      <div className="flex flex-wrap items-center gap-2">
+        <ActionChip
+          label="View cost drivers"
+          tone="amber"
+          icon={DollarSign}
+          onClick={() => onNavigateTab?.('finops')}
+        />
+        {summary?.security?.mfa_coverage_pct != null && mfaCoverage < 80 ? (
+          <ActionChip
+            label="Require MFA"
+            tone="red"
+            icon={Lock}
+            href="/governance/users"
+          />
+        ) : null}
+        {provisioned &&
+        kpis?.modules_total != null &&
+        (kpis.modules_active ?? 0) < kpis.modules_total ? (
+          <ActionChip
+            label="Enable modules"
+            tone="blue"
+            icon={Layers}
+            onClick={() => onNavigateTab?.('modules')}
+          />
+        ) : null}
+      </div>
+
+      {/* ── Executive overview: real cross-tab Data360 × Snowflake summary
+             (live endpoints; replaces the cards gated on the dead KPI cache) ── */}
+      <ExecutiveOverview days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
+
+      {/* ── Snowflake-features AI analysis (inactive users · network policies ·
+             MFA · roles · warehouses · stale objects) → coherent module actions ── */}
+      <SnowflakeInsightsAdvisor />
+
+      {/* ── AI Advisor: ready actions in the modules (transform scanned
+             Snowflake data into Data360) ── */}
+      <AiAdvisor days={globalDays ?? 30} />
+
+      {/* ── Top problems: intelligent cross-tab problem highlighter ──── */}
+      <section>
+        <TopProblemsPanel days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
+      </section>
+
       {/* ── KPI section: 6 primary metrics ─────────────────────────── */}
       <section>
         <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -2815,25 +3102,28 @@ const OverviewTab = memo(function OverviewTab({
         />
         <KpiCard
           label="Connected Accounts"
-          value={provisioned ? (kpis?.connected_accounts ?? 0) : '—'}
+          value={provisioned ? kpis?.connected_accounts ?? null : null}
           icon={Database}
           color="cyan"
+          onActivate={() => onNavigateTab?.('org-accounts')}
         />
         <KpiCard
           label="Active Projects"
           value={totalProjects}
           icon={Box}
           color="violet"
+          onActivate={() => onNavigateTab?.('projects')}
         />
         <KpiCard
           label="Modules Active"
           value={
-            provisioned
-              ? `${kpis?.modules_active ?? 0}/${kpis?.modules_total ?? 0}`
-              : '—'
+            provisioned && kpis?.modules_total != null
+              ? `${kpis?.modules_active ?? 0}/${kpis.modules_total}`
+              : null
           }
           icon={Layers}
           color="indigo"
+          onActivate={() => onNavigateTab?.('modules')}
         />
         <KpiCard
           label={`Credits (${range})`}
@@ -2846,12 +3136,14 @@ const OverviewTab = memo(function OverviewTab({
             definition: 'Compute consumption units billed for query and pipeline execution over the selected period.',
             source: 'data warehouse metering history',
           }}
+          onActivate={() => onNavigateTab?.('finops')}
         />
         <KpiCard
           label="Open Alerts"
-          value={provisioned ? (kpis?.open_alerts ?? 0) : '—'}
+          value={provisioned ? kpis?.open_alerts ?? null : null}
           icon={AlertTriangle}
           color={provisioned && (kpis?.open_alerts ?? 0) > 0 ? 'rose' : 'green'}
+          onActivate={() => onNavigateTab?.('security')}
         />
       </div>
       </section>
@@ -2869,14 +3161,22 @@ const OverviewTab = memo(function OverviewTab({
           color="green"
         />
         <KpiCard
-          label="Snowflake Health"
-          value={provisioned ? `${kpis?.snowflake_health_pct ?? 0}%` : '—'}
+          label="Warehouse Health"
+          value={
+            provisioned && kpis?.snowflake_health_pct != null
+              ? `${kpis.snowflake_health_pct}%`
+              : null
+          }
           icon={Gauge}
           color="blue"
         />
         <KpiCard
           label="Optimization Score"
-          value={provisioned ? `${kpis?.optimization_score_pct ?? 0}%` : '—'}
+          value={
+            provisioned && kpis?.optimization_score_pct != null
+              ? `${kpis.optimization_score_pct}%`
+              : null
+          }
           icon={Zap}
           color="amber"
         />
@@ -2922,10 +3222,11 @@ const OverviewTab = memo(function OverviewTab({
           }
         />
         <KpiCard
-          label="Cortex Spend"
-          value={provisioned ? cortexSpend.toLocaleString() : '—'}
+          label="AI Spend"
+          value={provisioned ? cortexSpend.toLocaleString() : null}
           icon={Sparkles}
           color="violet"
+          onActivate={() => onNavigateTab?.('finops')}
         />
         <KpiCard
           label="Adoption Rate"
@@ -3373,38 +3674,26 @@ const OverviewTab = memo(function OverviewTab({
       {/* Recent Activity — radar widget removed (obsKpis was dead state) */}
       <div className="grid grid-cols-1 gap-6">
         <SectionCard title="Recent Activity">
-          <div className="max-h-64 space-y-2 overflow-y-auto">
-            {coalesceActivityEvents(
+          {(() => {
+            const evRows = coalesceActivityEvents(
               Array.isArray(activityFeed?.events) ? activityFeed.events : []
-            )
-              .slice(0, 10)
-              .map((evt, i) => (
-                <div
-                  key={`${safeStr(evt.module)}:${safeStr(evt.event_type)}:${evt.timestamp ?? ''}:${i}`}
-                  className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800"
-                >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <Badge
-                      size="sm"
-                      variant="flat"
-                      color={evt.status === 'SUCCESS' ? 'success' : 'danger'}
-                      className="shrink-0"
-                    >
-                      {safeStr(evt.module)}
-                    </Badge>
-                    <span className="truncate text-xs text-gray-700 dark:text-gray-300">
-                      {safeStr(evt.username)} — {safeStr(evt.event_type)}
-                      {evt.count > 1 ? ` (×${evt.count})` : ''}
-                    </span>
-                  </div>
-                  <span className="whitespace-nowrap text-xs text-gray-400">
-                    {relativeTime(evt.timestamp)}
-                  </span>
-                </div>
-              ))}
-            {(!activityFeed ||
-              !Array.isArray(activityFeed.events) ||
-              activityFeed.events.length === 0) && (
+            );
+            return evRows.length > 0 ? (
+              <SmartAuditTable
+                rows={
+                  evRows.map((evt: any) => ({
+                    module: safeStr(evt.module),
+                    username: safeStr(evt.username),
+                    event_type: safeStr(evt.event_type),
+                    status: safeStr(evt.status),
+                    count: evt.count,
+                    timestamp: evt.timestamp ?? null,
+                  })) as SmartRow[]
+                }
+                subtitle="ACTIVITY_FEED"
+                pageSize={10}
+              />
+            ) : (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
                   No recent activity
@@ -3414,8 +3703,8 @@ const OverviewTab = memo(function OverviewTab({
                   module.
                 </p>
               </div>
-            )}
-          </div>
+            );
+          })()}
         </SectionCard>
       </div>
     </div>
@@ -3629,37 +3918,95 @@ const ProjectsTab = memo(function ProjectsTab({
     cancelled: '#6B7280',
   };
 
+  // Honest deployment-health CTA. A low success rate here is most often driven
+  // by PENDING (not-yet-approved) deployments, not failures — so we label the
+  // call to action by its actual cause: "failed" only when failures exist.
+  const deploySuccessRate =
+    summary.deployment_success_rate != null
+      ? Number(summary.deployment_success_rate)
+      : null;
+  const failedDeployments = Number(summary.failed_deployments ?? 0);
+
+  const scrollToSection = (id: string) =>
+    document
+      .getElementById(id)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   return (
     <>
+      {/* Deployment-health CTA — points at the real cause (failures vs pending). */}
+      {failedDeployments > 0 ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
+          <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-300">
+            <XCircle className="h-4 w-4 flex-shrink-0" />
+            <span>
+              {failedDeployments} failed deployment
+              {failedDeployments === 1 ? '' : 's'} in this period
+              {deploySuccessRate != null
+                ? ` · ${deploySuccessRate}% success rate`
+                : ''}
+              .
+            </span>
+          </div>
+          <ActionChip
+            label="Review failed deployments"
+            tone="red"
+            onClick={() => scrollToSection('cc-recent-deployments')}
+          />
+        </div>
+      ) : deploySuccessRate != null &&
+        deploySuccessRate < 80 &&
+        pendingApprovals.length > 0 ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
+          <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+            <Clock className="h-4 w-4 flex-shrink-0" />
+            <span>
+              Deployment success rate is {deploySuccessRate}% —{' '}
+              {pendingApprovals.length} deployment
+              {pendingApprovals.length === 1 ? '' : 's'} awaiting approval.
+            </span>
+          </div>
+          <ActionChip
+            label="Review pending approvals"
+            tone="amber"
+            onClick={() => scrollToSection('cc-pending-approvals')}
+          />
+        </div>
+      ) : null}
+
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <KpiCard
           label="Total Projects"
-          value={summary.total_projects ?? 0}
+          value={summary.total_projects ?? null}
           icon={Rocket}
           color="blue"
         />
         <KpiCard
           label="Explore Design"
-          value={byType.explore_design ?? 0}
+          value={byType.explore_design ?? null}
           icon={Database}
           color="violet"
         />
         <KpiCard
           label="Workflows"
-          value={byType.workflow ?? 0}
+          value={byType.workflow ?? null}
           icon={GitBranch}
           color="amber"
         />
         <KpiCard
           label="Pending Approvals"
-          value={summary.pending_approvals ?? 0}
+          value={summary.pending_approvals ?? null}
           icon={Clock}
           color="orange"
         />
         <KpiCard
           label="Deploy Success"
-          value={`${summary.deployment_success_rate ?? 0}%`}
+          value={
+            summary.deployment_success_rate != null
+              ? `${summary.deployment_success_rate}%`
+              : null
+          }
           icon={CheckCircle}
           color="green"
         />
@@ -3671,19 +4018,19 @@ const ProjectsTab = memo(function ProjectsTab({
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <KpiCard
           label="Failed Deployments"
-          value={summary.failed_deployments ?? 0}
+          value={summary.failed_deployments ?? null}
           icon={XCircle}
           color="red"
         />
         <KpiCard
           label="Deployment Volume"
-          value={(summary.deployments_period ?? 0).toLocaleString()}
+          value={summary.deployments_period ?? null}
           icon={Upload}
           color="cyan"
         />
         <KpiCard
           label="Unique Members"
-          value={summary.unique_members ?? 0}
+          value={summary.unique_members ?? null}
           icon={Users}
           color="indigo"
         />
@@ -3892,6 +4239,7 @@ const ProjectsTab = memo(function ProjectsTab({
       </div>
 
       {/* Recent Deployments Audit Table */}
+      <div id="cc-recent-deployments">
       <AuditTable
         data={recentDeployments}
         title={`Recent Deployments (${data.period_days ?? 7}d)`}
@@ -3918,6 +4266,24 @@ const ProjectsTab = memo(function ProjectsTab({
                 {v?.replace(/_/g, ' ')}
               </Badge>
             ),
+          },
+          {
+            // Per-project KPI rollup (DQ·PERF·GOV·cost) inline per deployment.
+            // Self-disables (renders nothing) when the rollup route isn't
+            // provisioned — never a fake badge. Only the paged 15 rows mount.
+            key: 'project_id',
+            label: 'Project KPIs',
+            sortable: false,
+            render: (_: string, row: any) =>
+              row.project_id ? (
+                <ProjectKpiStrip
+                  projectId={row.project_id}
+                  compact
+                  dimensions={['perf', 'gov', 'dq', 'cost']}
+                />
+              ) : (
+                <span className="text-gray-400">—</span>
+              ),
           },
           {
             key: 'status',
@@ -4049,13 +4415,17 @@ const ProjectsTab = memo(function ProjectsTab({
           },
         ]}
       />
+      </div>
 
       {/* Pending Approvals + Members */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div
+        id="cc-pending-approvals"
+        className="grid grid-cols-1 gap-6 lg:grid-cols-2"
+      >
         {/* Pending Approvals */}
         <SectionCard title={`Pending Approvals (${pendingApprovals.length})`}>
           {pendingApprovals.length > 0 ? (
-            <div className="max-h-80 space-y-3 overflow-y-auto">
+            <div className="space-y-3">
               {pendingApprovals.map((p: any, i: number) => (
                 <div
                   key={i}
@@ -4120,6 +4490,16 @@ const ProjectsTab = memo(function ProjectsTab({
                   </div>
                   {/* Detail section: what's being approved */}
                   <div className="space-y-1">
+                    {/* Per-project KPI rollup — renders nothing until the
+                        rollup route is provisioned (no fake badges). */}
+                    {p.project_id ? (
+                      <ProjectKpiStrip
+                        projectId={p.project_id}
+                        compact
+                        dimensions={['perf', 'gov', 'dq', 'cost']}
+                        className="pb-0.5"
+                      />
+                    ) : null}
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
@@ -4178,7 +4558,7 @@ const ProjectsTab = memo(function ProjectsTab({
           <div className="mb-4 grid grid-cols-3 gap-3">
             <div className="rounded-lg bg-blue-50 p-3 text-center dark:bg-blue-900/20">
               <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                {summary.unique_members ?? 0}
+                {summary.unique_members ?? '—'}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Unique Members
@@ -4190,7 +4570,7 @@ const ProjectsTab = memo(function ProjectsTab({
                 className="rounded-lg bg-gray-50 p-3 text-center dark:bg-gray-800"
               >
                 <p className="text-xl font-bold text-gray-900 dark:text-white">
-                  {safeStr(r.user_count, '0')}
+                  {safeStr(r.user_count, '—')}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {safeStr(r.role)}
@@ -4198,31 +4578,23 @@ const ProjectsTab = memo(function ProjectsTab({
               </div>
             ))}
           </div>
-          <div className="max-h-48 space-y-2 overflow-y-auto">
-            {topContributors.slice(0, 10).map((c: any, i: number) => (
-              <div
-                key={i}
-                className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800"
-              >
-                <div>
-                  <span className="text-sm text-gray-900 dark:text-white">
-                    {safeStr(c.username)}
-                  </span>
-                  <Badge size="sm" variant="flat" className="ml-2">
-                    {safeStr(c.role)}
-                  </Badge>
-                </div>
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {safeStr(c.project_count, '0')} projects
-                </span>
-              </div>
-            ))}
-            {topContributors.length === 0 && (
-              <p className="py-4 text-center text-sm text-gray-400">
-                No contributors
-              </p>
-            )}
-          </div>
+          {topContributors.length > 0 ? (
+            <SmartAuditTable
+              rows={
+                topContributors.map((c: any) => ({
+                  username: safeStr(c.username),
+                  role: safeStr(c.role),
+                  projects: c.project_count ?? null,
+                })) as SmartRow[]
+              }
+              subtitle="CONTRIBUTORS"
+              pageSize={10}
+            />
+          ) : (
+            <p className="py-4 text-center text-sm text-gray-400">
+              No contributors
+            </p>
+          )}
         </SectionCard>
       </div>
 
@@ -4331,6 +4703,7 @@ const CostTab = memo(function CostTab({
   data,
   loading,
   days = 30,
+  onNavigateTab,
 }: {
   data: CostBreakdownResponse | null;
   loading: boolean;
@@ -4338,6 +4711,8 @@ const CostTab = memo(function CostTab({
    * hardcoded "30d". CostBreakdownResponse carries no period field, so the
    * parent passes filters.days; defaults to 30 for back-compat. */
   days?: number;
+  /** Switch the parent dashboard to another tab (for same-page CTA targets). */
+  onNavigateTab?: (id: string) => void;
 }) {
   const periodDays = days ?? 30;
   const categoryPieData = useMemo(() => {
@@ -4422,7 +4797,7 @@ const CostTab = memo(function CostTab({
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <KpiCard
           label={`Credits (${periodDays}d)`}
-          value={(data?.total_credits ?? 0).toLocaleString()}
+          value={data?.total_credits ?? null}
           icon={DollarSign}
           color="amber"
           trend={data?.credit_trend_pct}
@@ -4434,7 +4809,11 @@ const CostTab = memo(function CostTab({
         />
         <KpiCard
           label={`∆ vs prev ${periodDays}d`}
-          value={`${(data?.credit_trend_pct ?? 0) > 0 ? '+' : ''}${data?.credit_trend_pct ?? 0}%`}
+          value={
+            data?.credit_trend_pct != null
+              ? `${data.credit_trend_pct > 0 ? '+' : ''}${data.credit_trend_pct}%`
+              : null
+          }
           icon={(data?.credit_trend_pct ?? 0) >= 0 ? TrendingUp : TrendingDown}
           color={(data?.credit_trend_pct ?? 0) >= 0 ? 'red' : 'green'}
         />
@@ -4456,14 +4835,14 @@ const CostTab = memo(function CostTab({
           color="violet"
         />
         <KpiCard
-          label={`Cortex Spend (${periodDays}d)`}
+          label={`AI Spend (${periodDays}d)`}
           value={Number(cortexCredits).toLocaleString()}
           icon={Zap}
           color="purple"
         />
         <KpiCard
           label="Capacity"
-          value={(balance.capacity ?? 0).toLocaleString()}
+          value={balance.capacity ?? null}
           icon={DollarSign}
           color="green"
         />
@@ -4513,6 +4892,16 @@ const CostTab = memo(function CostTab({
             Review cost drivers →
           </a>
         </div>
+      )}
+
+      {/* 30d cost projection for the top spending warehouse (cost-simulation).
+          Degrades quietly when the backend route isn't deployed yet. */}
+      {topWarehouses[0]?.name && (
+        <CostPreview
+          objectType="warehouse"
+          objectId={String(topWarehouses[0].name)}
+          days={periodDays}
+        />
       )}
 
       {/* AI flow: discussion → proposed action → execute → capitalize as an event.
@@ -4629,9 +5018,10 @@ const CostTab = memo(function CostTab({
           className="lg:col-span-1"
         >
           {recommendationsToShow.length === 0 ? (
-            <p className="py-8 text-center text-xs text-gray-400">
-              No optimization recommendations yet.
-            </p>
+            // The backend's `optimization_recommendations.items` rail is not
+            // populated on this deployment; surface the real, CTA-bearing
+            // `cost`-dimension recommendations instead (honest empty if none).
+            <FinOpsCostRecos onNavigateTab={onNavigateTab} />
           ) : (
             <ul className="space-y-3">
               {recommendationsToShow.map((rec: any, i: number) => {
@@ -4878,50 +5268,23 @@ const CostTab = memo(function CostTab({
 
         <SectionCard title="Cost Anomalies">
           {anomalies.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-gray-200 text-left text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                    <th className="py-2 pr-3 font-medium">Date</th>
-                    <th className="py-2 pr-3 font-medium">Warehouse</th>
-                    <th className="py-2 pr-3 text-right font-medium">
-                      Deviation
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {anomalies.slice(0, 10).map((a: any, i: number) => {
-                    const deviation = Number(
-                      a.deviation_pct ?? a.deviation ?? 0
-                    );
-                    return (
-                      <tr
-                        key={i}
-                        className="border-b border-gray-100 dark:border-gray-800"
-                      >
-                        <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">
-                          {a.date ?? a.day ?? '—'}
-                        </td>
-                        <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">
-                          {a.warehouse ?? a.name ?? '—'}
-                        </td>
-                        <td
-                          className={cn(
-                            'py-2 pr-3 text-right font-semibold',
-                            deviation >= 0
-                              ? 'text-red-500'
-                              : 'text-green-500'
-                          )}
-                        >
-                          {deviation > 0 ? '+' : ''}
-                          {deviation}%
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <SmartAuditTable
+              rows={
+                anomalies.map((a: any) => {
+                  const raw = a.deviation_pct ?? a.deviation;
+                  const dev = Number(raw);
+                  return {
+                    date: a.date ?? a.day ?? null,
+                    warehouse: a.warehouse ?? a.name ?? null,
+                    deviation: Number.isFinite(dev)
+                      ? `${dev > 0 ? '+' : ''}${dev}%`
+                      : null,
+                  };
+                }) as SmartRow[]
+              }
+              subtitle="WAREHOUSE_METERING"
+              pageSize={10}
+            />
           ) : (
             <p className="py-6 text-center text-sm text-gray-400">
               No cost anomalies detected in the last {periodDays} days.
@@ -4940,9 +5303,12 @@ const CostTab = memo(function CostTab({
 const SecurityAdvTab = memo(function SecurityAdvTab({
   data,
   loading,
+  onNavigateTab,
 }: {
   data: SecurityOverviewResponse | null;
   loading: boolean;
+  /** Switch the parent dashboard to another tab (for same-page CTA targets). */
+  onNavigateTab?: (id: string) => void;
 }) {
   if (loading || !data) return <LoadingSection />;
 
@@ -5015,6 +5381,19 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
   const mfaPct = mfaCoverage.mfa_percentage ?? 0;
   const networkPolicyPct = policies.network_pct ?? 0;
   const passwordPolicyPct = policies.password_pct ?? 0;
+  // Real network-policy count — the backend returns `network_policies_count`
+  // (plural); the singular `network_policy_count` is usually null. Prefer the
+  // populated one; null when neither exists (→ honest "—", never a fake 0).
+  const networkPolicyCount =
+    (data as any).network_policies_count ??
+    (data as any).network_policy_count ??
+    null;
+  // Per-policy coverage percentages live on a `policies` object this backend
+  // doesn't return — so we must show "—" rather than a fabricated 0% bar.
+  const mfaComputed = mfaCoverage.mfa_percentage != null;
+  const hasNetworkPolicyPct = policies.network_pct != null;
+  const hasPasswordPolicyPct = policies.password_pct != null;
+  const privilegedUsers = identity.privileged_users ?? null;
   const severityCls = (sev?: string) => {
     const s = (sev || '').toLowerCase();
     if (s === 'high' || s === 'critical')
@@ -5058,13 +5437,13 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         />
         <KpiCard
           label="Network Policies"
-          value={data.network_policy_count ?? 0}
+          value={networkPolicyCount}
           icon={Shield}
           color="amber"
         />
         <KpiCard
           label="Open Alerts"
-          value={(data as any).open_security_alerts ?? 0}
+          value={(data as any).open_security_alerts ?? null}
           icon={AlertTriangle}
           color={
             ((data as any).open_security_alerts ?? 0) > 0 ? 'rose' : 'green'
@@ -5072,7 +5451,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         />
         <KpiCard
           label="Privileged Users"
-          value={identity.privileged_users ?? 0}
+          value={identity.privileged_users ?? null}
           icon={ShieldCheck}
           color="rose"
         />
@@ -5084,6 +5463,55 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
           suffix={userSecurityScore == null ? undefined : '/100'}
         />
       </div>
+
+      {/* Actionable security CTAs — deterministic chips (rendered immediately
+          from already-loaded data) cover network-policy / privileged / audit;
+          MFA is owned by the chip, so we exclude MFA from the data-driven
+          governance recommendations below to avoid a duplicate CTA. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {mfaComputed && mfaPct < 80 ? (
+          <ActionChip
+            label="Require MFA"
+            tone="red"
+            icon={Lock}
+            href="/governance/users"
+          />
+        ) : null}
+        {privilegedUsers != null && privilegedUsers > 5 ? (
+          <ActionChip
+            label="Review privileged access"
+            tone="amber"
+            icon={ShieldCheck}
+            href="/governance/roles"
+          />
+        ) : null}
+        {networkPolicyCount === 0 ? (
+          <ActionChip
+            label="Apply network policy"
+            tone="amber"
+            icon={Shield}
+            href="/governance"
+          />
+        ) : null}
+        <ActionChip
+          label="View access audit"
+          tone="blue"
+          icon={Eye}
+          onClick={() =>
+            document
+              .getElementById('cc-access-audit')
+              ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        />
+      </div>
+
+      <RecoCtaList
+        dimension="gov"
+        currentTab="security"
+        onNavigateTab={onNavigateTab}
+        title="Recommended security actions"
+        exclude={(r) => /mfa/i.test(r.title)}
+      />
 
       {/* Login Trend Chart */}
       <SectionCard title={`Login Activity (${data.period_days ?? 7}d)`}>
@@ -5298,15 +5726,22 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
       <SectionCard title="Policy Coverage">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {[
-            { label: 'MFA Coverage', value: mfaPct, color: 'bg-green-500' },
+            {
+              label: 'MFA Coverage',
+              value: mfaPct,
+              available: mfaComputed,
+              color: 'bg-green-500',
+            },
             {
               label: 'Network Policy',
               value: networkPolicyPct,
+              available: hasNetworkPolicyPct,
               color: 'bg-blue-500',
             },
             {
               label: 'Password Policy',
               value: passwordPolicyPct,
+              available: hasPasswordPolicyPct,
               color: 'bg-violet-500',
             },
           ].map((p) => (
@@ -5315,16 +5750,25 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
                 <span className="text-xs text-gray-700 dark:text-gray-300">
                   {p.label}
                 </span>
+                {/* Honest: "—" when the backend hasn't computed this coverage,
+                    never a fabricated 0%. */}
                 <span className="text-xs font-medium text-gray-900 dark:text-white">
-                  {p.value}%
+                  {p.available ? `${p.value}%` : '—'}
                 </span>
               </div>
               <div className="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700">
-                <div
-                  className={cn('h-2 rounded-full transition-all', p.color)}
-                  style={{ width: `${Math.min(100, Math.max(0, p.value))}%` }}
-                />
+                {p.available ? (
+                  <div
+                    className={cn('h-2 rounded-full transition-all', p.color)}
+                    style={{ width: `${Math.min(100, Math.max(0, p.value))}%` }}
+                  />
+                ) : null}
               </div>
+              {!p.available ? (
+                <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
+                  not yet computed
+                </p>
+              ) : null}
             </div>
           ))}
         </div>
@@ -5332,55 +5776,30 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
 
       {/* Failed Logins Audit Table */}
       {failedLogins.length > 0 && (
-        <AuditTable
-          data={failedLogins}
+        <SmartAuditTable
           title="Top Failed Login Attempts"
-          columns={[
-            {
-              key: 'user_name',
-              label: 'User',
-              sortable: true,
-              filterable: true,
-              render: (v: string) => (
-                <span className="font-medium text-gray-900 dark:text-white">
-                  {v}
-                </span>
-              ),
-            },
-            {
-              key: 'failure_count',
-              label: 'Failures',
-              sortable: true,
-              align: 'right',
-              render: (v: number) => (
-                <Badge size="sm" variant="flat" color="danger">
-                  {v}
-                </Badge>
-              ),
-            },
-            {
-              key: 'last_failure',
-              label: 'Last Failure',
-              sortable: true,
-              render: (v: string) => <span title={v}>{relativeTime(v)}</span>,
-            },
-            {
-              key: 'last_error',
-              label: 'Error',
-              filterable: true,
-              render: (v: string) => (
-                <span className="block max-w-xs truncate">{v}</span>
-              ),
-            },
-          ]}
+          subtitle="LOGIN_HISTORY"
+          pageSize={10}
+          rows={
+            failedLogins.map((f: any) => ({
+              user: safeStr(f.user_name),
+              failures: f.failure_count ?? null,
+              last_failure: f.last_failure ?? null,
+              error: f.last_error ?? null,
+            })) as SmartRow[]
+          }
         />
       )}
 
-      {/* Full Query History Audit (from ACCOUNT_USAGE) */}
-      <QueryHistoryTable days={data.period_days || 7} />
+      {/* Access audit — full query + login history (scroll target for the
+          "View access audit" CTA above). */}
+      <div id="cc-access-audit" className="space-y-6">
+        {/* Full Query History Audit (from ACCOUNT_USAGE) */}
+        <QueryHistoryTable days={data.period_days || 7} />
 
-      {/* Full Login History Audit (from ACCOUNT_USAGE) */}
-      <LoginHistoryTable days={data.period_days || 7} />
+        {/* Full Login History Audit (from ACCOUNT_USAGE) */}
+        <LoginHistoryTable days={data.period_days || 7} />
+      </div>
     </>
   );
 });
@@ -5431,37 +5850,37 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
       <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
         <KpiCard
           label="Total Roles"
-          value={s.role_count ?? 0}
+          value={s.role_count ?? null}
           icon={Users}
           color="blue"
         />
         <KpiCard
           label="Policies"
-          value={s.total_policies ?? 0}
+          value={s.total_policies ?? null}
           icon={Shield}
           color="violet"
         />
         <KpiCard
           label="Tags Applied"
-          value={s.total_tags ?? 0}
+          value={s.total_tags ?? null}
           icon={Layers}
           color="cyan"
         />
         <KpiCard
           label="Total Grants"
-          value={(s.total_role_grants ?? 0).toLocaleString()}
+          value={s.total_role_grants ?? null}
           icon={FileText}
           color="green"
         />
         <KpiCard
           label="Users with Roles"
-          value={s.users_with_roles ?? 0}
+          value={s.users_with_roles ?? null}
           icon={Users}
           color="amber"
         />
         <KpiCard
           label="Object Types"
-          value={s.object_types_covered ?? 0}
+          value={s.object_types_covered ?? null}
           icon={Database}
           color="rose"
         />
@@ -5805,37 +6224,45 @@ const DataOperationsTab = memo(function DataOperationsTab({
       <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
         <KpiCard
           label="Files Loaded"
-          value={(loadingSummary.total_files ?? 0).toLocaleString()}
+          value={loadingSummary.total_files ?? null}
           icon={Upload}
           color="blue"
         />
         <KpiCard
           label="Rows Ingested"
-          value={(loadingSummary.total_rows ?? 0).toLocaleString()}
+          value={loadingSummary.total_rows ?? null}
           icon={Database}
           color="green"
         />
         <KpiCard
           label="Data Volume"
-          value={`${((loadingSummary.total_bytes ?? 0) / 1073741824).toFixed(2)} GB`}
+          value={
+            loadingSummary.total_bytes != null
+              ? `${(loadingSummary.total_bytes / 1073741824).toFixed(2)} GB`
+              : null
+          }
           icon={Box}
           color="violet"
         />
         <KpiCard
           label="Load Success"
-          value={`${loadingSummary.success_rate ?? 0}%`}
+          value={
+            loadingSummary.success_rate != null
+              ? `${loadingSummary.success_rate}%`
+              : null
+          }
           icon={CheckCircle}
           color="emerald"
         />
         <KpiCard
           label="Task Runs"
-          value={(automationSummary.total_runs ?? 0).toLocaleString()}
+          value={automationSummary.total_runs ?? null}
           icon={Clock}
           color="amber"
         />
         <KpiCard
           label="Active Tasks"
-          value={automationSummary.active_tasks ?? 0}
+          value={automationSummary.active_tasks ?? null}
           icon={Zap}
           color="cyan"
         />
@@ -6573,11 +7000,14 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
   activityFeed,
   summary,
   loading,
+  onNavigateTab,
 }: {
   platformData: PlatformActivityResponse | null;
   activityFeed: ActivityFeedResponse | null;
   summary: SummaryResponse | null;
   loading: boolean;
+  /** Switch the parent dashboard to another tab (for same-page CTA targets). */
+  onNavigateTab?: (id: string) => void;
 }) {
   const { totalEvents, totalSessions, uniqueUsersTotal } = useMemo(() => {
     const ea = Array.isArray(platformData?.event_activity)
@@ -6748,35 +7178,50 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         />
         <KpiCard
           label="Roles"
-          value={platformData?.governance_stats?.roles ?? 0}
+          value={platformData?.governance_stats?.roles ?? null}
           icon={Shield}
           color="amber"
         />
         <KpiCard
           label="Permissions"
-          value={platformData?.governance_stats?.permissions ?? 0}
+          value={platformData?.governance_stats?.permissions ?? null}
           icon={Lock}
           color="rose"
         />
+        {/* `totals` (bytes/credits/avg-query) isn't part of this backend's
+            platform-activity payload — render honest "—" rather than a fake 0. */}
         <KpiCard
           label="Bytes Scanned"
-          value={formatBytes(bytesScanned)}
+          value={totals.bytes_scanned != null ? formatBytes(bytesScanned) : null}
           icon={Database}
           color="blue"
         />
         <KpiCard
           label="Credits Consumed"
-          value={creditsConsumed.toLocaleString()}
+          value={
+            totals.credits_consumed != null
+              ? creditsConsumed.toLocaleString()
+              : null
+          }
           icon={Zap}
           color="amber"
         />
         <KpiCard
           label="Avg Query ms"
-          value={avgQueryMs.toLocaleString()}
+          value={totals.avg_query_ms != null ? avgQueryMs.toLocaleString() : null}
           icon={Timer}
           color="violet"
         />
       </div>
+
+      {/* Actionable platform recommendations (perf dimension — cache hit,
+          query intelligence, warehouse sizing). Renders nothing when none. */}
+      <RecoCtaList
+        dimension="perf"
+        currentTab="platform-activity"
+        onNavigateTab={onNavigateTab}
+        title="Recommended platform actions"
+      />
 
       {/* User Sessions Trend */}
       <SectionCard
@@ -7060,95 +7505,20 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
       </div>
 
       {/* Full Activity Feed as Audit Table */}
-      <AuditTable
-        data={activityRows}
+      <SmartAuditTable
         title="Activity Feed"
-        emptyMessage="No recent activity"
-        pageSize={50}
-        columns={[
-          {
-            key: 'module',
-            label: 'Module',
-            sortable: true,
-            filterable: true,
-            render: (v: string) => (
-              <Badge
-                size="sm"
-                variant="flat"
-                color={(MODULE_COLORS[v] as any) || 'secondary'}
-              >
-                {v?.replace(/_/g, ' ')}
-              </Badge>
-            ),
-          },
-          {
-            key: 'event_type',
-            label: 'Event',
-            sortable: true,
-            filterable: true,
-          },
-          { key: 'username', label: 'User', sortable: true, filterable: true },
-          {
-            key: 'status',
-            label: 'Status',
-            sortable: true,
-            filterable: true,
-            render: (v: string) => (
-              <Badge size="sm" variant="flat" color={statusBadgeColor(v)}>
-                {v}
-              </Badge>
-            ),
-          },
-          {
-            key: 'timestamp',
-            label: 'Time',
-            sortable: true,
-            render: (v: string) => <span title={v}>{relativeTime(v)}</span>,
-          },
-        ]}
+        subtitle="ACTIVITY_FEED"
+        pageSize={10}
+        rows={activityRows as SmartRow[]}
       />
 
       {/* Recent Platform Audit */}
       {platformData?.recent_audit && platformData.recent_audit.length > 0 && (
-        <AuditTable
-          data={platformData.recent_audit}
+        <SmartAuditTable
           title="Platform Audit Trail"
-          columns={[
-            {
-              key: 'action',
-              label: 'Action',
-              sortable: true,
-              filterable: true,
-              render: (v: string) => (
-                <Badge size="sm" variant="flat" color="info">
-                  {v}
-                </Badge>
-              ),
-            },
-            {
-              key: 'entity_type',
-              label: 'Entity',
-              sortable: true,
-              filterable: true,
-              render: (v: string, row: any) => (
-                <span className="text-gray-900 dark:text-white">
-                  {v}: {row.entity_name}
-                </span>
-              ),
-            },
-            {
-              key: 'performed_by',
-              label: 'By',
-              sortable: true,
-              filterable: true,
-            },
-            {
-              key: 'performed_at',
-              label: 'When',
-              sortable: true,
-              render: (v: string) => <span title={v}>{relativeTime(v)}</span>,
-            },
-          ]}
+          subtitle="AUDIT_TRAIL"
+          pageSize={10}
+          rows={platformData.recent_audit as unknown as SmartRow[]}
         />
       )}
     </>

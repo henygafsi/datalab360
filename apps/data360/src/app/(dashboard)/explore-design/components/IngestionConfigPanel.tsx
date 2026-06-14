@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { Button, Badge, Input, Tooltip, Switch } from 'rizzui';
 import {
   Database, RefreshCw, Clock, History, Layers, Settings, Plus, Trash2,
-  FileCode, Cloud, Timer, Play, Pause, Calendar, AlertTriangle, Info,
+  FileCode, Cloud, Timer, Pause, Calendar, AlertTriangle, Info,
   ChevronDown, ChevronRight, Workflow, Zap, Code2, FolderOpen, CheckCircle2,
   Sparkles, Loader2
 } from 'lucide-react';
@@ -99,6 +99,12 @@ interface IngestionConfigPanelProps {
   /** When true, only show Mode tab (hide DDL, Snowpipe, Batch) */
   modeOnly?: boolean;
   className?: string;
+  /**
+   * Called after the user commits the configuration. The panel persists the
+   * ingestion mode + SCD settings to the project's deployment draft (event
+   * store) itself; the parent typically uses this to close the panel.
+   */
+  onSave?: () => void;
 }
 
 // Tab type
@@ -114,8 +120,10 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
   projectId,
   modeOnly = false,
   className,
+  onSave,
 }) => {
   const { addEvent } = useEventStore();
+  const [saving, setSaving] = useState(false);
   const { isEnabled } = useAiFeatures();
   const [activeTab, setActiveTab] = useState<TabType>('mode');
   const [expandedSection, setExpandedSection] = useState<string | null>('scd');
@@ -208,6 +216,39 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
       ));
     }
   }, [table, addEvent, onModeChange, scdConfig]);
+
+  // Commit the configuration. Persists the ingestion mode + SCD settings to the
+  // project's deployment draft (the event store deploy reads from) — the same
+  // mechanism the rest of the modeling flow uses. The toast is scoped to what
+  // actually persists (mode + SCD); we never claim more than is saved.
+  const handleSave = useCallback(() => {
+    if (!table) {
+      toast.error('Select a table first');
+      return;
+    }
+    setSaving(true);
+    try {
+      const isScd = !!ingestionMode?.startsWith('scd');
+      // Mirror handleModeChange exactly: pass the whole scdConfig (incl.
+      // businessKeyColumn) so Save persists the same rich payload, never a
+      // narrower one that could overwrite the mode-change event under last-wins.
+      addEvent(createIngestionModeEvent(
+        { database: table.database, schema: table.schema, table: table.table },
+        ingestionMode,
+        isScd ? scdConfig : undefined
+      ));
+      toast.success(
+        isScd
+          ? `Ingestion mode "${ingestionMode}" + SCD settings saved — applies on next deploy`
+          : `Ingestion mode "${ingestionMode}" saved — applies on next deploy`
+      );
+      onSave?.();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save ingestion configuration');
+    } finally {
+      setSaving(false);
+    }
+  }, [table, ingestionMode, scdConfig, addEvent, onSave]);
 
   // Add condition
   const addCondition = useCallback((type: ConditionConfig['type']) => {
@@ -1005,8 +1046,18 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
 
       {/* Footer */}
       <div className="px-4 py-3 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-        <Button className="w-full gap-2">
-          <Play className="h-4 w-4" />
+        <Button
+          className="w-full gap-2"
+          onClick={handleSave}
+          disabled={!table || saving}
+          aria-label="Save ingestion configuration to deployment draft"
+          aria-busy={saving}
+        >
+          {saving ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4" />
+          )}
           Save Configuration
         </Button>
       </div>

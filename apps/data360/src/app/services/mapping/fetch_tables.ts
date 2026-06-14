@@ -2,6 +2,7 @@
  *  Canonical form has NO trailing slash; backend now exposes both for safety.
  */
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 
 export interface TableColumn {
     name?: string;
@@ -48,8 +49,7 @@ export const getTableColumns = async (
   try {
     // Canonical: no trailing slash to avoid duplicate calls (FastAPI redirects /foo/ -> /foo).
     const response = await apiClient.get<{ columns?: TableColumn[] } | TableColumn[]>(
-      '/common/get_table_columns',
-      { params: { database_name: databaseName, schema_name: schemaName, table_name: tableName } }
+      API.common.tableColumns(databaseName, schemaName, tableName)
     );
     const data = response.data;
 

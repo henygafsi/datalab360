@@ -3,6 +3,7 @@
  * Works in both server-side (SSR) and client-side contexts
  */
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 
 interface TableObject {
   name: string;
@@ -21,7 +22,7 @@ function isTableObject(obj: unknown): obj is TableObject {
  */
 export const getTables = async (databaseName: string, schemaName: string): Promise<string[]> => {
   try {
-    const response = await apiClient.get(`/common/tables/${databaseName}/${schemaName}`);
+    const response = await apiClient.get(API.common.tables(databaseName, schemaName));
 
     // Handle different response formats and always return string[]
     if (Array.isArray(response.data)) {

@@ -7,13 +7,16 @@ import {
   HelpCircle, Shield, RefreshCw, Plus, Key, AlertTriangle, Eye,
   Sparkles, CheckCircle, FileText, GitBranch, Lock, Tag, Send,
   Rocket, Play, Search, Info, ArrowRight, ExternalLink,
-  PanelRightClose, PanelRight,
+  PanelRight, Ban,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { isUnavailable } from '@/lib/http-status';
+import RightTabPanel, { type RightTabSection, type QuickAction } from '@/app/shared/governance/right-tab-panel';
 import toast from 'react-hot-toast';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import PermissionGate from '@/components/ui/PermissionGate';
+import ProjectKpiStrip from '@/app/shared/score-cards/ProjectKpiStrip';
+import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +77,8 @@ export interface ContextRightBarProps {
   columnClassifications: Map<string, Record<string, string>>;
   classificationDetails: ClassificationResult[];
   isClassifying: boolean;
+  /** The classification endpoint returned 404/501 — honest disabled CTA. */
+  classifyUnavailable?: boolean;
   onRunClassify: () => void;
   onAddEvent: (event: any) => void;
   profileData?: any;
@@ -100,6 +105,11 @@ const TABS: { id: RightBarTab; icon: React.ElementType; label: string }[] = [
   { id: 'help', icon: HelpCircle, label: 'Help' },
 ];
 
+// Versioned, minimal localStorage key (client-localstorage-schema): the shared
+// RightTabPanel persists the user's last-viewed section ("draft of menu") to this
+// key and restores it (validated against the known section ids) on mount.
+const ACTIVE_TAB_KEY = 'data360.exploreDesign.contextTab.v1';
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -107,7 +117,7 @@ const TABS: { id: RightBarTab; icon: React.ElementType; label: string }[] = [
 export default function ContextRightBar({
   selectedTable, tableColumns, projectId, isOpen, onToggle,
   activeTab, onTabChange, focusedAction, onFocusAction,
-  columnClassifications, classificationDetails, isClassifying, onRunClassify,
+  columnClassifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify,
   onAddEvent, profileData, historyEvents,
   pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onOpenDeployModal, onDeselectTable,
 }: ContextRightBarProps) {
@@ -116,30 +126,158 @@ export default function ContextRightBar({
   const fqn = selectedTable ? `${selectedTable.database}.${selectedTable.schema}.${selectedTable.table}` : '';
   const classifications = selectedTable ? columnClassifications.get(selectedTable.id) : undefined;
 
+  // Per-project KPI strip — only when a project context is in scope (per-PROJECT,
+  // never per-account). The strip is per-project, not per-table, so it shows even
+  // with no table selected; it self-hides (renders null) when the rollup isn't
+  // provisioned. No project id → no strip (don't invent one).
+  const kpiStrip = projectId ? <ProjectKpiStrip projectId={projectId} compact /> : undefined;
+
+  // Role-filtered quick-actions (System 2 Action-RBAC, project-scoped). Each one
+  // reuses an EXISTING panel handler — no rebuilt logic. Fail-open while the
+  // allow-set loads (`allowed || loading`), mirroring ActionsPanel below.
+  const canCreate = useCanPerform('explore_design', 'create', projectId);
+  const canApprove = useCanPerform('explore_design', 'approve', projectId);
+  const canDeploy = useCanPerform('explore_design', 'deploy', projectId);
+  const quickActions: QuickAction[] = [];
+  if (canCreate.allowed || canCreate.loading) {
+    quickActions.push({
+      id: 'create',
+      label: 'Add column',
+      icon: Plus,
+      onClick: () => { onTabChange('actions'); onFocusAction('add_column'); },
+    });
+  }
+  if (canApprove.allowed || canApprove.loading) {
+    // The only approval flow in this panel is the Deploy pipeline's request step,
+    // so "Review & approve" focuses that tab (named for the destination, honestly).
+    quickActions.push({
+      id: 'approve',
+      label: 'Review & approve',
+      icon: CheckCircle,
+      onClick: () => onTabChange('deploy'),
+    });
+  }
+  if (canDeploy.allowed || canDeploy.loading) {
+    quickActions.push({
+      id: 'deploy',
+      label: 'Deploy',
+      icon: Rocket,
+      tone: 'primary',
+      onClick: onOpenDeployModal,
+    });
+  }
+
+  // Six docked sections — bodies kept verbatim from the previous panel. Each
+  // guards on `selectedTable` so an unselected table shows the same empty state
+  // across every section (behaviour preserved from the old inline tab content).
+  const sections: RightTabSection[] = [
+    {
+      id: 'actions', icon: Zap, label: 'Actions',
+      render: () => selectedTable ? (
+        <ActionsPanel
+          table={selectedTable}
+          columns={tableColumns}
+          projectId={projectId}
+          focusedAction={focusedAction}
+          onFocusAction={onFocusAction}
+          onAddEvent={onAddEvent}
+          classifications={classifications}
+          userRole={userRole}
+          database={selectedDatabase}
+          onDeselectTable={onDeselectTable}
+        />
+      ) : <EmptyState />,
+    },
+    {
+      id: 'ai', icon: Brain, label: 'AI Assist',
+      render: () => (
+        <div>
+          {/* AI-prefilled cross-module CTA blocks (deep-link with intent), scoped
+              to explore-design + the selected object / active project. Shown above
+              the per-table AI assist so suggestions exist even before a table is
+              picked. */}
+          <div className="p-4 pb-0">
+            <AiActionBlocks
+              context={{
+                scope: 'module',
+                module: 'explore_design',
+                objectFqn: fqn || undefined,
+                projectId: projectId ?? undefined,
+              }}
+              title="Actions IA suggérées"
+            />
+          </div>
+          {selectedTable ? (
+            <AIAssistPanel
+              table={selectedTable}
+              columns={tableColumns}
+              classifications={classifications}
+              classificationDetails={classificationDetails}
+              isClassifying={isClassifying}
+              classifyUnavailable={classifyUnavailable}
+              onRunClassify={onRunClassify}
+            />
+          ) : <EmptyState />}
+        </div>
+      ),
+    },
+    {
+      id: 'quality', icon: BarChart3, label: 'Quality',
+      render: () => selectedTable
+        ? <QualityPanel table={selectedTable} columns={tableColumns} profileData={profileData} onAddEvent={onAddEvent} />
+        : <EmptyState />,
+    },
+    {
+      id: 'deploy', icon: Rocket, label: 'Deploy',
+      render: () => selectedTable ? (
+        <DeployPanel
+          projectId={projectId}
+          pendingEventsCount={pendingEventsCount}
+          pendingEvents={pendingEvents}
+          database={selectedDatabase}
+          schema={selectedSchema}
+          onOpenDeployModal={onOpenDeployModal}
+        />
+      ) : <EmptyState />,
+    },
+    {
+      id: 'history', icon: Clock, label: 'History',
+      render: () => selectedTable ? <HistoryPanel events={historyEvents} /> : <EmptyState />,
+    },
+    {
+      id: 'help', icon: HelpCircle, label: 'Help',
+      render: () => selectedTable ? <HelpPanel table={selectedTable} /> : <EmptyState />,
+    },
+  ];
+
+  // Both branches stay MOUNTED and toggle via `hidden`. Keeping RightTabPanel
+  // mounted across collapse/expand is deliberate: its section-restore effect runs
+  // once per mount, so an unmount-on-collapse ternary would re-restore (and revert
+  // an explicit tab choice) on every expand. Visibility toggling preserves the old
+  // "restore once on page-load mount" behaviour and lets the many openers that set
+  // a tab + open (mini-rail icons, the page's Add Column / Policies / Deploy
+  // quick-actions) land on the section they asked for.
   return (
     <div className="flex h-full shrink-0" style={{ flexShrink: 0, flexGrow: 0 }}>
-      {/* Mini rail — always visible */}
-      <div className="w-12 border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col items-center py-2 gap-1">
+      {/* Collapsed mini-rail — re-expands the panel (and jumps to a section). */}
+      <div className={cn('w-12 border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col items-center py-2 gap-1', isOpen && 'hidden')}>
         <button
           onClick={onToggle}
           className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 mb-2"
-          title={isOpen ? 'Collapse panel' : 'Expand panel'}
+          title="Expand panel"
+          aria-label="Expand panel"
         >
-          {isOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRight className="h-4 w-4" />}
+          <PanelRight className="h-4 w-4" />
         </button>
         {TABS.map((tab) => {
           const Icon = tab.icon;
-          const active = activeTab === tab.id && isOpen;
           return (
             <Tooltip key={tab.id} content={tab.label} placement="left">
               <button
-                onClick={() => { onTabChange(tab.id); if (!isOpen) onToggle(); }}
-                className={cn(
-                  'p-2 rounded-lg transition-colors',
-                  active
-                    ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400'
-                    : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-600'
-                )}
+                onClick={() => { onTabChange(tab.id); onToggle(); }}
+                aria-label={tab.label}
+                aria-pressed={false}
+                className="p-2 rounded-lg transition-colors text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-600"
               >
                 <Icon className="h-4 w-4" />
               </button>
@@ -148,93 +286,33 @@ export default function ContextRightBar({
         })}
       </div>
 
-      {/* Expanded content */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 380, opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden flex flex-col shrink-0"
-            style={{ minWidth: 0 }}
-          >
-            {/* Header */}
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                {TABS.find((t) => t.id === activeTab)?.icon && (
-                  <span className="text-blue-600">
-                    {React.createElement(TABS.find((t) => t.id === activeTab)!.icon, { className: 'h-4 w-4' })}
-                  </span>
-                )}
-                <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-                  {TABS.find((t) => t.id === activeTab)?.label}
-                </h3>
-              </div>
-              {selectedTable && (
-                <Badge size="sm" className="bg-slate-100 dark:bg-slate-800 text-slate-500 text-[9px]">{tableName}</Badge>
-              )}
-            </div>
+      <div className={cn(!isOpen && 'hidden')}>
+        <RightTabPanel
+          title={tableName || 'Table actions'}
+          subtitle={selectedTable ? fqn : undefined}
+          accentClassName="bg-blue-500"
+          kpiStrip={kpiStrip}
+          quickActions={quickActions}
+          sections={sections}
+          activeSection={activeTab}
+          onSectionChange={(id) => onTabChange(id as RightBarTab)}
+          // Escape collapses only when open — never expands a collapsed (hidden) panel.
+          onClose={() => { if (isOpen) onToggle(); }}
+          storageKey={ACTIVE_TAB_KEY}
+          widthClassName="w-[380px]"
+        />
+      </div>
+    </div>
+  );
+}
 
-            {/* Tab content */}
-            <div className="flex-1 overflow-y-auto">
-              {!selectedTable ? (
-                <div className="flex flex-col items-center justify-center h-full text-slate-400 px-6 text-center">
-                  <Info className="h-8 w-8 mb-3 text-slate-300" />
-                  <p className="text-sm font-medium">Select a table</p>
-                  <p className="text-xs mt-1">Choose a table from the list to see contextual actions</p>
-                </div>
-              ) : (
-                <>
-                  {activeTab === 'actions' && (
-                    <ActionsPanel
-                      table={selectedTable}
-                      columns={tableColumns}
-                      projectId={projectId}
-                      focusedAction={focusedAction}
-                      onFocusAction={onFocusAction}
-                      onAddEvent={onAddEvent}
-                      classifications={classifications}
-                      userRole={userRole}
-                      database={selectedDatabase}
-                      onDeselectTable={onDeselectTable}
-                    />
-                  )}
-                  {activeTab === 'ai' && (
-                    <AIAssistPanel
-                      table={selectedTable}
-                      columns={tableColumns}
-                      classifications={classifications}
-                      classificationDetails={classificationDetails}
-                      isClassifying={isClassifying}
-                      onRunClassify={onRunClassify}
-                    />
-                  )}
-                  {activeTab === 'quality' && (
-                    <QualityPanel table={selectedTable} columns={tableColumns} profileData={profileData} onAddEvent={onAddEvent} />
-                  )}
-                  {activeTab === 'deploy' && (
-                    <DeployPanel
-                      projectId={projectId}
-                      pendingEventsCount={pendingEventsCount}
-                      pendingEvents={pendingEvents}
-                      database={selectedDatabase}
-                      schema={selectedSchema}
-                      onOpenDeployModal={onOpenDeployModal}
-                    />
-                  )}
-                  {activeTab === 'history' && (
-                    <HistoryPanel events={historyEvents} />
-                  )}
-                  {activeTab === 'help' && (
-                    <HelpPanel table={selectedTable} />
-                  )}
-                </>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+// Shown in any section when no table is selected (same copy as before).
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-slate-400 px-6 text-center">
+      <Info className="h-8 w-8 mb-3 text-slate-300" />
+      <p className="text-sm font-medium">Select a table</p>
+      <p className="text-xs mt-1">Choose a table from the list to see contextual actions</p>
     </div>
   );
 }
@@ -534,14 +612,20 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
 // B. AI Assist Panel
 // ---------------------------------------------------------------------------
 
-function AIAssistPanel({ table, columns, classifications, classificationDetails, isClassifying, onRunClassify }: {
+function AIAssistPanel({ table, columns, classifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify }: {
   table: TableItem; columns: ColumnInfo[];
   classifications?: Record<string, string>;
   classificationDetails: ClassificationResult[];
   isClassifying: boolean;
+  classifyUnavailable?: boolean;
   onRunClassify: () => void;
 }) {
   const [prompt, setPrompt] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
+  // 404/501 from the completion endpoint — honest disabled state, not an error.
+  const [askUnavailable, setAskUnavailable] = useState(false);
   const hasClassifications = classifications && Object.keys(classifications).length > 0;
 
   const SUGGESTED = [
@@ -552,6 +636,35 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
     'Create retail KPI mapping',
   ];
 
+  const fqn = `${table.database}.${table.schema}.${table.table}`;
+
+  const askAI = async () => {
+    const q = prompt.trim();
+    if (!q || asking) return;
+    setAsking(true);
+    setAskError(null);
+    setAnswer(null);
+    try {
+      const { generateCompletion } = await import('@/app/services/cortex');
+      const colList = columns
+        .slice(0, 40)
+        .map((c) => `${c.name} ${c.dataType}${c.isSensitive ? ' (PII)' : ''}${c.isPrimaryKey ? ' [PK]' : ''}`)
+        .join(', ');
+      const fullPrompt =
+        'You are a Snowflake and Data360 data-modelling expert. Answer the question about ' +
+        `the table ${fqn} concisely and actionably.\n\nColumns: ${colList || 'unknown'}\n\nQuestion: ${q}`;
+      const res = await generateCompletion({ prompt: fullPrompt });
+      setAnswer(res.response || 'No response returned.');
+    } catch (err: any) {
+      // 404/501 = the AI route isn't on this backend — disable quietly
+      // (InsightActionButton pattern), don't surface a loud error.
+      if (isUnavailable(err)) setAskUnavailable(true);
+      else setAskError(err?.message || 'Ask AI failed');
+    } finally {
+      setAsking(false);
+    }
+  };
+
   return (
     <div className="p-4 space-y-4">
       {/* AI Classify CTA */}
@@ -561,13 +674,25 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
           <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">AI Column Classification</h4>
         </div>
         <p className="text-[11px] text-slate-500">Detect identifiers, measures, dimensions, PII, dates and more using AI.</p>
-        <button
-          onClick={onRunClassify}
-          disabled={isClassifying}
-          className="w-full py-2 text-xs font-medium rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white transition-colors flex items-center justify-center gap-1.5"
-        >
-          {isClassifying ? <><Loader size="sm" className="h-3 w-3" /> Classifying...</> : <><Sparkles className="h-3.5 w-3.5" /> Run AI Classification</>}
-        </button>
+        {classifyUnavailable ? (
+          <span
+            role="status"
+            aria-disabled="true"
+            title="Not available on this backend yet"
+            className="w-full py-2 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed flex items-center justify-center gap-1.5"
+          >
+            <Ban className="h-3.5 w-3.5" aria-hidden /> AI Classification unavailable
+          </span>
+        ) : (
+          <button
+            onClick={onRunClassify}
+            disabled={isClassifying}
+            aria-busy={isClassifying}
+            className="w-full py-2 text-xs font-medium rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white transition-colors flex items-center justify-center gap-1.5"
+          >
+            {isClassifying ? <><Loader size="sm" className="h-3 w-3" /> Classifying...</> : <><Sparkles className="h-3.5 w-3.5" /> Run AI Classification</>}
+          </button>
+        )}
 
         {/* Classification Results */}
         {hasClassifications && (
@@ -620,10 +745,18 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
             placeholder="Ask about this table, policies, quality..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            className="w-full pl-3 pr-9 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            onKeyDown={(e) => { if (e.key === 'Enter') askAI(); }}
+            disabled={asking || askUnavailable}
+            className="w-full pl-3 pr-9 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
           />
-          <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30">
-            <Send className="h-3.5 w-3.5" />
+          <button
+            onClick={askAI}
+            disabled={asking || askUnavailable || !prompt.trim()}
+            aria-busy={asking}
+            title={askUnavailable ? 'Not available on this backend yet' : 'Ask AI'}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            {asking ? <Loader size="sm" className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
           </button>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -633,6 +766,29 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
             </button>
           ))}
         </div>
+
+        {/* Result / loading / error */}
+        {askUnavailable && (
+          <p role="status" className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 pt-1">
+            <Ban className="h-3 w-3" aria-hidden /> AI assistant isn&apos;t available on this backend yet
+          </p>
+        )}
+        {asking && (
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 pt-1">
+            <Loader size="sm" className="h-3 w-3" /> Thinking...
+          </div>
+        )}
+        {askError && !asking && (
+          <div className="flex items-start gap-1.5 rounded-lg border border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10 p-2 text-[11px] text-red-600 dark:text-red-400">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+            <span>{askError}</span>
+          </div>
+        )}
+        {answer && !asking && (
+          <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/30 dark:bg-blue-900/10 p-2.5 text-[11px] text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+            {answer}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -979,6 +1135,14 @@ function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pending
       setStepStatus((p) => ({ ...p, [stepId]: 'done' }));
       setStepOutput((p) => ({ ...p, [stepId]: result }));
     } catch (err: any) {
+      // 404/501 = endpoint not on this backend — quiet gap, not a red error
+      // (same rule as InsightActionButton's self-disable).
+      if (isUnavailable(err)) {
+        log(`${stepId}: not available on this backend yet`, 'info');
+        setStepStatus((p) => ({ ...p, [stepId]: 'idle' }));
+        setStepOutput((p) => ({ ...p, [stepId]: { unavailable: true } }));
+        return;
+      }
       const raw = err?.response?.data;
       const msg = raw?.detail?.message || raw?.detail || raw?.message || err?.message || 'Failed';
       const hint = typeof msg === 'string' && msg.includes('Missing') ? '\nHint: Ensure database and schema are set from a selected table.' : '';
@@ -1105,6 +1269,13 @@ function StepStatusBadge({ status, index }: { status: StepStatus; index: number 
 }
 
 function StepOutput({ stepId, output, status }: { stepId: StepId; output: any; status: StepStatus }) {
+  if (output?.unavailable) {
+    return (
+      <p role="status" className="flex items-center gap-1.5 text-[10px] italic text-slate-400 dark:text-slate-500">
+        <Ban className="h-3 w-3" aria-hidden /> Not available on this backend yet
+      </p>
+    );
+  }
   if (output?.error) {
     return (
       <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-800">
@@ -1428,12 +1599,15 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
   projectId: string | null; canWrite: boolean; onAddEvent: (e: any) => void;
 }>(({ focused, table, columns, projectId, canWrite, onAddEvent }, ref) => {
   const [scanning, setScanning] = useState(false);
+  // 404/501 from the scan endpoint — honest disabled state (no loud error).
+  const [scanUnavailable, setScanUnavailable] = useState(false);
   const [scanResult, setScanResult] = useState<any>(null);
   const [selectedCols, setSelectedCols] = useState<Set<string>>(new Set());
   const [policyType, setPolicyType] = useState<'SHA2_MASK' | 'PARTIAL_MASK' | 'FULL_MASK' | 'CUSTOM'>('SHA2_MASK');
   const piiCount = columns.filter((c) => c.isSensitive).length;
 
   const runPiiScan = useCallback(async () => {
+    if (scanning) return; // double-submit guard
     setScanning(true);
     try {
       const apiClient = (await import('@/lib/api-client')).default;
@@ -1446,10 +1620,12 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
       setSelectedCols(detected);
       toast.success(`PII scan: ${detected.size} sensitive columns detected`);
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail?.message || 'PII scan failed');
+      if (isUnavailable(err)) setScanUnavailable(true);
+      else toast.error(err?.response?.data?.detail?.message || 'PII scan failed');
+    } finally {
+      setScanning(false);
     }
-    setScanning(false);
-  }, [table]);
+  }, [table, scanning]);
 
   const tablePii = scanResult?.pii_columns?.filter((c: any) => c.table === table.table) || [];
   const tableRecos = scanResult?.by_table?.find((t: any) => t.table === table.table);
@@ -1470,9 +1646,20 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
       </div>
 
       {/* PII Scan */}
-      <button onClick={runPiiScan} disabled={scanning} className="w-full py-1.5 text-[11px] font-medium rounded-lg border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50">
-        {scanning ? <><Loader size="sm" className="h-3 w-3" /> Scanning...</> : <><Search className="h-3 w-3" /> Scan PII & Detect Policies</>}
-      </button>
+      {scanUnavailable ? (
+        <span
+          role="status"
+          aria-disabled="true"
+          title="Not available on this backend yet"
+          className="w-full py-1.5 text-[11px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed flex items-center justify-center gap-1.5"
+        >
+          <Ban className="h-3 w-3" aria-hidden /> PII scan unavailable
+        </span>
+      ) : (
+        <button onClick={runPiiScan} disabled={scanning} aria-busy={scanning} className="w-full py-1.5 text-[11px] font-medium rounded-lg border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50">
+          {scanning ? <><Loader size="sm" className="h-3 w-3" /> Scanning...</> : <><Search className="h-3 w-3" /> Scan PII & Detect Policies</>}
+        </button>
+      )}
 
       {/* Scan results — per column */}
       {tablePii.length > 0 && (
