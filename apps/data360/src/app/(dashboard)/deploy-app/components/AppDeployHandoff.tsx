@@ -48,18 +48,18 @@ interface HandoffSpec {
 
 const SPEC_BY_KIND: Record<AppKind, HandoffSpec> = {
   streamlit: {
-    label: 'Open in Snowpark Streamlit Apps',
+    label: 'Open in Streamlit Apps',
     blurb:
       'You will land on the Streamlit Apps tab with the name, database, schema and main file prefilled.',
     Icon: LayoutDashboard,
-    target: 'Snowpark Services · Streamlit',
+    target: 'Hosted App Service · Streamlit',
   },
   container: {
     label: 'Open in Container Services',
     blurb:
       'Container Services will open with the Docker image + compute pool form prefilled.',
     Icon: Container,
-    target: 'Snowpark Services · Container',
+    target: 'Hosted App Service · Container',
   },
   chart: {
     label: 'Open in BI Dashboard',
