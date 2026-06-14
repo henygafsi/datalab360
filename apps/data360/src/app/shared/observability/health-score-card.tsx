@@ -4,9 +4,12 @@ import cn from '@core/utils/class-names';
 import { Text, Title } from 'rizzui';
 import { PiHeartbeatDuotone } from 'react-icons/pi';
 import MetricHelp from '@/components/ui/MetricHelp';
+import { dash } from '@/app/shared/ui/format';
 
 interface HealthScoreCardProps {
-  score: number;
+  // Accepts a missing value — the headline renders "—" for null/undefined/NaN
+  // (R3) while the bar collapses to empty; a genuine 0 still renders as 0.
+  score: number | null | undefined;
   status: 'healthy' | 'warning' | 'critical';
   className?: string;
 }
@@ -37,6 +40,13 @@ export default function HealthScoreCard({ score, status, className }: HealthScor
   // transform but values are not) — avoid an undefined-config crash.
   const config = statusConfig[String(status).toLowerCase() as keyof typeof statusConfig] ?? statusConfig.warning;
 
+  // Numeric clamp for the bar geometry only (width + band color). A missing
+  // score keeps the bar empty (0%) — the honest "—" lives in the headline.
+  const pct =
+    typeof score === 'number' && Number.isFinite(score)
+      ? Math.max(0, Math.min(100, score))
+      : 0;
+
   return (
     <div
       className={cn(
@@ -61,7 +71,7 @@ export default function HealthScoreCard({ score, status, className }: HealthScor
           </div>
           <div className="mt-2 flex items-baseline gap-2">
             <Title as="h2" className={cn('text-4xl font-bold', config.color)}>
-              {score}
+              {dash(score)}
             </Title>
             <Text className="text-lg text-gray-500">/100</Text>
           </div>
@@ -93,9 +103,9 @@ export default function HealthScoreCard({ score, status, className }: HealthScor
           <div
             className={cn(
               'h-full rounded-full transition-all duration-500',
-              score >= 80 ? 'bg-green-500' : score >= 50 ? 'bg-amber-500' : 'bg-red-500'
+              pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-amber-500' : 'bg-red-500'
             )}
-            style={{ width: `${score}%` }}
+            style={{ width: `${pct}%` }}
           />
         </div>
       </div>

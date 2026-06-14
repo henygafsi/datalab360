@@ -194,7 +194,7 @@ export default function AccessInspector({
         return (
           <div className="space-y-0.5">
             <Row label="Requests (7d)">
-              {(postureUsage?.requests ?? u?.requests ?? 0).toLocaleString()}
+              {(postureUsage?.requests ?? u?.requests)?.toLocaleString() ?? <NA />}
             </Row>
             <Row label="Distinct users">
               {postureUsage?.distinct_users ?? u?.distinctUsers ?? <NA />}

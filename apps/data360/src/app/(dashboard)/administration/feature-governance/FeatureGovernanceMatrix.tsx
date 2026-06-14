@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GlassPanel } from '@/app/shared/glass';
+import { dash } from '@/app/shared/ui/format';
 import EmptyState from '@/components/ui/EmptyState';
 import { getApiErrorMessage } from '@/lib/api-client';
 import {
@@ -406,7 +407,9 @@ function SummaryCard({
 }: {
   icon: typeof Hammer;
   label: string;
-  value: string;
+  // Accepts a missing value — renders "—" for null/undefined/NaN (R3); a genuine
+  // 0 still renders as 0.
+  value: string | number | null | undefined;
   sub?: string;
 }) {
   return (
@@ -415,7 +418,7 @@ function SummaryCard({
         <Icon className="h-3.5 w-3.5" />
         {label}
       </div>
-      <div className="mt-1 text-lg font-semibold text-slate-800 dark:text-slate-100">{value}</div>
+      <div className="mt-1 text-lg font-semibold text-slate-800 dark:text-slate-100">{dash(value)}</div>
       {sub && <div className="text-[10px] text-slate-400">{sub}</div>}
     </GlassPanel>
   );

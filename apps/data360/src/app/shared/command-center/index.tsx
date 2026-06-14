@@ -153,6 +153,7 @@ import ObjectStorageAudit from './ObjectStorageAudit';
 import SnowflakeObjectsTab from './SnowflakeObjectsTab';
 import AdnBadge from './AdnBadge';
 import CostPreview from './CostPreview';
+import { dash, fmtNum, isBlank, EM_DASH } from '@/app/shared/ui/format';
 import type {
   SecurityOverviewResponse,
   PerformanceOverviewResponse,
@@ -5158,7 +5159,7 @@ const CostTab = memo(function CostTab({
           <div className="grid grid-cols-2 gap-4">
             <div className="rounded-lg bg-green-50 p-4 text-center dark:bg-green-900/20">
               <p className="text-xl font-bold text-green-600 dark:text-green-400">
-                {(balance.free_remaining ?? 0).toLocaleString()}
+                {fmtNum(balance.free_remaining)}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Free Remaining
@@ -5166,7 +5167,7 @@ const CostTab = memo(function CostTab({
             </div>
             <div className="rounded-lg bg-blue-50 p-4 text-center dark:bg-blue-900/20">
               <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                {(balance.capacity ?? 0).toLocaleString()}
+                {fmtNum(balance.capacity)}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Capacity
@@ -5174,7 +5175,7 @@ const CostTab = memo(function CostTab({
             </div>
             <div className="rounded-lg bg-amber-50 p-4 text-center dark:bg-amber-900/20">
               <p className="text-xl font-bold text-amber-600 dark:text-amber-400">
-                {(balance.on_demand ?? 0).toLocaleString()}
+                {fmtNum(balance.on_demand)}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 On-Demand
@@ -5182,7 +5183,7 @@ const CostTab = memo(function CostTab({
             </div>
             <div className="rounded-lg bg-purple-50 p-4 text-center dark:bg-purple-900/20">
               <p className="text-xl font-bold text-purple-600 dark:text-purple-400">
-                {(balance.rollover ?? 0).toLocaleString()}
+                {fmtNum(balance.rollover)}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Rollover
@@ -5596,7 +5597,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
             <div className="grid grid-cols-3 gap-3">
               <div className="rounded-lg bg-blue-50 p-4 text-center dark:bg-blue-900/20">
                 <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                  {mfaCoverage.total_users ?? 0}
+                  {dash(mfaCoverage.total_users)}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Total Users
@@ -5604,7 +5605,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
               </div>
               <div className="rounded-lg bg-green-50 p-4 text-center dark:bg-green-900/20">
                 <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                  {mfaCoverage.mfa_enabled ?? 0}
+                  {dash(mfaCoverage.mfa_enabled)}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   MFA Enabled
@@ -5612,7 +5613,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
               </div>
               <div className="rounded-lg bg-red-50 p-4 text-center dark:bg-red-900/20">
                 <p className="text-2xl font-bold text-red-600 dark:text-red-400">
-                  {mfaCoverage.disabled_users ?? 0}
+                  {dash(mfaCoverage.disabled_users)}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Disabled
@@ -6902,21 +6903,21 @@ const ComputeTab = memo(function ComputeTab({
             label: 'Total Credits',
             sortable: true,
             align: 'right',
-            render: (v: number) => (v ?? 0).toFixed(2),
+            render: (v: number) => (isBlank(v) ? EM_DASH : v.toFixed(2)),
           },
           {
             key: 'compute_credits',
             label: 'Compute',
             sortable: true,
             align: 'right',
-            render: (v: number) => (v ?? 0).toFixed(2),
+            render: (v: number) => (isBlank(v) ? EM_DASH : v.toFixed(2)),
           },
           {
             key: 'cloud_credits',
             label: 'Cloud',
             sortable: true,
             align: 'right',
-            render: (v: number) => (v ?? 0).toFixed(2),
+            render: (v: number) => (isBlank(v) ? EM_DASH : v.toFixed(2)),
           },
         ]}
       />
@@ -6940,7 +6941,7 @@ const ComputeTab = memo(function ComputeTab({
                     </p>
                   </div>
                   <Badge size="sm" variant="flat" color="info">
-                    {(r.credits ?? 0).toFixed(2)} credits
+                    {isBlank(r.credits) ? EM_DASH : r.credits.toFixed(2)} credits
                   </Badge>
                 </div>
               ))}
@@ -6956,7 +6957,7 @@ const ComputeTab = memo(function ComputeTab({
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg bg-blue-50 p-4 text-center dark:bg-blue-900/20">
               <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                {data.tasks?.total_7d ?? 0}
+                {dash(data.tasks?.total_7d)}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Tasks (7d)
@@ -6964,13 +6965,13 @@ const ComputeTab = memo(function ComputeTab({
             </div>
             <div className="rounded-lg bg-green-50 p-4 text-center dark:bg-green-900/20">
               <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                {data.pipes?.total_files ?? 0}
+                {dash(data.pipes?.total_files)}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">Pipes</p>
             </div>
             <div className="rounded-lg bg-amber-50 p-4 text-center dark:bg-amber-900/20">
               <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                {data.clustering?.total_credits?.toFixed(2) ?? '0'}
+                {data.clustering?.total_credits?.toFixed(2) ?? EM_DASH}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Cluster Credits
@@ -6978,7 +6979,7 @@ const ComputeTab = memo(function ComputeTab({
             </div>
             <div className="rounded-lg bg-violet-50 p-4 text-center dark:bg-violet-900/20">
               <p className="text-2xl font-bold text-violet-600 dark:text-violet-400">
-                {data.materialized_views?.total_credits?.toFixed(2) ?? '0'}
+                {data.materialized_views?.total_credits?.toFixed(2) ?? EM_DASH}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 MV Credits

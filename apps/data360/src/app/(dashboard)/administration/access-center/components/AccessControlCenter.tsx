@@ -27,6 +27,7 @@ import {
   Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { dash } from '@/app/shared/ui/format';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { GlassPanel } from '@/app/shared/glass';
 import EmptyState from '@/components/ui/EmptyState';
@@ -309,7 +310,7 @@ export default function AccessControlCenter() {
         const res = await applyTemplate(selectedRole, template, 'replace');
         invalidateMyPermissions();
         toast({
-          title: `Applied "${template}" → ${selectedRole} (${res.permissions_applied ?? 0} perms)`,
+          title: `Applied "${template}" → ${selectedRole} (${dash(res.permissions_applied)} perms)`,
         });
         await loadPerms(selectedRole);
       } catch (e) {

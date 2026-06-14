@@ -56,6 +56,7 @@ import {
 } from '@/app/services/org-accounts/hooks';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { InsightActionButton } from '@/app/shared/insights';
+import { dash } from '@/app/shared/ui/format';
 import AuditTable, { type Row } from './AuditTable';
 import type {
   AccountsListResponse,
@@ -868,7 +869,9 @@ function KpiCard({
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: string | number;
+  // Accepts a missing value — renders "—" for null/undefined/NaN (R3); a genuine
+  // 0 still renders as 0.
+  value: string | number | null | undefined;
   loading: boolean;
   // Optional month-over-month delta (already a percentage, e.g. 12.3 = +12.3%).
   trendPct?: number | null;
@@ -881,7 +884,7 @@ function KpiCard({
       </div>
       <div className="mt-1 flex items-baseline gap-1.5">
         <span className="text-xl font-semibold text-slate-900 dark:text-white">
-          {loading ? '…' : value}
+          {loading ? '…' : dash(value)}
         </span>
         {!loading && trendPct != null && (
           <span

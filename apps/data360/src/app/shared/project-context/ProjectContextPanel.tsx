@@ -18,6 +18,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { dash } from '@/app/shared/ui/format';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { isUnavailable } from '@/lib/http-status';
 import {
@@ -367,7 +368,7 @@ function RecosTab({
         <div className="flex items-center gap-1.5">
           <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
             <Sparkles className="h-3 w-3" />
-            {recos?.total_open ?? 0} open
+            {dash(recos?.total_open)} open
           </span>
           {(recos?.total_critical ?? 0) > 0 && (
             <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300">

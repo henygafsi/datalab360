@@ -51,6 +51,7 @@ import type {
   SummaryResponse,
 } from '@/app/services/command-center/types';
 import AuditTable, { type Row } from './AuditTable';
+import { dash, fmtNum } from '@/app/shared/ui/format';
 
 const KNOWN_MODULES: Array<{
   key: string;
@@ -106,7 +107,8 @@ interface ModuleIssue {
 
 interface ModuleKpi {
   label: string;
-  value: string | number;
+  // Missing → "—" at the render boundary (R3); a genuine 0 still renders as 0.
+  value: string | number | null | undefined;
   status?: string;
 }
 
@@ -381,9 +383,7 @@ function ModuleCardView({ mod }: { mod: ModuleCard }) {
           {mod.kpis.map((kpi) => (
             <div key={kpi.label} className="text-center">
               <p className={`text-lg font-bold ${kpiValueClass(kpi.status)}`}>
-                {typeof kpi.value === 'number'
-                  ? kpi.value.toLocaleString()
-                  : kpi.value}
+                {typeof kpi.value === 'number' ? fmtNum(kpi.value) : dash(kpi.value)}
               </p>
               <p className="text-[10px] text-gray-500 dark:text-gray-400">
                 {kpi.label}
@@ -607,7 +607,7 @@ function ModulesTab() {
       k == null
         ? '—'
         : `${k.label}: ${
-            typeof k.value === 'number' ? k.value.toLocaleString() : k.value
+            typeof k.value === 'number' ? fmtNum(k.value) : dash(k.value)
           }`;
     return {
       Module: m.name,

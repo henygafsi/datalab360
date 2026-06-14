@@ -5,6 +5,7 @@ import { Text, Title, Badge } from 'rizzui';
 import { PiUsersDuotone, PiClockDuotone, PiCheckCircleDuotone, PiDatabaseDuotone } from 'react-icons/pi';
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
 import type { UserActivitySummary } from '@/app/services/observability/types';
+import { dash, EM_DASH } from '@/app/shared/ui/format';
 
 interface ActivitySummaryCardProps {
   data: UserActivitySummary | null;
@@ -13,14 +14,14 @@ interface ActivitySummaryCardProps {
 }
 
 function formatNumber(num: number | undefined | null): string {
-  if (num == null) return '0';
+  if (num == null) return EM_DASH;
   if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
   if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
   return num.toString();
 }
 
 function formatDuration(seconds: number | undefined | null): string {
-  if (seconds == null) return '0s';
+  if (seconds == null) return EM_DASH;
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
   if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
   return `${(seconds / 3600).toFixed(1)}h`;
@@ -188,7 +189,7 @@ export default function ActivitySummaryCard({ data, isLoading, className }: Acti
                   <div>
                     <Text className="font-medium">{user.user_name || 'Unknown'}</Text>
                     <Text className="text-xs text-gray-500">
-                      {user.databases_accessed || 0} databases, {user.warehouses_used || 0} warehouses
+                      {dash(user.databases_accessed)} databases, {dash(user.warehouses_used)} warehouses
                     </Text>
                   </div>
                 </div>
