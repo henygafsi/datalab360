@@ -47,6 +47,7 @@ import { listDDLActions, addDDLAction, removeDDLAction, validateFkTypes, cascade
 import { generateSnowflakeSQL, DDL_EVENT_TYPES, inferDDLType } from './components/deployment/deployment-utils';
 import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors, listProjects } from '@/app/services/api/projectsApi';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { isUnavailable } from '@/lib/http-status';
 import { fmtNum } from '@/app/shared/ui/format';
@@ -900,6 +901,11 @@ export default function ExploreDesignPage() {
   const { username: currentUsername } = useAuth();
   const { data: sessionData } = useSession();
   const sessionRole = (sessionData?.user as any)?.role as string | undefined;
+
+  // Event tracking (R11/H10) — invoking the hook auto-queues a fire-and-forget
+  // PAGE_VIEW on mount (module resolves to `explore_design`). Helpers below
+  // instrument key actions: tab switch, model/relationship create, deploy.
+  const { trackTabSwitch, trackFeatureClick } = useTrackEvent();
 
   // Connection status from SSE provider
   const { isConnected, error: connectionError } = useCacheInvalidationContext();
@@ -3273,7 +3279,7 @@ export default function ExploreDesignPage() {
                     ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
                     : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
                 )}
-                onClick={() => setViewMode('catalog')}
+                onClick={() => { trackTabSwitch('catalog'); setViewMode('catalog'); }}
               >
                 <LayoutGrid className="h-3.5 w-3.5" />
                 Catalog
@@ -3287,6 +3293,7 @@ export default function ExploreDesignPage() {
                 )}
                 onClick={() => {
                   if (!modelingChoice && readOnlyGuard()) return;
+                  trackTabSwitch('modeling');
                   if (!modelingChoice) {
                     setShowTemplateModal(true);
                   } else {
@@ -4215,7 +4222,7 @@ export default function ExploreDesignPage() {
                 selectedDatabase={selectedDatabase}
                 selectedSchema={schemas[0] || ''}
                 userRole={sessionRole || (userRole as string) || undefined}
-                onOpenDeployModal={() => setShowDeploymentModal(true)}
+                onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'catalog', pendingEvents: displayablePendingEvents.length }); setShowDeploymentModal(true); }}
                 onDeselectTable={() => { setSelectedTable(null); setRightBarOpen(false); }}
               />
               </div>{/* end center+right row */}
@@ -4402,6 +4409,7 @@ export default function ExploreDesignPage() {
                             return;
                           }
                         }
+                        trackFeatureClick('deploy', { view: 'modeling', pendingEvents: displayablePendingEvents.length });
                         setShowDeploymentModal(true);
                       }}
                       disabled={!selectedProjectId || isReadOnly}
@@ -4866,6 +4874,7 @@ export default function ExploreDesignPage() {
         projectId={selectedProjectId!}
         initialTableType={createTableType}
         onTableCreated={(tableName: string, database: string, schema: string, columns: any[]) => {
+          trackFeatureClick('create_table', { tableType: createTableType, columns: columns.length });
           // Add the new table to the modeling view immediately
           const tableId = `${database}.${schema}.${tableName}`;
 
@@ -4940,6 +4949,7 @@ export default function ExploreDesignPage() {
           projectId={selectedProjectId}
           existingRelationship={null}
           onRelationshipCreated={() => {
+            trackFeatureClick('create_relationship');
             // Refresh relationships if needed
             toast.success('Relationship event added to queue');
           }}

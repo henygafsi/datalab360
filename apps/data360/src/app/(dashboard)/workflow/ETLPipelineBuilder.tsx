@@ -78,6 +78,7 @@ import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import type { ContributorRole } from '@/app/services/api/types';
 import type {
   Workflow,
@@ -539,6 +540,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+
+  // Usage analytics (R11/H10): PAGE_VIEW auto-fires on mount via this hook;
+  // key lifecycle actions (load / run / deploy) fire FEATURE_CLICK below.
+  // Fire-and-forget — events are batched and silent-fail; never blocks render.
+  const { trackFeatureClick } = useTrackEvent();
   const initialProjectIdRef = useRef<string | null>(
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('project')
@@ -1761,6 +1767,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         }
 
         toast.success(`Loaded workflow: ${wf.name}`);
+        trackFeatureClick('workflow_pipeline_loaded', {
+          workflow_id: wf.id,
+          step_count: newNodes.length,
+        });
       } catch (error) {
         console.error('Failed to load workflow:', error);
         // Be honest: the steps-read route (/steps) is purged on this backend,
@@ -1778,7 +1788,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         setIsPipelineLoading(false);
       }
     },
-    [setNodes, setEdges]
+    [setNodes, setEdges, trackFeatureClick]
   );
 
   // Auto-select workflow from URL ?project=<id> once workflows are loaded
@@ -2013,6 +2023,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             trigger_type: 'manual',
           });
           setLastExecution(response);
+          trackFeatureClick('workflow_pipeline_executed', {
+            workflow_id: activeWorkflowId,
+            status: response.status,
+          });
 
           if (response.status === 'completed' || response.status === 'success') {
             setPhase('execute', { phase: 'completed' });
@@ -2055,7 +2069,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         if (!dryRun) setExecutionRefreshKey((k) => k + 1);
       }
     },
-    [activeWorkflowId, nodes, setPhase, markUnavailable, loadResultsPreview]
+    [activeWorkflowId, nodes, setPhase, markUnavailable, loadResultsPreview, trackFeatureClick]
   );
   // Fire-and-forget variant for non-gated callers (toolbar Run button, ⌘Enter
   // shortcut): the error is already surfaced via pipelineError/phase inside
@@ -2249,6 +2263,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       setPhase('deploy', { phase: 'completed' });
       toast.success('Pipeline submitted for approval!');
       setApprovalStatus('pending');
+      trackFeatureClick('workflow_deploy_requested', {
+        workflow_id: activeWorkflowId,
+        version_id: latestVersionId,
+      });
     } catch (error: any) {
       if (is404(error)) {
         // The deployment lifecycle routes are purged — honest disabled state;
@@ -2274,7 +2292,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       // Re-throw so the gated SmartPanel caller reports the real outcome.
       throw new Error(headline);
     }
-  }, [activeWorkflowId, readOnlyGuard, setPhase, markUnavailable]);
+  }, [activeWorkflowId, readOnlyGuard, setPhase, markUnavailable, trackFeatureClick]);
 
   // ============================================
   // EXPORT & DUPLICATE

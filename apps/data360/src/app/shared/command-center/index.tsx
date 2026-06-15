@@ -133,6 +133,7 @@ import {
 } from '@/app/services/command-center/recommendations';
 import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 import { useAuth } from '@/hooks/useAuth';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { isAdminRole } from '@/config/constants';
 
 // Lazy-loaded new tabs
@@ -1240,6 +1241,10 @@ function statusBadgeColor(
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 function CommandCenterDashboardInner() {
+  // Lightweight, fire-and-forget analytics. Calling the hook auto-fires a
+  // PAGE_VIEW event on mount (route change) for the account-overview module;
+  // trackTabSwitch / trackFeatureClick cover the key in-page actions below.
+  const { trackTabSwitch, trackFeatureClick } = useTrackEvent();
   /**
    * Tab id is persisted in localStorage + may arrive via `?tab=` URL param.
    * Legacy ids (snowflake-explorer / security-adv / cost / etc.) are mapped to
@@ -1257,13 +1262,14 @@ function CommandCenterDashboardInner() {
   const setActiveTab = useCallback((id: string) => {
     const resolved = resolveTabId(id);
     _setActiveTab(resolved);
+    trackTabSwitch(resolved);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('data360.command-center.activeTab', resolved);
       const url = new URL(window.location.href);
       url.searchParams.set('tab', resolved);
       window.history.replaceState({}, '', url.toString());
     }
-  }, []);
+  }, [trackTabSwitch]);
   const [isTabTransitioning, startTabTransition] = useTransition();
   // Docked actions right-bar (the module's single centralized action surface).
   const [panelOpen, setPanelOpen] = useState(false);
@@ -1777,6 +1783,7 @@ function CommandCenterDashboardInner() {
   // elsewhere via useCacheInvalidation) and by the manual refresh button.
 
   const handleRefresh = useCallback(() => {
+    trackFeatureClick('refresh', { tab: activeTab });
     // Invalidate client-side tab cache on manual refresh
     tabDataCache.current = {};
     activityFeedRef.current = null;
@@ -1826,6 +1833,7 @@ function CommandCenterDashboardInner() {
     fetchCost,
     fetchCompute,
     fetchPlatformActivity,
+    trackFeatureClick,
   ]);
 
   // ── Loading state ────────────────────────────────────────────────────────
@@ -1891,7 +1899,10 @@ function CommandCenterDashboardInner() {
         <motion.button
           whileHover={{ scale: 1.03 }}
           whileTap={{ scale: 0.97 }}
-          onClick={() => setPanelOpen((o) => !o)}
+          onClick={() => {
+            trackFeatureClick('actions_panel', { open: !panelOpen });
+            setPanelOpen((o) => !o);
+          }}
           aria-expanded={panelOpen}
           aria-label="Toggle actions panel"
           className={cn(
