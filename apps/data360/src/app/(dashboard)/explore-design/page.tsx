@@ -94,6 +94,16 @@ import StreamModal from './components/StreamModal';
 import AlertModal from './components/AlertModal';
 import EventTableModal from './components/EventTableModal';
 import { ActionRail } from '@/app/shared/action-rail';
+// R6 — per-project ADN header badge. We import the read-only ADN primitives
+// (icons + tone/rating helpers) but NOT the stock <AdnScoreCard> component: its
+// `score` is a required number with no null path, so it can't honour the hard
+// rule that an axis with no per-project source renders "—" (never a fake 0 or a
+// fabricated neutral band). We therefore render a small AdnScoreCard-faithful
+// strip locally (below) that DOES emit "—". Fed by the same per-project rollup
+// the ProjectInspectorPanel uses.
+import { AXIS_ICON, adnTone, ratingLabel } from '@/app/shared/command-center/AdnAxes';
+import { useProjectRollup } from '@/app/shared/score-cards/useProjectRollup';
+import type { ProjectRollup, ScoreCardDimension } from '@/app/services/command-center/score-cards';
 import HybridTableModal from './components/HybridTableModal';
 import IngestionConfigPanel from './components/IngestionConfigPanel';
 import TemplateLibrary from './components/TemplateLibrary';
@@ -892,6 +902,263 @@ function categorizeColumns(columns: ColumnInfo[]) {
     if (c.isSensitive) sensitive.push(c.name);
   }
   return { primaryKeys, nullable, sensitive };
+}
+
+// ── R6: per-project ADN 5-axis header badge ──────────────────────────────────
+// `<ExploreAdnBadge>` renders the 5 ADN axes (Qualité · Perf · Sécurité ·
+// Stockage · Usage) for the selected project, fed by the precomputed rollup
+// (`useProjectRollup` → GET /command-center/projects/{id}/rollup) — the SAME
+// source ProjectInspectorPanel uses. It is a local, AdnScoreCard-faithful strip
+// (not the stock component) because an axis with no genuine per-project source
+// MUST render an honest "—" rather than a fabricated band score; the stock
+// component's required `number` score can't express that. Tone classes are
+// static literal bundles so Tailwind always generates them (no safelist gap).
+
+type ExploreAdnAxis = {
+  key: 'DQ' | 'PERF' | 'SEC' | 'STORAGE' | 'USAGE';
+  label: string;
+  /** null = no per-project source → render "—" (never a fake 0 / neutral band). */
+  score: number | null;
+  desc: string;
+};
+
+type AdnTone = 'emerald' | 'amber' | 'rose';
+const ADN_TONE: Record<AdnTone, { chip: string; icon: string; score: string; pill: string }> = {
+  emerald: {
+    chip: 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40',
+    icon: 'text-emerald-500',
+    score: 'text-emerald-700 dark:text-emerald-300',
+    pill: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  },
+  amber: {
+    chip: 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/20 dark:hover:bg-amber-900/40',
+    icon: 'text-amber-500',
+    score: 'text-amber-700 dark:text-amber-300',
+    pill: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  },
+  rose: {
+    chip: 'bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/40',
+    icon: 'text-rose-500',
+    score: 'text-rose-700 dark:text-rose-300',
+    pill: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
+  },
+};
+const ADN_EMPTY = {
+  chip: 'border border-slate-200 bg-transparent dark:border-slate-700',
+  icon: 'text-slate-400 dark:text-slate-500',
+  score: 'text-slate-400 dark:text-slate-500',
+  pill: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+};
+
+const ADN_BAND = { good: 85, warn: 65, bad: 42 } as const;
+const adnNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const adnPct = (v: number): string => `${Number.isInteger(v) ? v : Math.round(v * 10) / 10}%`;
+const adnStorage = (mb: number): string => (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`);
+
+// Maps the per-project rollup into the 5 ADN axes. An axis is `score: null`
+// (→ "—") ONLY when the per-project source is genuinely absent — NOT when a real
+// value is 0 (e.g. 0 events is a true low-usage signal, kept as a real score).
+function deriveExploreAdn(rollup: ProjectRollup): ExploreAdnAxis[] {
+  const card = (d: ScoreCardDimension) => rollup.cards.find((c) => c.dimension === d);
+  const sup = (c?: { supporting?: Record<string, unknown> }) =>
+    (c?.supporting ?? {}) as Record<string, unknown>;
+
+  const dq = card('dq');
+  const perf = card('perf');
+  const gov = card('gov');
+  const storage = card('storage');
+
+  // DQ (Qualité) — coverage % only when scored from this project's own objects.
+  const dqVal = adnNum(dq?.value);
+  const dqProject = dq?.scope === 'project';
+  const dqAxis: ExploreAdnAxis = {
+    key: 'DQ',
+    label: 'Qualité',
+    score: dqVal != null && dqProject ? Math.round(dqVal) : null,
+    desc:
+      dqVal != null && dqProject
+        ? `Couverture qualité ${adnPct(dqVal)} sur les objets de ce projet.`
+        : 'Pas de source qualité par-projet (objets non monitorés) — affiché « — ».',
+  };
+
+  // PERF — 100 − fail-rate% (null when no runs are recorded for the project).
+  const failRate = adnNum(perf?.value);
+  const totalRuns = adnNum(sup(perf).total_runs);
+  const perfAxis: ExploreAdnAxis = {
+    key: 'PERF',
+    label: 'Perf',
+    score: failRate != null ? Math.max(0, Math.min(100, Math.round(100 - failRate))) : null,
+    desc:
+      failRate != null
+        ? `Taux d'échec ${adnPct(failRate)}${totalRuns != null ? ` · ${totalRuns} run(s)` : ''}.`
+        : 'Aucun run enregistré pour ce projet — affiché « — ».',
+  };
+
+  // SEC (Sécurité) — banded from contributors + active RLS; null when the gov
+  // supporting object is absent (no per-project governance signal at all).
+  const contributors = adnNum(sup(gov).contributors);
+  const rls = adnNum(sup(gov).active_rls_policies);
+  const hasGovSignal = contributors != null || rls != null;
+  const secAxis: ExploreAdnAxis = {
+    key: 'SEC',
+    label: 'Sécurité',
+    score: hasGovSignal
+      ? contributors === 0
+        ? ADN_BAND.bad
+        : rls === 0
+          ? ADN_BAND.warn
+          : ADN_BAND.good
+      : null,
+    desc: hasGovSignal
+      ? `${contributors ?? '—'} contributeur(s) · ${rls ?? '—'} policy RLS active(s).`
+      : 'Pas de signal de gouvernance par-projet — affiché « — ».',
+  };
+
+  // STORAGE — banded footprint ONLY when per-project attributed; account-level or
+  // unattributed → "—" (there is no honest per-project storage figure otherwise).
+  const mb = adnNum(storage?.value) ?? adnNum(sup(storage).storage_mb);
+  const storageProject = storage?.scope === 'project';
+  const storAxis: ExploreAdnAxis = {
+    key: 'STORAGE',
+    label: 'Stockage',
+    score: mb != null && storageProject ? (mb > 500 ? ADN_BAND.warn : ADN_BAND.good) : null,
+    desc:
+      mb != null && storageProject
+        ? `${adnStorage(mb)} attribués à ce projet.`
+        : 'Aucune attribution de stockage par-projet — affiché « — ».',
+  };
+
+  // USAGE — adoption over the window. A real 0 (no events) is a true low signal,
+  // kept as a real score; only a non-finite count would be "—".
+  const events = adnNum(rollup.eventCount30d);
+  const usageAxis: ExploreAdnAxis = {
+    key: 'USAGE',
+    label: 'Usage',
+    score: events != null ? (events === 0 ? ADN_BAND.bad : events >= 20 ? ADN_BAND.good : ADN_BAND.warn) : null,
+    desc:
+      events != null
+        ? `${events} évènement(s) sur la fenêtre${totalRuns != null ? ` · ${totalRuns} run(s)` : ''}.`
+        : 'Aucune donnée d’activité par-projet — affiché « — ».',
+  };
+
+  return [dqAxis, perfAxis, secAxis, storAxis, usageAxis];
+}
+
+// Hover popover for one axis (or the overall chip when `axis` is omitted).
+function AdnAxisPopover({ axis, overall }: { axis?: ExploreAdnAxis; overall?: number | null }) {
+  const score = axis ? axis.score : overall ?? null;
+  const label = axis ? axis.label : 'Note ADN globale';
+  const pill = score != null ? ADN_TONE[adnTone(score) as AdnTone].pill : ADN_EMPTY.pill;
+  return (
+    <div className="invisible absolute right-0 top-full z-50 mt-1.5 w-64 translate-y-1 rounded-xl border border-gray-200 bg-white p-3 text-left opacity-0 shadow-xl transition-all duration-150 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 dark:border-gray-700 dark:bg-gray-900">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="text-xs font-semibold text-gray-900 dark:text-white">{label}</span>
+        <span className={cn('ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold', pill)}>
+          {score != null ? `${score}/100 · ${ratingLabel(score)}` : '— · indisponible'}
+        </span>
+      </div>
+      <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+        {axis
+          ? axis.desc
+          : 'Score composite des axes par-projet (Qualité · Perf · Sécurité · Stockage · Usage). Les axes sans source par-projet affichent « — ».'}
+      </p>
+    </div>
+  );
+}
+
+// One axis chip — real score in its tone, or a muted "—" when the source is absent.
+function AdnAxisChip({ axis }: { axis: ExploreAdnAxis }) {
+  const Icon = AXIS_ICON[axis.key];
+  const t = axis.score != null ? ADN_TONE[adnTone(axis.score) as AdnTone] : ADN_EMPTY;
+  return (
+    <div className="group relative">
+      <button
+        type="button"
+        aria-label={axis.score != null ? `${axis.label} ${axis.score} sur 100` : `${axis.label} indisponible`}
+        className={cn('flex items-center gap-0.5 rounded-md px-1 py-0.5 transition-colors', t.chip)}
+      >
+        {Icon && <Icon className={cn('h-3.5 w-3.5', t.icon)} />}
+        <span className={cn('text-[10px] font-semibold', t.score)}>{axis.score != null ? axis.score : '—'}</span>
+      </button>
+      <AdnAxisPopover axis={axis} />
+    </div>
+  );
+}
+
+// The compact strip: ADN label + 5 axis chips + overall roll-up chip.
+function AdnStrip({ axes, overall }: { axes: ExploreAdnAxis[]; overall: number | null }) {
+  const pill = overall != null ? ADN_TONE[adnTone(overall) as AdnTone].pill : ADN_EMPTY.pill;
+  return (
+    <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2 py-1 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <span className="mr-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-400">ADN</span>
+      {axes.map((a) => (
+        <AdnAxisChip key={a.key} axis={a} />
+      ))}
+      <div className="group relative">
+        <button
+          type="button"
+          aria-label={overall != null ? `Note ADN globale ${overall} sur 100` : 'Note ADN globale indisponible'}
+          className={cn('ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold', pill)}
+        >
+          {overall != null ? overall : '—'}
+        </button>
+        <AdnAxisPopover overall={overall} />
+      </div>
+    </div>
+  );
+}
+
+// Public badge: isolates the rollup hook so the giant page component stays clean
+// and the hook is unconditional. Honest states: no project → nothing; loading →
+// skeleton; unavailable/error → muted "ADN —"; data → the per-project strip.
+function ExploreAdnBadge({ projectId }: { projectId: string | null }) {
+  const { data, loading, error, unavailable } = useProjectRollup(projectId);
+
+  // No project context → nothing to score (don't fabricate an account-level ADN).
+  if (!projectId) return null;
+
+  // Loading (incl. the first paint before the effect runs) → skeleton strip, so
+  // we never flash the muted state before data arrives (no placeholder zeros).
+  // `useProjectRollup` clears `data` at the start of every fetch, so this also
+  // covers refetches without regressing to a stale strip.
+  if ((loading || !data) && !unavailable && !error) {
+    return (
+      <div
+        className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2 py-1 shadow-sm dark:border-gray-700 dark:bg-gray-900"
+        aria-hidden="true"
+      >
+        <span className="mr-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-400">ADN</span>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <span key={i} className="h-4 w-5 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+        ))}
+      </div>
+    );
+  }
+
+  // Unavailable (404/501) / genuine error → honest muted chip. The badge is
+  // present but carries no per-project data — never a fabricated score.
+  if (unavailable || error || !data) {
+    return (
+      <div
+        title={
+          unavailable
+            ? 'ADN par-projet non provisionné sur ce backend.'
+            : 'ADN par-projet momentanément indisponible.'
+        }
+        className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-1 shadow-sm dark:border-slate-700 dark:bg-slate-900"
+      >
+        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">ADN</span>
+        <span className="text-[11px] font-semibold text-slate-400">—</span>
+      </div>
+    );
+  }
+
+  const axes = deriveExploreAdn(data);
+  // Overall = mean over the axes that have a REAL score; zero real axes → "—"
+  // (guards against adnOverall([]) === 0, which would be a fake 0).
+  const real = axes.map((a) => a.score).filter((s): s is number => s != null);
+  const overall = real.length ? Math.round(real.reduce((s, v) => s + v, 0) / real.length) : null;
+  return <AdnStrip axes={axes} overall={overall} />;
 }
 
 // Main Page Component
@@ -3307,8 +3574,12 @@ export default function ExploreDesignPage() {
             </div>
           </div>
 
-          {/* RIGHT: search + deploy + overflow */}
+          {/* RIGHT: ADN badge + search + deploy + overflow */}
           <div className="flex items-center gap-2">
+            {/* R6 — per-project 5-axis ADN. Honest "—" per axis with no
+                per-project source; muted "ADN —" when the rollup is unprovisioned
+                (404/501) or errors; hidden until a project is selected. */}
+            <ExploreAdnBadge projectId={selectedProjectId} />
             <GlobalSearch
               value={searchQuery}
               onChange={setSearchQuery}

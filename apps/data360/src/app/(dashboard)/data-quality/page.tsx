@@ -40,6 +40,7 @@ import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 import SmartRightBar from './components/SmartRightBar';
+import AdnHeaderBadge from './components/AdnHeaderBadge';
 
 // ── Types ──
 
@@ -1754,6 +1755,8 @@ export default function DataQualityPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
+          {/* R6 — compact 5-axis ADN strip (per-project, honest "—" for unprovisioned axes) */}
+          <AdnHeaderBadge />
           <CacheAgeBadge cacheInfo={cacheInfo} />
           <Button
             onClick={() => { setThError(null); setThResult(null); dmfPanel.close(); thresholdPanel.open('main'); }}

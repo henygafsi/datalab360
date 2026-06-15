@@ -64,6 +64,7 @@ import {
 } from '@/components/project-onboarding/workflow-templates';
 import RunApprovalStatusHero from './components/RunApprovalStatusHero';
 import RollbackVersionDialog from './components/RollbackVersionDialog';
+import WorkflowAdnBadge from './components/WorkflowAdnBadge';
 import WorkflowSmartPanel, { type CanvasNodeSnapshot } from './components/WorkflowSmartPanel';
 import { validateGraph } from './components/etl-catalog-grounding';
 import CustomConnectionLine from './components/CustomConnectionLine';
@@ -3108,8 +3109,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             </button>
           )}
         </nav>
-        {/* The right-bar (WorkflowSmartPanel) is always visible — no toggle.
-            Sections are switched via the panel's icon rail. */}
+        {/* R6 — 5-axis ADN health badge (top-right), fed by THIS workflow's
+            per-project rollup. Renders honest "—" for any axis without a
+            per-project source (no fake 0). Skeleton while loading; nothing
+            when the rollup route isn't provisioned (404/501).
+            The right-bar (WorkflowSmartPanel) stays visible — no toggle. */}
+        <WorkflowAdnBadge projectId={activeWorkflowId} />
       </div>
 
       {/* ── Header — grouped clusters with subtle separators ──
