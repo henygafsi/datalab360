@@ -26,11 +26,11 @@ const S3SourceConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
         <p className="text-xs text-orange-700 dark:text-orange-300">
-          Load data from an Amazon S3 external stage into Snowflake. Configure the stage, file path, and format.
+          Load data from an Amazon S3 external stage into the data warehouse. Configure the stage, file path, and format.
         </p>
       </div>
 
-      <FormField label="Stage Name" required error={errors.stage_name} hint="Snowflake external stage pointing to S3">
+      <FormField label="Stage Name" required error={errors.stage_name} hint="External stage pointing to S3">
         <Input
           value={config.stage_name || ''}
           onChange={(v) => updateConfig({ stage_name: v })}

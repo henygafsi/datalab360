@@ -334,6 +334,13 @@ export default function DataSourceConnectionPage() {
   const canIngest = ingestPerm.allowed || ingestPerm.loading;
   const ingestDeniedReason =
     'You lack the "ingest" permission on connect. Ask an administrator to grant it.';
+  // Provisioning a storage integration, a notification integration, a cloud/
+  // datalake connection or a stage all map to the connect:create action. Same
+  // registry-key + fail-open-while-loading policy as the ingest gate above.
+  const createPerm = useCanPerform('connect', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
+  const createDeniedReason =
+    'You lack the "create" permission on connect. Ask an administrator to grant it.';
   // Source Hub selection → ephemeral AI-summary detail surface (keeps clicks honest;
   // SourceHub always renders interactive cards/rows, so a handler is required).
   const [hubSelection, setHubSelection] = useState<SourceSelection | null>(null);
@@ -1141,7 +1148,7 @@ export default function DataSourceConnectionPage() {
                               </Text>
                           </div>
                           {!azureStorageIntegrationCreated && (
-                              <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
+                              <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || !canCreate} title={!canCreate ? createDeniedReason : undefined}>
                                   {loading ? 'Setting up...' : 'Create Storage Integration'}
                               </Button>
                           )}
@@ -1285,7 +1292,7 @@ export default function DataSourceConnectionPage() {
                                       className="w-full"
                                   />
                                   {!azureNotificationIntegrationCreated && (
-                                      <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || !azureFormData.queue_url || !azureFormData.notification_integration_name}>
+                                      <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || !azureFormData.queue_url || !azureFormData.notification_integration_name || !canCreate} title={!canCreate ? createDeniedReason : undefined}>
                                           {loading ? 'Setting up...' : 'Create Notification Integration'}
                                       </Button>
                                   )}
@@ -1475,7 +1482,7 @@ export default function DataSourceConnectionPage() {
                               </div>
                           )}
 
-                          <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || (azureFormData.auto_update && !azureFormData.notification_integration_name)}>
+                          <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || (azureFormData.auto_update && !azureFormData.notification_integration_name) || !canCreate} title={!canCreate ? createDeniedReason : undefined}>
                               {loading ? 'Creating Stage...' : 'Create Azure Stage'}
                           </Button>
                       </>
@@ -1534,7 +1541,7 @@ export default function DataSourceConnectionPage() {
                           />
                         
                           {!awsIntegrationCreated && (
-                              <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
+                              <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || !canCreate} title={!canCreate ? createDeniedReason : undefined}>
                                   {loading ? 'Setting up...' : 'Create Storage Integration'}
                               </Button>
                           )}
@@ -1797,7 +1804,7 @@ export default function DataSourceConnectionPage() {
                               </div>
                           )}
 
-                          <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
+                          <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || !canCreate} title={!canCreate ? createDeniedReason : undefined}>
                               {loading ? 'Creating Stage...' : 'Create AWS Stage'}
                           </Button>
                       </>
@@ -1846,7 +1853,7 @@ export default function DataSourceConnectionPage() {
                               className="w-full"
                           />
                           {!gcsIntegrationCreated && (
-                              <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
+                              <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || !canCreate} title={!canCreate ? createDeniedReason : undefined}>
                                   {loading ? 'Setting up...' : 'Create Storage Integration'}
                               </Button>
                           )}
@@ -2053,7 +2060,8 @@ export default function DataSourceConnectionPage() {
                                       <Button
                                           type="button"
                                           className="w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white"
-                                          disabled={loading || !gcsFormData.notification_integration_name || !gcsFormData.gcp_pubsub_subscription_name}
+                                          disabled={loading || !gcsFormData.notification_integration_name || !gcsFormData.gcp_pubsub_subscription_name || !canCreate}
+                                          title={!canCreate ? createDeniedReason : undefined}
                                           onClick={async () => {
                                               setLoading(true);
                                               try {
@@ -2151,7 +2159,7 @@ export default function DataSourceConnectionPage() {
                               </div>
                           )}
 
-                          <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || (gcsFormData.auto_update && !gcsNotificationCreated)}>
+                          <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || (gcsFormData.auto_update && !gcsNotificationCreated) || !canCreate} title={!canCreate ? createDeniedReason : undefined}>
                               {loading ? 'Creating Stage...' : 'Create GCS Stage'}
                           </Button>
                       </>
@@ -2217,7 +2225,7 @@ export default function DataSourceConnectionPage() {
                       className="w-full"
                   />
 
-                  <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
+                  <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || !canCreate} title={!canCreate ? createDeniedReason : undefined}>
                       {loading ? 'Connecting...' : 'Connect to Snowflake'}
                   </Button>
               </form>
@@ -2681,7 +2689,7 @@ export default function DataSourceConnectionPage() {
                       <Button type="button" variant="outline" onClick={handleTest} disabled={loading} className="flex-1">
                           {loading && !oracleTestResult ? 'Testing...' : 'Test Connection'}
                       </Button>
-                      <Button type="submit" disabled={loading || !oracleTestResult?.ok} className="flex-1">
+                      <Button type="submit" disabled={loading || !oracleTestResult?.ok || !canIngest} title={!canIngest ? ingestDeniedReason : undefined} className="flex-1">
                           {loading ? 'Ingesting...' : 'Ingest to Snowflake'}
                       </Button>
                   </div>

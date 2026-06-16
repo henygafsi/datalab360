@@ -39,7 +39,7 @@ import {
 } from '@/app/services/governance/policies';
 
 // Policy types that can be applied
-type PolicyCategory = 'masking' | 'rls' | 'tags' | 'aggregation';
+export type PolicyCategory = 'masking' | 'rls' | 'tags' | 'aggregation';
 
 // Applied policy info
 interface AppliedPolicy {
@@ -58,6 +58,9 @@ interface PolicyAssignmentPanelProps {
   className?: string;
   isTemplateTable?: boolean;
   projectId?: string | null;
+  /** Tab to pre-select on open (deep-link). Defaults to 'masking'. The panel is
+   *  mounted fresh each time it opens, so this seeds the initial tab directly. */
+  initialCategory?: PolicyCategory;
 }
 
 // Policy Category Tab
@@ -1307,9 +1310,17 @@ const PolicyAssignmentPanel: React.FC<PolicyAssignmentPanelProps> = ({
   className,
   isTemplateTable,
   projectId,
+  initialCategory,
 }) => {
-  const [activeTab, setActiveTab] = useState<PolicyCategory>('masking');
+  const [activeTab, setActiveTab] = useState<PolicyCategory>(initialCategory ?? 'masking');
   const [appliedPolicies, setAppliedPolicies] = useState<AppliedPolicy[]>([]);
+
+  // Deep-link the requested tab even if the panel is reused without remounting
+  // (open→reopen with a new category). Guarded on a truthy value so the default
+  // callers (initialCategory === undefined) never force-reset the user's tab.
+  useEffect(() => {
+    if (initialCategory) setActiveTab(initialCategory);
+  }, [initialCategory]);
 
   if (!table) {
     return (

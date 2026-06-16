@@ -9,6 +9,7 @@ import { getDashboard } from '@/app/services/api/biDashboardApi';
 import type { FullDashboard } from '@/app/services/api/types';
 import DashboardEditor from '../components/DashboardEditor';
 import ProjectStatusBadges from '../components/ProjectStatusBadges';
+import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 
 // ---------------------------------------------------------------------------
 // Page
@@ -70,7 +71,14 @@ export default function BIDashboardProjectPage() {
           )}
           <div className="ml-auto flex items-center gap-3">
             {isLoading && <RefreshCw className="w-3.5 h-3.5 text-gray-400 animate-spin" />}
-            {!error && !isLoading && projectId && <ProjectStatusBadges projectId={projectId} />}
+            {!error && !isLoading && projectId && (
+              <>
+                {/* Per-project 5-axis ADN health badge — compact for this dense
+                    top bar; self-hides when the rollup route is unprovisioned. */}
+                <AdnHeaderBadge projectId={projectId} compact />
+                <ProjectStatusBadges projectId={projectId} />
+              </>
+            )}
           </div>
         </div>
 

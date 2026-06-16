@@ -15,8 +15,10 @@ import SourcesOverview from './components/SourcesOverview';
 import ObjectSmartPanel from './components/ObjectSmartPanel';
 import DetectedModelsTab from './components/DetectedModelsTab';
 import ProjectSelector from '@/app/(dashboard)/explore-design/components/ProjectSelector';
+import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import { refreshCatalog } from '@/app/services/catalog';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
@@ -44,6 +46,15 @@ function SourcesPage() {
   const [sourceTables, setSourceTables] = useState<Array<{ database: string; schema: string; table: string }>>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  // System-2 Action-RBAC gate for the account-wide "Refresh Catalog" run (a
+  // catalog-state mutation). `data_products` is the registry module for
+  // catalog/object surfaces (`catalog` itself is not registered — same key the
+  // ObjectSmartPanel "Apply" gate uses); `edit` is its mutate action. Fail-open
+  // while the allow-set loads, honest-disable only on a resolved denial.
+  const refreshPerm = useCanPerform('data_products', 'edit');
+  const canRefresh = refreshPerm.allowed || refreshPerm.loading;
+  const refreshDeniedReason =
+    'You lack the "edit" permission on data products. Ask an administrator to grant it.';
   // Bumped on a catalog SSE invalidation to remount the listing (SourceTree +
   // SourcesOverview own their own fetches), so a backend scan/refresh/enrich
   // reflects live without a manual Refresh click.
@@ -123,6 +134,9 @@ function SourcesPage() {
               onProjectSelect={(id) => setProjectId(id)}
               autoSelectProjectId={urlProjectId}
             />
+            {/* Per-project 5-axis ADN health badge — self-hides with no project
+                selected (falsy id) or when the rollup route is unprovisioned. */}
+            <AdnHeaderBadge projectId={projectId} />
             {refreshStatus && (
               <span
                 role="status"
@@ -137,7 +151,14 @@ function SourcesPage() {
                 <span className="truncate">{refreshStatus.message}</span>
               </span>
             )}
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleRefresh} disabled={refreshing}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              onClick={handleRefresh}
+              disabled={refreshing || !canRefresh}
+              title={!canRefresh ? refreshDeniedReason : undefined}
+            >
               <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
               Refresh Catalog
             </Button>

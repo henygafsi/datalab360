@@ -10,6 +10,7 @@
 import apiClient from '@/lib/api-client';
 import type {
   Project,
+  ProjectType,
   ProjectListResponse,
   CreateProjectRequest,
   CreateProjectResponse,
@@ -468,7 +469,27 @@ export async function setLastUsedProject(module: string, projectId: string) {
   return data;
 }
 
-export async function getUnifiedProjects() {
-  const { data } = await apiClient.get<UnifiedProjectsResponse>(`${PREFIX}/unified`);
+/**
+ * Query params for the unified project list.
+ *
+ * `mine_only` defaults to `true` on the backend (caller's own / contributed
+ * projects only). Pass `mine_only: false` to list ALL account projects —
+ * including seeded samples (SEED_DASH_* / SEED_WF_*) owned by other identities.
+ * All fields are optional so existing no-arg callers keep the backend default.
+ */
+export interface UnifiedProjectsParams {
+  mine_only?: boolean;
+  project_type?: ProjectType;
+  limit?: number;
+  offset?: number;
+}
+
+export async function getUnifiedProjects(params?: UnifiedProjectsParams) {
+  // axios preserves a literal `false` in the query string (it only drops
+  // `undefined`), so `{ mine_only: false }` correctly serialises to
+  // `?mine_only=false` and unlocks account-wide listing.
+  const { data } = await apiClient.get<UnifiedProjectsResponse>(`${PREFIX}/unified`, {
+    params,
+  });
   return data;
 }

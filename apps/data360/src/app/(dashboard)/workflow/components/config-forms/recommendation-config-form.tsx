@@ -29,7 +29,7 @@ const RecommendationConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-fuchsia-50 dark:bg-fuchsia-900/20 border border-fuchsia-200 dark:border-fuchsia-800">
         <p className="text-xs text-fuchsia-700 dark:text-fuchsia-300">
-          Score or rank rows using a Cortex LLM or a custom SQL expression. All upstream columns are preserved.
+          Score or rank rows using an AI model or a custom SQL expression. All upstream columns are preserved.
         </p>
       </div>
 
@@ -38,7 +38,7 @@ const RecommendationConfigForm: React.FC<{
           value={config.model_type || 'cortex'}
           onChange={(v) => updateConfig({ model_type: v as RecommendationConfig['model_type'] })}
           options={[
-            { value: 'cortex', label: 'Cortex LLM' },
+            { value: 'cortex', label: 'AI Model' },
             { value: 'custom', label: 'Custom SQL Expression' },
           ]}
         />
@@ -56,7 +56,7 @@ const RecommendationConfigForm: React.FC<{
         </FormField>
       ) : (
         <>
-          <FormField label="Model" hint="Cortex LLM model to use">
+          <FormField label="Model" hint="AI model to use">
             <Select
               value={config.cortex_model || 'mistral-large2'}
               onChange={(v) => updateConfig({ cortex_model: v })}

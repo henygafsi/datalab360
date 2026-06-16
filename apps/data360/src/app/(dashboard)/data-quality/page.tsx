@@ -40,7 +40,8 @@ import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 import SmartRightBar from './components/SmartRightBar';
-import AdnHeaderBadge from './components/AdnHeaderBadge';
+import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
+import { useProjectContext } from '@/hooks/useProjectContext';
 
 // ── Types ──
 
@@ -1024,6 +1025,11 @@ function TrendChart({ trendData }: { trendData: MetricRow[] }) {
 // ── Main page ──
 
 export default function DataQualityPage() {
+  // Per-module project scope for the header ADN badge. Data Quality has no
+  // project selector today, so this is ~always null and the badge self-hides
+  // (honest — no fabricated account-level ADN). Lights up if/when this module
+  // gains project scoping or a per-project DQ source ships on the backend.
+  const { lastProjectId } = useProjectContext('data_quality');
   const [activeTab, setActiveTab] = useState('completeness');
   const [loading, setLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
@@ -1756,7 +1762,7 @@ export default function DataQualityPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           {/* R6 — compact 5-axis ADN strip (per-project, honest "—" for unprovisioned axes) */}
-          <AdnHeaderBadge />
+          <AdnHeaderBadge projectId={lastProjectId} />
           <CacheAgeBadge cacheInfo={cacheInfo} />
           <Button
             onClick={() => { setThError(null); setThResult(null); dmfPanel.close(); thresholdPanel.open('main'); }}

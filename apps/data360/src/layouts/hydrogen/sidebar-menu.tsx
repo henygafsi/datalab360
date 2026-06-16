@@ -102,7 +102,7 @@ const modernMenuItems = [
       },
       {
         name: 'Masking Policy',
-        href: '/governance/masking',
+        href: '/governance/policies',
         icon: <HiOutlineShieldCheck className="w-4 h-4" />,
       },
       {

@@ -88,6 +88,9 @@ interface OrgAccountsState {
 }
 
 function fmtBytes(b: number | null | undefined): string {
+  // Missing (null/undefined) is "unknown" → em dash, not a fabricated 0. A
+  // genuine 0 still renders '0' (it then falls through the `!b` guard below).
+  if (b == null) return '—';
   if (!b) return '0';
   if (b >= 1e12) return `${(b / 1e12).toFixed(2)} TB`;
   if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
@@ -332,8 +335,11 @@ export default function OrgAccountsTab() {
   const totalAccounts = o?.total_client_accounts ?? 0;
   const activeAccounts = o?.active_accounts ?? 0;
   const inactiveAccounts = o?.inactive_accounts ?? 0;
-  const orgCredits = o?.total_credits_30d ?? 0;
-  const orgStorageBytes = o?.total_storage_bytes ?? 0;
+  // Render-only: keep missing as null so the credits/storage cards show '—'
+  // instead of a fabricated 0. (These two cards are intentionally ungated —
+  // for a non-org-admin the backend returns the caller's OWN account figures.)
+  const orgCredits = o?.total_credits_30d ?? null;
+  const orgStorageBytes = o?.total_storage_bytes ?? null;
   const replicationGroupsCount = o?.replication_groups_count ?? 0;
   const failoverGroupsCount = o?.failover_groups_count ?? 0;
   const managedAccountsCount =
@@ -485,7 +491,9 @@ export default function OrgAccountsTab() {
       text: `Enable network policies on all accounts (currently ${networkPoliciesCount}/${totalAccounts}).`,
       label: 'Enable network policy',
       icon: ShieldCheck,
-      href: '/governance/network-policies',
+      // Canonical surface is the unified Policies page (Network tab). The
+      // standalone /governance/network-policies route was removed (dedupe).
+      href: '/governance/policies',
     });
   }
 
@@ -534,7 +542,7 @@ export default function OrgAccountsTab() {
         <KpiCard
           icon={CreditCard}
           label={acctScope ? 'Account credits (30d)' : 'Org credits (30d)'}
-          value={fmtNumber(Math.round(orgCredits))}
+          value={fmtNumber(orgCredits != null ? Math.round(orgCredits) : null)}
           loading={state.loading}
           trendPct={o?.credits_trend_pct}
         />

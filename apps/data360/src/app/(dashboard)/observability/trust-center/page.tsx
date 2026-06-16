@@ -20,7 +20,7 @@ export default function TrustCenterPage() {
       />
       <FreshnessDisclaimer
         className="mb-4"
-        detail="Trust Center findings are derived from Snowflake ACCOUNT_USAGE and security telemetry, which are delayed (typically up to a few hours)."
+        detail="Trust Center findings are derived from the data warehouse's ACCOUNT_USAGE and security telemetry, which are delayed (typically up to a few hours)."
       />
       <TrustCenterCard />
     </div>

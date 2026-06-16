@@ -26,7 +26,7 @@ const MySQLSourceConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
         <p className="text-xs text-indigo-700 dark:text-indigo-300">
-          Ingest data from a MySQL database via Snowflake connector. Specify the connection and target location in Snowflake.
+          Ingest data from a MySQL database via a managed connector. Specify the connection and target location in the data warehouse.
         </p>
       </div>
 

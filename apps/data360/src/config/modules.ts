@@ -122,10 +122,15 @@ export const MODULES: ModuleConfig[] = [
   // Data Engineering & Developer Tools — merged into Explore & Design and Workflow
 
   // Hidden modules (not shown in menu but can be granted)
-  { 
-    id: 2, 
-    name: 'Mapping', 
-    apiName: 'mapping', 
+  // Mapping: the /mapping page now redirects to Explore & Design. Kept here
+  // (visible: false) only so existing RBAC grants referencing it still resolve
+  // (moduleIdToName / findModuleByApiName). It is intentionally absent from the
+  // sidebar nav. The routes.ts `mapping.viewMap` key is likewise retained per
+  // the _DROPPED.md convention (imported by shared template components).
+  {
+    id: 2,
+    name: 'Mapping',
+    apiName: 'mapping',
     description: 'View and manage mappings',
     visible: false
   },

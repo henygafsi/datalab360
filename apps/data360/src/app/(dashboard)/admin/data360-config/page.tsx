@@ -1,34 +1,43 @@
 'use client';
 
 /**
- * Data360 Admin Console — cache · APIs · events · access, one glass ops surface.
+ * Data360 Configuration — the platform's data-config surface.
  *
- * Refactor of the old data360-config page into a unified, event-centric admin
- * dashboard (see Obsidian `_design-system-2026`). Five tabs, all wired to live
- * services with honest empty/error states — no faked numbers:
- *   Overview    — query metrics + module health + live activity counts
- *   Performance — query performance + slowest queries (data360's "endpoints")
- *   Events      — recent activity + most-active users + recent errors (event store)
- *   Cache       — cached-entry inventory + class breakdown + editable TTL zones
- *   Access      — feature×role matrix + per-user effective view (advisory GUI perms)
+ * Scoped to its actual mandate (the nav card promise): metadata · tables ·
+ * date columns · refresh · cache & TTL. Two genuine config tabs:
+ *   Configuration — database → schema → table → date-column → refresh
+ *                   (getData360Config / getTableRefreshMapping / triggerRefresh)
+ *   Cache & TTL   — cached-entry inventory + class breakdown + editable TTL zones
+ *
+ * Plus one advisory tab kept here because it is unique (not hosted elsewhere):
+ *   Page hints    — advisory GUI page-visibility hints (NOT API-enforced)
+ *
+ * Access-control and telemetry that used to live here are NOT duplicated: the
+ * enforced RBAC matrix, role provisioning, object grants and platform telemetry
+ * each have a single canonical home, reached via "Manage in Access Control"
+ * redirect links rather than a second editor on the same allow-set.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import {
   Activity,
   AlertTriangle,
-  ArrowUpDown,
-  BarChart3,
+  ArrowRight,
+  BellRing,
   Database,
   Gauge,
   HardDrive,
   Info,
   KeyRound,
   Layers,
-  LineChart,
+  Lock,
   Pencil,
-  Search,
+  RefreshCw,
+  Settings2,
   ShieldAlert,
   ShieldCheck,
+  Table2,
   Timer,
   User,
   Users,
@@ -37,24 +46,19 @@ import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import { GlassPanel } from '@/app/shared/glass';
-import { getActivityFeed } from '@/app/services/command-center';
-import type { ActivityEvent } from '@/app/services/command-center/types';
-import { getSlowQueries } from '@/app/services/observability';
-import type { SlowQuery } from '@/app/services/observability/types';
 import {
   getCacheConfig,
   getCacheEntries,
   getData360Config,
+  getTableRefreshMapping,
   patchCacheConfig,
+  triggerRefresh,
   type CacheEntry,
+  type Data360ConfigResponse,
+  type TableRefreshMappingItem,
+  type TableRefreshMappingResponse,
 } from '@/app/services/data360-config';
 import { getCacheBreakdown, getCacheInvalidations } from '@/app/services/cache';
-import {
-  getEndpointUsage,
-  getActivityStats,
-  type EndpointUsageRow,
-  type EndpointUsageResponse,
-} from '@/app/services/admin-visibility';
 import {
   getUserEffectiveGuiAccess,
   listGuiPermissions,
@@ -62,14 +66,12 @@ import {
   type GuiPermission,
 } from '@/app/services/governance';
 import { getUsersWithRolesAndModules, type UserGrantTableData } from '@/app/services/governance/user_roles';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { toast } from '@/hooks/use-toast';
-import RoleGrantsPanel from '../RoleGrantsPanel';
-import RealAccessPanel from '../RealAccessPanel';
-import ServerMetricsPanel from '../ServerMetricsPanel';
-import ActivityDashboard from '../ActivityDashboard';
-import ActionRbacTab from './ActionRbacTab';
 
 type AsyncState = 'idle' | 'running' | 'done' | 'error';
+
+const ACCESS_CENTER = '/administration/access-center';
 
 function useFetch<T>(fn: () => Promise<T>) {
   const [state, setState] = useState<AsyncState>('idle');
@@ -93,11 +95,6 @@ function useFetch<T>(fn: () => Promise<T>) {
   return { state, data, error, reload };
 }
 
-function isError(status: string): boolean {
-  const s = status?.toUpperCase();
-  return s === 'FAILED' || s === 'ERROR' || s === 'FAILURE';
-}
-
 function Loading({ rows = 4 }: { rows?: number }) {
   return (
     <div className="space-y-1.5" aria-hidden>
@@ -119,31 +116,6 @@ function ErrBox({ message, onRetry }: { message: string; onRetry: () => void }) 
         </button>
       </div>
     </div>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  sub,
-  icon: Icon,
-  tint = 'text-slate-800 dark:text-slate-100',
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  icon: typeof Activity;
-  tint?: string;
-}) {
-  return (
-    <GlassPanel depth={1} radius="xl" className="flex flex-col gap-1 p-3.5">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{label}</span>
-        <Icon className="h-4 w-4 text-slate-400" />
-      </div>
-      <span className={cn('text-2xl font-semibold', tint)}>{value}</span>
-      {sub && <span className="text-[11px] text-slate-400">{sub}</span>}
-    </GlassPanel>
   );
 }
 
@@ -202,404 +174,255 @@ function ConfirmDialog({
   );
 }
 
-/* ── Overview — detailed, interactive endpoint view (not a rollup) ──────────── */
-type EpSortKey = 'method' | 'path' | 'module' | 'count' | 'errors' | 'errPct' | 'distinct_users' | 'last_seen';
-
-function errPctOf(e: EndpointUsageRow): number {
-  return e.count > 0 ? (e.errors / e.count) * 100 : 0;
+/* ── Redirect card — single-home for surfaces hosted in Access Control ─────── */
+/**
+ * Honest "this lives elsewhere" pointer. We do NOT re-implement the enforced RBAC
+ * matrix, role provisioning, object grants or platform telemetry here — each has
+ * one canonical home. The card explains what moved and links to it.
+ */
+function RedirectCard({
+  icon: Icon,
+  title,
+  body,
+  href,
+  cta,
+}: {
+  icon: typeof Settings2;
+  title: string;
+  body: string;
+  href: string;
+  cta: string;
+}) {
+  return (
+    <GlassPanel depth={1} radius="xl" className="flex items-start gap-3 p-4">
+      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[hsl(var(--primary)/0.12)] text-[hsl(var(--primary))]">
+        <Icon className="h-4.5 w-4.5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</p>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{body}</p>
+        <Link
+          href={href}
+          className="mt-2 inline-flex items-center gap-1 rounded-lg bg-[hsl(var(--primary))] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+        >
+          {cta}
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+    </GlassPanel>
+  );
 }
 
-function OverviewTab() {
-  // Real per-endpoint detail (AUDIT_LOG), not aggregated summary cards.
-  const usage = useFetch<EndpointUsageResponse>(() => getEndpointUsage(7, 200));
-  const [q, setQ] = useState('');
-  const [sortKey, setSortKey] = useState<EpSortKey>('count');
-  const [asc, setAsc] = useState(false);
+/* ── Configuration — the real config spine ────────────────────────────────── */
+/**
+ * database → schema → table → date-column → refresh, on the already-wired
+ * getData360Config / getTableRefreshMapping / triggerRefresh. Each control is a
+ * clear to-do: it states what it will do before you click, notifies on write,
+ * and shows the next step (last_refresh delta + view-table). Routes may 404 until
+ * deployed → honest empty/error, never a fake number.
+ */
+function ConfigTab() {
+  const cfg = useFetch<Data360ConfigResponse>(() => getData360Config());
+  const mapping = useFetch<TableRefreshMappingResponse>(() => getTableRefreshMapping());
 
-  const all = useMemo<EndpointUsageRow[]>(() => usage.data?.endpoints ?? [], [usage.data]);
-  const rows = useMemo<EndpointUsageRow[]>(() => {
-    const needle = q.trim().toLowerCase();
-    const filtered = needle
-      ? all.filter(
-          (e) =>
-            e.path.toLowerCase().includes(needle) ||
-            (e.module ?? '').toLowerCase().includes(needle) ||
-            e.method.toLowerCase().includes(needle),
-        )
-      : all;
-    const val = (e: EndpointUsageRow): string | number => {
-      switch (sortKey) {
-        case 'errPct':
-          return errPctOf(e);
-        case 'last_seen':
-          return e.last_seen ? Date.parse(e.last_seen) || 0 : 0;
-        case 'path':
-          return e.path.toLowerCase();
-        case 'module':
-          return (e.module ?? '').toLowerCase();
-        case 'method':
-          return e.method.toLowerCase();
-        default:
-          return e[sortKey];
-      }
-    };
-    return [...filtered].sort((a, b) => {
-      const av = val(a);
-      const bv = val(b);
-      const cmp =
-        typeof av === 'number' && typeof bv === 'number'
-          ? av - bv
-          : String(av).localeCompare(String(bv));
-      return asc ? cmp : -cmp;
-    });
-  }, [all, q, sortKey, asc]);
+  // Per-table refresh: confirm (runtime write) → POST → toast + bell + next-step.
+  const [pending, setPending] = useState<{ table: string } | null>(null);
+  const [busyTable, setBusyTable] = useState<string | null>(null);
+  // Tables refreshed this session → drive the "Refreshed · view" next-step strip.
+  const [refreshed, setRefreshed] = useState<Record<string, string>>({});
 
-  const toggleSort = (k: EpSortKey) => {
-    if (k === sortKey) {
-      setAsc((v) => !v);
-    } else {
-      setSortKey(k);
-      setAsc(false);
+  const tables: TableRefreshMappingItem[] = useMemo(() => mapping.data?.tables ?? [], [mapping.data]);
+
+  const confirmRefresh = useCallback(async () => {
+    if (!pending) return;
+    const { table } = pending;
+    setPending(null);
+    setBusyTable(table);
+    try {
+      await triggerRefresh({ table });
+      const at = new Date().toLocaleTimeString();
+      setRefreshed((m) => ({ ...m, [table]: at }));
+      // Notify on config write (toast) + bell affordance in the next-step strip.
+      toast({ title: `Refresh triggered · ${table}`, description: `Last refresh updated at ${at}` });
+      await mapping.reload();
+    } catch (e) {
+      toast({ title: 'Refresh failed', description: getApiErrorMessage(e) });
+    } finally {
+      setBusyTable(null);
     }
-  };
-
-  const Th = ({ k, label, align = 'right' }: { k: EpSortKey; label: string; align?: 'left' | 'right' }) => (
-    <th
-      className={cn(
-        'glass-2 cursor-pointer select-none px-2 py-1.5 font-semibold hover:text-slate-600 dark:hover:text-slate-200',
-        align === 'left' ? 'text-left' : 'text-right',
-      )}
-      onClick={() => toggleSort(k)}
-      title="Click to sort"
-    >
-      <span className={cn('inline-flex items-center gap-1', align === 'right' && 'flex-row-reverse')}>
-        {label}
-        <ArrowUpDown className={cn('h-3 w-3', sortKey === k ? 'text-[hsl(var(--primary))]' : 'text-slate-300 dark:text-slate-600')} />
-      </span>
-    </th>
-  );
+  }, [pending, mapping]);
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="relative w-full max-w-sm">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Filter endpoints by path, module, or method…"
-            className="w-full rounded-lg border border-slate-200 bg-white/70 py-1.5 pl-8 pr-3 text-xs text-slate-700 outline-none focus:border-[hsl(var(--primary))] dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
-          />
+      {/* Step strip — the config spine, so the mandate is legible at a glance */}
+      <GlassPanel depth={1} radius="xl" className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-[11px] text-slate-500 dark:text-slate-400">
+        <Settings2 className="h-3.5 w-3.5 text-[hsl(var(--primary))]" />
+        <span className="font-medium text-slate-600 dark:text-slate-300">Config spine</span>
+        {['database', 'schema', 'table', 'date column', 'refresh', 'cache TTL'].map((s, i) => (
+          <span key={s} className="inline-flex items-center gap-2">
+            {i > 0 && <ArrowRight className="h-3 w-3 text-slate-300 dark:text-slate-600" />}
+            <span>{s}</span>
+          </span>
+        ))}
+      </GlassPanel>
+
+      {/* Metadata: database + schemas (getData360Config) */}
+      <GlassPanel depth={1} radius="xl" className="overflow-hidden">
+        <div className="border-b border-white/30 px-3 py-2 dark:border-white/10">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <Database className="h-3.5 w-3.5" /> Metadata database &amp; schemas
+          </p>
+          <p className="text-[10px] text-slate-400">The data warehouse, schemas and zones this platform reads its metadata from</p>
         </div>
-        <span className="text-[11px] text-slate-400">
-          {usage.data
-            ? `${rows.length}/${all.length} endpoints · ${usage.data.total_requests.toLocaleString()} reqs · ${usage.data.window_days}d`
-            : '—'}
-        </span>
-      </div>
-
-      {usage.state === 'running' && <Loading rows={10} />}
-      {usage.state === 'error' && (
-        <ErrBox message={usage.error ?? 'Failed to load endpoint usage'} onRetry={() => void usage.reload()} />
-      )}
-      {usage.state === 'done' && rows.length === 0 && (
-        <EmptyState icon={BarChart3} compact title={all.length === 0 ? 'No endpoint activity recorded' : 'No endpoints match your filter'} />
-      )}
-
-      {usage.state === 'done' && rows.length > 0 && (
-        <GlassPanel depth={1} radius="xl" className="overflow-hidden">
-          <div className="border-b border-white/30 px-3 py-2 dark:border-white/10">
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
-              <Activity className="h-3.5 w-3.5" /> Endpoint detail (last {usage.data?.window_days ?? 7}d)
-            </p>
-            <p className="text-[10px] text-slate-400">Per-route requests · errors · distinct users · last seen — click a header to sort</p>
+        {cfg.state === 'running' || cfg.state === 'idle' ? (
+          <div className="p-3">
+            <Loading rows={3} />
           </div>
-          <div className="scrollbar-thin max-h-[560px] overflow-auto">
+        ) : cfg.state === 'error' ? (
+          <div className="p-3">
+            <ErrBox message={cfg.error ?? 'Failed to load config'} onRetry={cfg.reload} />
+          </div>
+        ) : (
+          <div className="space-y-2 p-3">
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="rounded-lg bg-slate-100 px-2 py-1 font-mono font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                {cfg.data?.metadata_database || '—'}
+              </span>
+              <span className="text-slate-400">
+                {(cfg.data?.metadata_schemas?.length ?? 0)} schemas · {(cfg.data?.metadata_tables?.length ?? 0)} tables · {(cfg.data?.zones?.length ?? 0)} cache zones
+              </span>
+            </div>
+            {(cfg.data?.metadata_schemas?.length ?? 0) === 0 ? (
+              <EmptyState icon={Database} compact title="No metadata schemas configured" />
+            ) : (
+              <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-3">
+                {cfg.data?.metadata_schemas?.map((s) => (
+                  <li key={s.name} className="flex flex-col rounded-lg border border-slate-100 px-2.5 py-1.5 dark:border-slate-800">
+                    <span className="truncate font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-200" title={s.name}>
+                      {s.name}
+                    </span>
+                    {s.description && <span className="truncate text-[10px] text-slate-400" title={s.description}>{s.description}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {cfg.data && cfg.data.zones.length > 0 && (
+              <p className="flex items-center gap-1 pt-1 text-[10px] text-slate-400">
+                <Info className="h-3 w-3 shrink-0" /> Cache zones: {cfg.data.zones.join(' · ')} — set their TTL in the Cache &amp; TTL tab.
+              </p>
+            )}
+          </div>
+        )}
+      </GlassPanel>
+
+      {/* Tables → date columns → refresh (getTableRefreshMapping + triggerRefresh) */}
+      <GlassPanel depth={1} radius="xl" className="overflow-hidden">
+        <div className="flex items-center justify-between border-b border-white/30 px-3 py-2 dark:border-white/10">
+          <div>
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+              <Table2 className="h-3.5 w-3.5" /> Tables · date columns · refresh
+            </p>
+            <p className="text-[10px] text-slate-400">
+              Each table&apos;s freshness date-column and last refresh. <span className="font-medium">Refresh</span> re-reads the table now (runtime config write).
+            </p>
+          </div>
+          {mapping.state === 'done' && (
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+              {tables.length} tables
+            </span>
+          )}
+        </div>
+        {mapping.state === 'running' || mapping.state === 'idle' ? (
+          <div className="p-3">
+            <Loading rows={5} />
+          </div>
+        ) : mapping.state === 'error' || tables.length === 0 ? (
+          // Route may 404 until deployed → honest empty, never a fake row.
+          <EmptyState icon={Table2} compact title="No table refresh mapping to show" />
+        ) : (
+          <div className="scrollbar-thin max-h-[480px] overflow-auto">
             <table className="w-full border-collapse text-[11px]">
               <thead className="sticky top-0">
                 <tr className="text-[10px] uppercase tracking-wide text-slate-400">
-                  <Th k="method" label="Method" align="left" />
-                  <Th k="path" label="Endpoint" align="left" />
-                  <Th k="module" label="Module" align="left" />
-                  <Th k="count" label="Requests" />
-                  <Th k="errors" label="Errors" />
-                  <Th k="errPct" label="Err %" />
-                  <Th k="distinct_users" label="Users" />
-                  <Th k="last_seen" label="Last seen" />
+                  <th className="glass-2 px-3 py-1.5 text-left font-semibold">Table</th>
+                  <th className="glass-2 px-2 py-1.5 text-left font-semibold">Date column(s)</th>
+                  <th className="glass-2 px-2 py-1.5 text-left font-semibold">Last refresh</th>
+                  <th className="glass-2 px-2 py-1.5 text-right font-semibold">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((e, i) => {
-                  const pct = errPctOf(e);
+                {tables.map((t) => {
+                  const fqn = `${t.database}.${t.schema}.${t.table_name}`;
+                  const busy = busyTable === t.table;
+                  const justAt = refreshed[t.table];
                   return (
-                    <tr
-                      key={`${e.method}:${e.path}:${i}`}
-                      className="border-b border-slate-100 hover:bg-slate-50/60 dark:border-slate-800 dark:hover:bg-slate-800/30"
-                    >
-                      <td className="px-2 py-1 text-left font-mono font-semibold text-slate-500 dark:text-slate-400">{e.method}</td>
-                      <td className="max-w-[360px] truncate px-2 py-1 text-left font-mono text-slate-700 dark:text-slate-200" title={e.path}>
-                        {e.path}
+                    <tr key={t.table} className="border-b border-slate-100 align-top dark:border-slate-800">
+                      <td className="max-w-[280px] px-3 py-1.5">
+                        <span className="block truncate font-mono text-slate-700 dark:text-slate-200" title={fqn}>
+                          {t.table_name}
+                        </span>
+                        <span className="block truncate text-[10px] text-slate-400" title={fqn}>
+                          {t.database}.{t.schema}
+                        </span>
                       </td>
-                      <td className="max-w-[140px] truncate px-2 py-1 text-left text-slate-500 dark:text-slate-400" title={e.module}>
-                        {e.module || '—'}
+                      <td className="px-2 py-1.5">
+                        {t.date_columns.length === 0 ? (
+                          <span className="text-slate-400">—</span>
+                        ) : (
+                          <span className="flex flex-wrap gap-1">
+                            {t.date_columns.map((dc) => (
+                              <span
+                                key={dc.name}
+                                className="rounded-full bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+                                title={dc.last_refresh ? `last: ${new Date(dc.last_refresh).toLocaleString()}` : 'no refresh recorded'}
+                              >
+                                {dc.name}
+                              </span>
+                            ))}
+                          </span>
+                        )}
                       </td>
-                      <td className="px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200">{e.count.toLocaleString()}</td>
-                      <td className={cn('px-2 py-1 text-right font-semibold', e.errors > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400')}>
-                        {e.errors.toLocaleString()}
+                      <td className="px-2 py-1.5 text-slate-500 dark:text-slate-400">
+                        {justAt ? (
+                          <span className="inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+                            <BellRing className="h-3 w-3" /> just now · {justAt}
+                          </span>
+                        ) : t.table_last_refresh ? (
+                          new Date(t.table_last_refresh).toLocaleString()
+                        ) : (
+                          <span className="text-slate-400">never</span>
+                        )}
                       </td>
-                      <td className={cn('px-2 py-1 text-right', pct > 2 ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400')}>
-                        {pct.toFixed(1)}%
+                      <td className="px-2 py-1.5 text-right">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setPending({ table: t.table })}
+                          title={`Re-read ${fqn} from the data warehouse now`}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 transition-colors hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))] disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                        >
+                          <RefreshCw className={cn('h-3 w-3', busy && 'animate-spin')} />
+                          {busy ? 'Refreshing…' : 'Refresh'}
+                        </button>
                       </td>
-                      <td className="px-2 py-1 text-right text-slate-500 dark:text-slate-400">{e.distinct_users}</td>
-                      <td className="px-2 py-1 text-right text-slate-400">{e.last_seen ? new Date(e.last_seen).toLocaleString() : '—'}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-        </GlassPanel>
+        )}
+      </GlassPanel>
+
+      {pending && (
+        <ConfirmDialog
+          title="Refresh this table now?"
+          body={`Re-read "${pending.table}" from the data warehouse. This runs a live refresh and updates its last-refresh marker for every consumer of this table.`}
+          confirmLabel="Refresh now"
+          onConfirm={() => void confirmRefresh()}
+          onCancel={() => setPending(null)}
+        />
       )}
-    </div>
-  );
-}
-
-/* ── Performance ──────────────────────────────────────────────────────────── */
-function PerformanceTab() {
-  const usage = useFetch(() => getEndpointUsage(7, 40));
-  const slow = useFetch<{ slow_queries: SlowQuery[] }>(() => getSlowQueries({ days: 7 }));
-  const endpoints = usage.data?.endpoints ?? [];
-  const slowRows = slow.data?.slow_queries ?? [];
-
-  return (
-    <div className="space-y-3">
-      {/* Top requested endpoints (AUDIT_LOG) */}
-      <GlassPanel depth={1} radius="xl" className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-white/30 px-3 py-2 dark:border-white/10">
-          <div>
-            <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Top endpoints</p>
-            <p className="text-[10px] text-slate-400">Most-requested routes · {usage.data?.window_days ?? 7}d</p>
-          </div>
-          {usage.data && (
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-              {usage.data.total_requests.toLocaleString()} req
-            </span>
-          )}
-        </div>
-        {usage.state === 'running' || usage.state === 'idle' ? (
-          <div className="p-3">
-            <Loading rows={6} />
-          </div>
-        ) : usage.state === 'error' ? (
-          <div className="p-3">
-            <ErrBox message={usage.error ?? 'Failed'} onRetry={usage.reload} />
-          </div>
-        ) : endpoints.length === 0 ? (
-          <EmptyState icon={BarChart3} compact title="No request history yet" />
-        ) : (
-          <div className="scrollbar-thin max-h-[360px] overflow-auto">
-            <table className="w-full border-collapse text-[11px]">
-              <thead className="sticky top-0">
-                <tr className="text-[10px] uppercase tracking-wide text-slate-400">
-                  <th className="glass-2 px-3 py-1.5 text-left font-semibold">Endpoint</th>
-                  <th className="glass-2 px-2 py-1.5 text-left font-semibold">Module</th>
-                  <th className="glass-2 px-2 py-1.5 text-right font-semibold">Req</th>
-                  <th className="glass-2 px-2 py-1.5 text-right font-semibold">Err</th>
-                  <th className="glass-2 px-2 py-1.5 text-right font-semibold">Users</th>
-                </tr>
-              </thead>
-              <tbody>
-                {endpoints.map((e) => (
-                  <tr key={`${e.method} ${e.path}`} className="border-b border-slate-100 dark:border-slate-800">
-                    <td className="max-w-[320px] truncate px-3 py-1 font-mono text-slate-700 dark:text-slate-200" title={`${e.method} ${e.path}`}>
-                      <span className="text-slate-400">{e.method}</span> {e.path}
-                    </td>
-                    <td className="px-2 py-1 text-slate-500 dark:text-slate-400">{e.module}</td>
-                    <td className="px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200">{e.count.toLocaleString()}</td>
-                    <td className={cn('px-2 py-1 text-right', e.errors > 0 ? 'font-semibold text-red-600 dark:text-red-400' : 'text-slate-300 dark:text-slate-600')}>
-                      {e.errors || '·'}
-                    </td>
-                    <td className="px-2 py-1 text-right text-slate-500 dark:text-slate-400">{e.distinct_users}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </GlassPanel>
-
-      {/* Slowest queries */}
-      <GlassPanel depth={1} radius="xl" className="overflow-hidden">
-        <div className="border-b border-white/30 px-3 py-2 dark:border-white/10">
-          <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Slowest queries (7d)</p>
-          <p className="text-[10px] text-slate-400">Highest execution time</p>
-        </div>
-        {slow.state === 'running' || slow.state === 'idle' ? (
-          <div className="p-3">
-            <Loading rows={4} />
-          </div>
-        ) : slow.state === 'error' ? (
-          <div className="p-3">
-            <ErrBox message={slow.error ?? 'Failed'} onRetry={slow.reload} />
-          </div>
-        ) : slowRows.length === 0 ? (
-          <EmptyState icon={Timer} compact title="No slow queries" />
-        ) : (
-          <div className="scrollbar-thin max-h-[360px] divide-y divide-slate-100 overflow-auto dark:divide-slate-800">
-            {slowRows.slice(0, 40).map((q) => (
-              <div key={q.query_id} className="flex items-center justify-between gap-3 px-3 py-1.5">
-                <div className="min-w-0">
-                  <p className="truncate font-mono text-[11px] text-slate-700 dark:text-slate-200" title={q.query_text}>
-                    {q.query_type || 'QUERY'} · {q.query_text?.slice(0, 80) || q.query_id}
-                  </p>
-                  <p className="text-[10px] text-slate-400">
-                    {q.user_name} · {q.warehouse_name} · {q.mb_scanned?.toFixed(0)}MB
-                  </p>
-                </div>
-                <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                  {q.execution_time_sec?.toFixed(1)}s
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </GlassPanel>
-    </div>
-  );
-}
-
-/* ── Events ───────────────────────────────────────────────────────────────── */
-function EventsTab() {
-  const { state, data, error, reload } = useFetch(() => getActivityFeed(200, { days: 7 }));
-  const events: ActivityEvent[] = useMemo(() => data?.events ?? [], [data]);
-  const stats = useFetch(() => getActivityStats(7));
-
-  const topUsers = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const e of events) counts.set(e.username, (counts.get(e.username) ?? 0) + 1);
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
-  }, [events]);
-  const errors = useMemo(() => events.filter((e) => isError(e.status)).slice(0, 25), [events]);
-
-  if (state === 'running' || state === 'idle') return <Loading rows={8} />;
-  if (state === 'error') return <ErrBox message={error ?? 'Failed'} onRetry={reload} />;
-  if (events.length === 0) return <EmptyState icon={Activity} compact title="No recent events" />;
-
-  return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-      <GlassPanel depth={1} radius="xl" className="overflow-hidden lg:col-span-2">
-        <div className="border-b border-white/30 px-3 py-2 dark:border-white/10">
-          <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Recent activity</p>
-          <p className="text-[10px] text-slate-400">{events.length} events · last 7d</p>
-        </div>
-        <div className="scrollbar-thin max-h-[440px] divide-y divide-slate-100 overflow-auto dark:divide-slate-800">
-          {events.slice(0, 80).map((e, i) => (
-            <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5">
-              <div className="min-w-0">
-                <p className="truncate text-[11px] text-slate-700 dark:text-slate-200">
-                  <span className="font-medium">{e.username}</span> · {e.event_type}
-                </p>
-                <p className="text-[10px] text-slate-400">{e.module}</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <span
-                  className={cn(
-                    'rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase',
-                    isError(e.status)
-                      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                      : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-                  )}
-                >
-                  {e.status}
-                </span>
-                <span className="text-[10px] text-slate-400">
-                  {e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '—'}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </GlassPanel>
-
-      <div className="space-y-3">
-        <GlassPanel depth={1} radius="xl" className="p-3">
-          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
-            <Users className="h-3.5 w-3.5" /> Most active users
-          </p>
-          {topUsers.length === 0 ? (
-            <EmptyState icon={Users} compact title="—" />
-          ) : (
-            <ul className="space-y-1">
-              {topUsers.map(([user, n], i) => (
-                <li key={user} className="flex items-center justify-between text-[11px]">
-                  <span className="truncate text-slate-600 dark:text-slate-300">
-                    {i + 1}. {user || '—'}
-                  </span>
-                  <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                    {n}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </GlassPanel>
-        <GlassPanel depth={1} radius="xl" className="p-3">
-          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
-            <AlertTriangle className="h-3.5 w-3.5 text-red-500" /> Recent errors
-          </p>
-          {errors.length === 0 ? (
-            <EmptyState icon={ShieldCheck} compact title="No errors 🎉" />
-          ) : (
-            <ul className="scrollbar-thin max-h-[220px] space-y-1 overflow-auto">
-              {errors.map((e, i) => (
-                <li key={i} className="flex items-center justify-between gap-2 text-[10px]">
-                  <span className="truncate text-slate-600 dark:text-slate-300">
-                    {e.module} · {e.event_type}
-                  </span>
-                  <span className="shrink-0 text-slate-400">
-                    {e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : ''}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </GlassPanel>
-        <GlassPanel depth={1} radius="xl" className="p-3">
-          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
-            <Layers className="h-3.5 w-3.5" /> Events by module / project
-          </p>
-          {!stats.data ? (
-            <Loading rows={3} />
-          ) : (
-            <div className="space-y-2">
-              <ul className="space-y-1">
-                {stats.data.by_module.slice(0, 6).map((m) => (
-                  <li key={m.module} className="flex items-center justify-between text-[11px]">
-                    <span className="truncate text-slate-600 dark:text-slate-300">{m.module}</span>
-                    <span className="shrink-0 text-slate-400">
-                      {m.events}
-                      {m.failures > 0 && <span className="text-red-500"> · {m.failures}✗</span>}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {stats.data.by_project.length > 0 && (
-                <div className="border-t border-slate-100 pt-1.5 dark:border-slate-800">
-                  <p className="mb-1 text-[10px] uppercase tracking-wide text-slate-400">By project</p>
-                  <ul className="space-y-1">
-                    {stats.data.by_project.slice(0, 5).map((pj) => (
-                      <li key={pj.project_id} className="flex items-center justify-between text-[11px]">
-                        <span className="truncate font-mono text-slate-600 dark:text-slate-300">{pj.project_id || '—'}</span>
-                        <span className="shrink-0 text-slate-400">{pj.events}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </GlassPanel>
-      </div>
     </div>
   );
 }
@@ -919,6 +742,8 @@ function EnforcementBanner() {
 }
 
 function AccessTab() {
+  // Page-hint edits are a grant-like mutation → gate (honest disable when denied).
+  const canGrant = useCanPerform('gouvernance', 'grant');
   const permsFetch = useFetch<{ data: GuiPermission[] }>(() => listGuiPermissions());
   const usersFetch = useFetch<UserGrantTableData[]>(() => getUsersWithRolesAndModules());
   const [view, setView] = useState<'role' | 'user'>('role');
@@ -952,13 +777,17 @@ function AccessTab() {
   );
 
   // Stage an edit → confirm dialog explains the role-wide blast radius.
+  // Gated: denied users see read-only hints (buttons disabled below) and this
+  // is a defence-in-depth no-op if it is ever reached.
   const requestCycle = useCallback(
     (role: string, feat: string) => {
+      if (!canGrant.allowed) return;
       const cur = lvlOf(role, feat);
       setPendingCell({ role, feat, from: cur, to: CYCLE[cur] });
     },
-    [lvlOf],
+    [lvlOf, canGrant.allowed],
   );
+  const editingDisabled = canGrant.loading || !canGrant.allowed;
 
   // Load one user's effective access (server-resolved). Declared before commitCycle
   // because commitCycle lists it as a dependency.
@@ -1033,9 +862,11 @@ function AccessTab() {
                 : 'Effective access by user'}
             </p>
             <p className="text-[10px] text-slate-400">
-              {view === 'role'
-                ? 'Click a cell to change NONE → READ → WRITE (role-wide · confirm required)'
-                : 'Pick a user → server-resolved access · edit the role that confers each feature'}
+              {editingDisabled
+                ? 'Read-only — you don’t have grant permission to change page-visibility hints'
+                : view === 'role'
+                  ? 'Click a cell to change NONE → READ → WRITE (role-wide · confirm required)'
+                  : 'Pick a user → server-resolved access · edit the role that confers each feature'}
             </p>
           </div>
           <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
@@ -1085,13 +916,18 @@ function AccessTab() {
                         <td key={r} className="px-1.5 py-1 text-center">
                           <button
                             type="button"
-                            disabled={busy}
+                            disabled={busy || editingDisabled}
                             onClick={() => requestCycle(r, f)}
-                            title={`${r} · ${f} = ${lvl} (click to change)`}
+                            title={
+                              editingDisabled
+                                ? `${r} · ${f} = ${lvl} (read-only — no grant permission)`
+                                : `${r} · ${f} = ${lvl} (click to change)`
+                            }
                             className={cn(
-                              'rounded px-1.5 py-0.5 text-[9px] font-semibold transition-opacity hover:opacity-80',
+                              'rounded px-1.5 py-0.5 text-[9px] font-semibold transition-opacity',
                               ACCESS_TINT[lvl] ?? ACCESS_TINT.NONE,
                               busy && 'opacity-40',
+                              editingDisabled ? 'cursor-default' : 'hover:opacity-80',
                             )}
                           >
                             {busy ? '…' : lvl === 'NONE' ? '·' : lvl[0]}
@@ -1178,13 +1014,18 @@ function AccessTab() {
                                     <button
                                       key={role}
                                       type="button"
-                                      disabled={saving.has(`${role}|${feat}`)}
+                                      disabled={saving.has(`${role}|${feat}`) || editingDisabled}
                                       onClick={() => requestCycle(role, feat)}
-                                      title={`${role} grants ${rl} on ${feat} — click to change (role-wide)`}
+                                      title={
+                                        editingDisabled
+                                          ? `${role} grants ${rl} on ${feat} (read-only — no grant permission)`
+                                          : `${role} grants ${rl} on ${feat} — click to change (role-wide)`
+                                      }
                                       className={cn(
-                                        'rounded-full px-1.5 py-0.5 text-[9px] font-medium transition-opacity hover:opacity-80',
+                                        'rounded-full px-1.5 py-0.5 text-[9px] font-medium transition-opacity',
                                         ACCESS_TINT[rl] ?? ACCESS_TINT.NONE,
                                         saving.has(`${role}|${feat}`) && 'opacity-40',
+                                        editingDisabled ? 'cursor-default' : 'hover:opacity-80',
                                       )}
                                     >
                                       {role} · {rl[0]}
@@ -1217,21 +1058,114 @@ function AccessTab() {
   );
 }
 
+/* ── Access Control redirects — telemetry + enforced RBAC live elsewhere ───── */
+/**
+ * The enforced action-RBAC matrix, role provisioning, object grants and platform
+ * telemetry were each duplicated here. They now point at their single canonical
+ * home so there is never a second editor on the same allow-set.
+ */
+function AccessControlTab() {
+  return (
+    <div className="space-y-3">
+      <RedirectCard
+        icon={ShieldCheck}
+        title="Enforced action permissions (module → page → tab → action)"
+        body="The enforced RBAC matrix moved to the Access Control Center. Editing permissions in two places risks divergent allow-sets, so it now has a single home."
+        href={`${ACCESS_CENTER}?tab=access`}
+        cta="Open Access Control"
+      />
+      <RedirectCard
+        icon={Users}
+        title="Role provisioning & users × roles"
+        body="Assigning roles to users and reviewing who has what is provisioned in the Access Control Center."
+        href={`${ACCESS_CENTER}?tab=provisioning`}
+        cta="Open Provisioning"
+      />
+      <RedirectCard
+        icon={Lock}
+        title="Data-warehouse object grants (revoke / grant)"
+        body="Granting and revoking privileges on databases, schemas, tables and stages is handled in Governance → Grants."
+        href="/governance/grants"
+        cta="Open Grants"
+      />
+    </div>
+  );
+}
+
+function TelemetryTab() {
+  return (
+    <div className="space-y-3">
+      <RedirectCard
+        icon={Gauge}
+        title="Performance & monitoring"
+        body="Endpoint performance, slowest queries and server metrics are in the Access Control Center under Performance & Monitoring."
+        href={`${ACCESS_CENTER}?tab=performance`}
+        cta="Open Performance"
+      />
+      <RedirectCard
+        icon={Activity}
+        title="Usage & audit (events, activity, errors)"
+        body="Request volume, the activity feed and recent errors are in the Access Control Center under Usage & Audit."
+        href={`${ACCESS_CENTER}?tab=usage`}
+        cta="Open Usage & Audit"
+      />
+    </div>
+  );
+}
+
 /* ── Shell ────────────────────────────────────────────────────────────────── */
 const TABS = [
-  { key: 'overview', label: 'Overview', icon: Gauge },
-  { key: 'performance', label: 'Performance', icon: BarChart3 },
-  { key: 'events', label: 'Events', icon: Activity },
-  { key: 'activity', label: 'Activity', icon: LineChart },
-  { key: 'cache', label: 'Cache', icon: Layers },
-  { key: 'action-rbac', label: 'Action RBAC', icon: ShieldCheck },
-  { key: 'access', label: 'Page hints', icon: KeyRound },
+  { key: 'config', label: 'Configuration', icon: Settings2 },
+  { key: 'cache', label: 'Cache & TTL', icon: Layers },
+  { key: 'hints', label: 'Page hints', icon: KeyRound },
+  { key: 'access-control', label: 'Access Control', icon: ShieldCheck },
+  { key: 'telemetry', label: 'Telemetry', icon: Gauge },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
+const TAB_KEYS = TABS.map((t) => t.key);
 
-export default function Data360ConfigPage() {
-  const [tab, setTab] = useState<TabKey>('overview');
+// Back-compat: old `?tab=` ids redirect onto the surviving surface.
+const TAB_ALIAS: Record<string, TabKey> = {
+  overview: 'telemetry',
+  performance: 'telemetry',
+  events: 'telemetry',
+  activity: 'telemetry',
+  'action-rbac': 'access-control',
+  access: 'hints',
+};
+
+function parseTab(raw: string | null): TabKey {
+  if (!raw) return 'config';
+  if (TAB_KEYS.includes(raw as TabKey)) return raw as TabKey;
+  return TAB_ALIAS[raw] ?? 'config';
+}
+
+function Data360ConfigPageInner() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Lazy-init from the URL so the first paint already reflects the deep-link.
+  const [tab, setTab] = useState<TabKey>(() => parseTab(searchParams.get('tab')));
+
+  // URL → state (browser back/forward + retired-tab aliases). Read-only.
+  useEffect(() => {
+    const t = parseTab(searchParams.get('tab'));
+    setTab((prev) => (prev === t ? prev : t));
+  }, [searchParams]);
+
+  // state → URL: shallow replace, preserves siblings, no scroll jump.
+  const selectTab = useCallback(
+    (next: TabKey) => {
+      setTab(next);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('tab', next);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
   return (
     <div className="min-h-full space-y-4 p-4 lg:p-6">
       <header>
@@ -1240,22 +1174,28 @@ export default function Data360ConfigPage() {
           <span aria-hidden>/</span>
           <span>Admin</span>
           <span aria-hidden>/</span>
-          <span className="font-medium text-slate-700 dark:text-slate-200">Data360 Console</span>
+          <span className="font-medium text-slate-700 dark:text-slate-200">Data360 Configuration</span>
         </nav>
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Data360 Admin Console</h1>
+        <div className="flex items-center gap-2">
+          <Settings2 className="h-5 w-5 text-[hsl(var(--primary))]" />
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Data360 Configuration</h1>
+        </div>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Live platform metrics, events, cache and access — one operational surface.
+          Metadata, tables, date columns, refresh and cache TTL — the platform&apos;s data-config surface.
+          Access control and telemetry live in the Access Control Center.
         </p>
       </header>
 
-      <GlassPanel depth={2} radius="2xl" className="flex flex-wrap gap-1 p-1">
+      <GlassPanel depth={2} radius="2xl" className="flex flex-wrap gap-1 p-1" role="tablist" aria-label="Configuration sections">
         {TABS.map((t) => {
           const active = t.key === tab;
           return (
             <button
               key={t.key}
               type="button"
-              onClick={() => setTab(t.key)}
+              role="tab"
+              aria-selected={active}
+              onClick={() => selectTab(t.key)}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors',
                 active
@@ -1271,25 +1211,22 @@ export default function Data360ConfigPage() {
       </GlassPanel>
 
       <div>
-        {tab === 'overview' && <OverviewTab />}
-        {tab === 'performance' && (
-          <div className="space-y-3">
-            <ServerMetricsPanel />
-            <PerformanceTab />
-          </div>
-        )}
-        {tab === 'events' && <EventsTab />}
-        {tab === 'activity' && <ActivityDashboard />}
+        {tab === 'config' && <ConfigTab />}
         {tab === 'cache' && <CacheTab />}
-        {tab === 'action-rbac' && <ActionRbacTab />}
-        {tab === 'access' && (
-          <div className="space-y-3">
-            <RealAccessPanel />
-            <RoleGrantsPanel />
-            <AccessTab />
-          </div>
-        )}
+        {tab === 'hints' && <AccessTab />}
+        {tab === 'access-control' && <AccessControlTab />}
+        {tab === 'telemetry' && <TelemetryTab />}
       </div>
     </div>
+  );
+}
+
+// useSearchParams() requires a Suspense boundary in the App Router (otherwise
+// `next build` throws / the whole page de-opts to client rendering).
+export default function Data360ConfigPage() {
+  return (
+    <Suspense fallback={null}>
+      <Data360ConfigPageInner />
+    </Suspense>
   );
 }

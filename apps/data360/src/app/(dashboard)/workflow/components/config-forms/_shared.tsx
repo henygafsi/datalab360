@@ -153,5 +153,5 @@ export const AI_MODEL_OPTIONS = [
   { value: 'mistral-large2', label: 'Mistral Large 2' },
   { value: 'llama3.1-70b', label: 'Llama 3.1 70B' },
   { value: 'llama3.1-8b', label: 'Llama 3.1 8B' },
-  { value: 'snowflake-arctic', label: 'Snowflake Arctic' },
+  { value: 'snowflake-arctic', label: 'Arctic' },
 ];

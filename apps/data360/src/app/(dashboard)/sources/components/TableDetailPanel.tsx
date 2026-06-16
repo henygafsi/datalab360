@@ -18,6 +18,7 @@ import {
   type ActionsResponse,
 } from '@/app/services/catalog';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 interface TableDetailPanelProps {
   database: string;
@@ -46,6 +47,16 @@ export default function TableDetailPanel({
 
   const objectId = objectIdFromTable(database, schema, table, objectType);
   const fqn = `${database}.${schema}.${table}`;
+
+  // System-2 Action-RBAC gate for the per-object "Recompute Scores" mutation
+  // (POST /catalog/objects/{id}/scores/recompute). `data_products`/`edit` is the
+  // registry key for catalog/object surfaces (same gate as the page-level Refresh
+  // and the ObjectSmartPanel "Apply"). Fail-open while the allow-set loads;
+  // honest-disable only on a resolved denial.
+  const recomputePerm = useCanPerform('data_products', 'edit');
+  const canRecompute = recomputePerm.allowed || recomputePerm.loading;
+  const recomputeDeniedReason =
+    'You lack the "edit" permission on data products. Ask an administrator to grant it.';
 
   const loadObject = useCallback(() => {
     setLoading(true);
@@ -187,7 +198,7 @@ export default function TableDetailPanel({
           </div>
         ) : (
           <div className="p-4 space-y-4">
-            {tab === 'object' && <ObjectTier data={data360} onRecompute={handleRecompute} recomputing={recomputing} recomputeError={recomputeError} />}
+            {tab === 'object' && <ObjectTier data={data360} onRecompute={handleRecompute} recomputing={recomputing} recomputeError={recomputeError} canRecompute={canRecompute} recomputeDeniedReason={recomputeDeniedReason} />}
             {tab === 'product' && <ProductTierCard tier={data360.tiers.product} />}
             {tab === 'project' && <ProjectTierCard tier={data360.tiers.project} />}
             {tab === 'dependencies' && <DependenciesTierCard tier={data360.tiers.dependencies} />}
@@ -338,8 +349,9 @@ export default function TableDetailPanel({
 // Tier cards
 // ---------------------------------------------------------------------------
 
-function ObjectTier({ data, onRecompute, recomputing, recomputeError }: {
+function ObjectTier({ data, onRecompute, recomputing, recomputeError, canRecompute, recomputeDeniedReason }: {
   data: Object360Response; onRecompute: () => void; recomputing: boolean; recomputeError: string | null;
+  canRecompute: boolean; recomputeDeniedReason: string;
 }) {
   const { identity, profiling, governance } = data.tiers.object;
   const persisted = data.persisted_scores;
@@ -463,7 +475,14 @@ function ObjectTier({ data, onRecompute, recomputing, recomputeError }: {
 
       {/* Recompute */}
       <div>
-        <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={onRecompute} disabled={recomputing}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full gap-1.5"
+          onClick={onRecompute}
+          disabled={recomputing || !canRecompute}
+          title={!canRecompute ? recomputeDeniedReason : undefined}
+        >
           {recomputing ? <Loader size="sm" className="h-3 w-3" /> : <RefreshCw className="h-3 w-3" />}
           Recompute Scores
         </Button>

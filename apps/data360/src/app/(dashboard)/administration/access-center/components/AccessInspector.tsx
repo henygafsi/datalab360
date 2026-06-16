@@ -15,6 +15,7 @@ import RightTabPanel, {
   type QuickAction,
   type StatusPillSpec,
 } from '@/app/shared/governance/right-tab-panel';
+import GovernancePostureCard, { type GovernancePostureData } from '@/app/shared/score-cards/GovernancePostureCard';
 import {
   capabilityOf,
   CAPABILITY_LABEL,
@@ -29,6 +30,8 @@ export interface AccessInspectorProps {
   selectedRole: string;
   roleAllow: number;
   roleDeny: number;
+  /** Fail-open `default` cells in this module (Test-user view only). */
+  roleDefault?: number;
   features: EntitlementFeature[];
   canGovern: boolean;
   togglingKey: string | null;
@@ -113,6 +116,7 @@ export default function AccessInspector({
   selectedRole,
   roleAllow,
   roleDeny,
+  roleDefault = 0,
   features,
   canGovern,
   togglingKey,
@@ -144,7 +148,15 @@ export default function AccessInspector({
                 <>
                   <Chip tone="emerald">{roleAllow} allow</Chip>
                   {roleDeny > 0 && <Chip tone="rose">{roleDeny} deny</Chip>}
-                  {roleAllow === 0 && roleDeny === 0 && (
+                  {roleDefault > 0 && (
+                    <Chip
+                      tone="amber"
+                      title="Fail-open default — allowed only because the gate fails open (no rule covers this module). Not an explicit grant."
+                    >
+                      {roleDefault} default
+                    </Chip>
+                  )}
+                  {roleAllow === 0 && roleDeny === 0 && roleDefault === 0 && (
                     <span className="text-[11px] text-slate-400">inherit only (no explicit rule here)</span>
                   )}
                 </>
@@ -227,15 +239,23 @@ export default function AccessInspector({
           );
         }
         return (
-          <div className="space-y-0.5">
-            <Row label="Features enabled">
-              {posture.features_enabled}/{posture.features_total}
-            </Row>
-            <Row label="Bound policies">
-              {typeof posture.bound_policies === 'number' ? posture.bound_policies : <NA />}
-            </Row>
+          <div className="space-y-3">
+            {/* Converged onto the shared GovernancePostureCard via its module-posture
+                facet (features enabled · bound policies). granted_roles stays in the
+                "Roles with access" section above to avoid duplicating it here. */}
+            <GovernancePostureCard
+              compact
+              title="Policies & posture"
+              data={{
+                features_enabled: posture.features_enabled,
+                features_total: posture.features_total,
+                bound_policies:
+                  typeof posture.bound_policies === 'number' ? posture.bound_policies : null,
+              } satisfies GovernancePostureData}
+            />
+            {/* Disabled-feature chips are not part of the shared card — keep them. */}
             {posture.disabled && posture.disabled.length > 0 && (
-              <div className="pt-2">
+              <div>
                 <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                   Disabled features
                 </p>

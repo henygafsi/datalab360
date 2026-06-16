@@ -19,12 +19,12 @@
 import React, { useState } from 'react';
 import {
   Gauge, Zap, ShieldCheck, GitBranch, Upload, UserCog, Sparkles, History,
-  Play, Link2, CalendarClock, Tag, Activity, Database, Shield, Lightbulb,
+  Play, Link2, CalendarClock, Activity, Database, Shield, Lightbulb,
   ArrowUpRight, Boxes, EyeOff,
 } from 'lucide-react';
-import { Badge } from 'rizzui';
 import { cn } from '@/lib/utils';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
+import GovernancePostureCard, { type GovernancePostureData } from '@/app/shared/score-cards/GovernancePostureCard';
 
 type MetricRow = { [key: string]: unknown };
 
@@ -203,23 +203,22 @@ export default function SmartRightBar({
       label: 'Governance',
       help: 'Columns on this table that have been flagged as sensitive (such as PII) and the classification tags applied to them. Use it to confirm regulated data is properly labelled before the table is shared.',
       render: () => loading ? loadingBody : (
-        // Classification coverage + PII tags.
-        data?.classificationTags && data.classificationTags.length > 0 ? (
-          <div className="space-y-1">
-            {data.classificationTags.slice(0, 4).map((tag, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs">
-                <Tag className="h-3 w-3 text-amber-500 flex-shrink-0" />
-                <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{String(tag.COLUMN_NAME || '—')}</span>
-                <Badge variant="flat" color="warning" className="text-[10px] ml-auto flex-shrink-0">{String(tag.TAG_NAME || tag.CATEGORY || '—')}</Badge>
-              </div>
-            ))}
-            {data.classificationTags.length > 4 && (
-              <p className="text-[10px] text-gray-400 dark:text-gray-500">+{data.classificationTags.length - 4} more tags</p>
-            )}
-          </div>
-        ) : (
-          <p className="text-xs text-gray-400 dark:text-gray-500">No classification tags. Run SYSTEM$CLASSIFY to tag sensitive columns.</p>
-        )
+        // Converged onto the shared GovernancePostureCard. This payload is
+        // classification-tags-only: map each tag row → the card's tag chips
+        // (classification → column). We deliberately do NOT feed `dqScore` as the
+        // governance score (quality ≠ governance) and do NOT synthesize sensitive/
+        // masked counts the backend didn't report — those grid cells stay honest
+        // "—". Empty tags → the card's neutral empty message.
+        <GovernancePostureCard
+          compact
+          title="Governance"
+          data={{
+            tags: (data?.classificationTags ?? []).map((tag) => ({
+              tag_name: String(tag.TAG_NAME || tag.CATEGORY || '—'),
+              tag_value: tag.COLUMN_NAME ? String(tag.COLUMN_NAME) : null,
+            })),
+          } satisfies GovernancePostureData}
+        />
       ),
     },
     {

@@ -101,11 +101,11 @@ const PythonScriptConfigForm: React.FC<{
       ) : (
         <>
           <FormField label="Python Code" required error={errors.python_code}
-            hint="Write Snowpark Python code. Use 'session' variable to access Snowflake.">
+            hint="Write Python code. Use the 'session' variable to access the data warehouse.">
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-yellow-50 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 border border-yellow-200 dark:border-yellow-800">
-                  Python · Snowpark
+                  Python
                 </span>
                 <button
                   type="button"
@@ -123,7 +123,7 @@ const PythonScriptConfigForm: React.FC<{
                 value={config.python_code || ''}
                 onChange={(v) => updateConfig({ python_code: v })}
                 language="python"
-                placeholder={`# Snowpark Python — 'df' is the upstream DataFrame\n# return df_out at the end\ndf_out = df.filter(df["STATUS"] == "ACTIVE")`}
+                placeholder={`# Python — 'df' is the upstream DataFrame\n# return df_out at the end\ndf_out = df.filter(df["STATUS"] == "ACTIVE")`}
                 rows={14}
                 ariaLabel="Python code editor"
                 error={!!errors.python_code}
@@ -144,7 +144,7 @@ const PythonScriptConfigForm: React.FC<{
             </div>
           </FormField>
 
-          <FormField label="Runtime Version" hint="Python runtime version on Snowflake">
+          <FormField label="Runtime Version" hint="Python runtime version">
             <Select
               value={config.runtime_version || '3.11'}
               onChange={(v) => updateConfig({ runtime_version: v })}
@@ -156,7 +156,7 @@ const PythonScriptConfigForm: React.FC<{
             />
           </FormField>
 
-          <FormField label="Packages" hint="Comma-separated Snowpark packages">
+          <FormField label="Packages" hint="Comma-separated packages">
             <Input
               value={config.packages || 'snowflake-snowpark-python'}
               onChange={(v) => updateConfig({ packages: v })}

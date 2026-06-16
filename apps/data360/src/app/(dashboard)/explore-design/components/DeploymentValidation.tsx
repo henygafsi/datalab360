@@ -49,6 +49,15 @@ interface DeploymentValidationProps {
   database?: string;
   schemas?: string[];
   projectId?: string;
+  /**
+   * Render the stepper docked inside a panel (the right-bar "Deploy" tab) rather
+   * than as a centered modal. When true, the outer card chrome (rounded border +
+   * shadow that assumes a floating modal) is dropped, the wrapper fills its
+   * container height, and the step-content scroll area sizes to the flex column
+   * instead of `80vh`. Default false → the original modal layout is unchanged,
+   * so existing modal callers keep working.
+   */
+  embedded?: boolean;
 }
 
 // ── Helpers ──
@@ -222,7 +231,7 @@ function StepFrame({ children }: { children: React.ReactNode }) {
 }
 
 // ── Inner content (consumes context) ──
-function DeploymentContent() {
+function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
   const {
     currentStep,
     setCurrentStep,
@@ -386,7 +395,13 @@ function DeploymentContent() {
       </div>
 
       {/* ── Step Content (wrapped in StepFrame for cross-step banners) ── */}
-      <div className="overflow-y-auto" style={{ maxHeight: 'calc(80vh - 120px)' }}>
+      {/* Modal mode caps the scroll area to the viewport (80vh). Embedded mode
+          (docked Deploy tab) instead grows to fill the flex column so the
+          stepper occupies the panel — the sticky bottom nav still pins. */}
+      <div
+        className={cn('overflow-y-auto', embedded && 'flex-1 min-h-0')}
+        style={embedded ? undefined : { maxHeight: 'calc(80vh - 120px)' }}
+      >
         <StepFrame>
           <AnimatePresence mode="wait">
             <motion.div
@@ -485,6 +500,7 @@ export default function DeploymentValidation({
   database,
   schemas,
   projectId: rawProjectId,
+  embedded = false,
 }: DeploymentValidationProps) {
   const { data: session } = useSession();
   const currentUser = session?.user?.name || session?.user?.email || 'unknown';
@@ -554,7 +570,13 @@ export default function DeploymentValidation({
   return (
     <div
       className={cn(
-        'relative flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900',
+        'relative flex flex-col overflow-hidden bg-white dark:bg-slate-900',
+        // Modal mode keeps the floating-card chrome (rounded border + shadow).
+        // Embedded mode (docked Deploy tab) fills the panel height and drops the
+        // card chrome so it reads as part of the right bar, not a popup.
+        embedded
+          ? 'h-full'
+          : 'rounded-xl border border-slate-200 shadow-lg dark:border-slate-700',
         className,
       )}
     >
@@ -630,7 +652,7 @@ export default function DeploymentValidation({
         initialStep={resumeAccepted && resumeOffer ? resumeOffer.step : undefined}
         initialConfig={resumeAccepted && resumeOffer ? resumeOffer.config : undefined}
       >
-        <DeploymentContent />
+        <DeploymentContent embedded={embedded} />
       </DeploymentProvider>
     </div>
   );

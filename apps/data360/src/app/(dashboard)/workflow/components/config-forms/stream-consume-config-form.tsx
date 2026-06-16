@@ -55,7 +55,7 @@ const StreamConsumeConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
         <p className="text-xs text-cyan-700 dark:text-cyan-300">
-          Creates a Snowflake Stream on a table or view to track changes (INSERT, UPDATE, DELETE). The stream captures CDC data for downstream processing.
+          Creates a change stream on a table or view to track changes (INSERT, UPDATE, DELETE). The stream captures CDC data for downstream processing.
         </p>
       </div>
 

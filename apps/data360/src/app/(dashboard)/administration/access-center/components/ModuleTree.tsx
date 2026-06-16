@@ -18,12 +18,12 @@ import { ChevronRight, Info, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GlassPanel } from '@/app/shared/glass';
 import type { ActionRegistryResponse } from '@/app/services/governance/fetch_roles';
-import { Chip, keyOf, NA, type ModuleUsage, type PermLevel } from './shared';
+import { Chip, keyOf, NA, type CellState, type ModuleUsage } from './shared';
 
 export interface ModuleTreeProps {
   registry: ActionRegistryResponse;
-  /** Resolve a cell's stored/effective level (undefined = inherit). */
-  stateOf: (key: string) => PermLevel | undefined;
+  /** Resolve a cell's stored/effective state (undefined = inherit; 'default' = fail-open). */
+  stateOf: (key: string) => CellState | undefined;
   /** Whether cells are editable (edit-role mode + custom role). */
   editable: boolean;
   onCycle: (m: string, p: string, t: string, a: string) => void;
@@ -42,17 +42,19 @@ function Cell({
   onClick,
   label,
 }: {
-  level: PermLevel | undefined;
+  level: CellState | undefined;
   editable: boolean;
   onClick: () => void;
   label: string;
 }) {
   const tip =
     level === 'allow'
-      ? `${label} = explicit ALLOW`
+      ? `${label} = explicit ALLOW (role grants this)`
       : level === 'deny'
         ? `${label} = explicit DENY`
-        : `${label} = inherit (no stored rule)`;
+        : level === 'default'
+          ? `${label} = fail-open default — NOT an explicit grant; allowed only because the gate fails open (no rule covers this for the role)`
+          : `${label} = inherit (no stored rule → resolved by role default at runtime)`;
   return (
     <button
       type="button"
@@ -64,12 +66,16 @@ function Cell({
         level === 'allow' &&
           'bg-emerald-500/90 text-white hover:bg-emerald-500',
         level === 'deny' && 'bg-rose-500/90 text-white hover:bg-rose-500',
+        // Fail-open default: deliberately NOT green — a hollow amber marker so it
+        // never reads as an intentional grant.
+        level === 'default' &&
+          'border border-dashed border-amber-400/80 bg-amber-100/60 text-amber-600 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-300',
         level === undefined &&
           'bg-slate-200/70 text-slate-400 hover:bg-slate-300 dark:bg-slate-700/60 dark:text-slate-500',
         !editable && 'cursor-default opacity-80 hover:bg-current',
       )}
     >
-      {level === 'allow' ? '✓' : level === 'deny' ? '✕' : '·'}
+      {level === 'allow' ? '✓' : level === 'deny' ? '✕' : level === 'default' ? '◦' : '·'}
     </button>
   );
 }
@@ -105,9 +111,12 @@ export default function ModuleTree({
         const isSelected = selectedModule === mKey;
         const pages = Object.entries(mData.pages ?? {});
 
-        // Per-module allow/deny rollup across all coordinates.
+        // Per-module rollup across all coordinates. `def` (fail-open default) is
+        // counted separately so it never inflates the explicit-ALLOW count — it
+        // only appears in the read-only "Test user" view.
         let allow = 0;
         let deny = 0;
+        let def = 0;
         for (const [pKey, pData] of pages) {
           const tabs = pData.tabs?.length ? pData.tabs : ['*'];
           for (const t of tabs) {
@@ -115,6 +124,7 @@ export default function ModuleTree({
               const lvl = stateOf(keyOf(mKey, pKey, t, a));
               if (lvl === 'allow') allow += 1;
               else if (lvl === 'deny') deny += 1;
+              else if (lvl === 'default') def += 1;
             }
           }
         }
@@ -162,6 +172,14 @@ export default function ModuleTree({
                 {deny > 0 && (
                   <Chip tone="rose" title="Explicit DENY rules in this module">
                     {deny} deny
+                  </Chip>
+                )}
+                {def > 0 && (
+                  <Chip
+                    tone="amber"
+                    title="Fail-open default — actions allowed only because the gate fails open (no rule covers this module for the role). Not an explicit grant."
+                  >
+                    {def} default
                   </Chip>
                 )}
                 {/* Feature-governance entitlement (cross-cut, module-level). */}

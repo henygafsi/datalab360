@@ -23,6 +23,34 @@ const MODULE_ID_MAP: Record<string, number> = {
 const ALL_MODULE_IDS = Object.values(MODULE_ID_MAP);
 
 /**
+ * Shared, cached session-token fetch (kills the /api/auth/session storm).
+ * Every useAuth consumer (14+ across the app) previously fired its OWN
+ * `fetch('/api/auth/session')` on mount when no localStorage token existed →
+ * N concurrent requests + retries spamming the dev log and adding render latency.
+ * This dedupes to a SINGLE in-flight request and caches the resolved token
+ * module-wide, so all consumers (and all later mounts) resolve instantly with
+ * zero extra network — svc-cached auth, ~0 render time cross-page.
+ */
+let _sessionTokenCache: string | null = null;
+let _sessionTokenInFlight: Promise<string | null> | null = null;
+function fetchSessionTokenOnce(): Promise<string | null> {
+  if (_sessionTokenCache) return Promise.resolve(_sessionTokenCache);
+  if (_sessionTokenInFlight) return _sessionTokenInFlight;
+  _sessionTokenInFlight = fetch('/api/auth/session')
+    .then((r) => r.json())
+    .then((session: any) => {
+      const t: string | null = session?.user?.access_token || null;
+      if (t) _sessionTokenCache = t; // cache so later mounts skip the network entirely
+      return t;
+    })
+    .catch(() => null)
+    .finally(() => {
+      _sessionTokenInFlight = null; // allow a single retry later if it returned null
+    });
+  return _sessionTokenInFlight;
+}
+
+/**
  * Safe auth hook that works WITHOUT SessionProvider dependency.
  * Reads username + role from JWT token in localStorage.
  * Falls back gracefully if no token exists.
@@ -63,18 +91,15 @@ export function useAuth() {
       if (token) {
         initAuth(token);
       } else {
-        // Fallback: fetch from NextAuth session and persist to localStorage
-        fetch('/api/auth/session')
-          .then((r) => r.json())
-          .then((session: any) => {
-            const t = session?.user?.access_token;
-            if (t) {
-              localStorage.setItem('access_token', t);
-              localStorage.setItem('snowflake_token', t);
-              initAuth(t);
-            }
-          })
-          .catch(() => {});
+        // Fallback: ONE shared, cached session-token fetch (deduped across all
+        // consumers) instead of a per-consumer /api/auth/session storm.
+        fetchSessionTokenOnce().then((t) => {
+          if (t) {
+            localStorage.setItem('access_token', t);
+            localStorage.setItem('snowflake_token', t);
+            initAuth(t);
+          }
+        });
       }
     } catch {
       setUsername('');

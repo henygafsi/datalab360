@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import {
@@ -50,6 +51,10 @@ export interface KpiLifecyclePanelProps {
   productId: string;
 }
 
+/** Tooltip for the honest DISABLED state when the caller lacks data_products:edit. */
+const EDIT_DENIED_HINT =
+  'You lack the "edit" permission on data products. Ask an administrator to grant it.';
+
 function asKpis(data: any): CatalogKpi[] {
   if (Array.isArray(data)) return data as CatalogKpi[];
   if (Array.isArray(data?.items)) return data.items as CatalogKpi[];
@@ -58,6 +63,12 @@ function asKpis(data: any): CatalogKpi[] {
 }
 
 export default function KpiLifecyclePanel({ productId }: KpiLifecyclePanelProps) {
+  // System 2 Action-RBAC: every KPI-lifecycle mutation (generate / recommend
+  // model / create / validate) edits the product's analytics layer → gated on
+  // data_products:edit. Fail-open while the allow-set loads (no flash of disabled).
+  const editPerm = useCanPerform('data_products', 'edit');
+  const canEdit = editPerm.allowed || editPerm.loading;
+
   const [kpis, setKpis] = useState<CatalogKpi[]>([]);
   const [loadState, setLoadState] = useState<AsyncState>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -127,7 +138,8 @@ export default function KpiLifecyclePanel({ productId }: KpiLifecyclePanelProps)
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            disabled={busy != null}
+            disabled={busy != null || !canEdit}
+            title={!canEdit ? EDIT_DENIED_HINT : undefined}
             onClick={() =>
               void run('generate', () => generateProductKpis(productId))
             }
@@ -142,7 +154,8 @@ export default function KpiLifecyclePanel({ productId }: KpiLifecyclePanelProps)
           </button>
           <button
             type="button"
-            disabled={busy != null}
+            disabled={busy != null || !canEdit}
+            title={!canEdit ? EDIT_DENIED_HINT : undefined}
             onClick={() =>
               void run('recommend', () => recommendProductModel(productId))
             }
@@ -157,8 +170,10 @@ export default function KpiLifecyclePanel({ productId }: KpiLifecyclePanelProps)
           </button>
           <button
             type="button"
+            disabled={!canEdit}
+            title={!canEdit ? EDIT_DENIED_HINT : undefined}
             onClick={() => setAdding((v) => !v)}
-            className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-blue-700"
+            className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus className="h-3 w-3" />
             New
@@ -198,7 +213,8 @@ export default function KpiLifecyclePanel({ productId }: KpiLifecyclePanelProps)
             </button>
             <button
               type="button"
-              disabled={busy === 'create'}
+              disabled={busy === 'create' || !canEdit}
+              title={!canEdit ? EDIT_DENIED_HINT : undefined}
               onClick={() => void submitNew()}
               className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
@@ -271,7 +287,8 @@ export default function KpiLifecyclePanel({ productId }: KpiLifecyclePanelProps)
                 {k.status === 'DRAFT' && (
                   <button
                     type="button"
-                    disabled={busy != null}
+                    disabled={busy != null || !canEdit}
+                    title={!canEdit ? EDIT_DENIED_HINT : undefined}
                     onClick={() =>
                       void run(`validate-${k.kpi_id}`, () =>
                         validateCatalogKpi(k.kpi_id),

@@ -45,10 +45,12 @@ interface ColumnProfile {
   column: string;
   data_type: string;
   total_rows: number;
-  null_count: number;
-  null_percentage: number;
-  distinct_count: number;
-  distinct_percentage: number;
+  // null when the backend did not compute the metric — render '—', never a
+  // fabricated 0 (which would falsely read as "no nulls" / "no distinct values").
+  null_count: number | null;
+  null_percentage: number | null;
+  distinct_count: number | null;
+  distinct_percentage: number | null;
   min_value?: any;
   max_value?: any;
   avg_value?: number;
@@ -153,7 +155,7 @@ function classifyColumn(col: ColumnProfile, rowCount: number, tableName: string)
     return { aiClass: 'FLAG', suggestion: null };
   }
   if (name.startsWith('IS_') || name.startsWith('HAS_') || name.startsWith('CAN_') || name.includes('_FLAG') || name.includes('ACTIVE') || name.includes('ENABLED')) {
-    if ((dtype.includes('VARCHAR') || dtype.includes('STRING') || dtype.includes('NUMBER')) && col.distinct_count <= 2) {
+    if ((dtype.includes('VARCHAR') || dtype.includes('STRING') || dtype.includes('NUMBER')) && (col.distinct_count ?? 0) <= 2) {
       return {
         aiClass: 'FLAG',
         suggestion: 'Change to BOOLEAN',
@@ -189,7 +191,7 @@ function classifyColumn(col: ColumnProfile, rowCount: number, tableName: string)
     (dtype.includes('VARCHAR') || dtype.includes('STRING')) &&
     col.min_value != null && col.max_value != null &&
     !isNaN(Number(col.min_value)) && !isNaN(Number(col.max_value)) &&
-    col.distinct_count > 2
+    (col.distinct_count ?? 0) > 2
   ) {
     const allInts = Number(col.min_value) === Math.floor(Number(col.min_value)) &&
       Number(col.max_value) === Math.floor(Number(col.max_value));
@@ -209,7 +211,7 @@ function classifyColumn(col: ColumnProfile, rowCount: number, tableName: string)
   // ── Categorical / dimension (string with low cardinality) ─────────────
   if (
     (dtype.includes('VARCHAR') || dtype.includes('STRING')) &&
-    col.distinct_count > 0 && col.distinct_count < 50 && rowCount > 0
+    (col.distinct_count ?? 0) > 0 && (col.distinct_count ?? 0) < 50 && rowCount > 0
   ) {
     return { aiClass: 'CATEGORICAL', suggestion: null };
   }
@@ -217,7 +219,7 @@ function classifyColumn(col: ColumnProfile, rowCount: number, tableName: string)
   // ── Dimension (string with moderate cardinality) ──────────────────────
   if (
     (dtype.includes('VARCHAR') || dtype.includes('STRING')) &&
-    col.distinct_count >= 50 && col.distinct_count < rowCount * 0.8
+    (col.distinct_count ?? 0) >= 50 && (col.distinct_count ?? 0) < rowCount * 0.8
   ) {
     return { aiClass: 'DIMENSION', suggestion: null };
   }
@@ -225,7 +227,7 @@ function classifyColumn(col: ColumnProfile, rowCount: number, tableName: string)
   // ── Text content (high cardinality strings, likely free text) ─────────
   if (
     (dtype.includes('VARCHAR') || dtype.includes('STRING') || dtype.includes('TEXT')) &&
-    col.distinct_count >= rowCount * 0.8
+    (col.distinct_count ?? 0) >= rowCount * 0.8
   ) {
     return { aiClass: 'TEXT_CONTENT', suggestion: null };
   }
@@ -309,10 +311,16 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
       // Map new API response to rendering shape
       const mappedColumns: ColumnProfile[] = (data.columns ?? []).map((col) => {
         const totalRows = data.row_count;
-        const nullCount = col.null_count ?? 0;
-        const distinctCount = col.distinct_count ?? 0;
-        const nullPct = totalRows > 0 ? (nullCount / totalRows) * 100 : 0;
-        const distinctPct = totalRows > 0 ? (distinctCount / totalRows) * 100 : 0;
+        // Preserve missing-ness (backend ColumnProfileSummary returns these as
+        // `number | null`); only derive a percentage when the count is real.
+        const nullCount = col.null_count ?? null;
+        const distinctCount = col.distinct_count ?? null;
+        const nullPct =
+          nullCount != null && totalRows > 0 ? (nullCount / totalRows) * 100 : null;
+        const distinctPct =
+          distinctCount != null && totalRows > 0
+            ? (distinctCount / totalRows) * 100
+            : null;
         return {
           column: col.column_name,
           data_type: col.data_type,
@@ -324,8 +332,8 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
           min_value: col.min_value,
           max_value: col.max_value,
           data_quality_score: col.quality_score ?? 100,
-          is_unique: distinctCount === totalRows && totalRows > 0,
-          has_nulls: nullCount > 0,
+          is_unique: distinctCount != null && distinctCount === totalRows && totalRows > 0,
+          has_nulls: nullCount != null && nullCount > 0,
           // Additive governance overlay — present on the backend response even
           // though the shared TableProfile type does not yet declare it.
           masking_policy: (col as { masking_policy?: string | null }).masking_policy ?? null,
@@ -555,7 +563,8 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
         comparison = a.data_quality_score - b.data_quality_score;
         break;
       case 'nulls':
-        comparison = a.null_percentage - b.null_percentage;
+        // Sorting needs a concrete number; treat unknown as 0 for ordering only.
+        comparison = (a.null_percentage ?? 0) - (b.null_percentage ?? 0);
         break;
     }
     return sortOrder === 'asc' ? comparison : -comparison;
@@ -823,7 +832,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
 
                       <div className="ml-auto flex items-center gap-3">
                         <span className="text-xs text-slate-500">
-                          {(col.distinct_count ?? 0).toLocaleString()} distinct
+                          {fmtNum(col.distinct_count)} distinct
                         </span>
                         <div className={cn("flex items-center gap-1 px-2 py-1 rounded text-xs font-medium", getQualityColor(col.data_quality_score))}>
                           {getQualityIcon(col.data_quality_score)}
@@ -844,14 +853,14 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
 
                           <div className="space-y-1">
                             <p className="text-xs text-slate-500 uppercase tracking-wide">Null Count</p>
-                            <p className="text-lg font-bold text-orange-600">{(col.null_count ?? 0).toLocaleString()}</p>
-                            <p className="text-xs text-slate-400">{(col.null_percentage ?? 0).toFixed(2)}%</p>
+                            <p className="text-lg font-bold text-orange-600">{fmtNum(col.null_count)}</p>
+                            <p className="text-xs text-slate-400">{col.null_percentage != null ? `${col.null_percentage.toFixed(2)}%` : '—'}</p>
                           </div>
 
                           <div className="space-y-1">
                             <p className="text-xs text-slate-500 uppercase tracking-wide">Distinct Values</p>
-                            <p className="text-lg font-bold text-blue-600">{(col.distinct_count ?? 0).toLocaleString()}</p>
-                            <p className="text-xs text-slate-400">{(col.distinct_percentage ?? 0).toFixed(2)}%</p>
+                            <p className="text-lg font-bold text-blue-600">{fmtNum(col.distinct_count)}</p>
+                            <p className="text-xs text-slate-400">{col.distinct_percentage != null ? `${col.distinct_percentage.toFixed(2)}%` : '—'}</p>
                           </div>
 
                           <div className="space-y-1">
@@ -1013,12 +1022,14 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                         {/* NULLS */}
                         <td className="px-4 py-2.5">
                           {col.has_nulls ? (
+                            // has_nulls ⇒ null_percentage is a real number; `?? 0`
+                            // only satisfies the type, it never fabricates data here.
                             <span className={cn(
                               'text-xs font-medium',
-                              col.null_percentage > 50 ? 'text-red-600' :
-                              col.null_percentage > 10 ? 'text-orange-600' : 'text-slate-500',
+                              (col.null_percentage ?? 0) > 50 ? 'text-red-600' :
+                              (col.null_percentage ?? 0) > 10 ? 'text-orange-600' : 'text-slate-500',
                             )}>
-                              {col.null_percentage.toFixed(1)}%
+                              {(col.null_percentage ?? 0).toFixed(1)}%
                             </span>
                           ) : (
                             <span className="text-xs text-green-600">0%</span>
@@ -1028,7 +1039,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                         {/* DISTINCT */}
                         <td className="px-4 py-2.5">
                           <span className="text-xs text-slate-600 dark:text-slate-400">
-                            {col.distinct_count.toLocaleString()}
+                            {fmtNum(col.distinct_count)}
                           </span>
                         </td>
 

@@ -25,6 +25,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Input } from 'rizzui';
 import { createWidget } from '@/app/services/api/biDashboardApi';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import type {
   DashboardWidget, BIDashboardChartConfig, WidgetType, DashboardChartType,
 } from '@/app/services/api/types';
@@ -135,6 +136,14 @@ export default function ChartPaletteRail({
   collapsed = false,
   onCollapsedChange,
 }: ChartPaletteRailProps) {
+  // Action-RBAC gate (System 2): picking a tile / resuming a draft / saving a
+  // text widget all create a widget (POST /widgets → require_action
+  // 'bi_reporting','create'). Fail-open while the allow-set loads; honest
+  // disabled + tooltip on a resolved deny.
+  const createPerm = useCanPerform('bi_reporting', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
+  const createDeniedReason = 'Requires the "create" permission on Business Reporting.';
+
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const [search, setSearch] = useState('');
   const [textTitle, setTextTitle] = useState('');
@@ -306,8 +315,9 @@ export default function ChartPaletteRail({
               whileHover={{ scale: 1.12 }}
               whileTap={{ scale: 0.9 }}
               onClick={() => handleItemSelect(it.widgetType, it.chartType)}
-              title={it.title}
-              className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              disabled={!canCreate}
+              title={canCreate ? it.title : createDeniedReason}
+              className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-slate-500"
             >
               <Icon className="h-4 w-4" />
             </motion.button>
@@ -372,7 +382,9 @@ export default function ChartPaletteRail({
                 <div className="mt-1.5 flex gap-1">
                   <button
                     onClick={resumeDraft}
-                    className="rounded-md bg-gradient-to-r from-amber-500 to-orange-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm hover:from-amber-600 hover:to-orange-600"
+                    disabled={!canCreate}
+                    title={!canCreate ? createDeniedReason : undefined}
+                    className="rounded-md bg-gradient-to-r from-amber-500 to-orange-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Resume
                   </button>
@@ -415,8 +427,9 @@ export default function ChartPaletteRail({
                         whileHover={{ y: -2, scale: 1.02 }}
                         whileTap={{ scale: 0.96 }}
                         onClick={() => handleItemSelect(it.widgetType, it.chartType)}
-                        className="group flex flex-col items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-sm transition-all hover:border-blue-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-700"
-                        title={it.title}
+                        disabled={!canCreate}
+                        className="group flex flex-col items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 shadow-sm transition-all hover:border-blue-300 hover:shadow-md dark:border-slate-700 dark:bg-slate-800 dark:hover:border-blue-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-200 disabled:hover:shadow-sm"
+                        title={canCreate ? it.title : createDeniedReason}
                       >
                         <div
                           className={cn(
@@ -501,7 +514,9 @@ export default function ChartPaletteRail({
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={handleTextSave}
-                  className="rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-indigo-700"
+                  disabled={!canCreate}
+                  title={!canCreate ? createDeniedReason : undefined}
+                  className="rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Add widget
                 </motion.button>

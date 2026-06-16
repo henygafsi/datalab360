@@ -42,7 +42,7 @@ const CreateProcedureConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
         <p className="text-xs text-yellow-700 dark:text-yellow-300">
-          Create a Stored Procedure in Snowflake. Procedures can execute complex logic, multiple SQL statements, and return results.
+          Create a Stored Procedure in the data warehouse. Procedures can execute complex logic, multiple SQL statements, and return results.
         </p>
       </div>
 

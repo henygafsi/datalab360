@@ -26,7 +26,7 @@ const TaskDagConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800">
         <p className="text-xs text-sky-700 dark:text-sky-300">
-          Orchestrate this pipeline as a Snowflake Task DAG — a root task on a schedule
+          Orchestrate this pipeline as a managed Task DAG — a root task on a schedule
           plus dependent tasks chained with AFTER.
         </p>
       </div>

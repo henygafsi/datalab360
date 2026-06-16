@@ -65,14 +65,14 @@ export const AIGenerateDrawer: React.FC<AIGenerateDrawerProps> = ({ open, onClos
       const result = await generateCompletion({ prompt: fullPrompt, model: 'mistral-7b' });
       const code = sanitizeAiCode(result.response, language);
       if (!code) {
-        setGapError('Cortex returned an empty response. Try a more specific prompt.');
+        setGapError('The AI service returned an empty response. Try a more specific prompt.');
         return;
       }
       onGenerated(code);
       toast.success('Generated · review before testing');
       onClose();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Cortex unreachable';
+      const message = err instanceof Error ? err.message : 'AI service unreachable';
       setGapError(message);
     } finally {
       setIsGenerating(false);
@@ -148,7 +148,7 @@ export const AIGenerateDrawer: React.FC<AIGenerateDrawerProps> = ({ open, onClos
         <div className="mt-1 p-2 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
             <Info className="h-3.5 w-3.5" />
-            Backend Gap · Cortex unreachable
+            Backend Gap · AI service unreachable
           </div>
           <pre className="mt-1 text-[11px] text-amber-700/90 dark:text-amber-200 whitespace-pre-wrap font-mono">
 {`Error: ${gapError}

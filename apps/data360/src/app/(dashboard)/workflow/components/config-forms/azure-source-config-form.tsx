@@ -26,11 +26,11 @@ const AzureSourceConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
         <p className="text-xs text-blue-700 dark:text-blue-300">
-          Load data from an Azure Blob Storage external stage into Snowflake. Configure the stage, file path, and format.
+          Load data from an Azure Blob Storage external stage into the data warehouse. Configure the stage, file path, and format.
         </p>
       </div>
 
-      <FormField label="Stage Name" required error={errors.stage_name} hint="Snowflake external stage pointing to Azure Blob">
+      <FormField label="Stage Name" required error={errors.stage_name} hint="External stage pointing to Azure Blob">
         <Input
           value={config.stage_name || ''}
           onChange={(v) => updateConfig({ stage_name: v })}

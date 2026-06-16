@@ -7,7 +7,8 @@ import {
   HelpCircle, Shield, RefreshCw, Plus, Key, AlertTriangle, Eye,
   Sparkles, CheckCircle, FileText, GitBranch, Lock, Tag, Send,
   Rocket, Play, Search, Info, ArrowRight, ExternalLink,
-  PanelRight, Ban,
+  PanelRight, Ban, Coins,
+  Edit2, Copy, Link2, Database, Boxes, Activity, Layers, Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isUnavailable } from '@/lib/http-status';
@@ -16,13 +17,14 @@ import toast from 'react-hot-toast';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import PermissionGate from '@/components/ui/PermissionGate';
 import ProjectKpiStrip from '@/app/shared/score-cards/ProjectKpiStrip';
+import GovernancePostureCard from '@/app/shared/score-cards/GovernancePostureCard';
 import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type RightBarTab = 'actions' | 'ai' | 'quality' | 'history' | 'deploy' | 'help';
+export type RightBarTab = 'actions' | 'ai' | 'quality' | 'cost' | 'history' | 'deploy' | 'help';
 export type FocusedAction = 'policies' | 'ingestion' | 'add_column' | 'release' | null;
 
 interface ColumnInfo {
@@ -90,6 +92,35 @@ export interface ContextRightBarProps {
   userRole?: string;
   onOpenDeployModal: () => void;
   onDeselectTable?: () => void;
+  /**
+   * Modeling-only bridge (T1 unification). When supplied, the Actions section shows
+   * a "Modeling actions" group whose buttons dispatch through the SAME
+   * handleNodeContextAction path the retired TableOptionsSidebar used (rename,
+   * duplicate, set PK, create FK/relation, tags, aggregation, dynamic/event/hybrid
+   * table, exclude-from-model). The catalog view does NOT pass this, so the group is
+   * hidden there (no canvas / no dispatch bridge) — catalog behaviour is unchanged.
+   * Called with the table's id and the action key.
+   */
+  onNodeAction?: (tableId: string, action: string) => void;
+  /**
+   * Optional model-general landing rendered in place of the bare "Select a table"
+   * EmptyState when no table is selected. The modeling view passes a model
+   * overview (counts / target DWH / ADN) so the right cockpit has an honest
+   * landing instead of 6× empty states; the catalog view passes nothing →
+   * behaviour unchanged. Additive only — does NOT split the section model.
+   */
+  emptyOverride?: React.ReactNode;
+  /**
+   * Optional node rendered as the entire "Deploy" tab body in place of the
+   * built-in inline pipeline. The page passes the full 8-step deployment stepper
+   * (`<DeploymentValidation embedded />`, already wired with schemas / project /
+   * permission gate) so the deploy wizard lives docked in this tab instead of a
+   * centered modal (redesign rule R1/R2 — match the workflow module's
+   * deploy-in-a-tab). When omitted, the legacy inline `DeployPanel` is shown.
+   * Unlike the other sections this is NOT gated on a selected table: deployment
+   * is project/event-scoped and is useful even with nothing selected.
+   */
+  deployOverride?: React.ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +131,7 @@ const TABS: { id: RightBarTab; icon: React.ElementType; label: string }[] = [
   { id: 'actions', icon: Zap, label: 'Actions' },
   { id: 'ai', icon: Brain, label: 'AI Assist' },
   { id: 'quality', icon: BarChart3, label: 'Quality' },
+  { id: 'cost', icon: Coins, label: 'Cost & KPIs' },
   { id: 'deploy', icon: Rocket, label: 'Deploy' },
   { id: 'history', icon: Clock, label: 'History' },
   { id: 'help', icon: HelpCircle, label: 'Help' },
@@ -120,7 +152,13 @@ export default function ContextRightBar({
   columnClassifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify,
   onAddEvent, profileData, historyEvents,
   pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onOpenDeployModal, onDeselectTable,
+  emptyOverride, onNodeAction, deployOverride,
 }: ContextRightBarProps) {
+
+  // Model-general landing: when nothing is selected and the caller supplied an
+  // overview, show it in place of the bare "Select a table" empty state across
+  // every section. Catalog passes nothing → unchanged 6× EmptyState behaviour.
+  const empty = emptyOverride ?? <EmptyState />;
 
   const tableName = selectedTable?.table || '';
   const fqn = selectedTable ? `${selectedTable.database}.${selectedTable.schema}.${selectedTable.table}` : '';
@@ -163,7 +201,10 @@ export default function ContextRightBar({
       label: 'Deploy',
       icon: Rocket,
       tone: 'primary',
-      onClick: onOpenDeployModal,
+      // Deploy is now a docked tab (the embedded 8-step stepper), not a modal:
+      // switch to it instead of opening a popup. `onOpenDeployModal` is retained
+      // for back-compat but the page now also routes it to this same tab.
+      onClick: () => onTabChange('deploy'),
     });
   }
 
@@ -185,8 +226,9 @@ export default function ContextRightBar({
           userRole={userRole}
           database={selectedDatabase}
           onDeselectTable={onDeselectTable}
+          onNodeAction={onNodeAction}
         />
-      ) : <EmptyState />,
+      ) : empty,
     },
     {
       id: 'ai', icon: Brain, label: 'AI Assist',
@@ -217,7 +259,7 @@ export default function ContextRightBar({
               classifyUnavailable={classifyUnavailable}
               onRunClassify={onRunClassify}
             />
-          ) : <EmptyState />}
+          ) : empty}
         </div>
       ),
     },
@@ -225,11 +267,25 @@ export default function ContextRightBar({
       id: 'quality', icon: BarChart3, label: 'Quality',
       render: () => selectedTable
         ? <QualityPanel table={selectedTable} columns={tableColumns} profileData={profileData} onAddEvent={onAddEvent} />
-        : <EmptyState />,
+        : empty,
     },
     {
+      // Per-PROJECT cost & KPIs — read-only rollup (runs · cost · perf · recos ·
+      // storage) from `useProjectRollup`, via the shared ProjectKpiStrip. Gated on
+      // `projectId` (NOT `selectedTable`): these are project-level, not per-table,
+      // so the tab is useful even with nothing selected. The strip renders honest
+      // "—" for null/unprovisioned KPIs and self-hides (renders null) on a 404/501
+      // — i.e. when the rollup route isn't provisioned the body is simply empty.
+      id: 'cost', icon: Coins, label: 'Cost & KPIs',
+      render: () => projectId ? <CostKpiPanel projectId={projectId} /> : <SelectProjectEmpty />,
+    },
+    {
+      // Deploy tab body. The page injects the embedded 8-step deployment stepper
+      // via `deployOverride` (docked, no modal) — rendered regardless of table
+      // selection since deployment is project/event-scoped. Fallback: the legacy
+      // inline `DeployPanel` (table-gated) when no override is supplied.
       id: 'deploy', icon: Rocket, label: 'Deploy',
-      render: () => selectedTable ? (
+      render: () => deployOverride ?? (selectedTable ? (
         <DeployPanel
           projectId={projectId}
           pendingEventsCount={pendingEventsCount}
@@ -238,15 +294,15 @@ export default function ContextRightBar({
           schema={selectedSchema}
           onOpenDeployModal={onOpenDeployModal}
         />
-      ) : <EmptyState />,
+      ) : empty),
     },
     {
       id: 'history', icon: Clock, label: 'History',
-      render: () => selectedTable ? <HistoryPanel events={historyEvents} /> : <EmptyState />,
+      render: () => selectedTable ? <HistoryPanel events={historyEvents} /> : empty,
     },
     {
       id: 'help', icon: HelpCircle, label: 'Help',
-      render: () => selectedTable ? <HelpPanel table={selectedTable} /> : <EmptyState />,
+      render: () => selectedTable ? <HelpPanel table={selectedTable} /> : empty,
     },
   ];
 
@@ -317,15 +373,63 @@ function EmptyState() {
   );
 }
 
+// Project-scoped empty for the Cost & KPIs tab. The cost rollup is per-PROJECT,
+// not per-table, so the table-centric EmptyState copy would be misleading here —
+// the only thing this tab needs is a project context.
+function SelectProjectEmpty() {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-slate-400 px-6 text-center">
+      <Coins className="h-8 w-8 mb-3 text-slate-300" />
+      <p className="text-sm font-medium">Select a project</p>
+      <p className="text-xs mt-1">Choose a project to see its cost &amp; KPI rollup</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A0. Cost & KPIs Panel (read-only per-project rollup)
+// ---------------------------------------------------------------------------
+//
+// Read-only. Reuses the shared `ProjectKpiStrip` (which consumes the existing
+// `useProjectRollup(projectId)` hook — no new service). The strip already:
+//   · renders honest "—" for any null/unprovisioned KPI (never a fake 0),
+//   · self-hides (returns null) on a 404/501 unprovisioned rollup route, and
+//   · scopes everything per-PROJECT (never per-account).
+// Non-compact (labels visible) differentiates this tab from the compact strip
+// already docked in the panel header. Limited to the spec'd five dimensions:
+// runs · cost · perf · recos · storage.
+function CostKpiPanel({ projectId }: { projectId: string }) {
+  return (
+    <div className="p-4 space-y-4">
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Coins className="h-4 w-4 text-amber-500" />
+          <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Project KPIs</h4>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Per-project rollup — runs, cost, performance, recommendations and storage.
+          Read-only; “—” means not yet provisioned for this project.
+        </p>
+        <ProjectKpiStrip
+          projectId={projectId}
+          dimensions={['runs', 'cost', 'perf', 'recos', 'storage']}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // A. Actions Panel
 // ---------------------------------------------------------------------------
 
-function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction, onAddEvent, classifications, userRole, database, onDeselectTable }: {
+function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction, onAddEvent, classifications, userRole, database, onDeselectTable, onNodeAction }: {
   table: TableItem; columns: ColumnInfo[]; projectId: string | null;
   focusedAction: FocusedAction; onFocusAction: (a: FocusedAction) => void;
   onAddEvent: (e: any) => void; classifications?: Record<string, string>;
   userRole?: string; database?: string; onDeselectTable?: () => void;
+  /** Modeling-only canvas-action bridge (T1). Undefined in catalog view. */
+  onNodeAction?: (tableId: string, action: string) => void;
 }) {
   const piiCount = columns.filter((c) => c.isSensitive).length;
   // System 2 Action-RBAC (replaces the old hardcoded Snowflake-role allow-lists).
@@ -360,6 +464,61 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
 
   return (
     <div className="p-4 space-y-4">
+      {/* 0. Modeling actions (T1 unification — modeling view only).
+          These are the table actions the retired standalone TableOptionsSidebar
+          carried that the cockpit didn't already cover. They dispatch through the
+          SAME handleNodeContextAction path the node menu used (`onNodeAction`), so
+          FK/relation linking modes, the PK picker, duplicate, and the DE-table
+          modals all behave identically. Gated on `onNodeAction` so it never shows
+          in the catalog view (no canvas / no dispatch bridge there). Mutating rows
+          are gated by `canWrite`; `exclude` is destructive → `canApprove`. */}
+      {onNodeAction && (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Boxes className="h-4 w-4 text-blue-500" />
+            <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Modeling actions</h4>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Structure</p>
+            <div className="flex flex-wrap gap-1.5">
+              <ActionBtn label="Rename" icon={Edit2} disabled={!canWrite} onClick={() => onNodeAction(table.id, 'rename')} />
+              <ActionBtn label="Duplicate" icon={Copy} disabled={!canWrite} onClick={() => onNodeAction(table.id, 'duplicate')} />
+              <ActionBtn label="Set primary key" icon={Key} disabled={!canWrite} onClick={() => onNodeAction(table.id, 'pk_config')} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Keys &amp; relations</p>
+            <div className="flex flex-wrap gap-1.5">
+              <ActionBtn label="Create foreign key" icon={Link2} disabled={!canWrite} onClick={() => onNodeAction(table.id, 'fk_config')} />
+              <ActionBtn label="Create relation" icon={ArrowRight} disabled={!canWrite} onClick={() => onNodeAction(table.id, 'relation')} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Governance</p>
+            <div className="flex flex-wrap gap-1.5">
+              <ActionBtn label="Apply tags" icon={Tag} disabled={!canWrite} onClick={() => onNodeAction(table.id, 'tags')} />
+              <ActionBtn label="Apply aggregation" icon={Database} disabled={!canWrite} onClick={() => onNodeAction(table.id, 'aggregation')} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Data engineering</p>
+            <div className="flex flex-wrap gap-1.5">
+              <ActionBtn label="Dynamic table" icon={Boxes} disabled={!canWrite} onClick={() => onNodeAction(table.id, 'dynamic_table')} />
+              <ActionBtn label="Event table" icon={Activity} disabled={!canWrite} onClick={() => onNodeAction(table.id, 'event_table')} />
+              <ActionBtn label="Hybrid table" icon={Layers} disabled={!canWrite} onClick={() => onNodeAction(table.id, 'hybrid_table')} />
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+            <ActionBtn label="Exclude from model" icon={Trash2} disabled={!canApprove} onClick={() => { onNodeAction(table.id, 'exclude'); onDeselectTable?.(); }} />
+          </div>
+        </div>
+      )}
+
       {/* 1. Policies, Masking & RLS */}
       <PoliciesCard
         ref={policiesRef}
@@ -403,16 +562,21 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             } catch { toast.error('Detection failed'); }
           }} />
         </div>
-        {/* Add to product/project */}
-        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex gap-1.5">
-          <ActionBtn label="Add to product" icon={Plus} disabled={!canWrite} onClick={() => {
-            onAddEvent({ type: 'PRODUCT_ASSET_ADDED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { assetType: 'table' } });
-            toast.success(`${table.table} added to product draft`);
-          }} />
-          <ActionBtn label="Add to project" icon={Rocket} disabled={!canWrite} onClick={() => {
-            onAddEvent({ type: 'TABLE_SELECTED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
-            toast.success(`${table.table} linked to project`);
-          }} />
+        {/* Add as data-product asset vs. link to project — two distinct flows
+            (PRODUCT_ASSET_ADDED publishes the table into a data product; TABLE_SELECTED
+            attaches it to the active project). Labels disambiguated; events unchanged. */}
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+          <p className="text-[10px] text-slate-400">Publish to a data product, or attach to this project.</p>
+          <div className="flex flex-wrap gap-1.5">
+            <ActionBtn label="Add as data-product asset" icon={Plus} disabled={!canWrite} onClick={() => {
+              onAddEvent({ type: 'PRODUCT_ASSET_ADDED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { assetType: 'table' } });
+              toast.success(`${table.table} added to product draft`);
+            }} />
+            <ActionBtn label="Link to project" icon={Rocket} disabled={!canWrite} onClick={() => {
+              onAddEvent({ type: 'TABLE_SELECTED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
+              toast.success(`${table.table} linked to project`);
+            }} />
+          </div>
         </div>
       </div>
 
@@ -437,9 +601,12 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             onAddEvent({ type: 'RLS_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { policyName: `rls_${table.table.toLowerCase()}`, roleColumn: 'CURRENT_ROLE()' } });
             toast.success(`RLS policy drafted for ${table.table}`);
           }} />
-          <RecoItem text="Add freshness quality rule for monitoring" cta="Add rule" onClick={() => {
+          {/* Same QUALITY_GATE_SET event as the Quality tab CTA — no real DMF SQL
+              emitted yet (deployment-utils default branch), so labelled as
+              "monitoring" not a "quality rule" until the deploy path lands. */}
+          <RecoItem text="Set up freshness monitoring" cta="Set up" onClick={() => {
             onAddEvent({ type: 'QUALITY_GATE_SET', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { gateType: 'freshness', maxAgeHours: 24, column: columns.find((c) => c.dataType === 'TIMESTAMP' || c.dataType === 'DATE')?.name || 'UPDATED_AT' } });
-            toast.success('Freshness quality rule added to deployment draft');
+            toast.success('Freshness monitoring added to draft');
           }} />
         </div>
       </div>
@@ -554,11 +721,14 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
               toast.success('Drop request submitted — requires approval before execution');
               onDeselectTable?.();
             }} />
-            <ActionBtn label="Exclude" icon={Lock} onClick={() => {
+            {/* In modeling the "Exclude from model" action lives in the Modeling
+                actions group above (canvas semantic: removes the node). Hiding this
+                catalog-style exclude there avoids two exclude buttons in one bar. */}
+            {!onNodeAction && <ActionBtn label="Exclude" icon={Lock} onClick={() => {
               onAddEvent({ type: 'TABLE_EXCLUDED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { approval_required: false, reason: 'Excluded from catalog' } });
               toast.success(`${table.table} exclusion added to draft`);
               onDeselectTable?.();
-            }} />
+            }} />}
           </div>
         </div>
       )}
@@ -833,10 +1003,16 @@ function QualityPanel({ table, columns, profileData, onAddEvent }: { table: Tabl
             toast.success(`Profile: ${res?.row_count || 0} rows, ${res?.column_count || 0} cols, quality ${res?.overall_quality_score ?? '—'}%`);
           } catch { toast.error('Profiling failed — check table access'); }
         }} fullWidth />
-        <ActionBtn label="Add DQ rule to draft" icon={Plus} onClick={() => {
+        {/* "Set up monitoring" (not "Add DQ rule") until QUALITY_GATE_SET emits a
+            real ADD DATA METRIC FUNCTION in deployment-utils. Today the SQL
+            generator has no case for it (falls into the default branch — a comment
+            only, no DMF), so this records intent / drafts a freshness watch but
+            does NOT yet move DQ coverage. Honest label + honest toast until the
+            deploy path lands. */}
+        <ActionBtn label="Set up monitoring" icon={Plus} onClick={() => {
           const colName = columns.find((c) => c.dataType === 'TIMESTAMP' || c.dataType === 'DATE')?.name || columns[0]?.name || 'UPDATED_AT';
           onAddEvent({ type: 'QUALITY_GATE_SET', projectId: table.database, target: { database: table.database, schema: table.schema, table: table.table }, payload: { gateType: 'freshness', maxAgeHours: 24, column: colName } });
-          toast.success(`Freshness rule on ${colName} added to deployment draft`);
+          toast.success(`Freshness monitoring on ${colName} added to draft`);
         }} fullWidth />
       </div>
     </div>
@@ -1633,16 +1809,22 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
 
   return (
     <div ref={ref} className={cn('rounded-xl border p-4 space-y-3 transition-colors', focused ? 'border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10' : 'border-slate-200 dark:border-slate-700')}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Shield className="h-4 w-4 text-emerald-500" />
-          <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Policies & RLS</h4>
-        </div>
-        <div className="flex gap-1">
-          {piiCount > 0 && <StatusChip label={`${piiCount} PII`} color="red" />}
-          {!table.hasPrimaryKey && <StatusChip label="No RLS" color="amber" />}
-          {piiCount === 0 && table.hasPrimaryKey && <StatusChip label="OK" color="green" />}
-        </div>
+      {/* Governance posture — the ONE shared read-only posture card. Self-fetches
+          this object's governance (gov score · sensitive/masked/unprotected · PII
+          pills · tags · policies) and hides itself on 404/501. Replaces the old
+          bespoke Shield header + PII/RLS status chips (presentational posture);
+          flattened so it reads as this card's header rather than nesting a card. */}
+      <GovernancePostureCard
+        objectRef={`${table.database}.${table.schema}.${table.table}`}
+        compact
+        className="border-0 bg-transparent p-0 dark:bg-transparent"
+      />
+
+      {/* Interactive — PII scan + masking/RLS drafting (kept; the posture card
+          above is read-only, this is the write surface). */}
+      <div className="flex items-center gap-2">
+        <Lock className="h-4 w-4 text-emerald-500" />
+        <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Masking &amp; RLS</h4>
       </div>
 
       {/* PII Scan */}

@@ -298,9 +298,9 @@ function buildModuleCards(
       typeof m.health_score === 'number' ? m.health_score : undefined,
     issues: Array.isArray(m.issues) ? m.issues : [],
     kpis: [
-      { label: m.kpi1_label || 'KPI 1', value: m.kpi1 ?? 0, status: m.kpi1_status },
-      { label: m.kpi2_label || 'KPI 2', value: m.kpi2 ?? 0, status: m.kpi2_status },
-      { label: m.kpi3_label || 'KPI 3', value: m.kpi3 ?? 0, status: m.kpi3_status },
+      { label: m.kpi1_label || 'KPI 1', value: m.kpi1 ?? null, status: m.kpi1_status },
+      { label: m.kpi2_label || 'KPI 2', value: m.kpi2 ?? null, status: m.kpi2_status },
+      { label: m.kpi3_label || 'KPI 3', value: m.kpi3 ?? null, status: m.kpi3_status },
     ],
   }));
 }

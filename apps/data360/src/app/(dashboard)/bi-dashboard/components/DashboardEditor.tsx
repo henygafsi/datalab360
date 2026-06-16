@@ -13,6 +13,7 @@ import DrillThroughPanel from './DrillThroughPanel';
 import { useDashboard } from '../hooks/useDashboard';
 import { useExecuteDashboard } from '../hooks/useExecuteDashboard';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 import PageTabs from './PageTabs';
 import DashboardGrid from './DashboardGrid';
@@ -156,6 +157,16 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   // Fire-and-forget analytics (R11/H10). The hook also auto-emits a PAGE_VIEW
   // for this per-project route; the explicit mount event below adds projectId.
   const { trackFeatureClick, trackTabSwitch } = useTrackEvent();
+
+  // Action-RBAC gate (System 2). AI chart generation creates a widget (POST
+  // /widgets → require_action 'create'); Snapshot saves a design version (POST
+  // /snapshot → require_action 'snapshot'). Fail-open while the allow-set loads;
+  // honest disabled + tooltip on a resolved deny.
+  const createPerm = useCanPerform('bi_reporting', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
+  const snapshotPerm = useCanPerform('bi_reporting', 'snapshot');
+  const canSnapshot = snapshotPerm.allowed || snapshotPerm.loading;
+
   const { data: dashboard, loading, error, refetch } = useDashboard(projectId);
   const {
     executing, executingWidgetId, results, errors,
@@ -946,7 +957,8 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
             variant="outline"
             size="sm"
             onClick={handleSnapshot}
-            disabled={snapshotting}
+            disabled={snapshotting || !canSnapshot}
+            title={!canSnapshot ? 'Requires the "snapshot" permission on Business Reporting.' : undefined}
             className="gap-1.5"
           >
             {snapshotting ? (
@@ -1021,7 +1033,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
                   value={nlQuestion}
                   onChange={(e) => setNlQuestion(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
+                    if (e.key === 'Enter' && canCreate) {
                       e.preventDefault();
                       void handleNlGenerate();
                     }
@@ -1034,9 +1046,10 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
                 <button
                   type="button"
                   onClick={() => void handleNlGenerate()}
-                  disabled={!nlQuestion.trim() || nlLoading}
+                  disabled={!nlQuestion.trim() || nlLoading || !canCreate}
+                  title={!canCreate ? 'Requires the "create" permission on Business Reporting.' : undefined}
                   aria-busy={nlLoading}
-                  className="flex shrink-0 items-center gap-1.5 rounded-md bg-cyan-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-cyan-700 disabled:opacity-40"
+                  className="flex shrink-0 items-center gap-1.5 rounded-md bg-cyan-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {nlLoading ? (
                     <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</>

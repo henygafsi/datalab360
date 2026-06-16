@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
-import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, ExternalLink, Clock } from 'lucide-react';
+import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, ExternalLink, Clock, Rocket } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { createDashboard } from '@/app/services/api/biDashboardApi';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
@@ -18,6 +19,9 @@ import AutoCreateModal from './components/AutoCreateModal';
 // ---------------------------------------------------------------------------
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
+  // Fail-open while loading; honest disabled + tooltip when create is denied.
+  const createPerm = useCanPerform('bi_reporting', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
   return (
     <div className="flex flex-col items-center justify-center h-96 gap-6 text-center">
       <div className="w-20 h-20 rounded-2xl bg-cyan-50 dark:bg-cyan-900/30 flex items-center justify-center">
@@ -33,7 +37,9 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       </div>
       <button
         onClick={onCreate}
-        className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors"
+        disabled={!canCreate}
+        title={!canCreate ? 'Requires the "create" permission on Business Reporting.' : undefined}
+        className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-cyan-600"
       >
         <Plus className="w-4 h-4" />
         New Dashboard
@@ -52,6 +58,9 @@ interface CreateModalProps {
 }
 
 function CreateModal({ onClose, onCreated }: CreateModalProps) {
+  // Fail-open while loading; honest disabled + tooltip when create is denied.
+  const createPerm = useCanPerform('bi_reporting', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -90,8 +99,9 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
           </button>
           <button
             onClick={handleCreate}
-            disabled={loading || !name.trim()}
-            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+            disabled={loading || !name.trim() || !canCreate}
+            title={!canCreate ? 'Requires the "create" permission on Business Reporting.' : undefined}
+            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
           >
             {loading ? 'Creating…' : 'Create'}
           </button>
@@ -234,9 +244,25 @@ function ProjectList({
           {p.description && (
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 line-clamp-2">{p.description}</p>
           )}
-          <div className="flex items-center gap-2 mt-3 text-xs text-gray-400">
+          {/* Status + version KPIs — render "—" when a field is missing (no fake 0s). */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-gray-400">
+            <span className="inline-flex items-center gap-1 rounded bg-gray-100 px-1.5 py-0.5 font-medium uppercase tracking-wide text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+              {p.status || '—'}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <GitBranch className="w-3 h-3" />
+              {p.current_version_num != null ? `v${p.current_version_num}` : '—'}
+            </span>
+            {p.deployment_version != null && p.deployment_version > 0 && (
+              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                <Rocket className="w-3 h-3" />
+                deployed v{p.deployment_version}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
             <Clock className="w-3 h-3" />
-            {p.updated_at ? new Date(p.updated_at).toLocaleDateString() : 'No date'}
+            {p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '—'}
             {p.tags?.length > 0 && (
               <span className="ml-auto text-cyan-500">{p.tags.slice(0, 2).join(', ')}</span>
             )}
@@ -248,8 +274,17 @@ function ProjectList({
   );
 }
 
+// Shared denied-reason copy for the create-dashboard gates.
+const CREATE_DENIED_REASON = 'Requires the "create" permission on Business Reporting.';
+
 function BIDashboardPage() {
   const { trackFeatureClick } = useTrackEvent();
+  // Action-RBAC gate (System 2): creating / auto-creating a dashboard hits POST
+  // /bi-dashboard (and /auto-create) which the backend gates with
+  // require_action('bi_reporting','create'). Fail-open while the allow-set
+  // loads; honest disabled + tooltip on a resolved deny.
+  const createPerm = useCanPerform('bi_reporting', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
   // G8: an inbound `?project=<id>` deep-link scopes the health score cards to
   // that project and rings/scrolls its card — additive, no redirect, no new
   // selection UI. Opening a project still routes to `/bi-dashboard/[projectId]`.
@@ -266,9 +301,18 @@ function BIDashboardPage() {
   }, []);
 
   useEffect(() => {
-    getUnifiedProjects()
+    // GET /projects/unified?mine_only=false lists ALL account projects —
+    // including seeded sample dashboards (SEED_DASH_*) owned by other identities.
+    // The backend now honours `mine_only` (default true scopes to the caller's
+    // own / contributed projects, which hid every seed). The response is already
+    // in UnifiedProject shape and is cross-type, so we filter to bi_dashboard
+    // here. Real KPIs (version / deployment) come straight from the payload.
+    getUnifiedProjects({ mine_only: false, limit: 100, offset: 0 })
       .then((res) => {
-        setProjects(res.projects.filter((p) => p.type === 'bi_dashboard'));
+        const rows = Array.isArray(res?.projects) ? res.projects : [];
+        setProjects(
+          rows.filter((p) => p.type === 'bi_dashboard' && p.status !== 'deleted'),
+        );
       })
       .catch(() => {
         // graceful — show empty state
@@ -311,7 +355,9 @@ function BIDashboardPage() {
                   trackFeatureClick('bi_dashboard_open_auto_create');
                   setShowAutoCreate(true);
                 }}
-                className="flex items-center gap-2 px-4 py-2 border border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 text-sm font-medium rounded-lg transition-colors"
+                disabled={!canCreate}
+                title={!canCreate ? CREATE_DENIED_REASON : undefined}
+                className="flex items-center gap-2 px-4 py-2 border border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               >
                 <Sparkles className="w-4 h-4" />
                 Auto-create
@@ -321,7 +367,9 @@ function BIDashboardPage() {
                   trackFeatureClick('bi_dashboard_open_create');
                   setShowCreate(true);
                 }}
-                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors"
+                disabled={!canCreate}
+                title={!canCreate ? CREATE_DENIED_REASON : undefined}
+                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-cyan-600"
               >
                 <Plus className="w-4 h-4" />
                 New Dashboard

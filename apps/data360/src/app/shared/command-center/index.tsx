@@ -152,7 +152,7 @@ import SnowflakeInsightsAdvisor from './SnowflakeInsightsAdvisor';
 import SecurityMap from './SecurityMap';
 import ObjectStorageAudit from './ObjectStorageAudit';
 import SnowflakeObjectsTab from './SnowflakeObjectsTab';
-import AdnBadge from './AdnBadge';
+import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import CostPreview from './CostPreview';
 import { dash, fmtNum, isBlank, EM_DASH } from '@/app/shared/ui/format';
 import type {
@@ -218,16 +218,15 @@ interface TabItem {
  */
 const tabs: TabItem[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'org-summary', label: 'Org Summary', icon: GitBranch },
   { id: 'snowflake-objects', label: 'Snowflake Objects', icon: Database },
   { id: 'finops', label: 'FinOps', icon: DollarSign },
   { id: 'modules', label: 'Modules', icon: Box },
-  { id: 'org-accounts', label: 'Org Accounts', icon: Layers },
   { id: 'platform-activity', label: 'Platform Activity', icon: Layers },
   { id: 'projects', label: 'Projects', icon: Rocket },
+  // Merged: Security posture/audit + the Security Map graph (was 'security-map').
   { id: 'security', label: 'Security', icon: Lock },
-  { id: 'security-map', label: 'Security Map', icon: ShieldCheck },
-  { id: 'snowflake-accounts', label: 'Snowflake Accounts', icon: Database },
+  // Merged: Org Summary + ORGADMIN-gated Org Accounts + Snowflake Accounts.
+  { id: 'organization', label: 'Organization', icon: GitBranch },
 ];
 
 /**
@@ -238,6 +237,12 @@ const TAB_ALIAS: Record<string, string> = {
   'snowflake-explorer': 'snowflake-objects',
   'security-adv': 'security',
   cost: 'finops',
+  // Merged Security tab — Security Map folded into 'security'.
+  'security-map': 'security',
+  // Merged Organization tab — org-summary + org-accounts + snowflake-accounts.
+  'org-summary': 'organization',
+  'org-accounts': 'organization',
+  'snowflake-accounts': 'organization',
   // 'overview', 'modules', 'projects', 'platform-activity' unchanged
 };
 
@@ -1893,8 +1898,11 @@ function CommandCenterDashboardInner() {
           </Text>
         </div>
         <div className="flex items-center gap-3">
+        {/* Account-level Command Center has no single project to score, so the
+            per-project ADN badge self-hides (projectId=null → renders nothing).
+            The slot is kept for placement parity; no fabricated account ADN. */}
         <div className="hidden lg:block">
-          <AdnBadge />
+          <AdnHeaderBadge projectId={null} />
         </div>
         <motion.button
           whileHover={{ scale: 1.03 }}
@@ -2082,13 +2090,6 @@ function CommandCenterDashboardInner() {
                 onNavigateTab={goToTab}
               />
             )}
-            {activeTab === 'org-summary' && (
-              <Suspense fallback={<LoadingSection />}>
-                {/* Self-contained: owns its own date-range + role/module/account
-                    filters; does NOT consume the parent global filter bar. */}
-                <OrgSummaryTab />
-              </Suspense>
-            )}
             {activeTab === 'snowflake-objects' && (
               /* Refactored Data Catalog Explorer (UI-first, sample data on the
                  not-yet-wired fields): 8 sub-tabs, KPI grid, AI Discovery,
@@ -2109,11 +2110,6 @@ function CommandCenterDashboardInner() {
                 <ModulesTab />
               </Suspense>
             )}
-            {activeTab === 'org-accounts' && (
-              <Suspense fallback={<LoadingSection />}>
-                <OrgAccountsTab />
-              </Suspense>
-            )}
             {activeTab === 'platform-activity' && (
               <PlatformActivityTab
                 platformData={platformData}
@@ -2130,19 +2126,54 @@ function CommandCenterDashboardInner() {
                 onRefresh={fetchProjects}
               />
             )}
+            {/* Merged Security tab: posture/audit (SecurityAdvTab) stacked with
+                the Security Map graph. Two clearly-headed sections, no popup. */}
             {activeTab === 'security' && (
-              <SecurityAdvTab
-                data={securityData}
-                loading={tabLoading['security']}
-                onNavigateTab={goToTab}
-              />
+              <div className="space-y-8">
+                <section>
+                  <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Security posture &amp; audit
+                  </h2>
+                  <SecurityAdvTab
+                    data={securityData}
+                    loading={tabLoading['security']}
+                    onNavigateTab={goToTab}
+                  />
+                </section>
+                <section>
+                  <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Security map
+                  </h2>
+                  <SecurityMap days={filters.days} />
+                </section>
+              </div>
             )}
-            {activeTab === 'snowflake-accounts' && (
+            {/* Merged Organization tab: org summary + ORGADMIN-gated org accounts
+                + Snowflake accounts honest-empty states, stacked. Each child owns
+                its own ORGADMIN gating + honest empty messaging. */}
+            {activeTab === 'organization' && (
               <Suspense fallback={<LoadingSection />}>
-                <SnowflakeAccountsTab />
+                <div className="space-y-8">
+                  <section>
+                    {/* Self-contained: owns its own date-range + role/module/account
+                        filters; does NOT consume the parent global filter bar. */}
+                    <OrgSummaryTab />
+                  </section>
+                  <section>
+                    <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Org accounts
+                    </h2>
+                    <OrgAccountsTab />
+                  </section>
+                  <section>
+                    <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Snowflake accounts
+                    </h2>
+                    <SnowflakeAccountsTab />
+                  </section>
+                </div>
               </Suspense>
             )}
-            {activeTab === 'security-map' && <SecurityMap days={filters.days} />}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -2752,6 +2783,12 @@ const OverviewTab = memo(function OverviewTab({
   // the backend 403 is the real guard).
   const { role } = useAuth();
 
+  // Compact the AI recommendations block so the Overview isn't a long scroll.
+  // The three advisors (Snowflake insights · AI advisor · top problems) live
+  // in a single collapsible, bounded-height panel — expanded by default but
+  // capped at a scrollable summary rather than a full-page wall of lists.
+  const [aiRecosOpen, setAiRecosOpen] = useState(true);
+
   // Sync hero range picker to the global Time Range whenever the parent
   // changes it. Without this, the user clicks "7d" in the global filter
   // bar, summary/module-health refetch with days=7, but the KPI cache
@@ -3049,7 +3086,7 @@ const OverviewTab = memo(function OverviewTab({
           <ActionChip
             label="Review accounts"
             tone="amber"
-            onClick={() => onNavigateTab?.('snowflake-accounts')}
+            onClick={() => onNavigateTab?.('organization')}
           />
         </div>
       ) : null}
@@ -3087,17 +3124,39 @@ const OverviewTab = memo(function OverviewTab({
              (live endpoints; replaces the cards gated on the dead KPI cache) ── */}
       <ExecutiveOverview days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
 
-      {/* ── Snowflake-features AI analysis (inactive users · network policies ·
-             MFA · roles · warehouses · stale objects) → coherent module actions ── */}
-      <SnowflakeInsightsAdvisor />
-
-      {/* ── AI Advisor: ready actions in the modules (transform scanned
-             Snowflake data into Data360) ── */}
-      <AiAdvisor days={globalDays ?? 30} />
-
-      {/* ── Top problems: intelligent cross-tab problem highlighter ──── */}
-      <section>
-        <TopProblemsPanel days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
+      {/* ── AI recommendations: Snowflake-feature insights · ready module
+             actions · top cross-tab problems. Compacted into ONE collapsible,
+             bounded-height panel (scrollable summary) so the Overview stays
+             skimmable instead of a long stacked wall of lists. Data is real;
+             only the display is tightened. ── */}
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+        <button
+          type="button"
+          onClick={() => setAiRecosOpen((o) => !o)}
+          aria-expanded={aiRecosOpen}
+          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40"
+        >
+          <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <Sparkles className="h-3.5 w-3.5" />
+            AI recommendations
+          </span>
+          {aiRecosOpen ? (
+            <ChevronUp className="h-4 w-4 text-slate-400" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-slate-400" />
+          )}
+        </button>
+        {aiRecosOpen && (
+          <div className="max-h-[28rem] space-y-4 overflow-y-auto border-t border-slate-100 px-4 py-4 dark:border-slate-800">
+            <SnowflakeInsightsAdvisor />
+            <AiAdvisor days={globalDays ?? 30} />
+            <TopProblemsPanel
+              days={globalDays ?? 30}
+              limit={4}
+              onNavigateTab={onNavigateTab}
+            />
+          </div>
+        )}
       </section>
 
       {/* ── KPI section: 6 primary metrics ─────────────────────────── */}
@@ -3117,7 +3176,7 @@ const OverviewTab = memo(function OverviewTab({
           value={provisioned ? kpis?.connected_accounts ?? null : null}
           icon={Database}
           color="cyan"
-          onActivate={() => onNavigateTab?.('org-accounts')}
+          onActivate={() => onNavigateTab?.('organization')}
         />
         <KpiCard
           label="Active Projects"

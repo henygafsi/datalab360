@@ -28,7 +28,7 @@ const JsonFlattenConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800">
         <p className="text-xs text-violet-700 dark:text-violet-300">
-          Flattens a VARIANT, OBJECT, or ARRAY column into separate rows using Snowflake FLATTEN. Useful for expanding nested JSON data.
+          Flattens a VARIANT, OBJECT, or ARRAY column into separate rows using FLATTEN. Useful for expanding nested JSON data.
         </p>
       </div>
 

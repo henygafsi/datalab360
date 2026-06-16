@@ -28,6 +28,7 @@ import type {
 // page inside the observability scope is a read, not an out-of-scope edit.
 import { getResourceMonitors } from '@/app/services/org-accounts/hooks';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 // ---------------------------------------------------------------------------
 // Create Resource Monitor — docked right-tab panel (no centered overlay; the
@@ -220,6 +221,14 @@ export default function BudgetPage() {
   const [monitorsNotDeployed, setMonitorsNotDeployed] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
+  // Action-RBAC gate (H8): creating a resource monitor sets a credit budget — an
+  // observability cost-control write. `set-budget` is the action-registry key for
+  // the cost/budgets surface (matches what my-permissions returns); the backend
+  // POST /cost/monitors is admin-gated. Fail-open while the allow-set loads.
+  const budgetPerm = useCanPerform('observability', 'set-budget');
+  const canCreateMonitor = budgetPerm.allowed || budgetPerm.loading;
+  const monitorDeniedTitle = 'You lack the "set-budget" permission on observability. Ask an administrator to grant it.';
+
   const loadCost = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -320,6 +329,8 @@ export default function BudgetPage() {
               <Button
                 size="sm"
                 className="gap-1 bg-green-600 text-white hover:bg-green-700"
+                disabled={!canCreateMonitor}
+                title={!canCreateMonitor ? monitorDeniedTitle : undefined}
                 onClick={() => setCreateOpen(true)}
               >
                 <PiPlusBold className="h-3.5 w-3.5" />
@@ -328,7 +339,7 @@ export default function BudgetPage() {
             </div>
             <FreshnessDisclaimer
               className="mb-3"
-              detail="Resource monitor usage reflects Snowflake's SHOW RESOURCE MONITORS, which lags real-time consumption."
+              detail="Resource monitor usage reflects the data warehouse's SHOW RESOURCE MONITORS, which lags real-time consumption."
             />
             {monitorsLoading ? (
               <TableSkeleton rows={4} columns={5} />
@@ -347,11 +358,13 @@ export default function BudgetPage() {
               <EmptyState
                 icon={PiGaugeDuotone}
                 title="No resource monitors configured"
-                description="Create resource monitors in Snowflake to enforce credit budgets and get usage alerts."
+                description="Create resource monitors in the data warehouse to enforce credit budgets and get usage alerts."
                 action={
                   <Button
                     size="sm"
                     className="mt-3 gap-1 bg-green-600 text-white hover:bg-green-700"
+                    disabled={!canCreateMonitor}
+                    title={!canCreateMonitor ? monitorDeniedTitle : undefined}
                     onClick={() => setCreateOpen(true)}
                   >
                     <PiPlusBold className="h-3.5 w-3.5" />

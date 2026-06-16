@@ -10,6 +10,7 @@ import {
 import { cn } from '@/lib/utils';
 import { getDatabases, getSchemas, getTables } from '@/app/services/mapping';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   NodeKpis, scoreBucket, latencyBucket, latencyLabel,
   fetchNodeKpis, dryRunRefreshNodeKpis,
@@ -54,12 +55,14 @@ function fmtScore(v: number | null): string {
 // Inline per-object goal-axis KPIs (DQ · GOV · COST · PERF). Module scope.
 // ---------------------------------------------------------------------------
 function InlineKpis({
-  kpis, loading, refreshing, onDryRun,
+  kpis, loading, refreshing, onDryRun, canDryRun, dryRunDeniedReason,
 }: {
   kpis?: NodeKpis;
   loading: boolean;
   refreshing: boolean;
   onDryRun: () => void;
+  canDryRun: boolean;
+  dryRunDeniedReason: string;
 }) {
   return (
     <div className="ml-12 mt-0.5 mb-1 flex items-center gap-1 flex-wrap">
@@ -85,9 +88,9 @@ function InlineKpis({
       <button
         type="button"
         onClick={onDryRun}
-        disabled={refreshing}
-        className="ml-1 inline-flex items-center gap-0.5 text-[9px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50"
-        title="Dry-run (sample) + refresh scores"
+        disabled={refreshing || !canDryRun}
+        className="ml-1 inline-flex items-center gap-0.5 text-[9px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
+        title={canDryRun ? 'Dry-run (sample) + refresh scores' : dryRunDeniedReason}
       >
         {refreshing
           ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
@@ -210,6 +213,15 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
   const [kpisByFqn, setKpisByFqn] = useState<Record<string, NodeKpis>>({});
   const [loadingFqns, setLoadingFqns] = useState<Set<string>>(() => new Set());
   const [refreshingFqns, setRefreshingFqns] = useState<Set<string>>(() => new Set());
+
+  // System-2 Action-RBAC gate for the per-object "dry-run" score recompute (a
+  // catalog-state mutation). `data_products`/`edit` is the registry key for
+  // catalog/object surfaces (same gate the page-level Refresh + ObjectSmartPanel
+  // Apply use). Fail-open while the allow-set loads; honest-disable on a denial.
+  const dryRunPerm = useCanPerform('data_products', 'edit');
+  const canDryRun = dryRunPerm.allowed || dryRunPerm.loading;
+  const dryRunDeniedReason =
+    'You lack the "edit" permission on data products. Ask an administrator to grant it.';
 
   const loadDatabases = useCallback(async () => {
     setLoading(true);
@@ -529,6 +541,8 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
                               loading={loadingFqns.has(tableFqn)}
                               refreshing={refreshingFqns.has(tableFqn)}
                               onDryRun={() => handleDryRun(db.name, schemaNode.name, tableNode.name)}
+                              canDryRun={canDryRun}
+                              dryRunDeniedReason={dryRunDeniedReason}
                             />
                           </div>
                         );

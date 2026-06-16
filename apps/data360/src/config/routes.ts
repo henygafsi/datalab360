@@ -11,6 +11,8 @@ export const routes = {
     dataSourceConnection: '/data-source-connection',
   },
   mapping: {
+    // Legacy route: /mapping renders a redirect to Explore & Design. Key kept
+    // (per _DROPPED.md) because shared template components still import it.
     viewMap: '/mapping',
   },
   exploreDesign: {
@@ -24,6 +26,10 @@ export const routes = {
   },
   governance: {
     users: '/governance/users',
+    /** Deep-link to a single user's read-only detail page. */
+    viewUser: (id: string) => `/governance/users/view/${encodeURIComponent(id)}`,
+    /** Deep-link to a single user's edit page. */
+    editUser: (id: string) => `/governance/users/edit/${encodeURIComponent(id)}`,
     roles: '/governance/roles',
     grants: '/governance/grants',
     policies: '/governance/policies', // Unified policies page (RLS, Masking, Aggregation, Tags, Network, Password, Session)
@@ -65,6 +71,8 @@ export const routes = {
     dashboard: '/observability',
   },
   // dataEngineering & developer modules merged into explore-design & workflow
+  /** Administration landing index — links to the real /admin/* sub-pages. */
+  adminHome: '/admin',
   data360Config: {
     /** Config Data360 : metadata, tables, colonnes date, cache/refresh */
     view: '/admin/data360-config',
@@ -72,6 +80,14 @@ export const routes = {
   adminPerformance: {
     /** Per-account, multi-axis Performance admin page (endpoint/user/cache/module/project/errors). */
     view: '/admin/performance',
+  },
+  adminPlatformSettings: {
+    /** Platform-wide settings (config entries, refresh/reset controls). */
+    view: '/admin/platform-settings',
+  },
+  adminApiHealth: {
+    /** Live API route-prober / health dashboard. */
+    view: '/admin/api-health',
   },
   clientAccounts: {
     dashboard: '/client-accounts',

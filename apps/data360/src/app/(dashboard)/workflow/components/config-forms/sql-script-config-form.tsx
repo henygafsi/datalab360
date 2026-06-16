@@ -58,7 +58,7 @@ const SQLScriptConfigForm: React.FC<{
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-              SQL · Snowflake dialect
+              SQL
             </span>
             <button
               type="button"

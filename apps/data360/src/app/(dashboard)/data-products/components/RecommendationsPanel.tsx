@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, Lightbulb } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import { InsightActionButton } from '@/app/shared/insights';
@@ -40,6 +41,11 @@ export interface RecommendationsPanelProps {
 }
 
 export default function RecommendationsPanel({ productId }: RecommendationsPanelProps) {
+  // System 2 Action-RBAC: applying a recommendation mutates the product →
+  // gated on data_products:edit. Fail-open while the allow-set loads.
+  const editPerm = useCanPerform('data_products', 'edit');
+  const canEdit = editPerm.allowed || editPerm.loading;
+
   const [recos, setRecos] = useState<Recommendation[]>([]);
   const [loadState, setLoadState] = useState<AsyncState>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -142,6 +148,12 @@ export default function RecommendationsPanel({ productId }: RecommendationsPanel
                     size="sm"
                     successToast="Recommendation applied"
                     pingBell
+                    capable={canEdit}
+                    unavailableHint={
+                      !canEdit
+                        ? 'You lack the "edit" permission on data products. Ask an administrator to grant it.'
+                        : 'Not available on this backend yet'
+                    }
                     onAction={() => applyRecommendation(r.reco_id)}
                     onDone={(res) =>
                       setApplied((prev) => ({

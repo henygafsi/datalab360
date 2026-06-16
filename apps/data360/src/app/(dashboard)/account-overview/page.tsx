@@ -5,7 +5,6 @@ import { PiWarningCircleBold, PiChartLineUp, PiShieldCheck, PiBuildings } from '
 import CommandCenterDashboard from '@/app/shared/command-center';
 import OnboardingTour from '@/app/shared/onboarding-tour';
 import Breadcrumb from '@/components/ui/Breadcrumb';
-import MeteringPanel from '@/components/metering/MeteringPanel';
 
 interface ErrorBoundaryProps {
   children: ReactNode;

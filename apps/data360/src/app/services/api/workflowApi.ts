@@ -8,6 +8,7 @@ import { API } from '@/lib/api-contracts';
 import type {
   CreateWorkflowRequest,
   CreateWorkflowResponse,
+  UpdateWorkflowRequest,
   Workflow,
   WorkflowStepsResponse,
   AddStepRequest,
@@ -59,6 +60,22 @@ export async function createWorkflow(body: CreateWorkflowRequest) {
 
 export async function getWorkflow(workflowId: string) {
   const { data } = await apiClient.get<Workflow>(`${PREFIX}/${workflowId}`);
+  return data;
+}
+
+/**
+ * Update workflow metadata (tags / name / description) — PATCH /workflow/{id}.
+ * A workflow is a project row, so this persists to the shared project TAGS
+ * column with server-side cache invalidation. Returns the updated Workflow.
+ */
+export async function updateWorkflow(
+  workflowId: string,
+  body: UpdateWorkflowRequest,
+) {
+  const { data } = await apiClient.patch<Workflow>(
+    API.workflow.update(workflowId),
+    body,
+  );
   return data;
 }
 

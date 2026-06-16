@@ -58,6 +58,45 @@ function templateToBlock(t: ActionTemplate): BackendBlock | null {
 }
 
 /**
+ * Module-level catalog memo.
+ *
+ * The action-template catalog is account-static (the same ~92-entry palette
+ * regardless of which project is open), so there is no reason to re-hit the
+ * endpoint every time the workflow editor mounts for a new project. We memoize
+ * the in-flight/settled fetch promise at module scope and share it across every
+ * `useBackendBlocks` mount for the lifetime of the browser session — a full
+ * reload (new JS module instance) naturally starts fresh.
+ *
+ * A `force` re-fetch (explicit `refresh()`) bypasses the memo, and the stale
+ * window guards against an unbounded-stale session. Failures are never cached:
+ * a rejected fetch clears the memo so the next caller retries (preserving the
+ * original "soft empty state, retry on next mount" behaviour).
+ */
+type CatalogResult = Awaited<ReturnType<typeof listActionTemplates>>;
+
+// Session-lifetime stale window. Matches the NextAuth 8h session max-age: while
+// a session is alive the catalog is treated as fresh and fetched exactly once.
+const CATALOG_STALE_MS = 8 * 60 * 60 * 1000;
+
+let catalogPromise: Promise<CatalogResult> | null = null;
+let catalogFetchedAt = 0;
+
+function loadActionTemplateCatalog(force = false): Promise<CatalogResult> {
+  const now = Date.now();
+  const isStale = now - catalogFetchedAt > CATALOG_STALE_MS;
+  if (force || !catalogPromise || isStale) {
+    catalogFetchedAt = now;
+    catalogPromise = listActionTemplates().catch((err) => {
+      // Don't cache failures — let the next mount/refresh retry from scratch.
+      catalogPromise = null;
+      catalogFetchedAt = 0;
+      throw err;
+    });
+  }
+  return catalogPromise;
+}
+
+/**
  * Returns backend action templates that have no static palette equivalent.
  * When the backend lists only types already covered statically, `blocks` is
  * empty and the palette simply shows nothing extra — never an error.
@@ -67,11 +106,13 @@ export function useBackendBlocks(): UseBackendBlocksResult {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const load = useCallback(async (force: boolean) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await listActionTemplates();
+      // Shared module-level memo — the fetch happens once per session and is
+      // reused across project opens; `force` re-fetches on explicit refresh.
+      const res = await loadActionTemplateCatalog(force);
       const templates = Array.isArray(res?.templates) ? res.templates : [];
       const extra = templates
         .map(templateToBlock)
@@ -89,9 +130,11 @@ export function useBackendBlocks(): UseBackendBlocksResult {
     }
   }, []);
 
+  const refresh = useCallback(() => load(true), [load]);
+
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void load(false);
+  }, [load]);
 
   return { blocks, loading, error, refresh };
 }

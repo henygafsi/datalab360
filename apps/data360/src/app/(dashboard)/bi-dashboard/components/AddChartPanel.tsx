@@ -9,6 +9,7 @@ import {
   CandlestickChart, Circle, Grid3X3, ArrowDownUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import ChartConfigModal, { ComponentConfig } from './widget-config/ChartConfigModal';
 import KpiCardConfigModal from './widget-config/KpiCardConfigModal';
 import TableConfigModal from './widget-config/TableConfigModal';
@@ -114,6 +115,15 @@ export default function AddWidgetPanel({
   onClose,
   onWidgetAdded,
 }: AddWidgetPanelProps) {
+  // Action-RBAC gate (System 2): every path here ends in POST /widgets
+  // (require_action 'bi_reporting','create'). This panel only opens from the
+  // already-gated "Add Widget" button, but we gate its own create controls too
+  // so the gate is honest if it's ever reached another way. Fail-open while the
+  // allow-set loads; honest disabled + tooltip on a deny.
+  const createPerm = useCanPerform('bi_reporting', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
+  const createDeniedReason = 'Requires the "create" permission on Business Reporting.';
+
   const [selectedItem, setSelectedItem] = useState<{
     widgetType: WidgetType;
     chartType: DashboardChartType | null;
@@ -316,7 +326,9 @@ export default function AddWidgetPanel({
                     <button
                       key={`${item.widgetType}-${item.chartType}`}
                       onClick={() => handleItemSelect(item.widgetType, item.chartType)}
-                      className="flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-all"
+                      disabled={!canCreate}
+                      title={!canCreate ? createDeniedReason : undefined}
+                      className="flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-slate-200 disabled:hover:bg-transparent"
                     >
                       <div className={cn('p-3 rounded-xl bg-gradient-to-br', item.color)}>
                         <Icon className="h-5 w-5 text-white" />
@@ -393,9 +405,10 @@ export default function AddWidgetPanel({
                 Cancel
               </button>
               <button
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-500 disabled:opacity-50"
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={handleTextSave}
-                disabled={saving}
+                disabled={saving || !canCreate}
+                title={!canCreate ? createDeniedReason : undefined}
               >
                 {saving ? 'Adding...' : 'Add Widget'}
               </button>

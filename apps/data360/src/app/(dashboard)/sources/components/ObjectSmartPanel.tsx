@@ -38,6 +38,7 @@ import {
 import { cn } from '@/lib/utils';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   applyRecommendation,
   type Recommendation,
@@ -52,6 +53,7 @@ import type {
   TableOwnership,
 } from '@/app/services/catalog/rightbar';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
+import GovernancePostureCard, { type GovernancePostureData } from '@/app/shared/score-cards/GovernancePostureCard';
 import SourceAiSummary, {
   type SourceDescriptor,
   type GovernanceContext,
@@ -282,8 +284,24 @@ function Pill({ children, tone = 'gray' }: { children: React.ReactNode; tone?: '
   );
 }
 
-/** One object-scoped recommendation with an Apply CTA (POST then refetch). */
-function RecoRow({ reco, onApplied }: { reco: Recommendation; onApplied: () => void }) {
+/**
+ * One object-scoped recommendation with an Apply CTA (POST then refetch).
+ *
+ * Apply is a mutating action, so it is gated through System-2 Action-RBAC by the
+ * parent (`useCanPerform('data_products', 'edit')` — applying a remediation edits
+ * the catalog object; `data_products` is the registry module for catalog/object
+ * surfaces). `canApply` is fail-open while the permission set loads; when it
+ * resolves to a denial the button is honestly disabled with an ask-admin tooltip.
+ */
+function RecoRow({
+  reco,
+  onApplied,
+  canApply,
+}: {
+  reco: Recommendation;
+  onApplied: () => void;
+  canApply: boolean;
+}) {
   const [applying, setApplying] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const title = reco.title || reco.feature || reco.rule_id;
@@ -292,6 +310,7 @@ function RecoRow({ reco, onApplied }: { reco: Recommendation; onApplied: () => v
   const tone = sev === 'critical' || sev === 'high' ? 'rose' : sev === 'medium' ? 'amber' : 'gray';
 
   const apply = async () => {
+    if (!canApply) return;
     setApplying(true);
     setErr(null);
     try {
@@ -316,8 +335,13 @@ function RecoRow({ reco, onApplied }: { reco: Recommendation; onApplied: () => v
         <button
           type="button"
           onClick={apply}
-          disabled={applying}
-          className="shrink-0 rounded bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          disabled={applying || !canApply}
+          title={
+            !canApply
+              ? 'You lack the "edit" permission on data products. Ask an administrator to grant it.'
+              : undefined
+          }
+          className="shrink-0 rounded bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {applying ? '…' : 'Apply'}
         </button>
@@ -356,6 +380,14 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
     selected && activeSection === 'ai-summary' ? object360Url : null,
     selected,
   );
+
+  // System-2 Action-RBAC gate for the per-recommendation "Apply" CTA (a mutating
+  // remediation that edits the catalog object). `data_products` is the registry
+  // module for catalog/object surfaces (`catalog` itself is not registered);
+  // `edit` is its mutate action. Fail-open while loading (advisory gate; the
+  // module-level cache is usually warm), hard-deny only on a definitive allow-set.
+  const applyPerm = useCanPerform('data_products', 'edit');
+  const canApplyReco = applyPerm.allowed || applyPerm.loading;
 
   // Idle state: nothing selected — keep the column footprint with a quiet hint.
   if (!selected) {
@@ -538,7 +570,12 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
             d.items && d.items.length > 0 ? (
               <div className="space-y-1.5">
                 {d.items.slice(0, 6).map((r) => (
-                  <RecoRow key={r.reco_id} reco={r} onApplied={() => void recos.refetch()} />
+                  <RecoRow
+                    key={r.reco_id}
+                    reco={r}
+                    canApply={canApplyReco}
+                    onApplied={() => void recos.refetch()}
+                  />
                 ))}
               </div>
             ) : (
@@ -586,26 +623,21 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       render: () => (
         <SectionBody state={governance}>
           {(d) => (
-            <div className="space-y-1.5">
-              <Field
-                label="Gov rate"
-                value={d.gov_rate === null || d.gov_rate === undefined ? '—' : `${Math.round(d.gov_rate * 100)}%`}
-              />
-              <Field label="PII columns" value={num(d.pii_columns?.length)} />
-              <Field label="RLS policies" value={num(d.rls_policies?.length)} />
-              {d.pii_columns && d.pii_columns.length > 0 && (
-                <div className="flex flex-wrap gap-1 pt-1">
-                  {d.pii_columns.slice(0, 8).map((c) => (
-                    <Pill
-                      key={c.column_name}
-                      tone={c.masking_status === 'NONE' ? 'rose' : c.masking_status === 'PARTIAL' ? 'amber' : 'emerald'}
-                    >
-                      {c.column_name}
-                    </Pill>
-                  ))}
-                </div>
-              )}
-            </div>
+            // Converged onto the shared GovernancePostureCard (presentational `data`
+            // path — no self-fetch; SectionBody above still owns loading/gap/error).
+            // Pass ONLY the array-provenance fields: TableGovernance.sensitive_columns
+            // is an ARRAY, not a count, so spreading `d` would corrupt the card's
+            // numeric `sensitive_columns` slot. The card derives sensitive/masked/
+            // unprotected (and the RED pills) from pii_columns' masking_status.
+            <GovernancePostureCard
+              compact
+              title="Governance"
+              data={{
+                gov_rate: d.gov_rate,
+                pii_columns: d.pii_columns,
+                rls_policies: d.rls_policies,
+              } satisfies GovernancePostureData}
+            />
           )}
         </SectionBody>
       ),

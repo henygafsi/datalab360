@@ -19,7 +19,7 @@ const MLForecastConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
-        <p className="text-xs text-indigo-700 dark:text-indigo-300">Time-series forecasting using Snowflake ML. Predicts future values based on historical data.</p>
+        <p className="text-xs text-indigo-700 dark:text-indigo-300">Time-series forecasting using the analytics engine. Predicts future values based on historical data.</p>
       </div>
       <FormField label="Timestamp Column" required error={errors.timestamp_column}>
         <Select value={config.timestamp_column || ''} onChange={(v) => updateConfig({ timestamp_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.timestamp_column} />

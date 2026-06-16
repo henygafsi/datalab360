@@ -8,6 +8,7 @@ import { autoCreateDashboard } from '@/app/services/api/biDashboardApi';
 import { useDataSourcePicker } from '../hooks/useDataSourcePicker';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 type Mode = 'table' | 'schema';
 
@@ -31,8 +32,15 @@ export default function AutoCreateModal({ isOpen, onClose, onCreated }: AutoCrea
   const [name, setName] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Action-RBAC gate (System 2): POST /bi-dashboard/auto-create →
+  // require_action('bi_reporting','create'). Fail-open while the allow-set
+  // loads; honest disabled + tooltip on a deny.
+  const createPerm = useCanPerform('bi_reporting', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
+
   const canSubmit =
     !submitting &&
+    canCreate &&
     source.database &&
     source.schema &&
     (mode === 'schema' || (mode === 'table' && source.table));
@@ -224,7 +232,8 @@ export default function AutoCreateModal({ isOpen, onClose, onCreated }: AutoCrea
             size="md"
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="gap-1.5 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
+            title={!canCreate ? 'Requires the "create" permission on Business Reporting.' : undefined}
+            className="gap-1.5 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white disabled:cursor-not-allowed"
           >
             {submitting ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Creating...</>

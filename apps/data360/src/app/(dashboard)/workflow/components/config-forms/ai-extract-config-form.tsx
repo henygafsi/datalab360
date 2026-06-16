@@ -19,7 +19,7 @@ const AIExtractConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
-        <p className="text-xs text-cyan-700 dark:text-cyan-300">Extract structured data from text using Cortex AI. Returns JSON with specified keys.</p>
+        <p className="text-xs text-cyan-700 dark:text-cyan-300">Extract structured data from text using AI. Returns JSON with specified keys.</p>
       </div>
       <FormField label="Input Column" required error={errors.input_column}>
         <Select value={config.input_column || ''} onChange={(v) => updateConfig({ input_column: v })} options={columnOptions} placeholder="Select text column" error={!!errors.input_column} />

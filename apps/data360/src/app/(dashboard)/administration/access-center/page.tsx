@@ -20,25 +20,40 @@
  */
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Activity, Gauge, KeyRound, Lock, ShieldCheck, ListTree, UserCog, type LucideIcon } from 'lucide-react';
+import { Activity, Database, FolderKanban, Gauge, KeyRound, Lock, ShieldCheck, ListTree, ToggleRight, UserCog, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import AccessControlCenter from './components/AccessControlCenter';
+import CacheMetricsPanel from './components/CacheMetricsPanel';
 import AdminOverviewHeader from './components/AdminOverviewHeader';
 import RolesPermissionsPanel from './components/RolesPermissionsPanel';
 import UsageAuditPanel from './components/UsageAuditPanel';
 import ProvisioningPanel from './components/ProvisioningPanel';
 import PerformancePanel from './components/PerformancePanel';
 import DefaultRoleGovernancePanel from './components/DefaultRoleGovernancePanel';
+import ProjectsMonitoringPanel from './components/ProjectsMonitoringPanel';
+import FeatureGovernanceMatrix from '../feature-governance/FeatureGovernanceMatrix';
 
-type TabId = 'access' | 'roles' | 'governance' | 'performance' | 'usage' | 'provisioning';
+type TabId =
+  | 'access'
+  | 'roles'
+  | 'featureGov'
+  | 'roleGovernance'
+  | 'performance'
+  | 'cacheCalls'
+  | 'usage'
+  | 'provisioning'
+  | 'projects';
 
 const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: 'access', label: 'Access Control', icon: Lock },
   { id: 'roles', label: 'Roles & Permissions', icon: KeyRound },
-  { id: 'governance', label: 'Role Governance', icon: ListTree },
-  { id: 'performance', label: 'Performance', icon: Gauge },
+  { id: 'featureGov', label: 'Feature Governance', icon: ToggleRight },
+  { id: 'roleGovernance', label: 'Role Governance', icon: ListTree },
+  { id: 'performance', label: 'Performance & Monitoring', icon: Gauge },
+  { id: 'cacheCalls', label: 'Cache & Calls', icon: Database },
   { id: 'usage', label: 'Usage & Audit', icon: Activity },
   { id: 'provisioning', label: 'Provisioning', icon: UserCog },
+  { id: 'projects', label: 'Projects', icon: FolderKanban },
 ];
 
 const TAB_IDS = TABS.map((t) => t.id);
@@ -46,7 +61,10 @@ const TAB_IDS = TABS.map((t) => t.id);
 export default function AccessCenterPage() {
   const searchParams = useSearchParams();
   const fromUrl = searchParams.get('tab');
-  const initial: TabId = TAB_IDS.includes(fromUrl as TabId) ? (fromUrl as TabId) : 'access';
+  // Back-compat: the old bare `governance` id was renamed to `roleGovernance`;
+  // keep existing `?tab=governance` deep-links landing on the same surface.
+  const aliased = fromUrl === 'governance' ? 'roleGovernance' : fromUrl;
+  const initial: TabId = TAB_IDS.includes(aliased as TabId) ? (aliased as TabId) : 'access';
   const [tab, setTab] = useState<TabId>(initial);
 
   return (
@@ -100,10 +118,13 @@ export default function AccessCenterPage() {
       {/* Active section (only the active panel mounts → lazy, isolated fetch) */}
       {tab === 'access' && <AccessControlCenter />}
       {tab === 'roles' && <RolesPermissionsPanel />}
-      {tab === 'governance' && <DefaultRoleGovernancePanel />}
+      {tab === 'featureGov' && <FeatureGovernanceMatrix />}
+      {tab === 'roleGovernance' && <DefaultRoleGovernancePanel />}
       {tab === 'performance' && <PerformancePanel />}
+      {tab === 'cacheCalls' && <CacheMetricsPanel />}
       {tab === 'usage' && <UsageAuditPanel />}
       {tab === 'provisioning' && <ProvisioningPanel />}
+      {tab === 'projects' && <ProjectsMonitoringPanel />}
     </div>
   );
 }

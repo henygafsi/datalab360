@@ -6,13 +6,17 @@ import { useLayout } from '@/layouts/use-layout';
 import { LAYOUT_OPTIONS } from '@/config/enums';
 import { useBerylliumSidebars } from '@/layouts/beryllium/beryllium-utils';
 import { useSession } from 'next-auth/react';
-import { useProfile } from '@/hooks/useProfile';
-import Link from 'next/link';
-import { routes } from '@/config/routes';
+import type { UserProfile } from '@/app/services/user/profile';
 
-export default function ProfileHeader() {
+interface ProfileHeaderProps {
+  profile: UserProfile | null;
+  loading: boolean;
+  editing: boolean;
+  onEdit: () => void;
+}
+
+export default function ProfileHeader({ profile, loading, editing, onEdit }: ProfileHeaderProps) {
   const { data: session } = useSession();
-  const { profile, loading } = useProfile();
   const { layout } = useLayout();
   const { expandedLeft } = useBerylliumSidebars();
 
@@ -63,17 +67,17 @@ export default function ProfileHeader() {
               <>
                 <Title
                   as="h1"
-                  className="text-lg font-bold capitalize leading-normal text-gray-900 @3xl:!text-xl 3xl:text-2xl"
+                  className="text-lg font-bold capitalize leading-normal text-gray-900 dark:text-gray-100 @3xl:!text-xl 3xl:text-2xl"
                 >
                   {displayName}
                 </Title>
                 {username && (
-                  <Text className="text-xs text-gray-500 @3xl:text-sm 3xl:text-base">
+                  <Text className="text-xs text-gray-500 dark:text-gray-400 @3xl:text-sm 3xl:text-base">
                     @{username}
                   </Text>
                 )}
                 {profile?.email && (
-                  <Text className="mt-1 text-xs text-gray-500 @3xl:text-sm 3xl:text-base">
+                  <Text className="mt-1 text-xs text-gray-500 dark:text-gray-400 @3xl:text-sm 3xl:text-base">
                     {profile.email}
                   </Text>
                 )}
@@ -82,11 +86,16 @@ export default function ProfileHeader() {
           </div>
         </div>
         <div className="pt-3 @3xl:pt-4">
-          <Link href={routes.forms.profileSettings}>
-            <Button variant="outline" className="font-500 text-gray-900">
+          {!editing && (
+            <Button
+              variant="outline"
+              onClick={onEdit}
+              disabled={showSkeleton}
+              className="font-500 text-gray-900 dark:text-gray-100"
+            >
               Edit Profile
             </Button>
-          </Link>
+          )}
         </div>
       </div>
     </div>

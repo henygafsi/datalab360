@@ -11,6 +11,7 @@ import {
 import { cn } from '@/lib/utils';
 import { discoverRelationships, getSchemaHealth } from '@/app/services/explore-design/de-objects';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 interface DetectedModel {
   id: string;
@@ -66,6 +67,16 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [health, setHealth] = useState<SchemaHealth | null>(null);
+
+  // System-2 Action-RBAC gate for the model-detection run. The underlying call
+  // (POST /explore-design/{pid}/ai/discover-relationships) is gated by the
+  // backend `require_module("explore_design")`; the write/AI-assist action in
+  // that module is `create` (matches ContextRightBar). Project-scoped, fail-open
+  // while the allow-set loads; honest-disable only on a resolved denial.
+  const detectPerm = useCanPerform('explore_design', 'create', projectId);
+  const canDetect = detectPerm.allowed || detectPerm.loading;
+  const detectDeniedReason =
+    'You lack the "create" permission on explore & design. Ask an administrator to grant it.';
 
   const runDetection = useCallback(async () => {
     if (!projectId || !sourceTables?.length) return;
@@ -149,7 +160,8 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
           size="lg"
           className="gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg"
           onClick={runDetection}
-          disabled={loading || !sourceTables?.length}
+          disabled={loading || !sourceTables?.length || !canDetect}
+          title={!canDetect ? detectDeniedReason : undefined}
         >
           {loading ? <Loader size="sm" /> : <Boxes className="h-4 w-4" />}
           Detect Models
@@ -214,7 +226,14 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
           </p>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={runDetection} className="gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={runDetection}
+            disabled={!canDetect}
+            title={!canDetect ? detectDeniedReason : undefined}
+            className="gap-1.5"
+          >
             <RefreshCw className="h-3 w-3" />Re-detect
           </Button>
           <Link href={`/explore-design?project=${encodeURIComponent(projectId)}`}>

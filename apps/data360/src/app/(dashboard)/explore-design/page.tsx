@@ -81,6 +81,7 @@ import {
   useEventStore,
   createPrimaryKeyEvent,
   createMaskingPolicyEvent,
+  createIngestionModeEvent,
   EventType
 } from './stores/event-store';
 import CreateTableModal, { SnowflakeTableType } from './components/CreateTableModal';
@@ -94,16 +95,8 @@ import StreamModal from './components/StreamModal';
 import AlertModal from './components/AlertModal';
 import EventTableModal from './components/EventTableModal';
 import { ActionRail } from '@/app/shared/action-rail';
-// R6 — per-project ADN header badge. We import the read-only ADN primitives
-// (icons + tone/rating helpers) but NOT the stock <AdnScoreCard> component: its
-// `score` is a required number with no null path, so it can't honour the hard
-// rule that an axis with no per-project source renders "—" (never a fake 0 or a
-// fabricated neutral band). We therefore render a small AdnScoreCard-faithful
-// strip locally (below) that DOES emit "—". Fed by the same per-project rollup
-// the ProjectInspectorPanel uses.
-import { AXIS_ICON, adnTone, ratingLabel } from '@/app/shared/command-center/AdnAxes';
-import { useProjectRollup } from '@/app/shared/score-cards/useProjectRollup';
-import type { ProjectRollup, ScoreCardDimension } from '@/app/services/command-center/score-cards';
+// R6 — per-project ADN header badge: the consolidated, null-aware 5-axis strip.
+import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import HybridTableModal from './components/HybridTableModal';
 import IngestionConfigPanel from './components/IngestionConfigPanel';
 import TemplateLibrary from './components/TemplateLibrary';
@@ -121,7 +114,7 @@ import EventTemplatePickerModal from './components/EventTemplatePickerModal';
 import AiFeatureToggle from './components/AiFeatureToggle';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { useAiAnalysis } from './hooks/useAiAnalysis';
-import { useAiFeatures } from './stores/ai-store';
+import { useAiFeatures, useAiSuggestions, type AiSuggestion } from './stores/ai-store';
 import {
   DWH_TEMPLATE_TABLES,
   DWH_TEMPLATE_RELATIONSHIPS,
@@ -904,261 +897,54 @@ function categorizeColumns(columns: ColumnInfo[]) {
   return { primaryKeys, nullable, sensitive };
 }
 
-// ── R6: per-project ADN 5-axis header badge ──────────────────────────────────
-// `<ExploreAdnBadge>` renders the 5 ADN axes (Qualité · Perf · Sécurité ·
-// Stockage · Usage) for the selected project, fed by the precomputed rollup
-// (`useProjectRollup` → GET /command-center/projects/{id}/rollup) — the SAME
-// source ProjectInspectorPanel uses. It is a local, AdnScoreCard-faithful strip
-// (not the stock component) because an axis with no genuine per-project source
-// MUST render an honest "—" rather than a fabricated band score; the stock
-// component's required `number` score can't express that. Tone classes are
-// static literal bundles so Tailwind always generates them (no safelist gap).
-
-type ExploreAdnAxis = {
-  key: 'DQ' | 'PERF' | 'SEC' | 'STORAGE' | 'USAGE';
-  label: string;
-  /** null = no per-project source → render "—" (never a fake 0 / neutral band). */
-  score: number | null;
-  desc: string;
-};
-
-type AdnTone = 'emerald' | 'amber' | 'rose';
-const ADN_TONE: Record<AdnTone, { chip: string; icon: string; score: string; pill: string }> = {
-  emerald: {
-    chip: 'bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40',
-    icon: 'text-emerald-500',
-    score: 'text-emerald-700 dark:text-emerald-300',
-    pill: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-  },
-  amber: {
-    chip: 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/20 dark:hover:bg-amber-900/40',
-    icon: 'text-amber-500',
-    score: 'text-amber-700 dark:text-amber-300',
-    pill: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  },
-  rose: {
-    chip: 'bg-rose-50 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/40',
-    icon: 'text-rose-500',
-    score: 'text-rose-700 dark:text-rose-300',
-    pill: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
-  },
-};
-const ADN_EMPTY = {
-  chip: 'border border-slate-200 bg-transparent dark:border-slate-700',
-  icon: 'text-slate-400 dark:text-slate-500',
-  score: 'text-slate-400 dark:text-slate-500',
-  pill: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
-};
-
-const ADN_BAND = { good: 85, warn: 65, bad: 42 } as const;
-const adnNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-const adnPct = (v: number): string => `${Number.isInteger(v) ? v : Math.round(v * 10) / 10}%`;
-const adnStorage = (mb: number): string => (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`);
-
-// Maps the per-project rollup into the 5 ADN axes. An axis is `score: null`
-// (→ "—") ONLY when the per-project source is genuinely absent — NOT when a real
-// value is 0 (e.g. 0 events is a true low-usage signal, kept as a real score).
-function deriveExploreAdn(rollup: ProjectRollup): ExploreAdnAxis[] {
-  const card = (d: ScoreCardDimension) => rollup.cards.find((c) => c.dimension === d);
-  const sup = (c?: { supporting?: Record<string, unknown> }) =>
-    (c?.supporting ?? {}) as Record<string, unknown>;
-
-  const dq = card('dq');
-  const perf = card('perf');
-  const gov = card('gov');
-  const storage = card('storage');
-
-  // DQ (Qualité) — coverage % only when scored from this project's own objects.
-  const dqVal = adnNum(dq?.value);
-  const dqProject = dq?.scope === 'project';
-  const dqAxis: ExploreAdnAxis = {
-    key: 'DQ',
-    label: 'Qualité',
-    score: dqVal != null && dqProject ? Math.round(dqVal) : null,
-    desc:
-      dqVal != null && dqProject
-        ? `Couverture qualité ${adnPct(dqVal)} sur les objets de ce projet.`
-        : 'Pas de source qualité par-projet (objets non monitorés) — affiché « — ».',
-  };
-
-  // PERF — 100 − fail-rate% (null when no runs are recorded for the project).
-  const failRate = adnNum(perf?.value);
-  const totalRuns = adnNum(sup(perf).total_runs);
-  const perfAxis: ExploreAdnAxis = {
-    key: 'PERF',
-    label: 'Perf',
-    score: failRate != null ? Math.max(0, Math.min(100, Math.round(100 - failRate))) : null,
-    desc:
-      failRate != null
-        ? `Taux d'échec ${adnPct(failRate)}${totalRuns != null ? ` · ${totalRuns} run(s)` : ''}.`
-        : 'Aucun run enregistré pour ce projet — affiché « — ».',
-  };
-
-  // SEC (Sécurité) — banded from contributors + active RLS; null when the gov
-  // supporting object is absent (no per-project governance signal at all).
-  const contributors = adnNum(sup(gov).contributors);
-  const rls = adnNum(sup(gov).active_rls_policies);
-  const hasGovSignal = contributors != null || rls != null;
-  const secAxis: ExploreAdnAxis = {
-    key: 'SEC',
-    label: 'Sécurité',
-    score: hasGovSignal
-      ? contributors === 0
-        ? ADN_BAND.bad
-        : rls === 0
-          ? ADN_BAND.warn
-          : ADN_BAND.good
-      : null,
-    desc: hasGovSignal
-      ? `${contributors ?? '—'} contributeur(s) · ${rls ?? '—'} policy RLS active(s).`
-      : 'Pas de signal de gouvernance par-projet — affiché « — ».',
-  };
-
-  // STORAGE — banded footprint ONLY when per-project attributed; account-level or
-  // unattributed → "—" (there is no honest per-project storage figure otherwise).
-  const mb = adnNum(storage?.value) ?? adnNum(sup(storage).storage_mb);
-  const storageProject = storage?.scope === 'project';
-  const storAxis: ExploreAdnAxis = {
-    key: 'STORAGE',
-    label: 'Stockage',
-    score: mb != null && storageProject ? (mb > 500 ? ADN_BAND.warn : ADN_BAND.good) : null,
-    desc:
-      mb != null && storageProject
-        ? `${adnStorage(mb)} attribués à ce projet.`
-        : 'Aucune attribution de stockage par-projet — affiché « — ».',
-  };
-
-  // USAGE — adoption over the window. A real 0 (no events) is a true low signal,
-  // kept as a real score; only a non-finite count would be "—".
-  const events = adnNum(rollup.eventCount30d);
-  const usageAxis: ExploreAdnAxis = {
-    key: 'USAGE',
-    label: 'Usage',
-    score: events != null ? (events === 0 ? ADN_BAND.bad : events >= 20 ? ADN_BAND.good : ADN_BAND.warn) : null,
-    desc:
-      events != null
-        ? `${events} évènement(s) sur la fenêtre${totalRuns != null ? ` · ${totalRuns} run(s)` : ''}.`
-        : 'Aucune donnée d’activité par-projet — affiché « — ».',
-  };
-
-  return [dqAxis, perfAxis, secAxis, storAxis, usageAxis];
-}
-
-// Hover popover for one axis (or the overall chip when `axis` is omitted).
-function AdnAxisPopover({ axis, overall }: { axis?: ExploreAdnAxis; overall?: number | null }) {
-  const score = axis ? axis.score : overall ?? null;
-  const label = axis ? axis.label : 'Note ADN globale';
-  const pill = score != null ? ADN_TONE[adnTone(score) as AdnTone].pill : ADN_EMPTY.pill;
-  return (
-    <div className="invisible absolute right-0 top-full z-50 mt-1.5 w-64 translate-y-1 rounded-xl border border-gray-200 bg-white p-3 text-left opacity-0 shadow-xl transition-all duration-150 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 dark:border-gray-700 dark:bg-gray-900">
-      <div className="mb-1 flex items-center gap-2">
-        <span className="text-xs font-semibold text-gray-900 dark:text-white">{label}</span>
-        <span className={cn('ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold', pill)}>
-          {score != null ? `${score}/100 · ${ratingLabel(score)}` : '— · indisponible'}
-        </span>
+/**
+ * ModelOverview — the model-general landing for the modeling right cockpit when
+ * no node is selected (replaces the bare empty canvas / 6× "Select a table").
+ * Pure read summary from page-level data already in hand: #tables, #relations,
+ * target DWH, and the per-project 5-axis ADN badge (self-hides when no rollup).
+ * Honest "—" when a value isn't known (no fabricated zeros).
+ */
+function ModelOverview({ tableCount, relationCount, targetDwh, projectId }: {
+  tableCount: number; relationCount: number; targetDwh: string; projectId: string | null;
+}) {
+  const Stat = ({ icon: Icon, label, value, tone }: { icon: React.ElementType; label: string; value: React.ReactNode; tone: string }) => (
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon className={cn('h-3.5 w-3.5', tone)} />
+        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{label}</span>
       </div>
-      <p className="text-[11px] leading-snug text-gray-500 dark:text-gray-400">
-        {axis
-          ? axis.desc
-          : 'Score composite des axes par-projet (Qualité · Perf · Sécurité · Stockage · Usage). Les axes sans source par-projet affichent « — ».'}
-      </p>
+      <p className="text-lg font-bold text-slate-800 dark:text-slate-100 font-mono truncate">{value}</p>
     </div>
   );
-}
-
-// One axis chip — real score in its tone, or a muted "—" when the source is absent.
-function AdnAxisChip({ axis }: { axis: ExploreAdnAxis }) {
-  const Icon = AXIS_ICON[axis.key];
-  const t = axis.score != null ? ADN_TONE[adnTone(axis.score) as AdnTone] : ADN_EMPTY;
   return (
-    <div className="group relative">
-      <button
-        type="button"
-        aria-label={axis.score != null ? `${axis.label} ${axis.score} sur 100` : `${axis.label} indisponible`}
-        className={cn('flex items-center gap-0.5 rounded-md px-1 py-0.5 transition-colors', t.chip)}
-      >
-        {Icon && <Icon className={cn('h-3.5 w-3.5', t.icon)} />}
-        <span className={cn('text-[10px] font-semibold', t.score)}>{axis.score != null ? axis.score : '—'}</span>
-      </button>
-      <AdnAxisPopover axis={axis} />
+    <div className="p-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <Workflow className="h-4 w-4 text-blue-500" />
+        <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Model overview</h4>
+      </div>
+      <p className="text-[11px] text-slate-500">Select a table in the canvas to see contextual actions, or review the model summary below.</p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Stat icon={Table2} label="Tables" value={tableCount} tone="text-blue-500" />
+        <Stat icon={GitBranch} label="Relations" value={relationCount} tone="text-purple-500" />
+        <Stat icon={Database} label="Target DWH" value={targetDwh || '—'} tone="text-cyan-500" />
+        <Stat icon={Layers} label="Project" value={projectId ? 'Linked' : '—'} tone="text-emerald-500" />
+      </div>
+
+      {/* Per-project ADN — self-hides (renders nothing) when no rollup exists,
+          so this never shows a fabricated score. */}
+      {projectId && (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Data health (ADN)</span>
+          <div className="flex">
+            <AdnHeaderBadge projectId={projectId} compact />
+          </div>
+        </div>
+      )}
+
+      <p className="text-[10px] text-slate-400 italic">Use the canvas Fit / Auto-layout controls to arrange the model. Click a node to inspect and act on it.</p>
     </div>
   );
-}
-
-// The compact strip: ADN label + 5 axis chips + overall roll-up chip.
-function AdnStrip({ axes, overall }: { axes: ExploreAdnAxis[]; overall: number | null }) {
-  const pill = overall != null ? ADN_TONE[adnTone(overall) as AdnTone].pill : ADN_EMPTY.pill;
-  return (
-    <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2 py-1 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-      <span className="mr-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-400">ADN</span>
-      {axes.map((a) => (
-        <AdnAxisChip key={a.key} axis={a} />
-      ))}
-      <div className="group relative">
-        <button
-          type="button"
-          aria-label={overall != null ? `Note ADN globale ${overall} sur 100` : 'Note ADN globale indisponible'}
-          className={cn('ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold', pill)}
-        >
-          {overall != null ? overall : '—'}
-        </button>
-        <AdnAxisPopover overall={overall} />
-      </div>
-    </div>
-  );
-}
-
-// Public badge: isolates the rollup hook so the giant page component stays clean
-// and the hook is unconditional. Honest states: no project → nothing; loading →
-// skeleton; unavailable/error → muted "ADN —"; data → the per-project strip.
-function ExploreAdnBadge({ projectId }: { projectId: string | null }) {
-  const { data, loading, error, unavailable } = useProjectRollup(projectId);
-
-  // No project context → nothing to score (don't fabricate an account-level ADN).
-  if (!projectId) return null;
-
-  // Loading (incl. the first paint before the effect runs) → skeleton strip, so
-  // we never flash the muted state before data arrives (no placeholder zeros).
-  // `useProjectRollup` clears `data` at the start of every fetch, so this also
-  // covers refetches without regressing to a stale strip.
-  if ((loading || !data) && !unavailable && !error) {
-    return (
-      <div
-        className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-2 py-1 shadow-sm dark:border-gray-700 dark:bg-gray-900"
-        aria-hidden="true"
-      >
-        <span className="mr-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-400">ADN</span>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <span key={i} className="h-4 w-5 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
-        ))}
-      </div>
-    );
-  }
-
-  // Unavailable (404/501) / genuine error → honest muted chip. The badge is
-  // present but carries no per-project data — never a fabricated score.
-  if (unavailable || error || !data) {
-    return (
-      <div
-        title={
-          unavailable
-            ? 'ADN par-projet non provisionné sur ce backend.'
-            : 'ADN par-projet momentanément indisponible.'
-        }
-        className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2 py-1 shadow-sm dark:border-slate-700 dark:bg-slate-900"
-      >
-        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400">ADN</span>
-        <span className="text-[11px] font-semibold text-slate-400">—</span>
-      </div>
-    );
-  }
-
-  const axes = deriveExploreAdn(data);
-  // Overall = mean over the axes that have a REAL score; zero real axes → "—"
-  // (guards against adnOverall([]) === 0, which would be a fake 0).
-  const real = axes.map((a) => a.score).filter((s): s is number => s != null);
-  const overall = real.length ? Math.round(real.reduce((s, v) => s + v, 0) / real.length) : null;
-  return <AdnStrip axes={axes} overall={overall} />;
 }
 
 // Main Page Component
@@ -1277,7 +1063,7 @@ export default function ExploreDesignPage() {
   const [showBulkPKModal, setShowBulkPKModal] = useState(false);
   const [showBulkMaskingModal, setShowBulkMaskingModal] = useState(false);
   const [showRelationsModal, setShowRelationsModal] = useState(false);
-  const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+  // (deployment is now a docked right-bar tab, not a modal — no open/close state)
   const [showAiGuidedWizard, setShowAiGuidedWizard] = useState(false);
   // Plain-English description seeded into the AI model wizard when the user
   // picked the AI fork in the UnifiedProjectWizard / "Change approach".
@@ -1393,6 +1179,29 @@ export default function ExploreDesignPage() {
   const [rightBarOpen, setRightBarOpen] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState<RightBarTab>('actions');
   const [focusedAction, setFocusedAction] = useState<FocusedAction>(null);
+  // T1 unification bridge: ModelingCanvas registers its live context-action
+  // dispatcher here so the unified ContextRightBar's "Modeling actions" group can
+  // route table actions (FK/relation/PK/duplicate/DE-tables/exclude) through the
+  // SAME handleNodeContextAction path the old node menu used. Ref (not state) so
+  // registration never triggers a re-render.
+  const canvasActionDispatchRef = useRef<((tableId: string, action: string) => void) | null>(null);
+  const handleNodeContextAction = useCallback((tableId: string, action: string) => {
+    canvasActionDispatchRef.current?.(tableId, action);
+  }, []);
+  // A node's "more"/context action opens the ONE right bar on its Actions tab
+  // (replaces the retired standalone TableOptionsSidebar). selectedTable is set by
+  // the canvas via onTableSelect before this fires; we only need to open + focus.
+  const handleOpenContextBar = useCallback((table: TableItem) => {
+    setSelectedTable(table);
+    setActiveRightTab('actions');
+    setFocusedAction(null);
+    setRightBarOpen(true);
+  }, []);
+  // Stable so it doesn't defeat ModelingCanvas's React.memo or re-run its register
+  // effect every render. Stores the canvas's live dispatcher into the ref above.
+  const handleRegisterActionDispatch = useCallback((dispatch: (tableId: string, action: string) => void) => {
+    canvasActionDispatchRef.current = dispatch;
+  }, []);
   const [classificationDetails, setClassificationDetails] = useState<Array<{ column: string; category: string; tags?: string[]; confidence?: number; description?: string; piiRisk?: string; suggestion?: string }>>([]);
   // Conflict detection modal
   const [showConflictModal, setShowConflictModal] = useState(false);
@@ -1432,6 +1241,11 @@ export default function ExploreDesignPage() {
 
   // AI analysis — runs analyzers against events when toggles/events change
   useAiAnalysis(events);
+
+  // AI suggestion apply path (Class A — LOCAL canvas dispatches, no backend
+  // route → no 404/501 gate). markApplied keeps the row visible with an
+  // "Applied" state; the action CTA is the SOLE apply path.
+  const { markApplied: markAiSuggestionApplied } = useAiSuggestions(selectedProjectId);
 
   // ── Auto-sync DDL actions to backend ────────────────────────────────────
   // Maps local event ID → backend DDL event_id for add/remove tracking
@@ -1653,8 +1467,10 @@ export default function ExploreDesignPage() {
     const blocked = pendingConflictAction.current;
     if (blocked?.type === 'deploy') {
       pendingConflictAction.current = null;
-      // Re-open deployment modal now that conflict is resolved
-      setShowDeploymentModal(true);
+      // Conflict resolved — resume deploy by switching to the docked Deploy tab
+      // (the 8-step stepper now lives in the right bar, not a modal).
+      setActiveRightTab('deploy');
+      setRightBarOpen(true);
     }
 
     setCurrentConflict(null);
@@ -2243,6 +2059,12 @@ export default function ExploreDesignPage() {
     setRightBarOpen(true);
     setActiveRightTab('actions');
   }, [selectedTable?.id, selectedProjectId]);
+  // Entering modeling with nothing selected: open the right cockpit so the model
+  // overview is visible without a click (it replaces the bare empty canvas). The
+  // user can still collapse it to the w-12 mini-rail to reclaim canvas width.
+  useEffect(() => {
+    if (viewMode === 'modeling') setRightBarOpen(true);
+  }, [viewMode]);
   useEffect(() => {
     if (!showInlinePreview || !selectedTable || !selectedProjectId) return;
     let cancelled = false;
@@ -2436,6 +2258,10 @@ export default function ExploreDesignPage() {
   const handleTableClick = useCallback((table: TableItem) => {
     setSelectedTable(table);
     setSelectedColumns(new Set());
+    // Selecting a table lands the unified right bar on its Actions tab (T1 spec):
+    // one click → one bar, focused on the table's actions. Consistent across the
+    // catalog list and the modeling canvas (both route user clicks through here).
+    setActiveRightTab('actions');
     // Auto-collapse the Source Tables rail on select so the detail + actions
     // get the full width; the "Show Sources" toggle reopens it.
     setShowSidebar(false);
@@ -3082,6 +2908,96 @@ export default function ExploreDesignPage() {
     setSelectedTables(new Set());
   }, [selectedTables, selectedColumns, tables, tableColumnsMap, selectedProjectId, addEvent]);
 
+  // Apply a LOCAL AI suggestion's action CTA to the canvas event store.
+  // Class A (local) only: these dispatch a `eventType`+`payload` into the draft
+  // event store — there is no backend route, so NO 404/501 gate applies. Honesty
+  // here = the click visibly queues a real, undoable event; otherwise we must NOT
+  // claim "Applied". Two analyzer actions (rename, FK) carry no resolvable source
+  // table in their payload and FK uses singular keys the event validator rejects,
+  // so they cannot produce a real targeted event from the action alone — we fail
+  // honestly (info toast, no "Applied") rather than queue a silent no-op.
+  const handleAiSuggestionAction = useCallback((suggestion: AiSuggestion) => {
+    const action = suggestion.action;
+    if (!action || !action.eventType) {
+      toast('This suggestion is advisory only.', { icon: 'ℹ️' });
+      return;
+    }
+    if (isReadOnly) {
+      toast.error('You have view-only access to this project');
+      return;
+    }
+    if (!selectedProjectId) {
+      toast.error('Select a project first');
+      return;
+    }
+
+    const payload = action.payload ?? {};
+    // Resolve a full {database, schema, table} target from the bare table name
+    // the analyzer carries — reuse the existing tables-by-name lookup pattern.
+    const tableName: string | undefined = payload.table;
+    const resolved = tableName ? tables.find(t => t.table === tableName) : undefined;
+    const target = resolved
+      ? { database: resolved.database, schema: resolved.schema, table: resolved.table }
+      : undefined;
+
+    let newId: string | null = null;
+
+    switch (action.eventType) {
+      case 'MASKING_POLICY_APPLIED': {
+        // Analyzer payload is {columnName, table, policyType} — normalize to the
+        // {policyName, columns[]} shape the masking event validator + deploy SQL
+        // gen require. We ALSO carry `columnName` so the masking analyzer (which
+        // builds its already-masked set from payload.columnName) recognizes this
+        // event on the next re-analysis and resolves the suggestion instead of
+        // re-surfacing it as if nothing happened. Extra field is inert to SQL gen.
+        const columnName: string | undefined = payload.columnName;
+        if (!target || !columnName) break;
+        const policyName = `AUTO_MASK_${(payload.policyType || 'SHA256')}`.toUpperCase();
+        const base = createMaskingPolicyEvent(target, policyName, [columnName], true);
+        newId = addEvent({
+          ...base,
+          payload: { ...base.payload, columnName },
+          projectId: selectedProjectId,
+        });
+        break;
+      }
+      case 'INGESTION_MODE_SET': {
+        const mode = payload.mode;
+        if (!target || !mode) break;
+        newId = addEvent({
+          ...createIngestionModeEvent(target, mode),
+          projectId: selectedProjectId,
+        });
+        break;
+      }
+      case 'SCD_CONFIGURED': {
+        const scdType = payload.scdType;
+        if (!target || !scdType) break;
+        newId = addEvent({
+          type: 'SCD_CONFIGURED',
+          projectId: selectedProjectId,
+          target,
+          payload: { scdType },
+        });
+        break;
+      }
+      default:
+        // TABLE_RENAMED, FOREIGN_KEY_ADDED, DRY_RUN, etc. — no honest local
+        // dispatch is possible from the suggestion payload alone. Do NOT fake it.
+        toast('Open the table actions to apply this change.', { icon: 'ℹ️' });
+        return;
+    }
+
+    if (newId) {
+      markAiSuggestionApplied(suggestion);
+      toast.success(`Applied "${action.label}" to canvas`);
+    } else {
+      // Either the target table is no longer in the catalog, or the event store
+      // deduped/rejected it. Be honest — never show "Applied" for a no-op.
+      toast.error(`Couldn't apply "${action.label}" — open the table actions instead`);
+    }
+  }, [isReadOnly, selectedProjectId, tables, addEvent, markAiSuggestionApplied]);
+
   const handleSearchResultClick = useCallback((result: GlobalSearchResult) => {
     if (result.type === 'table' && result.database && result.schema) {
       const table = tables.find(t => t.table === result.name && t.schema === result.schema);
@@ -3442,6 +3358,41 @@ export default function ExploreDesignPage() {
     setShowEventPanel(savedPanelState.event);
   }, [savedPanelState]);
 
+  // ── Deploy tab body (docked, no modal) ──
+  // The 8-step deployment stepper now lives INSIDE the right-bar "Deploy" tab as
+  // an embedded stepper (redesign R1/R2 — match the workflow module's
+  // deploy-in-a-tab). This node is injected into ContextRightBar via
+  // `deployOverride` for both the catalog and modeling views. Permission gating
+  // and the event-store-seeded DeploymentValidation logic are unchanged — only
+  // the host (modal → docked panel) differs. We intentionally pass no `onClose`
+  // so the embedded stepper stays put (no auto-close on verify success).
+  const deployTabNode = (
+    <ErrorBoundary>
+      {selectedProjectId ? (
+        <PermissionGate
+          module="explore_design"
+          action="deploy"
+          projectId={selectedProjectId}
+          title="Deployment restricted"
+          description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to Snowflake requires an administrator to grant deploy access."
+        >
+          <DeploymentValidation
+            embedded
+            database={selectedDatabase}
+            schemas={schemaKeys}
+            projectId={selectedProjectId}
+          />
+        </PermissionGate>
+      ) : (
+        <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-400">
+          <Rocket className="mb-3 h-8 w-8 text-slate-300" />
+          <p className="text-sm font-medium">Select a project to deploy</p>
+          <p className="mt-1 text-xs">Choose a project, then your pending changes appear here for review &amp; deploy.</p>
+        </div>
+      )}
+    </ErrorBoundary>
+  );
+
   return (
     <ErrorBoundary>
     <div className={cn(
@@ -3579,7 +3530,7 @@ export default function ExploreDesignPage() {
             {/* R6 — per-project 5-axis ADN. Honest "—" per axis with no
                 per-project source; muted "ADN —" when the rollup is unprovisioned
                 (404/501) or errors; hidden until a project is selected. */}
-            <ExploreAdnBadge projectId={selectedProjectId} />
+            <AdnHeaderBadge projectId={selectedProjectId} />
             <GlobalSearch
               value={searchQuery}
               onChange={setSearchQuery}
@@ -3703,17 +3654,6 @@ export default function ExploreDesignPage() {
                       setIsLoadingSchemas(false);
                     }
                   },
-                },
-                {
-                  label: 'Import',
-                  icon: Upload,
-                  onClick: () => {},
-                  disabled: isReadOnly,
-                },
-                {
-                  label: 'Export',
-                  icon: Download,
-                  onClick: () => {},
                 },
                 {
                   label: showSidebar ? 'Hide Sources' : 'Show Sources',
@@ -3925,8 +3865,11 @@ export default function ExploreDesignPage() {
         )}
 
         {/* LEFT Panel - Tables List (collapsible) — workspace hidden until a
-            project is selected so the empty state above can take full space. */}
-        {selectedProjectId && showSidebar && viewMode === 'catalog' && (() => {
+            project is selected so the empty state above can take full space.
+            Now ALSO shown in modeling view: a source-selection rail to inject
+            source tables into the React-Flow model (select → "Add to Modeling"),
+            harmonizing modeling with catalog (Power-BI-Desktop style). */}
+        {selectedProjectId && showSidebar && (viewMode === 'catalog' || viewMode === 'modeling') && (() => {
           const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
           const allSelected = selectedTables.size === catalogTables.length && catalogTables.length > 0;
           return (
@@ -4493,8 +4436,9 @@ export default function ExploreDesignPage() {
                 selectedDatabase={selectedDatabase}
                 selectedSchema={schemas[0] || ''}
                 userRole={sessionRole || (userRole as string) || undefined}
-                onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'catalog', pendingEvents: displayablePendingEvents.length }); setShowDeploymentModal(true); }}
+                onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'catalog', pendingEvents: displayablePendingEvents.length }); setActiveRightTab('deploy'); setRightBarOpen(true); }}
                 onDeselectTable={() => { setSelectedTable(null); setRightBarOpen(false); }}
+                deployOverride={deployTabNode}
               />
               </div>{/* end center+right row */}
             </>
@@ -4502,8 +4446,14 @@ export default function ExploreDesignPage() {
 
 
           {viewMode === 'modeling' && (
-            // Modeling View
-            <div className="flex-1 overflow-hidden relative">
+            // Modeling View — canvas + right action cockpit (mirrors catalog).
+            // Flex row: the canvas child carries `min-w-0` so it yields/reclaims
+            // width when the right cockpit collapses, and `<ContextRightBar/>` is
+            // a shrink-0 sibling (its own w-12 mini-rail handles the collapsed
+            // state). The fullscreen header stays absolutely positioned inside
+            // the canvas child.
+            <div className="flex-1 overflow-hidden flex">
+            <div className="flex-1 min-w-0 overflow-hidden relative">
               {/* Fullscreen Header */}
               {isFullscreen && (
                 <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b dark:border-slate-800">
@@ -4681,7 +4631,8 @@ export default function ExploreDesignPage() {
                           }
                         }
                         trackFeatureClick('deploy', { view: 'modeling', pendingEvents: displayablePendingEvents.length });
-                        setShowDeploymentModal(true);
+                        setActiveRightTab('deploy');
+                        setRightBarOpen(true);
                       }}
                       disabled={!selectedProjectId || isReadOnly}
                     >
@@ -4701,7 +4652,10 @@ export default function ExploreDesignPage() {
                 tableColumns={tableColumnsMap}
                 onColumnsMapUpdate={setTableColumnsMap}
                 onTableSelect={handleTableClick}
+                selectedTableId={selectedTable?.id}
                 onTableExclude={handleRemoveFromModeling}
+                onOpenContextBar={handleOpenContextBar}
+                onRegisterActionDispatch={handleRegisterActionDispatch}
                 isReadOnly={isReadOnly}
                 onRelationCreate={async (source, target, sourceCol, targetCol, transformation) => {
                   if (readOnlyGuard()) return;
@@ -4823,6 +4777,57 @@ export default function ExploreDesignPage() {
                 initialMappings={initialColumnMappings}
               />
               </ErrorBoundary>
+            </div>
+
+              {/* Right action cockpit — same component as catalog, fed the
+                  modeling-selected node as selectedTable. When nothing is
+                  selected it shows the model overview (counts / target DWH /
+                  ADN) instead of the bare empty canvas. Collapsible via its own
+                  w-12 mini-rail (reuses rightBarOpen / onToggle). */}
+              <ContextRightBar
+                selectedTable={selectedTable}
+                tableColumns={tableColumns}
+                projectId={selectedProjectId}
+                isOpen={rightBarOpen}
+                onToggle={() => setRightBarOpen(!rightBarOpen)}
+                activeTab={activeRightTab}
+                onTabChange={setActiveRightTab}
+                focusedAction={focusedAction}
+                onFocusAction={setFocusedAction}
+                columnClassifications={columnClassifications}
+                classificationDetails={classificationDetails}
+                isClassifying={isClassifying}
+                classifyUnavailable={classifyUnavailable}
+                onRunClassify={handleAIClassify}
+                onAddEvent={addEvent}
+                profileData={inlineProfileData}
+                historyEvents={events.slice(0, 50).map((e: any) => ({
+                  id: e.id || String(Math.random()),
+                  type: e.type || 'Event',
+                  status: (e.status === 'deployed' || e.status === 'success') ? 'success' as const : e.status === 'error' ? 'error' as const : e.status === 'warning' ? 'warning' as const : 'pending' as const,
+                  actor: e.createdBy || e.actor || currentUsername || 'System',
+                  timestamp: e.createdAt || e.timestamp || new Date().toISOString(),
+                  object: e.target?.table || e.target?.schema || '—',
+                  message: e.error || undefined,
+                }))}
+                pendingEventsCount={displayablePendingEvents.length}
+                pendingEvents={displayablePendingEvents}
+                selectedDatabase={selectedDatabase}
+                selectedSchema={selectedTable?.schema || schemas[0] || ''}
+                userRole={sessionRole || (userRole as string) || undefined}
+                onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'modeling', pendingEvents: displayablePendingEvents.length }); setActiveRightTab('deploy'); setRightBarOpen(true); }}
+                onDeselectTable={() => { setSelectedTable(null); }}
+                onNodeAction={handleNodeContextAction}
+                deployOverride={deployTabNode}
+                emptyOverride={
+                  <ModelOverview
+                    tableCount={modelingTableIds.size}
+                    relationCount={defaultRelationships.length + initialColumnMappings.length}
+                    targetDwh={selectedDatabase || dwhTargetDatabase || ''}
+                    projectId={selectedProjectId}
+                  />
+                }
+              />
             </div>
           )}
         </div>
@@ -5076,34 +5081,15 @@ export default function ExploreDesignPage() {
             </button>
           </div>
           <div className="flex-1 overflow-auto p-5">
-            <AiFeatureToggle />
+            <AiFeatureToggle onSuggestionAction={handleAiSuggestionAction} />
           </div>
         </div>
       )}
 
-      {/* Deployment Modal — B1-B5 pipeline is now inside DeploymentValidation */}
-      <Modal
-        isOpen={showDeploymentModal}
-        onClose={() => setShowDeploymentModal(false)}
-        customSize="1050px"
-      >
-        <ErrorBoundary>
-          <PermissionGate
-            module="explore_design"
-            action="deploy"
-            projectId={selectedProjectId}
-            title="Deployment restricted"
-            description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to Snowflake requires an administrator to grant deploy access."
-          >
-            <DeploymentValidation
-              onClose={() => setShowDeploymentModal(false)}
-              database={selectedDatabase /*|| 'CP_DATA360'*/}
-              schemas={schemaKeys}
-              projectId={selectedProjectId!}
-            />
-          </PermissionGate>
-        </ErrorBoundary>
-      </Modal>
+      {/* Deployment is no longer a centered modal — the 8-step stepper now lives
+          docked in the right-bar "Deploy" tab (see `deployTabNode`, injected into
+          ContextRightBar via `deployOverride`). The former <Modal> render was
+          removed per redesign R1/R2 (match the workflow module's deploy-in-a-tab). */}
 
       {/* AI-Guided Modeling Wizard — on approval it emits model events into the
           event store, then hands off to the existing DeploymentValidation
@@ -5123,7 +5109,10 @@ export default function ExploreDesignPage() {
             setShowAiGuidedWizard(false);
             setAiModelSeed('');
             setScanSeedTables([]);
-            setShowDeploymentModal(true);
+            // Hand off to the docked Deploy tab (stepper opens at Review, seeded
+            // by the event store) instead of the removed deployment modal.
+            setActiveRightTab('deploy');
+            setRightBarOpen(true);
           }}
         />
       )}

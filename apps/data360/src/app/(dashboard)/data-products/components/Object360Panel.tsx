@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
+import GovernancePostureCard, { type GovernancePostureData } from '@/app/shared/score-cards/GovernancePostureCard';
 import {
   getObjectActions,
   getObjectAudit,
@@ -361,67 +362,17 @@ function LineageList({ title, items }: { title: string; items: any[] }) {
 }
 
 function GovernanceTab({ data }: { data: any }) {
-  const tags: any[] = data?.tags ?? [];
-  const policies: any[] = data?.policies ?? [];
-  const metrics = [
-    { label: 'Governance score', value: data?.score == null ? '—' : `${Math.round(data.score)}` },
-    { label: 'Sensitive cols', value: num(data?.sensitive_columns) },
-    { label: 'Masked', value: num(data?.masked_sensitive_columns) },
-    { label: 'Unprotected', value: num(data?.unprotected_sensitive_columns) },
-  ];
+  // Converged onto the shared GovernancePostureCard. The ObjectGovernance payload
+  // is count-based (score + sensitive/masked/unprotected counts + tags + policies),
+  // all of which map by name onto GovernancePostureData — and here
+  // `sensitive_columns` IS a number, so the whole object is safe to pass directly.
+  // No per-column array → the card renders the count grid without RED pills.
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-2">
-        {metrics.map((m) => (
-          <div
-            key={m.label}
-            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/50"
-          >
-            <p className="text-[10px] text-slate-500">{m.label}</p>
-            <p className="text-sm font-bold text-slate-900 dark:text-white">{m.value}</p>
-          </div>
-        ))}
-      </div>
-      {tags.length > 0 && (
-        <div>
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Tags
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {tags.map((t, i) => (
-              <span
-                key={i}
-                className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
-              >
-                {t.tag_name ?? '—'}
-                {t.tag_value ? `: ${t.tag_value}` : ''}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-      {policies.length > 0 && (
-        <div>
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Policies
-          </p>
-          <ul className="space-y-1">
-            {policies.map((p, i) => (
-              <li
-                key={i}
-                className="rounded-md bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
-              >
-                {p.policy_name ?? '—'}{' '}
-                <span className="text-slate-400">({p.policy_type ?? '—'})</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {tags.length === 0 && policies.length === 0 && (
-        <EmptyState icon={ShieldCheck} compact title="No tags or policies applied" />
-      )}
-    </div>
+    <GovernancePostureCard
+      compact
+      title="Governance"
+      data={(data ?? {}) as GovernancePostureData}
+    />
   );
 }
 

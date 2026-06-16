@@ -18,7 +18,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   AlertCircle,
-  AlertTriangle,
   BarChart3,
   Clock,
   DollarSign,
@@ -47,7 +46,8 @@ import {
   getProjectScoreCards,
   type ScoreCard,
 } from '@/app/services/command-center/score-cards';
-import { dash } from '@/app/shared/ui/format';
+import CostSummaryCard from '@/app/shared/score-cards/CostSummaryCard';
+import { useWorkflowSectionQuery } from './useWorkflowSectionCache';
 
 type AsyncState = 'idle' | 'running' | 'done' | 'error';
 
@@ -57,8 +57,18 @@ function getErrorStatus(err: unknown): number | null {
   return typeof status === 'number' ? status : null;
 }
 
-/** Tiny fetch helper matching the codebase idle/running/done/error pattern. */
-function useFetch<T>(fn: () => Promise<T>, enabled: boolean) {
+/**
+ * Tiny fetch helper matching the codebase idle/running/done/error pattern.
+ *
+ * When a `cacheKey` is supplied it delegates to the module-level
+ * `useWorkflowSectionQuery` cache so re-activating a tab serves cached data
+ * instead of refetching from scratch (the panel unmounts inactive sections).
+ * Without a `cacheKey` it keeps the original per-instance behaviour, so callers
+ * that don't pass one (the now-unused Runs/History tabs) compile untouched.
+ */
+function useFetch<T>(fn: () => Promise<T>, enabled: boolean, cacheKey?: string | null) {
+  const cached = useWorkflowSectionQuery<T>(cacheKey ?? null, fn, { enabled });
+
   const [state, setState] = useState<AsyncState>('idle');
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,8 +91,27 @@ function useFetch<T>(fn: () => Promise<T>, enabled: boolean) {
   }, []);
 
   useEffect(() => {
+    if (cacheKey) return; // cached path drives itself
     if (enabled) void reload();
-  }, [enabled, reload]);
+  }, [enabled, reload, cacheKey]);
+
+  if (cacheKey) {
+    const mapped: AsyncState =
+      cached.state === 'loading'
+        ? 'running'
+        : cached.state === 'done'
+          ? 'done'
+          : cached.state === 'error'
+            ? 'error'
+            : 'idle';
+    return {
+      state: mapped,
+      data: cached.data,
+      error: cached.error,
+      errorStatus: cached.errorStatus,
+      reload: cached.reload,
+    };
+  }
 
   return { state, data, error, errorStatus, reload };
 }
@@ -191,6 +220,7 @@ export function UsageTab({ workflowId, enabled }: { workflowId: string; enabled:
   const { state, data, error, reload } = useFetch<WorkflowRunSummary>(
     () => getRunSummary(workflowId),
     enabled,
+    `wf:${workflowId}:usage`,
   );
   if (state === 'running' || state === 'idle') return <Loading />;
   if (state === 'error') return <ErrorRow message={error ?? 'Failed to load usage'} onRetry={reload} />;
@@ -253,18 +283,6 @@ function fmtCredits(v: number | null | undefined): string {
   return v.toFixed(4);
 }
 
-function fmtUsd(v: number | null | undefined): string {
-  if (v == null || !Number.isFinite(v)) return '—';
-  return `$${v.toFixed(2)}`;
-}
-
-function fmtPct(v: number | null | undefined): string {
-  if (v == null || !Number.isFinite(v)) return '—';
-  // Backend emits 0–1 or 0–100 depending on source; normalise to a percentage.
-  const pct = v <= 1 ? v * 100 : v;
-  return `${Math.round(pct)}%`;
-}
-
 function shortQueryId(id: string | null | undefined): string {
   if (!id) return '—';
   return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
@@ -274,6 +292,7 @@ export function CostTab({ workflowId, enabled }: { workflowId: string; enabled: 
   const { state, data, error, errorStatus, reload } = useFetch<WorkflowCostSummary>(
     () => getWorkflowCostSummary(workflowId),
     enabled,
+    `wf:${workflowId}:cost`,
   );
   if (state === 'running' || state === 'idle') return <Loading />;
   if (state === 'error') {
@@ -289,65 +308,16 @@ export function CostTab({ workflowId, enabled }: { workflowId: string; enabled: 
   }
   if (!data) return <EmptyState icon={DollarSign} compact title="No cost data yet" />;
 
-  const stat = (label: string, value: string, tint?: string) => (
-    <div className="rounded-lg border border-slate-200 px-2.5 py-2 dark:border-slate-700">
-      <p className={cn('text-base font-semibold', tint ?? 'text-slate-800 dark:text-slate-100')}>{value}</p>
-      <p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p>
-    </div>
-  );
-
   const byRun = data.by_run ?? [];
   const byWarehouse = data.by_warehouse ?? [];
-  const warnings = data.warnings ?? [];
 
   return (
     <div className="space-y-2.5">
-      {/* Headline — credits + estimated USD (clearly an estimate) */}
-      <div className="grid grid-cols-2 gap-1.5">
-        {stat('Credits', fmtCredits(data.credits ?? data.attributed_credits))}
-        {stat(
-          data.estimate === false ? 'Cost (USD)' : 'Est. cost (USD)',
-          fmtUsd(data.estimated_cost_usd),
-          'text-amber-600 dark:text-amber-400',
-        )}
-      </div>
-
-      {/* Transparency badges — attributed vs total, runs, success rate */}
-      <div className="flex flex-wrap items-center gap-1">
-        <span
-          title="Credits attributed to this workflow's own queries (query attribution history)"
-          className="inline-flex items-center rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-        >
-          attributed {fmtCredits(data.attributed_credits)}
-        </span>
-        <span
-          title="Total credits in the lookback window — may include shared warehouse time not exclusive to this workflow"
-          className="inline-flex items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-        >
-          total {fmtCredits(data.total_credits)}
-        </span>
-        <span className="inline-flex items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          {dash(data.task_runs)} runs · {fmtPct(data.success_rate)} success
-        </span>
-        {data.lookback_days != null && (
-          <span className="text-[9px] text-slate-400">last {data.lookback_days}d</span>
-        )}
-      </div>
-
-      {/* Warnings — surfaced verbatim and honestly */}
-      {warnings.length > 0 && (
-        <ul className="space-y-1">
-          {warnings.map((w) => (
-            <li
-              key={w}
-              className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50/70 px-2 py-1 text-[10px] text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300"
-            >
-              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-              <span className="break-words">{w}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* Headline (attributed credits + est. USD) · attributed-vs-account-total
+          badges · warnings — the ONE shared cost card. The by-run / by-warehouse
+          breakdowns below are workflow-specific detail it doesn't carry, so they
+          stay to preserve behavior. */}
+      <CostSummaryCard data={data} compact />
 
       {/* Per-run credit breakdown */}
       <div>
@@ -450,6 +420,7 @@ export function GovernanceTab({ workflowId, enabled }: { workflowId: string; ena
   const { state, data, error, errorStatus, reload } = useFetch<ScoreCard[]>(
     () => getProjectScoreCards(workflowId),
     enabled,
+    `wf:${workflowId}:scores`,
   );
   if (state === 'running' || state === 'idle') return <Loading />;
   if (state === 'error') {
