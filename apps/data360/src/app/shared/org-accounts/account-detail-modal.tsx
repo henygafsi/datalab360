@@ -81,6 +81,16 @@ export default function AccountDetailModal({
     }
   }, [isOpen, account]);
 
+  // Close on Escape — keyboard parity now that there is no backdrop to click.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
+
   async function fetchAccountDetail() {
     if (!account) return;
 
@@ -100,14 +110,14 @@ export default function AccountDetailModal({
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Right-docked side panel — NO click-blocking backdrop, the page behind
+          stays interactive. Closes via the X button or Escape. */}
       <div
-        className="fixed inset-0 bg-black/50 z-40 transition-opacity"
-        onClick={onClose}
-      />
-
-      {/* Modal */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-3xl bg-white dark:bg-gray-900 z-50 shadow-xl overflow-hidden flex flex-col">
+        role="region"
+        aria-modal="false"
+        aria-label={`Account: ${account.account_name}`}
+        className="fixed inset-y-0 right-0 w-full max-w-3xl bg-white dark:bg-gray-900 z-50 shadow-2xl border-l border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col motion-safe:animate-slide-in-right"
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3">
