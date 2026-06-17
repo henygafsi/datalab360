@@ -19,6 +19,8 @@ import PermissionGate from '@/components/ui/PermissionGate';
 import ProjectKpiStrip from '@/app/shared/score-cards/ProjectKpiStrip';
 import GovernancePostureCard from '@/app/shared/score-cards/GovernancePostureCard';
 import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
+import IngestionBadge, { relativeTimeShort } from './IngestionBadge';
+import type { IngestionTraceEntry } from '@/app/services/explore-design/ingestionTrace';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,6 +123,14 @@ export interface ContextRightBarProps {
    * is project/event-scoped and is useful even with nothing selected.
    */
   deployOverride?: React.ReactNode;
+  /**
+   * Per-table Snowpipe/COPY ingestion trace for the SELECTED table, from the
+   * page's single bulk `useIngestionTrace` call (account-global COPY_HISTORY,
+   * aggregated client-side). Drives the "Ingestion & Cost" block in the Quality
+   * tab. `null` → graceful "—". Cost is sourced separately (per-table catalog
+   * SmartRightBar service) inside the block, not here.
+   */
+  ingestionTrace?: IngestionTraceEntry | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +162,7 @@ export default function ContextRightBar({
   columnClassifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify,
   onAddEvent, profileData, historyEvents,
   pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onDeselectTable,
-  emptyOverride, onNodeAction, deployOverride,
+  emptyOverride, onNodeAction, deployOverride, ingestionTrace,
 }: ContextRightBarProps) {
 
   // Model-general landing: when nothing is selected and the caller supplied an
@@ -266,7 +276,7 @@ export default function ContextRightBar({
     {
       id: 'quality', icon: BarChart3, label: 'Quality',
       render: () => selectedTable
-        ? <QualityPanel table={selectedTable} columns={tableColumns} projectId={projectId} profileData={profileData} onAddEvent={onAddEvent} />
+        ? <QualityPanel table={selectedTable} columns={tableColumns} projectId={projectId} profileData={profileData} onAddEvent={onAddEvent} ingestionTrace={ingestionTrace ?? null} />
         : empty,
     },
     {
@@ -976,7 +986,87 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
 // C. Quality Panel
 // ---------------------------------------------------------------------------
 
-function QualityPanel({ table, columns, projectId, profileData, onAddEvent }: { table: TableItem; columns: ColumnInfo[]; projectId: string | null; profileData?: any; onAddEvent: (e: any) => void }) {
+// ---------------------------------------------------------------------------
+// C0. Ingestion & Cost (selected table) — Snowpipe/COPY trace + per-table cost.
+// ---------------------------------------------------------------------------
+//
+// Ingestion fields come from the page's single bulk ingestion trace (no fetch
+// here). Cost reuses the canonical catalog SmartRightBar service
+// (`getTableIngestion(...).avg_cost_credits`) — ONE call on table selection, not
+// a parallel/new cost fetch and not N+1. Every field is graceful "—":
+// null/absent → "—" (no-fake-0); a real numeric 0 is allowed.
+function IngestionCostPanel({ table, trace }: { table: TableItem; trace: IngestionTraceEntry | null }) {
+  const [credits, setCredits] = useState<number | null>(null);
+  const [costLoaded, setCostLoaded] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setCredits(null);
+    setCostLoaded(false);
+    // Reuse the catalog rightbar service — same per-table context the SmartRightBar
+    // uses. avg_cost_credits is best-effort warehouse credits (null when absent).
+    void (async () => {
+      try {
+        const { getTableIngestion } = await import('@/app/services/catalog/rightbar');
+        const ing = await getTableIngestion(table.database, table.schema, table.table);
+        if (!alive) return;
+        setCredits(typeof ing?.avg_cost_credits === 'number' ? ing.avg_cost_credits : null);
+      } catch {
+        if (alive) setCredits(null);
+      } finally {
+        if (alive) setCostLoaded(true);
+      }
+    })();
+    return () => { alive = false; };
+  }, [table.database, table.schema, table.table]);
+
+  const method = trace?.method ?? null;
+  const methodLabel = method === 'SNOWPIPE' ? 'Snowpipe' : method === 'COPY' ? 'COPY' : '—';
+  const lastLoad = relativeTimeShort(trace?.lastLoad) ?? '—';
+  const rows7d = typeof trace?.rows7d === 'number' ? trace.rows7d.toLocaleString() : '—';
+  const errors7d = typeof trace?.errors === 'number' ? trace.errors.toLocaleString() : '—';
+  const hasErrors = typeof trace?.errors === 'number' && trace.errors > 0;
+  const creditsLabel = credits == null ? (costLoaded ? '—' : '…') : credits.toFixed(3);
+
+  return (
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Coins className="h-4 w-4 text-amber-500" />
+          <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Ingestion &amp; Cost</h4>
+        </div>
+        <IngestionBadge entry={trace} />
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-[10px]">
+        <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+          <span className="text-slate-400">Method</span>
+          <p className="font-medium text-slate-700 dark:text-slate-300">{methodLabel}</p>
+        </div>
+        <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+          <span className="text-slate-400">Last load</span>
+          <p className="font-medium text-slate-700 dark:text-slate-300">{lastLoad}</p>
+        </div>
+        <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+          <span className="text-slate-400">Rows loaded (7d)</span>
+          <p className="font-medium text-slate-700 dark:text-slate-300">{rows7d}</p>
+        </div>
+        <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+          <span className="text-slate-400">Errors (7d)</span>
+          <p className={cn('font-medium', hasErrors ? 'text-red-500' : 'text-slate-700 dark:text-slate-300')}>{errors7d}</p>
+        </div>
+        <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 col-span-2">
+          <span className="text-slate-400">Credits (7d)</span>
+          <p className="font-medium text-slate-700 dark:text-slate-300">{creditsLabel}</p>
+        </div>
+      </div>
+      <p className="text-[10px] text-slate-400">
+        Source-load activity (Snowpipe &amp; COPY) and best-effort warehouse credits. “—” = no data.
+      </p>
+    </div>
+  );
+}
+
+function QualityPanel({ table, columns, projectId, profileData, onAddEvent, ingestionTrace }: { table: TableItem; columns: ColumnInfo[]; projectId: string | null; profileData?: any; onAddEvent: (e: any) => void; ingestionTrace?: IngestionTraceEntry | null }) {
   // Honest: only score/count when a real profile exists. Un-profiled tables
   // render an em-dash with neutral (slate) styling — never an asserted 100%.
   const nullCols: number | null = profileData
@@ -991,6 +1081,9 @@ function QualityPanel({ table, columns, projectId, profileData, onAddEvent }: { 
 
   return (
     <div className="p-4 space-y-4">
+      {/* Ingestion & Cost — Snowpipe/COPY trace + per-table credits for this table. */}
+      <IngestionCostPanel table={table} trace={ingestionTrace ?? null} />
+
       {/* Score overview */}
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4">
         <div className="flex items-center justify-between mb-3">

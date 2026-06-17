@@ -66,6 +66,7 @@ const ModelingCanvas = dynamic(() => import('./components/ModelingCanvas'), { ss
 const SourceMindMap = dynamic(() => import('./components/SourceMindMap'), { ssr: false });
 const ContextRightBar = dynamic(() => import('./components/ContextRightBar'), { ssr: false });
 import type { RightBarTab, FocusedAction } from './components/ContextRightBar';
+import { useIngestionTrace } from '@/hooks/useIngestionTrace';
 import EventTable from './components/EventTable';
 import DeploymentValidation from './components/DeploymentValidation';
 import AiGuidedModelButton from './components/ai-guided/AiGuidedModelButton';
@@ -1035,6 +1036,13 @@ export default function ExploreDesignPage() {
   const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set());
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
   const [selectedTable, setSelectedTable] = useState<TableItem | null>(null);
+  // ONE bulk, account-global ingestion trace (Snowpipe + COPY). Hydrated after
+  // first paint; exposes an O(1) `lookup` used by the source-table list rows and
+  // the right-bar — no per-row fetch (no N+1).
+  const { lookup: ingestionLookup } = useIngestionTrace(7);
+  const selectedIngestion = selectedTable
+    ? ingestionLookup(selectedTable.database, selectedTable.schema, selectedTable.table)
+    : null;
   const [tableColumns, setTableColumns] = useState<ColumnInfo[]>([]);
   const [tableColumnsMap, setTableColumnsMap] = useState<Map<string, ColumnInfo[]>>(new Map());
   const [tableConfig, setTableConfig] = useState<TableConfig | null>(null);
@@ -4238,6 +4246,7 @@ export default function ExploreDesignPage() {
                   expandedSchemas={expandedSchemas}
                   onSchemaToggle={handleSchemaExpand}
                   searchQuery={searchQuery}
+                  ingestionLookup={ingestionLookup}
                   className="h-full"
                 />
               ) : (
@@ -4730,6 +4739,7 @@ export default function ExploreDesignPage() {
                 onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'catalog', pendingEvents: displayablePendingEvents.length }); setActiveRightTab('deploy'); setRightBarOpen(true); }}
                 onDeselectTable={() => { setSelectedTable(null); setRightBarOpen(false); }}
                 deployOverride={deployTabNode}
+                ingestionTrace={selectedIngestion}
               />
               </div>{/* end center+right row */}
             </>
@@ -5150,6 +5160,7 @@ export default function ExploreDesignPage() {
                 onDeselectTable={() => { setSelectedTable(null); }}
                 onNodeAction={handleNodeContextAction}
                 deployOverride={deployTabNode}
+                ingestionTrace={selectedIngestion}
                 emptyOverride={
                   <ModelOverview
                     tableCount={modelingTableIds.size}
