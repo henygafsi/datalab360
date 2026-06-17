@@ -11,8 +11,9 @@ interface Props {
   onClose: () => void;
   sourceTable?: { database: string; schema: string; table: string };
   warehouses?: string[];
-  /** Called after a successful create so the canvas / source list can refresh. */
-  onCreated?: () => void;
+  /** Called after a successful create with the live object's location so the
+   *  canvas can inject it (with real columns) and show it. */
+  onCreated?: (created: { database?: string; schema?: string; table: string }) => void;
 }
 
 export default function DynamicTableModal({ isOpen, onClose, sourceTable, warehouses = [], onCreated }: Props) {
@@ -32,7 +33,7 @@ export default function DynamicTableModal({ isOpen, onClose, sourceTable, wareho
         database: sourceTable?.database, schema: sourceTable?.schema,
       });
       toast.success(`Dynamic table "${name}" created`);
-      onCreated?.();
+      onCreated?.({ database: sourceTable?.database, schema: sourceTable?.schema, table: name });
       onClose();
     } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create dynamic table'); }
     finally { setLoading(false); }

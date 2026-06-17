@@ -18,8 +18,9 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   context?: { database: string; schema: string };
-  /** Called after a successful create so the canvas / source list can refresh. */
-  onCreated?: () => void;
+  /** Called after a successful create with the live object's location so the
+   *  canvas can inject it (with real columns) and show it. */
+  onCreated?: (created: { database?: string; schema?: string; table: string }) => void;
 }
 
 const EMPTY_COL: ColumnDef = { name: '', data_type: 'VARCHAR', primary_key: false, not_null: false, autoincrement: false };
@@ -46,7 +47,7 @@ export default function HybridTableModal({ isOpen, onClose, context, onCreated }
         name, columns, database: context?.database, schema: context?.schema,
       });
       toast.success(`Hybrid table "${name}" created`);
-      onCreated?.();
+      onCreated?.({ database: context?.database, schema: context?.schema, table: name });
       onClose();
     } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create hybrid table'); }
     finally { setLoading(false); }

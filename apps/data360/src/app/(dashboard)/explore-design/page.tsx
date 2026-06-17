@@ -3260,6 +3260,50 @@ export default function ExploreDesignPage() {
     toast.success(`Empty table "${tableName}" added — feed it from sources`);
   }, [readOnlyGuard, selectedProjectId, dwhTargetDatabase, selectedDatabase, dwhTargetSchema, tables, addEvent, handleOpenContextBar]);
 
+  // A Data-Engineering create (dynamic / hybrid / event / stream) produces a
+  // LIVE object in the warehouse. Inject it into the modeling canvas with its
+  // REAL columns (so it can immediately be mapped / PK'd / ingested), select it,
+  // and switch to the modeling view so the user actually SEES the result.
+  const injectCreatedTable = useCallback(async (created: { database?: string; schema?: string; table: string }) => {
+    const db = created.database || dwhTargetDatabase || selectedDatabase || '';
+    const schema = created.schema || dwhTargetSchema || '';
+    if (!db || !schema || !created.table) {
+      // Location unknown — fall back to a source reload so it isn't lost.
+      setRefreshTrigger(prev => prev + 1);
+      return;
+    }
+    const tableId = `${db}.${schema}.${created.table}`;
+    const newTable: TableItem = {
+      id: tableId, database: db, schema, table: created.table,
+      columnCount: 0, hasPrimaryKey: false, status: 'configured', sensitiveColumns: 0,
+    };
+    setTables(prev => (prev.some(t => t.id === tableId) ? prev : [...prev, newTable]));
+    setTargetTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
+    setModelingTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
+    setViewMode('modeling');
+    setSelectedTable(newTable);
+    // Pull the live object's real columns so the node is immediately mappable.
+    try {
+      const columns = await getTableColumns(db, schema, created.table);
+      if (columns && columns.length > 0) {
+        const formatted: ColumnInfo[] = columns.map((col: any) => ({
+          name: col.name || col.COLUMN_NAME || col.column_name || 'unknown',
+          dataType: col.data_type || col.type || col.DATA_TYPE || 'VARCHAR',
+          isPrimaryKey: col.isPk === 'Y' || col.isPk === true || col.is_primary_key === true || col.IS_PRIMARY_KEY === 'Y',
+          isNullable: col.isNull === 'Y' || col.is_nullable === 'YES' || col.IS_NULLABLE === 'YES',
+          isSensitive: detectSensitiveColumn(col.name || col.COLUMN_NAME || col.column_name || ''),
+        }));
+        setTableColumnsMap(prev => { const next = new Map(prev); next.set(tableId, formatted); return next; });
+        setTables(prev => prev.map(t => t.id === tableId
+          ? { ...t, columnCount: formatted.length, hasPrimaryKey: formatted.some(f => f.isPrimaryKey) }
+          : t));
+      }
+    } catch {
+      // Columns lazy-load when the node is opened; non-fatal.
+    }
+    toast.success(`${created.table} added to the model`);
+  }, [dwhTargetDatabase, selectedDatabase, dwhTargetSchema]);
+
   // Add primary key to a table - saves event for later execution
   // AI Column Classification handler
   const handleAIClassify = useCallback(async () => {
@@ -5575,13 +5619,13 @@ export default function ExploreDesignPage() {
         onClose={() => setDynamicTableModal(false)}
         sourceTable={selectedTable || undefined}
         warehouses={accountWarehouses}
-        onCreated={() => setRefreshTrigger(prev => prev + 1)}
+        onCreated={injectCreatedTable}
       />
       <StreamModal
         isOpen={streamModal}
         onClose={() => setStreamModal(false)}
         sourceTable={selectedTable || undefined}
-        onCreated={() => setRefreshTrigger(prev => prev + 1)}
+        onCreated={injectCreatedTable}
       />
       <AlertModal
         isOpen={alertModal}
@@ -5594,13 +5638,13 @@ export default function ExploreDesignPage() {
         isOpen={eventTableModal}
         onClose={() => setEventTableModal(false)}
         context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
-        onCreated={() => setRefreshTrigger(prev => prev + 1)}
+        onCreated={injectCreatedTable}
       />
       <HybridTableModal
         isOpen={hybridTableModal}
         onClose={() => setHybridTableModal(false)}
         context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
-        onCreated={() => setRefreshTrigger(prev => prev + 1)}
+        onCreated={injectCreatedTable}
       />
 
       {/* Catalog Policy + Ingestion panels moved to right rail — no modals */}

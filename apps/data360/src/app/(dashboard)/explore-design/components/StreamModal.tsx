@@ -11,7 +11,7 @@ interface Props {
   onClose: () => void;
   sourceTable?: { database: string; schema: string; table: string };
   /** Called after a successful create so the canvas / source list can refresh. */
-  onCreated?: () => void;
+  onCreated?: (created: { database?: string; schema?: string; table: string }) => void;
 }
 
 export default function StreamModal({ isOpen, onClose, sourceTable, onCreated }: Props) {
@@ -32,7 +32,7 @@ export default function StreamModal({ isOpen, onClose, sourceTable, onCreated }:
         database: sourceTable?.database, schema: sourceTable?.schema,
       });
       toast.success(`Stream "${name}" created`);
-      onCreated?.();
+      onCreated?.({ database: sourceTable?.database, schema: sourceTable?.schema, table: name });
       onClose();
     } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create stream'); }
     finally { setLoading(false); }

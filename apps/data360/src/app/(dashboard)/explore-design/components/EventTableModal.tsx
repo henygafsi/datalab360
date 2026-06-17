@@ -10,8 +10,9 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   context?: { database: string; schema: string };
-  /** Called after a successful create so the canvas / source list can refresh. */
-  onCreated?: () => void;
+  /** Called after a successful create with the live object's location so the
+   *  canvas can inject it (with real columns) and show it. */
+  onCreated?: (created: { database?: string; schema?: string; table: string }) => void;
 }
 
 export default function EventTableModal({ isOpen, onClose, context, onCreated }: Props) {
@@ -29,7 +30,7 @@ export default function EventTableModal({ isOpen, onClose, context, onCreated }:
         database: context?.database, schema: context?.schema,
       });
       toast.success(`Event table "${name}" created`);
-      onCreated?.();
+      onCreated?.({ database: context?.database, schema: context?.schema, table: name });
       onClose();
     } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create event table'); }
     finally { setLoading(false); }
