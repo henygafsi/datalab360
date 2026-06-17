@@ -3,9 +3,10 @@
 import { useState, useCallback } from 'react';
 import { Button, Input, Select, type SelectOption } from 'rizzui';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { pingNotifications } from '@/hooks/useNotifications';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus } from 'react-icons/hi2';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ArrowRight, Plus, Info, X } from 'lucide-react';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
@@ -55,12 +56,14 @@ const OBJECT_TYPES = [
 ];
 
 export default function TagPoliciesContent() {
-  // System 2 Action-RBAC: Create → gouvernance:create, Apply → gouvernance:apply.
+  // System 2 Action-RBAC: Create → gouvernance:create. Applying a tag to an
+  // object is a GRANT mutation, so it is gated on gouvernance:grant — the same
+  // action the canonical Grants surface enforces (honest disabled when denied).
   // Fail-open while the allow-set loads (no flash of disabled).
   const createPerm = useCanPerform('gouvernance', 'create');
-  const applyPerm = useCanPerform('gouvernance', 'apply');
+  const grantPerm = useCanPerform('gouvernance', 'grant');
   const canCreatePolicy = createPerm.allowed || createPerm.loading;
-  const canApplyPolicy = applyPerm.allowed || applyPerm.loading;
+  const canApplyTag = grantPerm.allowed || grantPerm.loading;
 
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [showApplyPanel, setShowApplyPanel] = useState(false);
@@ -71,6 +74,13 @@ export default function TagPoliciesContent() {
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  // In-flight guards for the create/apply mutations (mirrors masking-policies-content).
+  const [isCreating, setIsCreating] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  // After a successful apply we surface an interactive next-step strip instead
+  // of dead-ending on a toast. Holds the tag + object we just tagged so the CTAs
+  // can re-open the right panels with that context.
+  const [lastApplied, setLastApplied] = useState<{ tag: Tag; objectPath: string } | null>(null);
 
   // Form state for creating tag
   const [tagName, setTagName] = useState('');
@@ -119,7 +129,9 @@ export default function TagPoliciesContent() {
       return;
     }
 
+    if (isCreating) return;
     setCreateError(null);
+    setIsCreating(true);
     try {
       await createTag({
         tag_name: tagName,
@@ -127,12 +139,15 @@ export default function TagPoliciesContent() {
         comment,
         schema: DEFAULTS.GOVERNANCE_FQN,
       });
-      toast.success('Tag created successfully!');
+      toast.success(`Tag "${tagName}" created`);
+      pingNotifications(); // quick notification: toast + bell
       setShowCreatePanel(false);
       resetCreateForm();
       refetch();
     } catch (error) {
       setCreateError(formatPolicyError(error, 'Failed to create tag'));
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -160,7 +175,9 @@ export default function TagPoliciesContent() {
       return;
     }
 
+    if (isApplying) return;
     setApplyError(null);
+    setIsApplying(true);
     try {
       await applyTag({
         tag_name: selectedTag.tag_name,
@@ -178,18 +195,23 @@ export default function TagPoliciesContent() {
         : objectType === 'TABLE' ? `${database}.${schema}.${table}`
         : `${database}.${schema}.${table}.${column}`;
 
-      toast.success(`Tag applied to ${objectPath}`);
+      toast.success(`Tag "${selectedTag.tag_name}" applied to ${objectPath}`);
+      pingNotifications(); // quick notification: toast + bell
+      setLastApplied({ tag: selectedTag, objectPath }); // arm the next-step CTA strip
       setShowApplyPanel(false);
       setSelectedTag(null);
       resetApplyForm();
       refetch();
     } catch (error) {
       setApplyError(formatPolicyError(error, 'Failed to apply tag'));
+    } finally {
+      setIsApplying(false);
     }
   };
 
   const handleDeletePolicy = async (policy: EnrichedPolicy) => {
     await deleteTag(policy.name);
+    pingNotifications(); // quick notification: bell on remove (PolicyCard toasts)
   };
 
   const resetCreateForm = () => {
@@ -217,6 +239,32 @@ export default function TagPoliciesContent() {
     setSchema('');
     setTable('');
     setColumn('');
+  };
+
+  // Live "to-do" label for the Apply button — states what the click will do
+  // before it happens (uses the selected object path, never a vendor name).
+  const applyTargetPath = objectType === 'DATABASE' ? database
+    : objectType === 'SCHEMA' ? [database, schema].filter(Boolean).join('.')
+    : objectType === 'TABLE' ? [database, schema, table].filter(Boolean).join('.')
+    : [database, schema, table, column].filter(Boolean).join('.');
+  const applyTodoLabel = applyTargetPath
+    ? `Apply ${selectedTag?.tag_name ?? 'tag'} to ${applyTargetPath}`
+    : `Apply tag to ${objectType.toLowerCase()}`;
+
+  // Next-step CTAs after a successful apply (in-component, real context):
+  // re-open the apply panel for the same tag, or jump to its details.
+  const handleApplyMore = () => {
+    if (!lastApplied) return;
+    setSelectedTag(lastApplied.tag);
+    setApplyError(null);
+    setLastApplied(null);
+    setShowApplyPanel(true);
+  };
+  const handleViewAppliedTag = () => {
+    if (!lastApplied) return;
+    const tag = lastApplied.tag;
+    setLastApplied(null);
+    void handleViewDetails(tag);
   };
 
   return (
@@ -247,6 +295,49 @@ export default function TagPoliciesContent() {
           Create Tag
         </Button>
       </div>
+
+      {/* Next-step CTA strip — interactive redirection after a successful apply,
+          so the action never dead-ends on a toast. Resource-aware (tag → object). */}
+      {lastApplied && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900/40 dark:bg-green-900/20"
+        >
+          <span className="text-sm text-green-800 dark:text-green-200">
+            Tag <strong>{lastApplied.tag.tag_name}</strong> applied to{' '}
+            <code className="font-mono">{lastApplied.objectPath}</code>. What next?
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleApplyMore}
+              disabled={!canApplyTag}
+              title={!canApplyTag ? 'You lack the "grant" permission on governance. Ask an administrator to grant it.' : undefined}
+              className="inline-flex items-center gap-1.5 rounded-md border border-green-300 bg-white px-3 py-1.5 text-xs font-semibold text-green-700 transition-colors hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-green-800 dark:bg-slate-800 dark:text-green-300 dark:hover:bg-green-900/30"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Apply to more objects
+            </button>
+            <button
+              type="button"
+              onClick={handleViewAppliedTag}
+              className="inline-flex items-center gap-1.5 rounded-md border border-green-300 bg-white px-3 py-1.5 text-xs font-semibold text-green-700 transition-colors hover:bg-green-100 dark:border-green-800 dark:bg-slate-800 dark:text-green-300 dark:hover:bg-green-900/30"
+            >
+              <Info className="h-3.5 w-3.5" />
+              View tag details
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setLastApplied(null)}
+              aria-label="Dismiss"
+              className="inline-flex items-center justify-center rounded-md p-1.5 text-green-600 transition-colors hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-900/30"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tags List */}
       {loading ? (
@@ -299,7 +390,7 @@ export default function TagPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!canCreatePolicy} className="bg-green-600 hover:bg-green-700">Create Tag</Button>
+            <Button onClick={handleCreate} isLoading={isCreating} disabled={!canCreatePolicy || isCreating} className="bg-green-600 hover:bg-green-700">Create Tag</Button>
           </>
         }
       >
@@ -350,7 +441,7 @@ export default function TagPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => { setShowApplyPanel(false); setSelectedTag(null); resetApplyForm(); }}>Cancel</Button>
-            <Button onClick={handleApply} disabled={!canApplyPolicy || !database || !tagValue} title={!canApplyPolicy ? 'You lack the "apply" permission on governance. Ask an administrator to grant it.' : undefined} className="bg-green-600 hover:bg-green-700">Apply Tag</Button>
+            <Button onClick={handleApply} isLoading={isApplying} disabled={!canApplyTag || !database || !tagValue || isApplying} title={!canApplyTag ? 'You lack the "grant" permission on governance. Ask an administrator to grant it.' : undefined} className="bg-green-600 hover:bg-green-700">{applyTodoLabel}</Button>
           </>
         }
       >

@@ -26,11 +26,11 @@ const GCSSourceConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
         <p className="text-xs text-green-700 dark:text-green-300">
-          Load data from a Google Cloud Storage external stage into Snowflake. Configure the stage, file path, and format.
+          Load data from a Google Cloud Storage external stage into the data warehouse. Configure the stage, file path, and format.
         </p>
       </div>
 
-      <FormField label="Stage Name" required error={errors.stage_name} hint="Snowflake external stage pointing to GCS">
+      <FormField label="Stage Name" required error={errors.stage_name} hint="External stage pointing to GCS">
         <Input
           value={config.stage_name || ''}
           onChange={(v) => updateConfig({ stage_name: v })}

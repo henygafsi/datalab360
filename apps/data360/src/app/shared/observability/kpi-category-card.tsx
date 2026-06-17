@@ -3,13 +3,16 @@
 import cn from '@core/utils/class-names';
 import { Text, Title } from 'rizzui';
 import { IconType } from 'react-icons/lib';
+import { dash } from '@/app/shared/ui/format';
 
 interface KpiCategoryCardProps {
   title: string;
-  score: number;
+  // Missing → "—" in the headline (R3); the bar collapses to empty. Genuine 0
+  // still renders as 0.
+  score: number | null | undefined;
   status: 'healthy' | 'warning' | 'critical';
   icon: IconType;
-  metrics: Record<string, number | string>;
+  metrics: Record<string, number | string | null | undefined>;
   className?: string;
 }
 
@@ -34,8 +37,11 @@ const statusColors = {
   },
 };
 
-function formatMetricValue(value: number | string): string {
+function formatMetricValue(value: number | string | null | undefined): string {
+  // Missing metric → em dash (R3); a genuine 0 still formats as "0".
+  if (value === null || value === undefined) return '—';
   if (typeof value === 'string') return value;
+  if (Number.isNaN(value)) return '—';
   if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
   if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
   return value.toString();
@@ -57,6 +63,13 @@ export default function KpiCategoryCard({
 }: KpiCategoryCardProps) {
   // Guard against unexpected status casing/values from the API.
   const colors = statusColors[String(status).toLowerCase() as keyof typeof statusColors] ?? statusColors.warning;
+
+  // Numeric clamp for the bar geometry only (width + band color). A missing
+  // score keeps the bar empty (0%) — the honest "—" lives in the headline.
+  const pct =
+    typeof score === 'number' && Number.isFinite(score)
+      ? Math.max(0, Math.min(100, score))
+      : 0;
 
   return (
     <div
@@ -81,7 +94,7 @@ export default function KpiCategoryCard({
           </div>
         </div>
         <div className="text-right">
-          <Text className={cn('text-2xl font-bold', colors.text)}>{score}</Text>
+          <Text className={cn('text-2xl font-bold', colors.text)}>{dash(score)}</Text>
           <Text className="text-xs text-gray-500">/100</Text>
         </div>
       </div>
@@ -92,9 +105,9 @@ export default function KpiCategoryCard({
           <div
             className={cn(
               'h-full rounded-full transition-all duration-500',
-              score >= 80 ? 'bg-green-500' : score >= 50 ? 'bg-amber-500' : 'bg-red-500'
+              pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-amber-500' : 'bg-red-500'
             )}
-            style={{ width: `${score}%` }}
+            style={{ width: `${pct}%` }}
           />
         </div>
       </div>

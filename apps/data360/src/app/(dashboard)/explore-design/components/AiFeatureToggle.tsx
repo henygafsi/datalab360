@@ -7,7 +7,7 @@ import {
   Sparkles, ChevronDown, ChevronRight, Info, Zap,
   Table2, RefreshCw, AlertTriangle,
   Database, Brain, X, Power, PowerOff,
-  ThumbsUp, ThumbsDown, TrendingUp,
+  ThumbsUp, ThumbsDown, TrendingUp, Check,
 } from 'lucide-react';
 import {
   useAiFeatures,
@@ -52,7 +52,7 @@ const AiFeatureToggle: React.FC<AiFeatureToggleProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const { features, toggle, enableAll, disableAll, stats } = useAiFeatures();
-  const { activeSuggestions, dismiss, acceptSuggestion, rejectSuggestion, feedbackStats } = useAiSuggestions();
+  const { activeSuggestions, dismiss, acceptSuggestion, rejectSuggestion, isApplied, feedbackStats } = useAiSuggestions();
 
   const groupedFeatures = useMemo(() => {
     const groups: Record<string, AiFeatureConfig[]> = {};
@@ -82,33 +82,49 @@ const AiFeatureToggle: React.FC<AiFeatureToggleProps> = ({
                   <p className={cn('text-sm font-medium', config.color)}>{suggestion.title}</p>
                   <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{suggestion.message}</p>
                   <div className="flex items-center gap-2 mt-2">
-                    {suggestion.action && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs gap-1"
-                        onClick={() => onSuggestionAction?.(suggestion)}
-                      >
-                        <Sparkles className="h-3 w-3" />
-                        {suggestion.action.label}
-                      </Button>
+                    {isApplied(suggestion.id) ? (
+                      // Applied state — the action CTA dispatched a real canvas
+                      // event. Undoable like any other event. No feedback buttons
+                      // here; acting on the suggestion already recorded it.
+                      <span className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20">
+                        <Check className="h-3 w-3" />
+                        Applied to canvas
+                      </span>
+                    ) : (
+                      <>
+                        {/* The ONLY apply path — dispatches the suggestion's
+                            action to the canvas event store. */}
+                        {suggestion.action && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs gap-1"
+                            onClick={() => onSuggestionAction?.(suggestion)}
+                          >
+                            <Sparkles className="h-3 w-3" />
+                            {suggestion.action.label}
+                          </Button>
+                        )}
+                        {/* Feedback only — records a thumbs rating, does NOT
+                            execute. Neutral styling so it never reads as "do it". */}
+                        <button
+                          onClick={() => acceptSuggestion(suggestion)}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors"
+                          title="Mark this suggestion as helpful (feedback only — does not apply it)"
+                        >
+                          <ThumbsUp className="h-3 w-3" />
+                          Helpful
+                        </button>
+                        <button
+                          onClick={() => rejectSuggestion(suggestion)}
+                          className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-slate-500 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition-colors"
+                          title="Mark this suggestion as not helpful (feedback only)"
+                        >
+                          <ThumbsDown className="h-3 w-3" />
+                          Not helpful
+                        </button>
+                      </>
                     )}
-                    <button
-                      onClick={() => acceptSuggestion(suggestion)}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-green-600 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/40 transition-colors"
-                      title="Accept suggestion"
-                    >
-                      <ThumbsUp className="h-3 w-3" />
-                      Accept
-                    </button>
-                    <button
-                      onClick={() => rejectSuggestion(suggestion)}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-red-500 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40 transition-colors"
-                      title="Reject suggestion"
-                    >
-                      <ThumbsDown className="h-3 w-3" />
-                      Reject
-                    </button>
                   </div>
                 </div>
                 <button

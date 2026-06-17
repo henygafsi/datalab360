@@ -34,6 +34,8 @@ import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/app/shared/ui/Tooltip';
+import { HelpPopover } from '@/app/shared/ui/HelpPopover';
 import { useIsMobile } from './use-media-query';
 import {
   DesktopRail,
@@ -53,6 +55,20 @@ export interface RightTabSection {
   id: string;
   icon: LucideIcon;
   label: string;
+  /**
+   * Optional one-line description of what this section does. When provided it
+   * becomes the hover/focus tooltip on the icon-rail button (falling back to
+   * `label` when omitted). Additive + backward compatible: existing consumers
+   * keep their label tooltip with no changes.
+   */
+  description?: string;
+  /**
+   * Optional in-journey help copy. When the section is active, a click-triggered
+   * "?" {@link HelpPopover} is shown next to its title with this text (falling
+   * back to `description`, then `label`). Additive + backward compatible — every
+   * consumer gains click-help with no changes.
+   */
+  help?: string;
   /** Section body. Rendered only when this section is active. */
   render: () => React.ReactNode;
 }
@@ -145,11 +161,20 @@ export default function RightTabPanel({
   const header = (
     <div className="flex items-start justify-between gap-3 border-b border-slate-200/80 px-4 py-3.5 dark:border-slate-800">
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', accentClassName)} />
           <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             {active?.label}
           </p>
+          {active ? (
+            <HelpPopover
+              key={active.id}
+              label={active.help ?? active.description ?? active.label}
+              title={active.label}
+              ariaLabel={`Help: ${active.label}`}
+              side="bottom"
+            />
+          ) : null}
         </div>
         <h2 className="mt-1 truncate text-[15px] font-semibold leading-tight text-slate-900 dark:text-white">
           {title}
@@ -160,14 +185,16 @@ export default function RightTabPanel({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {statusPill ? <StatusPill pill={statusPill} /> : null}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close panel"
-          className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <Tooltip label="Close the inspector panel" side="bottom">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close panel"
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

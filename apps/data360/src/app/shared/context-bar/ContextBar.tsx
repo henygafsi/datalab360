@@ -17,11 +17,19 @@ import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { X, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GlassPanel } from '@/app/shared/glass';
+import { Tooltip } from '@/app/shared/ui/Tooltip';
 
 export interface ContextBarTab {
   key: string;
   icon: LucideIcon;
   label: string;
+  /**
+   * Optional one-line description of what this section does (e.g. "Edit
+   * widget query, filters and chart type"). Shown as the hover/focus tooltip
+   * on the mini-rail icon; falls back to `label` when omitted. The visible
+   * panel-header text and the button's accessible name stay as `label`.
+   */
+  description?: string;
   /** Optional count/dot shown on the mini-rail icon. */
   badge?: ReactNode;
   content: ReactNode;
@@ -131,14 +139,16 @@ export default function ContextBar({
                 )}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Collapse panel"
-              className="rounded-md p-1 text-slate-400 transition-colors hover:bg-white/40 hover:text-slate-700 dark:hover:bg-white/10 dark:hover:text-slate-200"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <Tooltip label="Collapse this panel" side="bottom">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Collapse panel"
+                className="rounded-md p-1 text-slate-400 transition-colors hover:bg-white/40 hover:text-slate-700 dark:hover:bg-white/10 dark:hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </Tooltip>
           </div>
           <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto p-3">{activeTab.content}</div>
         </GlassPanel>
@@ -155,27 +165,28 @@ export default function ContextBar({
         {tabs.map((tab) => {
           const selected = tab.key === active && isOpen;
           return (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              title={tab.label}
-              onClick={() => handleTabClick(tab.key)}
-              className={cn(
-                'relative flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
-                selected
-                  ? 'bg-[hsl(var(--primary))] text-white shadow-sm'
-                  : 'text-slate-500 hover:bg-white/50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100',
-              )}
-            >
-              <tab.icon className="h-[18px] w-[18px]" />
-              {tab.badge != null && (
-                <span className="absolute -right-0.5 -top-0.5 flex min-w-[14px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-semibold leading-none text-white">
-                  {tab.badge}
-                </span>
-              )}
-            </button>
+            <Tooltip key={tab.key} label={tab.description ?? tab.label} side="left">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                aria-label={tab.label}
+                onClick={() => handleTabClick(tab.key)}
+                className={cn(
+                  'relative flex h-9 w-9 items-center justify-center rounded-xl transition-colors',
+                  selected
+                    ? 'bg-[hsl(var(--primary))] text-white shadow-sm'
+                    : 'text-slate-500 hover:bg-white/50 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-100',
+                )}
+              >
+                <tab.icon className="h-[18px] w-[18px]" />
+                {tab.badge != null && (
+                  <span className="absolute -right-0.5 -top-0.5 flex min-w-[14px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-semibold leading-none text-white">
+                    {tab.badge}
+                  </span>
+                )}
+              </button>
+            </Tooltip>
           );
         })}
       </GlassPanel>

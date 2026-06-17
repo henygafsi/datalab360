@@ -26,7 +26,7 @@ const DynamicTableSourceConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
         <p className="text-xs text-cyan-700 dark:text-cyan-300">
-          Read data from a Snowflake dynamic table. Dynamic tables automatically refresh based on a target lag and underlying query.
+          Read data from a dynamic table. Dynamic tables automatically refresh based on a target lag and underlying query.
         </p>
       </div>
 

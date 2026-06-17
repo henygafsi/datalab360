@@ -19,7 +19,7 @@ const AISentimentConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-        <p className="text-xs text-green-700 dark:text-green-300">Analyze sentiment of text using Cortex AI_SENTIMENT. Returns a score from -1 (negative) to 1 (positive).</p>
+        <p className="text-xs text-green-700 dark:text-green-300">Analyze sentiment of text using AI. Returns a score from -1 (negative) to 1 (positive).</p>
       </div>
       <FormField label="Text Column" required error={errors.text_column}>
         <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.text_column} />

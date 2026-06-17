@@ -25,7 +25,7 @@ const AITranslateConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-        <p className="text-xs text-blue-700 dark:text-blue-300">Translate text between languages using Cortex AI_TRANSLATE.</p>
+        <p className="text-xs text-blue-700 dark:text-blue-300">Translate text between languages using AI.</p>
       </div>
       <FormField label="Text Column" required error={errors.text_column}>
         <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.text_column} />

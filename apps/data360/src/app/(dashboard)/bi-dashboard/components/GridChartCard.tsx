@@ -7,6 +7,7 @@ import DataTable from '@/components/ui/DataTable';
 import { DynamicChart } from './DynamicChart';
 import { DeltaBadge } from './TimeIntelligenceBar';
 import type { DashboardWidget } from '@/app/services/api/types';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 interface WidgetCardProps {
   widget: DashboardWidget;
@@ -282,6 +283,15 @@ export default function WidgetCard({
 }: WidgetCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Action-RBAC gate (System 2). Configure opens the widget editor (PUT /widgets
+  // → require_action 'edit'); Delete hits DELETE /widgets → require_action
+  // 'delete'. Fail-open while the allow-set loads; honest disabled + tooltip on
+  // a resolved deny (button stays visible, never hidden).
+  const editPerm = useCanPerform('bi_reporting', 'edit');
+  const canEdit = editPerm.allowed || editPerm.loading;
+  const deletePerm = useCanPerform('bi_reporting', 'delete');
+  const canDelete = deletePerm.allowed || deletePerm.loading;
+
   // Apply cross-widget filter to execution data (client-side)
   const filteredExecutionData = useMemo(() => {
     if (!executionData?.data || !crossWidgetFilter || Object.keys(crossWidgetFilter).length === 0) {
@@ -365,10 +375,11 @@ export default function WidgetCard({
               </button>
             </Tooltip>
           )}
-          <Tooltip content="Configure">
+          <Tooltip content={canEdit ? 'Configure' : 'Requires the "edit" permission on Business Reporting.'}>
             <button
-              className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 text-slate-400 hover:text-blue-600 transition-colors"
+              className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 text-slate-400 hover:text-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-slate-400"
               onClick={() => onConfigure(widget)}
+              disabled={!canEdit}
             >
               <Settings className="h-3.5 w-3.5" />
             </button>
@@ -390,10 +401,11 @@ export default function WidgetCard({
               </button>
             </div>
           ) : (
-            <Tooltip content="Delete">
+            <Tooltip content={canDelete ? 'Delete' : 'Requires the "delete" permission on Business Reporting.'}>
               <button
-                className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors"
+                className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-slate-400"
                 onClick={() => setConfirmDelete(true)}
+                disabled={!canDelete}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>

@@ -447,6 +447,7 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
   const [editingSchedule, setEditingSchedule] = useState<WorkflowSchedule | null>(null);
   const [viewingHistory, setViewingHistory] = useState<string | null>(null);
   const [confirmDeleteSchedule, setConfirmDeleteSchedule] = useState<string | null>(null);
+  const [busyTask, setBusyTask] = useState<string | null>(null);
 
   // Load schedules
   const loadSchedulesFn = useCallback(
@@ -463,7 +464,8 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
 
   // Handle schedule actions
   const handleSuspend = async (schedule: WorkflowSchedule) => {
-    if (!pipelineId) return;
+    if (!pipelineId || busyTask) return;
+    setBusyTask(schedule.task_name);
     try {
       await workflowApi.suspendTask(pipelineId);
       toast.success('Schedule suspended');
@@ -472,11 +474,14 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
     } catch (error: any) {
       console.error('Failed to suspend schedule:', error);
       toast.error(getApiErrorMessage(error) || 'Failed to suspend schedule');
+    } finally {
+      setBusyTask(null);
     }
   };
 
   const handleResume = async (schedule: WorkflowSchedule) => {
-    if (!pipelineId) return;
+    if (!pipelineId || busyTask) return;
+    setBusyTask(schedule.task_name);
     try {
       await workflowApi.resumeTask(pipelineId);
       toast.success('Schedule resumed');
@@ -485,6 +490,8 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
     } catch (error: any) {
       console.error('Failed to resume schedule:', error);
       toast.error(getApiErrorMessage(error) || 'Failed to resume schedule');
+    } finally {
+      setBusyTask(null);
     }
   };
 
@@ -638,13 +645,20 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
                         onClick={() =>
                           isActive ? handleSuspend(schedule) : handleResume(schedule)
                         }
+                        disabled={busyTask === schedule.task_name}
                         className={cn(
-                          'p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600',
+                          'p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-wait',
                           isActive ? 'text-orange-500' : 'text-green-500'
                         )}
                         title={isActive ? 'Pause' : 'Resume'}
                       >
-                        {isActive ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                        {busyTask === schedule.task_name ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : isActive ? (
+                          <Pause className="h-4 w-4" />
+                        ) : (
+                          <Play className="h-4 w-4" />
+                        )}
                       </button>
                     )}
 

@@ -52,16 +52,16 @@ const TILES: KindTile[] = [
   {
     id: 'streamlit',
     title: 'Streamlit Dashboard',
-    subtitle: 'Snowflake-hosted Python dashboard with zero infra.',
-    chip: 'Snowpark · Streamlit',
+    subtitle: 'Hosted Python dashboard with zero infra.',
+    chip: 'Hosted · Streamlit',
     Icon: LayoutDashboard,
     tint: 'from-cyan-500 to-blue-600',
   },
   {
     id: 'container',
     title: 'Container Service',
-    subtitle: 'Custom Docker on a Snowpark compute pool.',
-    chip: 'Snowpark · Container',
+    subtitle: 'Custom Docker on a managed compute pool.',
+    chip: 'Hosted · Container',
     Icon: Container,
     tint: 'from-indigo-500 to-purple-600',
   },
@@ -125,7 +125,7 @@ export default function DeployAppHome({
               </h1>
               <p className="mt-1 max-w-2xl text-sm text-slate-600 dark:text-slate-300">
                 Turn data into Streamlit apps, Container services, charts and
-                connectors — hosted in Snowflake.
+                connectors — hosted in your data warehouse.
               </p>
             </div>
           </div>

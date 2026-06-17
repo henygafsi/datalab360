@@ -42,7 +42,7 @@ const CreateUDFConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
         <p className="text-xs text-yellow-700 dark:text-yellow-300">
-          Create a User-Defined Function (UDF) in Snowflake. The function can be written in Python, SQL, or Java and used in SQL queries.
+          Create a User-Defined Function (UDF) in the data warehouse. The function can be written in Python, SQL, or Java and used in SQL queries.
         </p>
       </div>
 

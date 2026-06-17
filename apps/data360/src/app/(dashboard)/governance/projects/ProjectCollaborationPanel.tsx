@@ -49,6 +49,7 @@ import {
 } from '@/app/services/projects/comments';
 import { useAuth } from '@/hooks/useAuth';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { Tooltip } from '@/app/shared/ui/Tooltip';
 
 // ── Deployment status → badge style ──────────────────────────────────────────
 
@@ -141,23 +142,27 @@ function CommentRow({
         </p>
         <div className="flex items-center gap-3 mt-0.5">
           {!isReply && (
-            <button
-              type="button"
-              onClick={() => onReply(comment)}
-              className="text-[10px] text-slate-400 hover:text-sky-500"
-            >
-              Reply
-            </button>
+            <Tooltip label="Reply to this comment in the thread">
+              <button
+                type="button"
+                onClick={() => onReply(comment)}
+                className="text-[10px] text-slate-400 hover:text-sky-500"
+              >
+                Reply
+              </button>
+            </Tooltip>
           )}
           {canDelete && (
-            <button
-              type="button"
-              onClick={() => onDelete(comment)}
-              disabled={deleting}
-              className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-red-500 disabled:opacity-50"
-            >
-              <Trash2 className="h-2.5 w-2.5" /> Delete
-            </button>
+            <Tooltip label="Delete this comment">
+              <button
+                type="button"
+                onClick={() => onDelete(comment)}
+                disabled={deleting}
+                className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-red-500 disabled:opacity-50"
+              >
+                <Trash2 className="h-2.5 w-2.5" /> Delete
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -247,7 +252,9 @@ function CommentsThread({ projectId }: { projectId: string }) {
             <span className="inline-flex items-center gap-1">
               <CornerDownRight className="h-2.5 w-2.5" /> Replying to {replyTo.author}
             </span>
-            <button type="button" onClick={() => setReplyTo(null)} className="hover:text-slate-600">Cancel</button>
+            <Tooltip label="Cancel this reply and post as a new comment">
+              <button type="button" onClick={() => setReplyTo(null)} className="hover:text-slate-600">Cancel</button>
+            </Tooltip>
           </div>
         )}
         <div className="flex items-end gap-2">
@@ -261,15 +268,17 @@ function CommentsThread({ projectId }: { projectId: string }) {
             placeholder="Add a comment… use @username to mention"
             className="flex-1 resize-none rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/60 px-2 py-1.5 text-[11px] text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-400"
           />
-          <button
-            type="button"
-            onClick={() => void handlePost()}
-            disabled={posting || !draft.trim()}
-            className="inline-flex items-center gap-1 rounded-md bg-sky-500 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-600 disabled:opacity-40"
-          >
-            {posting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-            Post
-          </button>
+          <Tooltip label="Post your comment to the project conversation (⌘/Ctrl+Enter)">
+            <button
+              type="button"
+              onClick={() => void handlePost()}
+              disabled={posting || !draft.trim()}
+              className="inline-flex items-center gap-1 rounded-md bg-sky-500 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-sky-600 disabled:opacity-40"
+            >
+              {posting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+              Post
+            </button>
+          </Tooltip>
         </div>
         {postError && (
           <p className="text-[10px] text-red-500">Couldn’t post your comment. Please retry.</p>

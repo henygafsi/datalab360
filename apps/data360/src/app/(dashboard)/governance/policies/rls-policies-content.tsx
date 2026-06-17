@@ -398,7 +398,7 @@ export default function RLSPoliciesContent() {
             )}
           </div>
           <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
-            {policies?.length ?? 0} policies
+            {policies == null ? '—' : policies.length} policies
           </Badge>
         </div>
 

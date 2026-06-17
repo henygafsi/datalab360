@@ -1035,6 +1035,20 @@ export default function GuidedAiWorkflowWizard({
     onClose();
   };
 
+  // Esc-to-close (modal overlay previously only closed via the header X /
+  // backdrop). Skipped when `embedded` (no overlay) and routed through
+  // `handleClose`, which itself no-ops while `busy` so a mid-generation run
+  // is never interrupted.
+  useEffect(() => {
+    if (!open || embedded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, embedded, busy]);
+
   // ── Step 1 → 2: AI Understanding ──
   //
   // The `bust` arg makes this function cache-aware: on a normal call we

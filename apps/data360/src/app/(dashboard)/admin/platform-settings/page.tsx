@@ -21,6 +21,7 @@ import {
 } from '@/app/services/observability';
 import type { PlatformConfigEntry } from '@/app/services/observability/types';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 /** Render a config value (object/array/scalar) as an editable string. */
 function valueToString(value: unknown): string {
@@ -76,6 +77,7 @@ export default function PlatformSettingsPage() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [resetting, setResetting] = useState(false);
+  const canReset = useCanPerform('gouvernance', 'apply');
 
   // New-entry rail (inline create).
   const { isOpen, open, close } = useActionPanel<'create'>();
@@ -153,6 +155,7 @@ export default function PlatformSettingsPage() {
   }, [newKey, newValue, newDescription, close, load]);
 
   const onReset = useCallback(async () => {
+    if (!window.confirm('Reset all platform configuration entries to their defaults? This is destructive and cannot be undone.')) return;
     setResetting(true);
     try {
       await resetPlatformConfig();
@@ -187,7 +190,7 @@ export default function PlatformSettingsPage() {
             {loading ? <Loader variant="spinner" size="sm" /> : <PiArrowsClockwise className="h-3.5 w-3.5" />}
             Reload
           </Button>
-          <Button size="sm" variant="outline" onClick={onReset} disabled={resetting || loading}>
+          <Button size="sm" variant="outline" onClick={onReset} disabled={resetting || loading || (!canReset.allowed && !canReset.loading)} title={(!canReset.allowed && !canReset.loading) ? 'You do not have permission to reset platform settings.' : undefined}>
             {resetting ? 'Resetting…' : 'Reset to defaults'}
           </Button>
         </div>

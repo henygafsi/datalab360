@@ -38,6 +38,18 @@ Generic admin-template demo pages with no Data360 function:
 - `profile` — KEPT. It is the user profile page, linked from the retained
   `shared/account-settings/*` (password/profile/role settings) views.
 
+## Governance route dedupe (backlog_V1)
+
+- `governance/network-policies` (`/governance/network-policies`) — REMOVED. It
+  was a thin standalone wrapper rendering the same `NetworkPoliciesContent`
+  already shown by the unified Policies page (`/governance/policies`, "Network"
+  tab — the canonical surface per `routes.ts`). The lone inbound link
+  (`shared/command-center/OrgAccountsTab.tsx` "Enable network policy" CTA) was
+  repointed to `/governance/policies`.
+- Dead nav link fix: the hydrogen sidebar "Masking Policy" entry pointed at
+  `/governance/masking` (no such page) and was repointed to
+  `/governance/policies` (Masking tab).
+
 ## routes.ts note (why the keys were NOT removed)
 
 The corresponding keys in `src/config/routes.ts` (e.g. `eCommerce`, `logistics`,

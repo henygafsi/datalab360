@@ -196,7 +196,7 @@ export default function HealthOverviewTab() {
             <NotDeployedNote label="Health score" />
           ) : (
             <HealthScoreCard
-              score={Math.round(kpiData.overall_health_score ?? 0)}
+              score={kpiData.overall_health_score != null ? Math.round(kpiData.overall_health_score) : null}
               status={kpiData.overall_status ?? 'warning'}
               className="h-full"
             />

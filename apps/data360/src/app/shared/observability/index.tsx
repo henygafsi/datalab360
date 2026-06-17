@@ -39,6 +39,7 @@ import {
   getLineageWithTasks,
 } from '@/app/services/observability';
 import apiClient from '@/lib/api-client';
+import { dash } from '@/app/shared/ui/format';
 
 // Types
 import type {
@@ -773,7 +774,7 @@ function CrossModuleLineageTab() {
                   <PiDatabase className="w-5 h-5 text-indigo-500" />
                   <span className="font-semibold text-sm text-gray-900 dark:text-white flex-1">{db.database_name}</span>
                   <span className="text-xs text-gray-500 dark:text-gray-400">owner: {db.owner || '—'}</span>
-                  <Badge size="sm" className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400">{db.schema_count || 0} schemas</Badge>
+                  <Badge size="sm" className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400">{dash(db.schema_count)} schemas</Badge>
                 </button>
                 {isExp && (
                   <div className="border-t border-gray-200 dark:border-gray-700 px-4 py-3">

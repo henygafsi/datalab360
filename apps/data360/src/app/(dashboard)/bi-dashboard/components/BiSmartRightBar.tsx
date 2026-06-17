@@ -508,6 +508,14 @@ function StatusPill({ status }: { status: 'draft' | 'live' }) {
 function PublishControl({ status }: { status: UseDashboardStatus }) {
   const isLive = status.status === 'live';
 
+  // Action-RBAC gate (System 2): publish/unpublish are separate registry actions
+  // on bi_reporting (backend POST /publish → 'publish', /unpublish → 'unpublish').
+  // Fail-open while the allow-set loads; honest disabled + tooltip on a deny.
+  const publishPerm = useCanPerform('bi_reporting', 'publish');
+  const canPublish = publishPerm.allowed || publishPerm.loading;
+  const unpublishPerm = useCanPerform('bi_reporting', 'unpublish');
+  const canUnpublish = unpublishPerm.allowed || unpublishPerm.loading;
+
   const doPublish = async () => {
     try {
       const res = await status.publish();
@@ -557,8 +565,9 @@ function PublishControl({ status }: { status: UseDashboardStatus }) {
         <button
           type="button"
           onClick={doUnpublish}
-          disabled={status.busy || status.loading}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+          disabled={status.busy || status.loading || !canUnpublish}
+          title={!canUnpublish ? 'Requires the "unpublish" permission on Business Reporting.' : undefined}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-700 transition-colors hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
         >
           {status.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
           Unpublish (back to draft)
@@ -567,8 +576,9 @@ function PublishControl({ status }: { status: UseDashboardStatus }) {
         <button
           type="button"
           onClick={doPublish}
-          disabled={status.busy || status.loading}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+          disabled={status.busy || status.loading || !canPublish}
+          title={!canPublish ? 'Requires the "publish" permission on Business Reporting.' : undefined}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {status.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
           Publish dashboard
@@ -581,6 +591,14 @@ function PublishControl({ status }: { status: UseDashboardStatus }) {
 // ── Share with a user or D360 role ──────────────────────────────────────────
 
 function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSharesChanged?: () => void }) {
+  // Action-RBAC gate (System 2): grant = 'share', revoke = 'revoke-share'
+  // (backend POST /share, DELETE /shares/{id}). Fail-open while the allow-set
+  // loads; honest disabled + tooltip on a deny.
+  const sharePerm = useCanPerform('bi_reporting', 'share');
+  const canShare = sharePerm.allowed || sharePerm.loading;
+  const revokePerm = useCanPerform('bi_reporting', 'revoke-share');
+  const canRevoke = revokePerm.allowed || revokePerm.loading;
+
   const [shares, setShares] = useState<DashboardShare[] | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -591,6 +609,7 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
   const [pickerLoading, setPickerLoading] = useState(false);
   const [selected, setSelected] = useState('');
   const [granting, setGranting] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const loadShares = useCallback(async () => {
     setLoading(true);
@@ -655,6 +674,8 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
   };
 
   const revoke = async (share: DashboardShare) => {
+    if (revokingId) return;
+    setRevokingId(share.share_id);
     try {
       await revokeDashboardShare(projectId, share.share_id);
       toast.success(`Access removed for ${share.grantee}.`);
@@ -662,6 +683,8 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
       onSharesChanged?.();
     } catch {
       toast.error('Couldn’t revoke access.');
+    } finally {
+      setRevokingId(null);
     }
   };
 
@@ -705,8 +728,9 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
         <button
           type="button"
           onClick={grant}
-          disabled={!selected || granting}
-          className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-cyan-600 px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-cyan-700 disabled:opacity-50"
+          disabled={!selected || granting || !canShare}
+          title={!canShare ? 'Requires the "share" permission on Business Reporting.' : undefined}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-cyan-600 px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {granting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
           Grant view access
@@ -746,11 +770,13 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
                 <button
                   type="button"
                   onClick={() => revoke(s)}
+                  disabled={!canRevoke || !!revokingId}
+                  aria-busy={revokingId === s.share_id}
                   aria-label={`Revoke access for ${s.grantee}`}
-                  title="Revoke access"
-                  className="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                  title={canRevoke ? 'Revoke access' : 'Requires the "revoke-share" permission on Business Reporting.'}
+                  className="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-400"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  {revokingId === s.share_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 </button>
               </li>
             ))}

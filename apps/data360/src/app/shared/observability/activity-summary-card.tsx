@@ -5,6 +5,7 @@ import { Text, Title, Badge } from 'rizzui';
 import { PiUsersDuotone, PiClockDuotone, PiCheckCircleDuotone, PiDatabaseDuotone } from 'react-icons/pi';
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
 import type { UserActivitySummary } from '@/app/services/observability/types';
+import { dash, EM_DASH } from '@/app/shared/ui/format';
 
 interface ActivitySummaryCardProps {
   data: UserActivitySummary | null;
@@ -13,17 +14,18 @@ interface ActivitySummaryCardProps {
 }
 
 function formatNumber(num: number | undefined | null): string {
-  if (num == null) return '0';
+  if (num == null) return EM_DASH;
   if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
   if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
   return num.toString();
 }
 
 function formatDuration(seconds: number | undefined | null): string {
-  if (seconds == null) return '0s';
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
-  return `${(seconds / 3600).toFixed(1)}h`;
+  const n = Number(seconds);
+  if (seconds == null || !Number.isFinite(n)) return EM_DASH;
+  if (n < 60) return `${n.toFixed(1)}s`;
+  if (n < 3600) return `${(n / 60).toFixed(1)}m`;
+  return `${(n / 3600).toFixed(1)}h`;
 }
 
 export default function ActivitySummaryCard({ data, isLoading, className }: ActivitySummaryCardProps) {
@@ -62,10 +64,13 @@ export default function ActivitySummaryCard({ data, isLoading, className }: Acti
 
   // Calculate aggregated stats from users array
   const users = data.users || [];
-  const totalQueries = users.reduce((sum, u) => sum + (u.total_queries || 0), 0);
-  const successfulQueries = users.reduce((sum, u) => sum + (u.successful_queries || 0), 0);
-  const totalExecutionTime = users.reduce((sum, u) => sum + (u.total_execution_time_sec || 0), 0);
-  const totalGbScanned = users.reduce((sum, u) => sum + (u.total_gb_scanned || 0), 0);
+  // Number(...) coercion: the backend sends these numeric fields as STRINGS, so a
+  // bare `|| 0` string-concatenates in the reduce and the later `.toFixed()` throws,
+  // crashing the whole observability dashboard. Coerce each addend to a number.
+  const totalQueries = users.reduce((sum, u) => sum + (Number(u.total_queries) || 0), 0);
+  const successfulQueries = users.reduce((sum, u) => sum + (Number(u.successful_queries) || 0), 0);
+  const totalExecutionTime = users.reduce((sum, u) => sum + (Number(u.total_execution_time_sec) || 0), 0);
+  const totalGbScanned = users.reduce((sum, u) => sum + (Number(u.total_gb_scanned) || 0), 0);
 
   const successRate = totalQueries > 0
     ? ((successfulQueries / totalQueries) * 100).toFixed(1)
@@ -188,7 +193,7 @@ export default function ActivitySummaryCard({ data, isLoading, className }: Acti
                   <div>
                     <Text className="font-medium">{user.user_name || 'Unknown'}</Text>
                     <Text className="text-xs text-gray-500">
-                      {user.databases_accessed || 0} databases, {user.warehouses_used || 0} warehouses
+                      {dash(user.databases_accessed)} databases, {dash(user.warehouses_used)} warehouses
                     </Text>
                   </div>
                 </div>

@@ -12,6 +12,8 @@ import { normalizeChartId } from './reporting-catalog-grounding';
 import DrillThroughPanel from './DrillThroughPanel';
 import { useDashboard } from '../hooks/useDashboard';
 import { useExecuteDashboard } from '../hooks/useExecuteDashboard';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 import PageTabs from './PageTabs';
 import DashboardGrid from './DashboardGrid';
@@ -152,6 +154,19 @@ function nextWidgetPosition(widgets: DashboardWidget[]): { x: number; y: number 
 }
 
 export default function DashboardEditor({ projectId, projectName }: DashboardEditorProps) {
+  // Fire-and-forget analytics (R11/H10). The hook also auto-emits a PAGE_VIEW
+  // for this per-project route; the explicit mount event below adds projectId.
+  const { trackFeatureClick, trackTabSwitch } = useTrackEvent();
+
+  // Action-RBAC gate (System 2). AI chart generation creates a widget (POST
+  // /widgets → require_action 'create'); Snapshot saves a design version (POST
+  // /snapshot → require_action 'snapshot'). Fail-open while the allow-set loads;
+  // honest disabled + tooltip on a resolved deny.
+  const createPerm = useCanPerform('bi_reporting', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
+  const snapshotPerm = useCanPerform('bi_reporting', 'snapshot');
+  const canSnapshot = snapshotPerm.allowed || snapshotPerm.loading;
+
   const { data: dashboard, loading, error, refetch } = useDashboard(projectId);
   const {
     executing, executingWidgetId, results, errors,
@@ -241,6 +256,12 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   // Pending layout changes for batch saving
   const [pendingLayoutChanges, setPendingLayoutChanges] = useState<Record<string, {x: number; y: number; w: number; h: number}>>({});
   const [hasUnsavedLayoutChanges, setHasUnsavedLayoutChanges] = useState(false);
+
+  // Page-view on mount (fire-and-forget, never blocks render).
+  useEffect(() => {
+    trackFeatureClick('bi_editor_view', { projectId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sync from API data
   useEffect(() => {
@@ -344,8 +365,9 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
       setActivePageId(pageId);
       clearResults();
       autoFetchedKeyRef.current = null;
+      trackTabSwitch(pageId);
     },
-    [clearResults]
+    [clearResults, trackTabSwitch]
   );
 
   // Execute single widget with the active smart filters
@@ -519,6 +541,12 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
 
   // Add widget callback — also inject prefetched data if available
   const handleWidgetAdded = useCallback((widget: DashboardWidget, prefetchedData?: Record<string, unknown>[]) => {
+    // Single chokepoint for every add path (palette, panel, chart/kpi/table
+    // config, NL-to-chart) — fire-and-forget analytics.
+    trackFeatureClick('bi_widget_added', {
+      widget_type: widget.widget_type,
+      chart_type: widget.chart_type,
+    });
     setPages((prev) =>
       prev.map((p) =>
         p.page_id === activePageId
@@ -529,7 +557,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     if (prefetchedData && prefetchedData.length > 0) {
       setWidgetResult(widget.widget_id, prefetchedData);
     }
-  }, [activePageId, setWidgetResult]);
+  }, [activePageId, setWidgetResult, trackFeatureClick]);
 
   // Save a NEW chart widget from the docked Configure form (add flow). The
   // ChartConfigModal hands back a ComponentConfig (same shape as the edit
@@ -764,13 +792,14 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     try {
       const res = await saveSnapshot(projectId);
       setLastSnapshotId(res.version_id);
+      trackFeatureClick('bi_dashboard_snapshot', { version_id: res.version_id });
       toast.success(`Snapshot saved (${res.version_id})`);
     } catch (err) {
       toast.error(getApiErrorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [projectId]);
+  }, [projectId, trackFeatureClick]);
 
   // Cross-widget filter: when a chart element is clicked, filter other widgets
   const handleCrossWidgetFilter = useCallback((filterKey: string, filterValue: string) => {
@@ -928,7 +957,8 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
             variant="outline"
             size="sm"
             onClick={handleSnapshot}
-            disabled={snapshotting}
+            disabled={snapshotting || !canSnapshot}
+            title={!canSnapshot ? 'Requires the "snapshot" permission on Business Reporting.' : undefined}
             className="gap-1.5"
           >
             {snapshotting ? (
@@ -964,7 +994,11 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
               }
             }}
           >
-            <Download className="h-3.5 w-3.5" /> Export JSON
+            {isExporting ? (
+              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Exporting...</>
+            ) : (
+              <><Download className="h-3.5 w-3.5" /> Export JSON</>
+            )}
           </Button>
         </div>
       </div>
@@ -1003,7 +1037,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
                   value={nlQuestion}
                   onChange={(e) => setNlQuestion(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
+                    if (e.key === 'Enter' && canCreate) {
                       e.preventDefault();
                       void handleNlGenerate();
                     }
@@ -1016,9 +1050,10 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
                 <button
                   type="button"
                   onClick={() => void handleNlGenerate()}
-                  disabled={!nlQuestion.trim() || nlLoading}
+                  disabled={!nlQuestion.trim() || nlLoading || !canCreate}
+                  title={!canCreate ? 'Requires the "create" permission on Business Reporting.' : undefined}
                   aria-busy={nlLoading}
-                  className="flex shrink-0 items-center gap-1.5 rounded-md bg-cyan-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-cyan-700 disabled:opacity-40"
+                  className="flex shrink-0 items-center gap-1.5 rounded-md bg-cyan-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-cyan-700 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {nlLoading ? (
                     <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</>

@@ -34,16 +34,16 @@ const OPTIONS: KindOption[] = [
   {
     id: 'streamlit',
     title: 'Streamlit Dashboard',
-    subtitle: 'Snowflake-hosted Python dashboard, no infra to manage.',
-    chip: '→ Snowpark Streamlit Apps',
+    subtitle: 'Hosted Python dashboard, no infra to manage.',
+    chip: '→ Streamlit Apps',
     Icon: LayoutDashboard,
     best: 'Best for analyst self-service & one-page reports.',
   },
   {
     id: 'container',
     title: 'Container Service',
-    subtitle: 'Custom Docker image running on a Snowpark compute pool.',
-    chip: '→ Snowpark Container Services',
+    subtitle: 'Custom Docker image running on a managed compute pool.',
+    chip: '→ Container Services',
     Icon: Container,
     best: 'Best for custom UIs, model-serving and APIs.',
   },
@@ -106,7 +106,7 @@ export default function AppKindPicker({
           className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:focus:ring-cyan-900/40"
         />
         <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-          Optional. Used as the pre-fill on the Snowpark Services form.
+          Optional. Used as the pre-fill on the hosted app service form.
         </p>
       </div>
 

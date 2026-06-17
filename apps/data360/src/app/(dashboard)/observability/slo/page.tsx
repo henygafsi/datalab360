@@ -13,6 +13,7 @@ import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
 import { getSloTracking, isRouteNotDeployed } from '@/app/services/observability';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import type { SloRecord } from '@/app/services/observability/types';
 
 // ---------------------------------------------------------------------------
@@ -199,6 +200,16 @@ export default function SloPage() {
   const [notDeployed, setNotDeployed] = useState(false);
   const [addSloOpen, setAddSloOpen] = useState(false);
 
+  // Action-RBAC gate (H8): defining an SLO is an observability monitoring-config
+  // write. The action registry has no dedicated SLO action, so we map to the
+  // nearest registry-valid write action — `configure-alerts` (the cost/alerts
+  // monitoring-config surface; SLO breaches drive alerts). Using a non-registry key
+  // would deny every non-admin permanently (ungrantable) — a dishonest tooltip.
+  // Fail-open while the allow-set loads.
+  const sloPerm = useCanPerform('observability', 'configure-alerts');
+  const canAddSlo = sloPerm.allowed || sloPerm.loading;
+  const sloDeniedTitle = 'You lack the "configure-alerts" permission on observability. Ask an administrator to grant it.';
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -242,6 +253,8 @@ export default function SloPage() {
           <Button
             size="sm"
             className="gap-1 bg-indigo-600 text-white hover:bg-indigo-700"
+            disabled={!canAddSlo}
+            title={!canAddSlo ? sloDeniedTitle : undefined}
             onClick={() => setAddSloOpen(true)}
           >
             <PiPlusBold className="h-3.5 w-3.5" />
@@ -280,6 +293,8 @@ export default function SloPage() {
                 <Button
                   size="sm"
                   className="mt-3 gap-1 bg-indigo-600 text-white hover:bg-indigo-700"
+                  disabled={!canAddSlo}
+                  title={!canAddSlo ? sloDeniedTitle : undefined}
                   onClick={() => setAddSloOpen(true)}
                 >
                   <PiPlusBold className="h-3.5 w-3.5" />

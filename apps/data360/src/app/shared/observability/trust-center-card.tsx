@@ -14,6 +14,7 @@ import {
 import { getTrustCenterFindings, getTrustCenterSummary, isRouteNotDeployed } from '@/app/services/observability';
 import { getApiErrorMessage } from '@/lib/api-client';
 import MetricHelp from '@/components/ui/MetricHelp';
+import { dash } from '@/app/shared/ui/format';
 
 export default function TrustCenterCard() {
   const [findings, setFindings] = useState<any[]>([]);
@@ -143,7 +144,7 @@ export default function TrustCenterCard() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 text-center">
               <div className="text-3xl font-bold text-slate-900 dark:text-white mb-1">
-                {summary.total_findings ?? findings.length ?? 0}
+                {dash(summary.total_findings ?? findings.length)}
               </div>
               <p className="text-sm text-slate-500">Total Findings</p>
             </div>

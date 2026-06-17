@@ -43,6 +43,7 @@ export interface ColumnInfo {
   name: string;
   dataType: string;
   isPrimaryKey?: boolean;
+  isForeignKey?: boolean;
   isNullable?: boolean;
   isSensitive?: boolean;
 }

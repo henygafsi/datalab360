@@ -56,6 +56,7 @@ import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import { formatApiDetail } from '@/lib/utils';
+import { dash } from '@/app/shared/ui/format';
 import { useCanPerform } from '@/hooks/useCanPerform';
 
 // ============= SHARED UI COMPONENTS =============
@@ -76,7 +77,9 @@ const ModernCard = ({ children, className = '' }: { children: React.ReactNode; c
 const StatCard = ({ icon: Icon, label, value, color, badge }: {
   icon: React.ElementType;
   label: string;
-  value: number | string;
+  // Accepts a missing value — renders "—" for null/undefined/NaN (R3); a genuine
+  // 0 still renders as 0.
+  value: number | string | null | undefined;
   color: string;
   badge?: string;
 }) => (
@@ -88,7 +91,7 @@ const StatCard = ({ icon: Icon, label, value, color, badge }: {
         </div>
         <div>
           <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-          <p className="text-xl font-bold text-slate-900 dark:text-white">{value}</p>
+          <p className="text-xl font-bold text-slate-900 dark:text-white">{dash(value)}</p>
         </div>
       </div>
       {badge && <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">{badge}</Badge>}

@@ -26,6 +26,7 @@ import {
 import { getBlockByType } from './etl-blocks';
 import { FormField, Input } from './config-forms/_primitives';
 import ConfigFormSkeleton from './config-forms/_skeleton';
+import { Tooltip } from '@/app/shared/ui/Tooltip';
 
 // ============================================
 // LAZY-LOADED CONFIG FORMS
@@ -1041,12 +1042,16 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors"
-          >
-            <X className="h-4 w-4 text-slate-500" />
-          </button>
+          <Tooltip label="Close this block's configuration panel" side="left">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close configuration panel"
+              className="p-1.5 rounded-lg hover:bg-white/50 dark:hover:bg-slate-700/50 transition-colors"
+            >
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -1092,8 +1097,11 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
           </div>
         )}
         <button
+          type="button"
           onClick={handleSave}
           disabled={!hasChanges || !isValid}
+          title="Validate and save this block's configuration"
+          aria-label="Save configuration"
           className={cn(
             'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors',
             hasChanges && isValid
@@ -1107,7 +1115,10 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
 
         {!confirmDeleteNode ? (
           <button
+            type="button"
             onClick={handleDelete}
+            title="Remove this block from the workflow"
+            aria-label="Delete node"
             className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
           >
             <Trash2 className="h-4 w-4" />
@@ -1117,13 +1128,19 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
           <div className="w-full flex items-center justify-center gap-2 bg-red-50 dark:bg-red-900/20 rounded-lg p-2">
             <span className="text-sm text-red-700 dark:text-red-300">Delete this node?</span>
             <button
+              type="button"
               onClick={executeDeleteNode}
+              title="Confirm and permanently delete this block"
+              aria-label="Confirm delete"
               className="px-3 py-1 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
             >
               Confirm
             </button>
             <button
+              type="button"
               onClick={() => setConfirmDeleteNode(false)}
+              title="Keep this block and cancel the delete"
+              aria-label="Cancel delete"
               className="px-3 py-1 text-xs font-medium rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
             >
               Cancel

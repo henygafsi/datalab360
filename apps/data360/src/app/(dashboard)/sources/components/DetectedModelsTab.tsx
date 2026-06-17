@@ -4,13 +4,14 @@ import React, { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { Badge, Button, Loader } from 'rizzui';
 import {
-  Brain, Sparkles, Table2, GitBranch, Boxes,
+  Table2, GitBranch, Boxes,
   RefreshCw, Layers, Zap, Target,
   TrendingUp, BarChart3, FolderPlus, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { discoverRelationships, getSchemaHealth } from '@/app/services/explore-design/de-objects';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 interface DetectedModel {
   id: string;
@@ -47,6 +48,18 @@ const MODEL_TYPE_STYLES: Record<string, { bg: string; text: string; icon: React.
   unknown: { bg: 'bg-gray-50 dark:bg-gray-800', text: 'text-gray-500 dark:text-gray-400', icon: <Boxes className="h-3.5 w-3.5" /> },
 };
 
+/**
+ * Qualitative label for the rule-based classification match. The underlying
+ * value is a hardcoded heuristic score (naming pattern + relationship degree),
+ * NOT a calibrated model probability — so we surface a coarse strength bucket
+ * instead of a precise percentage to avoid implying AI confidence.
+ */
+function matchStrengthLabel(confidence: number): string {
+  if (confidence >= 0.8) return 'Strong';
+  if (confidence >= 0.6) return 'Likely';
+  return 'Tentative';
+}
+
 export default function DetectedModelsTab({ projectId, sourceTables }: DetectedModelsTabProps) {
   const [models, setModels] = useState<DetectedModel[]>([]);
   const [loading, setLoading] = useState(false);
@@ -54,6 +67,16 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
   const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [health, setHealth] = useState<SchemaHealth | null>(null);
+
+  // System-2 Action-RBAC gate for the model-detection run. The underlying call
+  // (POST /explore-design/{pid}/ai/discover-relationships) is gated by the
+  // backend `require_module("explore_design")`; the write/AI-assist action in
+  // that module is `create` (matches ContextRightBar). Project-scoped, fail-open
+  // while the allow-set loads; honest-disable only on a resolved denial.
+  const detectPerm = useCanPerform('explore_design', 'create', projectId);
+  const canDetect = detectPerm.allowed || detectPerm.loading;
+  const detectDeniedReason =
+    'You lack the "create" permission on explore & design. Ask an administrator to grant it.';
 
   const runDetection = useCallback(async () => {
     if (!projectId || !sourceTables?.length) return;
@@ -102,10 +125,10 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
   if (!projectId) {
     return (
       <div className="text-center py-16">
-        <Brain className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+        <Boxes className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">No Project Selected</h3>
         <p className="text-xs text-gray-500 max-w-sm mx-auto">
-          Select or create a project to detect data models from your sources using AI.
+          Select or create a project to detect data models from your sources.
         </p>
       </div>
     );
@@ -115,13 +138,12 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
     return (
       <div className="text-center py-16">
         <div className="relative inline-block mb-4">
-          <Brain className="h-12 w-12 text-blue-400" />
-          <Sparkles className="h-5 w-5 text-amber-400 absolute -top-1 -right-1 animate-pulse" />
+          <Boxes className="h-12 w-12 text-blue-400" />
         </div>
-        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Detect Data Models with AI</h3>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Detect Data Models</h3>
         <p className="text-xs text-gray-500 max-w-md mx-auto mb-4">
-          Analyze your source tables to automatically detect fact tables, dimensions, relationships
-          and suggest a star/snowflake schema structure.
+          Discover relationships across your source tables, then classify each table (fact, dimension,
+          staging, …) from its naming pattern and relationship structure to suggest a star or normalized dimensional schema.
         </p>
         <div className="flex items-center justify-center gap-3 mb-6">
           <div className="flex items-center gap-1.5 text-xs text-gray-500">
@@ -130,17 +152,18 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
           </div>
           <span className="text-gray-300">|</span>
           <div className="flex items-center gap-1.5 text-xs text-gray-500">
-            <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-            AI-powered detection
+            <GitBranch className="h-3.5 w-3.5 text-blue-500" />
+            Rule-based detection
           </div>
         </div>
         <Button
           size="lg"
           className="gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg"
           onClick={runDetection}
-          disabled={loading || !sourceTables?.length}
+          disabled={loading || !sourceTables?.length || !canDetect}
+          title={!canDetect ? detectDeniedReason : undefined}
         >
-          {loading ? <Loader size="sm" /> : <Brain className="h-4 w-4" />}
+          {loading ? <Loader size="sm" /> : <Boxes className="h-4 w-4" />}
           Detect Models
         </Button>
         {!sourceTables?.length && (
@@ -177,28 +200,40 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
     <div className="space-y-4">
       {/* Summary Row */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-            {models.length} Models Detected
-          </h3>
-          <div className="flex gap-1.5">
-            {Object.entries(
-              models.reduce<Record<string, number>>((acc, m) => {
-                acc[m.type] = (acc[m.type] || 0) + 1;
-                return acc;
-              }, {})
-            ).map(([type, count]) => {
-              const style = MODEL_TYPE_STYLES[type] || MODEL_TYPE_STYLES.unknown;
-              return (
-                <Badge key={type} size="sm" className={cn(style.bg, style.text, 'text-[10px] gap-1')}>
-                  {style.icon} {count} {type}
-                </Badge>
-              );
-            })}
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-3">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+              {models.length} Models Detected
+            </h3>
+            <div className="flex gap-1.5">
+              {Object.entries(
+                models.reduce<Record<string, number>>((acc, m) => {
+                  acc[m.type] = (acc[m.type] || 0) + 1;
+                  return acc;
+                }, {})
+              ).map(([type, count]) => {
+                const style = MODEL_TYPE_STYLES[type] || MODEL_TYPE_STYLES.unknown;
+                return (
+                  <Badge key={type} size="sm" className={cn(style.bg, style.text, 'text-[10px] gap-1')}>
+                    {style.icon} {count} {type}
+                  </Badge>
+                );
+              })}
+            </div>
           </div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-500">
+            Classified by naming patterns and relationship structure — match strength is a rule-based heuristic, not a model probability.
+          </p>
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={runDetection} className="gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={runDetection}
+            disabled={!canDetect}
+            title={!canDetect ? detectDeniedReason : undefined}
+            className="gap-1.5"
+          >
             <RefreshCw className="h-3 w-3" />Re-detect
           </Button>
           <Link href={`/explore-design?project=${encodeURIComponent(projectId)}`}>
@@ -253,15 +288,17 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <div className={cn(
-                    'px-2 py-0.5 rounded-full text-[10px] font-semibold',
-                    model.confidence >= 0.8
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                      : model.confidence >= 0.6
-                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                  )}>
-                    {Math.round(model.confidence * 100)}%
+                  <div
+                    title="Rule-based match strength (naming pattern + relationship structure) — not a model probability"
+                    className={cn(
+                      'px-2 py-0.5 rounded-full text-[10px] font-semibold',
+                      model.confidence >= 0.8
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                        : model.confidence >= 0.6
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    )}>
+                    {matchStrengthLabel(model.confidence)}
                   </div>
                 </div>
               </div>

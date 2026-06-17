@@ -160,7 +160,7 @@ export default function AppCodeReview({
             credits / day (rough)
           </p>
           <p className="mt-2 text-[10px] text-slate-500 dark:text-slate-400">
-            Refined on the Snowpark Services form.
+            Refined on the hosted app service form.
           </p>
         </div>
 
@@ -233,14 +233,14 @@ function SandboxBackendGap() {
           <dt className="font-semibold text-violet-700 dark:text-violet-300">Why</dt>
           <dd className="text-slate-700 dark:text-slate-300">
             Lets the user dry-run the generated app against the live source
-            before handing off to Snowpark Services.
+            before handing off to the hosted app service.
           </dd>
         </div>
       </dl>
       <div className="mt-2 flex items-center gap-2 rounded bg-violet-100 px-2 py-1 dark:bg-violet-900/40">
         <Beaker className="h-3 w-3 text-violet-600 dark:text-violet-300" />
         <span className="text-[10px] text-violet-800 dark:text-violet-200">
-          Until this lands, ship straight to Snowpark Services and use its
+          Until this lands, ship straight to the hosted app service and use its
           built-in &quot;test run&quot; button.
         </span>
       </div>

@@ -19,7 +19,7 @@ const DocumentAIConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800">
-        <p className="text-xs text-violet-700 dark:text-violet-300">Parse documents (PDF, images) using Snowflake Document AI. Extracts text and structured fields.</p>
+        <p className="text-xs text-violet-700 dark:text-violet-300">Parse documents (PDF, images) using built-in Document AI. Extracts text and structured fields.</p>
       </div>
       <FormField label="Model Name" required error={errors.model}>
         <Input value={config.model || ''} onChange={(v) => updateConfig({ model: v })} placeholder="my_document_model" error={!!errors.model} />

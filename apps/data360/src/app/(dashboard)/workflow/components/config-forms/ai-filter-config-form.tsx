@@ -19,7 +19,7 @@ const AIFilterConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
-        <p className="text-xs text-purple-700 dark:text-purple-300">Filter rows using natural language with Cortex AI_FILTER. Describe what rows to keep in plain English.</p>
+        <p className="text-xs text-purple-700 dark:text-purple-300">Filter rows using natural language with AI. Describe what rows to keep in plain English.</p>
       </div>
       <FormField label="Filter Prompt" required error={errors.filter_prompt} hint="Describe which rows to keep">
         <Input value={config.filter_prompt || ''} onChange={(v) => updateConfig({ filter_prompt: v })} placeholder="e.g. rows about customer complaints" error={!!errors.filter_prompt} />

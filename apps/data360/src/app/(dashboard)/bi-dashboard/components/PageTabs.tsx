@@ -8,6 +8,7 @@ import { createPage, updatePage, deletePage } from '@/app/services/api/biDashboa
 import type { DashboardPage } from '@/app/services/api/types';
 import toast from 'react-hot-toast';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 interface PageTabsProps {
   projectId: string;
@@ -30,6 +31,16 @@ export default function PageTabs({
   const [editTitle, setEditTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Action-RBAC gate (System 2): editing the dashboard's page structure. Add =
+  // create, remove = delete, rename = edit (registry actions on bi_reporting).
+  // Fail-open while the allow-set loads; honest disabled + tooltip on a deny.
+  const createPerm = useCanPerform('bi_reporting', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
+  const deletePerm = useCanPerform('bi_reporting', 'delete');
+  const canDelete = deletePerm.allowed || deletePerm.loading;
+  const editPerm = useCanPerform('bi_reporting', 'edit');
+  const canEdit = editPerm.allowed || editPerm.loading;
 
   const sortedPages = [...pages].sort((a, b) => a.page_order - b.page_order);
 
@@ -120,7 +131,7 @@ export default function PageTabs({
                   className="w-24 h-6 text-xs"
                   autoFocus
                 />
-                <button onClick={() => handleRenamePage(page.page_id)} disabled={loading} aria-label="Confirm rename">
+                <button onClick={() => handleRenamePage(page.page_id)} disabled={loading || !canEdit} title={!canEdit ? 'Requires the "edit" permission on Business Reporting.' : undefined} aria-label="Confirm rename">
                   <Check className="h-3.5 w-3.5 text-green-500" />
                 </button>
                 <button onClick={() => setEditingPageId(null)} aria-label="Cancel rename">
@@ -133,8 +144,10 @@ export default function PageTabs({
                   <div className="flex items-center gap-1 bg-red-50 dark:bg-red-950/30 rounded-lg px-2 py-0.5">
                     <span className="text-[10px] text-red-700 dark:text-red-400 whitespace-nowrap">Delete this page?</span>
                     <button
-                      className="text-[10px] font-semibold text-red-700 dark:text-red-400 hover:underline"
+                      className="text-[10px] font-semibold text-red-700 dark:text-red-400 hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
                       onClick={(e) => { e.stopPropagation(); handleDeletePage(page.page_id); }}
+                      disabled={!canDelete}
+                      title={!canDelete ? 'Requires the "delete" permission on Business Reporting.' : undefined}
                     >
                       Confirm
                     </button>
@@ -150,24 +163,28 @@ export default function PageTabs({
                     <button type="button" onClick={() => onPageSelect(page.page_id)} className="bg-transparent border-none p-0 font-inherit text-inherit cursor-pointer">{page.title}</button>
                     <div className="hidden group-hover:flex items-center gap-0.5 ml-1">
                       <button
-                        className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                        className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                         onClick={(e) => {
                           e.stopPropagation();
                           setEditingPageId(page.page_id);
                           setEditTitle(page.title);
                         }}
+                        disabled={!canEdit}
+                        title={!canEdit ? 'Requires the "edit" permission on Business Reporting.' : 'Rename page'}
                         aria-label="Rename page"
                       >
                         <Pencil className="h-3 w-3 text-slate-400" />
                       </button>
                       {pages.length > 1 && (
                         <button
-                          className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                          className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                           onClick={(e) => {
                             e.stopPropagation();
                             if (pages.length <= 1) { toast.error('Cannot delete the last page'); return; }
                             setConfirmDeleteId(page.page_id);
                           }}
+                          disabled={!canDelete}
+                          title={!canDelete ? 'Requires the "delete" permission on Business Reporting.' : 'Delete page'}
                           aria-label="Delete page"
                         >
                           <X className="h-3 w-3 text-red-400" />
@@ -197,7 +214,7 @@ export default function PageTabs({
             className="w-28 h-6 text-xs"
             autoFocus
           />
-          <button onClick={handleAddPage} disabled={loading} aria-label="Confirm add page">
+          <button onClick={handleAddPage} disabled={loading || !canCreate} title={!canCreate ? 'Requires the "create" permission on Business Reporting.' : undefined} aria-label="Confirm add page">
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5 text-green-500" />}
           </button>
           <button onClick={() => { setIsAdding(false); setNewTitle(''); }} aria-label="Cancel add page">
@@ -205,10 +222,11 @@ export default function PageTabs({
           </button>
         </div>
       ) : (
-        <Tooltip content="Add page">
+        <Tooltip content={canCreate ? 'Add page' : 'Requires the "create" permission on Business Reporting.'}>
           <button
-            className="flex items-center gap-1 px-2 py-1.5 text-xs text-slate-400 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-xs text-slate-400 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400"
             onClick={() => setIsAdding(true)}
+            disabled={!canCreate}
           >
             <Plus className="h-3.5 w-3.5" />
           </button>

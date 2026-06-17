@@ -1029,6 +1029,16 @@ export interface CreateWorkflowResponse {
   version_number: number;
 }
 
+/**
+ * Body for PATCH /workflow/{id}. All fields optional — the backend updates only
+ * the keys present. Used today for tag editing from the builder header.
+ */
+export interface UpdateWorkflowRequest {
+  tags?: string[];
+  name?: string;
+  description?: string | null;
+}
+
 export interface Workflow {
   project_id: string;
   project_name: string;

@@ -979,9 +979,6 @@ export default function ProjectSelector({
                   </p>
                 )}
 
-                {/* Backend Gap note — shown once below the list */}
-                {!loading && safeProjects.length > 0 && <ProjectListingBackendGap />}
-
                 {/* Footer */}
                 {safeProjects.length > 0 && (
                   <motion.div

@@ -6,6 +6,7 @@ import type { LayoutItem } from 'react-grid-layout';
 import { Plus } from 'lucide-react';
 import type { DashboardWidget } from '@/app/services/api/types';
 import WidgetCard from './GridChartCard';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 // @ts-ignore
 import 'react-grid-layout/css/styles.css';
@@ -58,6 +59,14 @@ export default function DashboardGrid({
   onCrossWidgetFilter,
   onDrillThrough,
 }: DashboardGridProps) {
+  // Action-RBAC gate (System 2): adding a widget hits POST /widgets which the
+  // backend gates with require_action('bi_reporting','create'). Fail-open while
+  // the allow-set loads so the button never flashes disabled; honest disabled +
+  // tooltip once /my-permissions resolves to a deny.
+  const createPerm = useCanPerform('bi_reporting', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
+  const createDeniedReason = 'Requires the "create" permission on Business Reporting.';
+
   // Build layout from widget positions
   const layout = useMemo(
     () =>
@@ -119,7 +128,9 @@ export default function DashboardGrid({
         </p>
         <button
           onClick={onAddWidget}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+          disabled={!canCreate}
+          title={!canCreate ? createDeniedReason : undefined}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
         >
           Add Widget
         </button>
@@ -167,8 +178,9 @@ export default function DashboardGrid({
       {/* Floating Add Button */}
       <button
         onClick={onAddWidget}
-        className="fixed bottom-8 right-8 p-3 bg-blue-600 text-white rounded-full shadow-lg shadow-blue-500/30 dark:shadow-blue-900/40 hover:bg-blue-700 dark:hover:bg-blue-500 hover:scale-105 transition-all z-10"
-        title="Add widget"
+        disabled={!canCreate}
+        className="fixed bottom-8 right-8 p-3 bg-blue-600 text-white rounded-full shadow-lg shadow-blue-500/30 dark:shadow-blue-900/40 hover:bg-blue-700 dark:hover:bg-blue-500 hover:scale-105 transition-all z-10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 disabled:hover:bg-blue-600"
+        title={canCreate ? 'Add widget' : createDeniedReason}
       >
         <Plus className="h-6 w-6" />
       </button>

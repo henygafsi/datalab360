@@ -19,7 +19,7 @@ const AIClassifyConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
-        <p className="text-xs text-purple-700 dark:text-purple-300">Classify text into categories using Cortex AI_CLASSIFY.</p>
+        <p className="text-xs text-purple-700 dark:text-purple-300">Classify text into categories using AI.</p>
       </div>
       <FormField label="Model" error={errors.model}>
         <Select value={config.model || 'mistral-large2'} onChange={(v) => updateConfig({ model: v })} options={AI_MODEL_OPTIONS} />

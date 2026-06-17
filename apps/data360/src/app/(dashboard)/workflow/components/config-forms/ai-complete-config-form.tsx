@@ -19,7 +19,7 @@ const AICompleteConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-        <p className="text-xs text-amber-700 dark:text-amber-300">Generate text completions using Cortex AI_COMPLETE. Use {'{{column_name}}'} placeholders in your prompt template.</p>
+        <p className="text-xs text-amber-700 dark:text-amber-300">Generate text completions using AI. Use {'{{column_name}}'} placeholders in your prompt template.</p>
       </div>
       <FormField label="Prompt Template" required error={errors.prompt_template} hint="Use {{column}} to reference row values">
         <Textarea value={config.prompt_template || ''} onChange={(v) => updateConfig({ prompt_template: v })} placeholder="Summarize the following text: {{description}}" rows={4} error={!!errors.prompt_template} />

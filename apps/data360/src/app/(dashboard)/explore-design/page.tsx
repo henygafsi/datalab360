@@ -47,8 +47,10 @@ import { listDDLActions, addDDLAction, removeDDLAction, validateFkTypes, cascade
 import { generateSnowflakeSQL, DDL_EVENT_TYPES, inferDDLType } from './components/deployment/deployment-utils';
 import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors, listProjects } from '@/app/services/api/projectsApi';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { isUnavailable } from '@/lib/http-status';
+import { fmtNum } from '@/app/shared/ui/format';
 import { createSchemaClone } from '@/app/services/explore-design';
 import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
 import { useAuth } from '@/hooks/useAuth';
@@ -79,6 +81,7 @@ import {
   useEventStore,
   createPrimaryKeyEvent,
   createMaskingPolicyEvent,
+  createIngestionModeEvent,
   EventType
 } from './stores/event-store';
 import CreateTableModal, { SnowflakeTableType } from './components/CreateTableModal';
@@ -92,6 +95,8 @@ import StreamModal from './components/StreamModal';
 import AlertModal from './components/AlertModal';
 import EventTableModal from './components/EventTableModal';
 import { ActionRail } from '@/app/shared/action-rail';
+// R6 — per-project ADN header badge: the consolidated, null-aware 5-axis strip.
+import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import HybridTableModal from './components/HybridTableModal';
 import IngestionConfigPanel from './components/IngestionConfigPanel';
 import TemplateLibrary from './components/TemplateLibrary';
@@ -109,7 +114,7 @@ import EventTemplatePickerModal from './components/EventTemplatePickerModal';
 import AiFeatureToggle from './components/AiFeatureToggle';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { useAiAnalysis } from './hooks/useAiAnalysis';
-import { useAiFeatures } from './stores/ai-store';
+import { useAiFeatures, useAiSuggestions, type AiSuggestion } from './stores/ai-store';
 import {
   DWH_TEMPLATE_TABLES,
   DWH_TEMPLATE_RELATIONSHIPS,
@@ -892,6 +897,56 @@ function categorizeColumns(columns: ColumnInfo[]) {
   return { primaryKeys, nullable, sensitive };
 }
 
+/**
+ * ModelOverview — the model-general landing for the modeling right cockpit when
+ * no node is selected (replaces the bare empty canvas / 6× "Select a table").
+ * Pure read summary from page-level data already in hand: #tables, #relations,
+ * target DWH, and the per-project 5-axis ADN badge (self-hides when no rollup).
+ * Honest "—" when a value isn't known (no fabricated zeros).
+ */
+function ModelOverview({ tableCount, relationCount, targetDwh, projectId }: {
+  tableCount: number; relationCount: number; targetDwh: string; projectId: string | null;
+}) {
+  const Stat = ({ icon: Icon, label, value, tone }: { icon: React.ElementType; label: string; value: React.ReactNode; tone: string }) => (
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon className={cn('h-3.5 w-3.5', tone)} />
+        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{label}</span>
+      </div>
+      <p className="text-lg font-bold text-slate-800 dark:text-slate-100 font-mono truncate">{value}</p>
+    </div>
+  );
+  return (
+    <div className="p-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <Workflow className="h-4 w-4 text-blue-500" />
+        <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Model overview</h4>
+      </div>
+      <p className="text-[11px] text-slate-500">Select a table in the canvas to see contextual actions, or review the model summary below.</p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Stat icon={Table2} label="Tables" value={tableCount} tone="text-blue-500" />
+        <Stat icon={GitBranch} label="Relations" value={relationCount} tone="text-purple-500" />
+        <Stat icon={Database} label="Target DWH" value={targetDwh || '—'} tone="text-cyan-500" />
+        <Stat icon={Layers} label="Project" value={projectId ? 'Linked' : '—'} tone="text-emerald-500" />
+      </div>
+
+      {/* Per-project ADN — self-hides (renders nothing) when no rollup exists,
+          so this never shows a fabricated score. */}
+      {projectId && (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Data health (ADN)</span>
+          <div className="flex">
+            <AdnHeaderBadge projectId={projectId} compact />
+          </div>
+        </div>
+      )}
+
+      <p className="text-[10px] text-slate-400 italic">Use the canvas Fit / Auto-layout controls to arrange the model. Click a node to inspect and act on it.</p>
+    </div>
+  );
+}
+
 // Main Page Component
 export default function ExploreDesignPage() {
   const router = useRouter();
@@ -899,6 +954,11 @@ export default function ExploreDesignPage() {
   const { username: currentUsername } = useAuth();
   const { data: sessionData } = useSession();
   const sessionRole = (sessionData?.user as any)?.role as string | undefined;
+
+  // Event tracking (R11/H10) — invoking the hook auto-queues a fire-and-forget
+  // PAGE_VIEW on mount (module resolves to `explore_design`). Helpers below
+  // instrument key actions: tab switch, model/relationship create, deploy.
+  const { trackTabSwitch, trackFeatureClick } = useTrackEvent();
 
   // Connection status from SSE provider
   const { isConnected, error: connectionError } = useCacheInvalidationContext();
@@ -1003,7 +1063,7 @@ export default function ExploreDesignPage() {
   const [showBulkPKModal, setShowBulkPKModal] = useState(false);
   const [showBulkMaskingModal, setShowBulkMaskingModal] = useState(false);
   const [showRelationsModal, setShowRelationsModal] = useState(false);
-  const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+  // (deployment is now a docked right-bar tab, not a modal — no open/close state)
   const [showAiGuidedWizard, setShowAiGuidedWizard] = useState(false);
   // Plain-English description seeded into the AI model wizard when the user
   // picked the AI fork in the UnifiedProjectWizard / "Change approach".
@@ -1072,6 +1132,18 @@ export default function ExploreDesignPage() {
   const dropDeniedReason =
     'You lack the "delete" permission on Explore & Design. Ask an administrator to grant it.';
 
+  // Action-RBAC for in-place column ALTERs (rename / retype). Fail-open while
+  // the allow-set loads (mirrors canDropObjects). Drop reuses dropObjPerm.
+  const editColPerm = useCanPerform('explore_design', 'edit');
+  const canEditCols = editColPerm.allowed || editColPerm.loading;
+  // Inline per-column ALTER editor (rename / retype / drop-confirm). No browser
+  // dialogs (this file replaced confirm() with inline state, see confirmDrop).
+  const [columnEdit, setColumnEdit] = useState<
+    { column: string; mode: 'rename' | 'retype' | 'drop'; value: string; oldType: string } | null
+  >(null);
+  // Snowflake types offered by the retype picker (mirrors AddColumnModal DATA_TYPES).
+  const COLUMN_TYPE_OPTIONS = ['VARCHAR', 'NUMBER', 'INTEGER', 'FLOAT', 'BOOLEAN', 'DATE', 'TIMESTAMP', 'VARIANT', 'ARRAY', 'OBJECT'];
+
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('catalog');
   // Persist viewMode to localStorage
@@ -1119,6 +1191,29 @@ export default function ExploreDesignPage() {
   const [rightBarOpen, setRightBarOpen] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState<RightBarTab>('actions');
   const [focusedAction, setFocusedAction] = useState<FocusedAction>(null);
+  // T1 unification bridge: ModelingCanvas registers its live context-action
+  // dispatcher here so the unified ContextRightBar's "Modeling actions" group can
+  // route table actions (FK/relation/PK/duplicate/DE-tables/exclude) through the
+  // SAME handleNodeContextAction path the old node menu used. Ref (not state) so
+  // registration never triggers a re-render.
+  const canvasActionDispatchRef = useRef<((tableId: string, action: string) => void) | null>(null);
+  const handleNodeContextAction = useCallback((tableId: string, action: string) => {
+    canvasActionDispatchRef.current?.(tableId, action);
+  }, []);
+  // A node's "more"/context action opens the ONE right bar on its Actions tab
+  // (replaces the retired standalone TableOptionsSidebar). selectedTable is set by
+  // the canvas via onTableSelect before this fires; we only need to open + focus.
+  const handleOpenContextBar = useCallback((table: TableItem) => {
+    setSelectedTable(table);
+    setActiveRightTab('actions');
+    setFocusedAction(null);
+    setRightBarOpen(true);
+  }, []);
+  // Stable so it doesn't defeat ModelingCanvas's React.memo or re-run its register
+  // effect every render. Stores the canvas's live dispatcher into the ref above.
+  const handleRegisterActionDispatch = useCallback((dispatch: (tableId: string, action: string) => void) => {
+    canvasActionDispatchRef.current = dispatch;
+  }, []);
   const [classificationDetails, setClassificationDetails] = useState<Array<{ column: string; category: string; tags?: string[]; confidence?: number; description?: string; piiRisk?: string; suggestion?: string }>>([]);
   // Conflict detection modal
   const [showConflictModal, setShowConflictModal] = useState(false);
@@ -1158,6 +1253,11 @@ export default function ExploreDesignPage() {
 
   // AI analysis — runs analyzers against events when toggles/events change
   useAiAnalysis(events);
+
+  // AI suggestion apply path (Class A — LOCAL canvas dispatches, no backend
+  // route → no 404/501 gate). markApplied keeps the row visible with an
+  // "Applied" state; the action CTA is the SOLE apply path.
+  const { markApplied: markAiSuggestionApplied } = useAiSuggestions(selectedProjectId);
 
   // ── Auto-sync DDL actions to backend ────────────────────────────────────
   // Maps local event ID → backend DDL event_id for add/remove tracking
@@ -1247,6 +1347,76 @@ export default function ExploreDesignPage() {
     }
     return false;
   }, [isReadOnly]);
+
+  // ── Per-column ALTER dispatchers (P0) ─────────────────────────────────────
+  // Wire DROP / RENAME / retype into the existing EventStore. The deployment-
+  // utils generator already emits the SQL + rollbackSql for each of these event
+  // types — we only need to emit the event with the exact payload shape it reads:
+  //   COLUMN_RENAMED      → payload.oldName / payload.newName, target.column = oldName
+  //   COLUMN_TYPE_CHANGED → target.column, payload.oldType / payload.newType
+  //   REMOVE_COLUMN       → payload.columnName (+ target.column)
+  // addEvent() silently rejects non-significant events (returns null), so oldType
+  // and a changed value are load-bearing — without them the action no-ops.
+  const handleColumnRename = useCallback((columnName: string, newName: string) => {
+    if (readOnlyGuard()) return;
+    if (!selectedTable) return;
+    const trimmed = newName.trim().toUpperCase();
+    if (!trimmed || trimmed === columnName.toUpperCase()) { setColumnEdit(null); return; }
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) {
+      toast.error('Invalid column name');
+      return;
+    }
+    const added = addEvent({
+      type: 'COLUMN_RENAMED',
+      projectId: selectedProjectId || undefined,
+      target: {
+        database: selectedTable.database,
+        schema: selectedTable.schema,
+        table: selectedTable.table,
+        column: columnName,
+      },
+      payload: { oldName: columnName, newName: trimmed },
+    });
+    setColumnEdit(null);
+    if (added) toast.success(`Rename "${columnName}" → "${trimmed}" queued`);
+  }, [readOnlyGuard, selectedTable, selectedProjectId, addEvent]);
+
+  const handleColumnRetype = useCallback((columnName: string, oldType: string, newType: string) => {
+    if (readOnlyGuard()) return;
+    if (!selectedTable) return;
+    if (!newType || newType === oldType) { setColumnEdit(null); return; }
+    const added = addEvent({
+      type: 'COLUMN_TYPE_CHANGED',
+      projectId: selectedProjectId || undefined,
+      target: {
+        database: selectedTable.database,
+        schema: selectedTable.schema,
+        table: selectedTable.table,
+        column: columnName,
+      },
+      payload: { oldType, newType },
+    });
+    setColumnEdit(null);
+    if (added) toast.success(`Type change "${columnName}" ${oldType || '?'} → ${newType} queued`);
+  }, [readOnlyGuard, selectedTable, selectedProjectId, addEvent]);
+
+  const handleColumnDrop = useCallback((columnName: string) => {
+    if (readOnlyGuard()) return;
+    if (!selectedTable) return;
+    const added = addEvent({
+      type: 'REMOVE_COLUMN',
+      projectId: selectedProjectId || undefined,
+      target: {
+        database: selectedTable.database,
+        schema: selectedTable.schema,
+        table: selectedTable.table,
+        column: columnName,
+      },
+      payload: { columnName },
+    });
+    setColumnEdit(null);
+    if (added) toast.success(`Drop column "${columnName}" queued`);
+  }, [readOnlyGuard, selectedTable, selectedProjectId, addEvent]);
 
   // ── Scan deep-link: accept an AI-suggested data product ───────────────────
   // Seeds the AI-guided wizard with the suggestion's description + source
@@ -1379,8 +1549,10 @@ export default function ExploreDesignPage() {
     const blocked = pendingConflictAction.current;
     if (blocked?.type === 'deploy') {
       pendingConflictAction.current = null;
-      // Re-open deployment modal now that conflict is resolved
-      setShowDeploymentModal(true);
+      // Conflict resolved — resume deploy by switching to the docked Deploy tab
+      // (the 8-step stepper now lives in the right bar, not a modal).
+      setActiveRightTab('deploy');
+      setRightBarOpen(true);
     }
 
     setCurrentConflict(null);
@@ -1515,22 +1687,14 @@ export default function ExploreDesignPage() {
         const dbList = await getDatabases();
         setDatabases(Array.isArray(dbList) ? dbList : []);
         if (Array.isArray(dbList) && dbList.length > 0) {
-          const firstDb = dbList[0];
-          setSelectedDatabase(prev => prev || firstDb);
-          // Auto-load schemas for ALL databases in parallel, skip system schemas
-          const allSchemasMap = new Map<string, string>();
-          const allSchemaNames: string[] = [];
-          await Promise.allSettled(dbList.map(async (db: string) => {
-            try {
-              const schemaList = await getSchemas(db);
-              if (schemaList) schemaList.forEach((s: string) => {
-                allSchemasMap.set(s, db);
-                allSchemaNames.push(s);
-              });
-            } catch { /* skip inaccessible db */ }
-          }));
-          setSchemas(allSchemaNames);
-          setSelectedSchemas(allSchemasMap);
+          // Select the first db ONLY — do NOT fan getSchemas across EVERY database.
+          // That fan-out (one getSchemas per db, then getTables per (db,schema), then
+          // getTableColumns per table) ran on project open over the user's no-retry
+          // connection — the cause of the "project display so long" + a cursor-race
+          // amplifier. The loadSchemas effect (keyed on selectedDatabase) loads the
+          // selected db's schemas into the picker; schema/table loading is user-driven
+          // from the restored CompactSourceSelector.
+          setSelectedDatabase(prev => prev || dbList[0]);
         }
       } catch (error: any) {
         console.error('[Explore-Design] Failed to load databases:', error);
@@ -1548,7 +1712,10 @@ export default function ExploreDesignPage() {
     loadDatabases();
   }, [selectedProjectId, isOffline, router, sseRefreshKey]);
 
-  // Load masking policies on mount
+  // Load masking policies — DEFERRED off the initial critical path. The
+  // /masking/batch-details call is ~1.4s and masking is only needed once the
+  // user opens the policies/security section, so loading it during project-open
+  // made the catalog "display too long". Fire it after the first paint settles.
   useEffect(() => {
     const loadMaskingPolicies = async () => {
       setIsLoadingPolicies(true);
@@ -1567,21 +1734,32 @@ export default function ExploreDesignPage() {
         setIsLoadingPolicies(false);
       }
     };
-    loadMaskingPolicies();
+    const t = setTimeout(loadMaskingPolicies, 2500);
+    return () => clearTimeout(t);
   }, []);
 
   // Load DWH template tables from hardcoded DDL — only when DWH template chosen
   const [defaultModelingTablesLoaded, setDefaultModelingTablesLoaded] = useState(false);
   // Loading/error UI for the default DWH (target) model load in Modeling view
   const [isLoadingModelingTables, setIsLoadingModelingTables] = useState(false);
+  // Guards the "no DWH target → open picker" prompt so it fires once per project (no modal loop).
+  const targetPromptRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Only load when in modeling view AND DWH template was chosen
     if (viewMode !== 'modeling' || modelingChoice !== 'dwh_template') return;
     // Skip if already loaded and tables exist
     if (defaultModelingTablesLoaded && tables.some(t => targetTableIds.has(t.id))) return;
-    // Need a target location
-    if (!dwhTargetDatabase || !dwhTargetSchema) return;
+    // Need a target location. If none is set (new project, or a restored choice with no
+    // saved location), OPEN the location picker once instead of silently doing nothing —
+    // a silent return here = zero TABLE_CREATED events = Deploy creates no real DWH tables.
+    if (!dwhTargetDatabase || !dwhTargetSchema) {
+      if (selectedProjectId && targetPromptRef.current !== selectedProjectId) {
+        targetPromptRef.current = selectedProjectId;
+        setShowLocationPicker(true);
+      }
+      return;
+    }
 
     const db = dwhTargetDatabase;
     const schema = dwhTargetSchema;
@@ -1735,29 +1913,37 @@ export default function ExploreDesignPage() {
   // Load schemas when database changes (skip — all-DB load handles this now)
   useEffect(() => {
     if (!selectedDatabase) {
-      return; // schemas loaded by all-DB effect
+      return;
     }
-    // Skip single-DB schema load — all-DB effect handles this
-    return;
-
+    // Load schemas for the SELECTED database. R2 removed the old all-databases
+    // fan-out that used to populate this; this single-DB loader is now what fills
+    // the source picker AND makes the Catalog show tables. It was previously
+    // short-circuited by an early `return` → empty Catalog ("No tables loaded").
+    let cancelled = false;
     const loadSchemas = async () => {
       setIsLoadingSchemas(true);
       try {
         const schemaList = await getSchemas(selectedDatabase);
+        if (cancelled) return;
         setSchemas(schemaList || []);
         if (schemaList && schemaList.length > 0) {
-          const allMap = new Map<string, string>();
-          schemaList.forEach((s: string) => allMap.set(s, selectedDatabase));
-          setSelectedSchemas(allMap);
+          // Auto-select the first non-system schema so tables render immediately
+          // (one schema, not a fan-out). The user adds more via the source picker.
+          const firstSchema = schemaList.find((s: string) => !/^INFORMATION_SCHEMA$/i.test(s)) || schemaList[0];
+          setSelectedSchemas(new Map([[firstSchema, selectedDatabase]]));
+        } else {
+          setSelectedSchemas(new Map());
         }
       } catch (error) {
+        if (cancelled) return;
         console.error('[Explore-Design] Failed to load schemas:', error);
         toast.error('Failed to load schemas');
       } finally {
-        setIsLoadingSchemas(false);
+        if (!cancelled) setIsLoadingSchemas(false);
       }
     };
     loadSchemas();
+    return () => { cancelled = true; };
   }, [selectedDatabase]);
 
   // Load tables when schemas are selected
@@ -1969,6 +2155,12 @@ export default function ExploreDesignPage() {
     setRightBarOpen(true);
     setActiveRightTab('actions');
   }, [selectedTable?.id, selectedProjectId]);
+  // Entering modeling with nothing selected: open the right cockpit so the model
+  // overview is visible without a click (it replaces the bare empty canvas). The
+  // user can still collapse it to the w-12 mini-rail to reclaim canvas width.
+  useEffect(() => {
+    if (viewMode === 'modeling') setRightBarOpen(true);
+  }, [viewMode]);
   useEffect(() => {
     if (!showInlinePreview || !selectedTable || !selectedProjectId) return;
     let cancelled = false;
@@ -2162,9 +2354,14 @@ export default function ExploreDesignPage() {
   const handleTableClick = useCallback((table: TableItem) => {
     setSelectedTable(table);
     setSelectedColumns(new Set());
-    // Auto-collapse the Source Tables rail on select so the detail + actions
-    // get the full width; the "Show Sources" toggle reopens it.
-    setShowSidebar(false);
+    // Selecting a table lands the unified right bar on its Actions tab (T1 spec):
+    // one click → one bar, focused on the table's actions. Consistent across the
+    // catalog list and the modeling canvas (both route user clicks through here).
+    setActiveRightTab('actions');
+    // Keep the Source Tables rail PINNED on select. It used to auto-collapse here,
+    // which hid the source selection the instant you clicked a table on the canvas
+    // ("on la voit plus") — and modeling had no re-open toggle. The user closes it
+    // manually via the panel toggle (and can re-open it from the modeling rail).
   }, []);
 
   // Handle project selection - load events for the selected project
@@ -2808,6 +3005,96 @@ export default function ExploreDesignPage() {
     setSelectedTables(new Set());
   }, [selectedTables, selectedColumns, tables, tableColumnsMap, selectedProjectId, addEvent]);
 
+  // Apply a LOCAL AI suggestion's action CTA to the canvas event store.
+  // Class A (local) only: these dispatch a `eventType`+`payload` into the draft
+  // event store — there is no backend route, so NO 404/501 gate applies. Honesty
+  // here = the click visibly queues a real, undoable event; otherwise we must NOT
+  // claim "Applied". Two analyzer actions (rename, FK) carry no resolvable source
+  // table in their payload and FK uses singular keys the event validator rejects,
+  // so they cannot produce a real targeted event from the action alone — we fail
+  // honestly (info toast, no "Applied") rather than queue a silent no-op.
+  const handleAiSuggestionAction = useCallback((suggestion: AiSuggestion) => {
+    const action = suggestion.action;
+    if (!action || !action.eventType) {
+      toast('This suggestion is advisory only.', { icon: 'ℹ️' });
+      return;
+    }
+    if (isReadOnly) {
+      toast.error('You have view-only access to this project');
+      return;
+    }
+    if (!selectedProjectId) {
+      toast.error('Select a project first');
+      return;
+    }
+
+    const payload = action.payload ?? {};
+    // Resolve a full {database, schema, table} target from the bare table name
+    // the analyzer carries — reuse the existing tables-by-name lookup pattern.
+    const tableName: string | undefined = payload.table;
+    const resolved = tableName ? tables.find(t => t.table === tableName) : undefined;
+    const target = resolved
+      ? { database: resolved.database, schema: resolved.schema, table: resolved.table }
+      : undefined;
+
+    let newId: string | null = null;
+
+    switch (action.eventType) {
+      case 'MASKING_POLICY_APPLIED': {
+        // Analyzer payload is {columnName, table, policyType} — normalize to the
+        // {policyName, columns[]} shape the masking event validator + deploy SQL
+        // gen require. We ALSO carry `columnName` so the masking analyzer (which
+        // builds its already-masked set from payload.columnName) recognizes this
+        // event on the next re-analysis and resolves the suggestion instead of
+        // re-surfacing it as if nothing happened. Extra field is inert to SQL gen.
+        const columnName: string | undefined = payload.columnName;
+        if (!target || !columnName) break;
+        const policyName = `AUTO_MASK_${(payload.policyType || 'SHA256')}`.toUpperCase();
+        const base = createMaskingPolicyEvent(target, policyName, [columnName], true);
+        newId = addEvent({
+          ...base,
+          payload: { ...base.payload, columnName },
+          projectId: selectedProjectId,
+        });
+        break;
+      }
+      case 'INGESTION_MODE_SET': {
+        const mode = payload.mode;
+        if (!target || !mode) break;
+        newId = addEvent({
+          ...createIngestionModeEvent(target, mode),
+          projectId: selectedProjectId,
+        });
+        break;
+      }
+      case 'SCD_CONFIGURED': {
+        const scdType = payload.scdType;
+        if (!target || !scdType) break;
+        newId = addEvent({
+          type: 'SCD_CONFIGURED',
+          projectId: selectedProjectId,
+          target,
+          payload: { scdType },
+        });
+        break;
+      }
+      default:
+        // TABLE_RENAMED, FOREIGN_KEY_ADDED, DRY_RUN, etc. — no honest local
+        // dispatch is possible from the suggestion payload alone. Do NOT fake it.
+        toast('Open the table actions to apply this change.', { icon: 'ℹ️' });
+        return;
+    }
+
+    if (newId) {
+      markAiSuggestionApplied(suggestion);
+      toast.success(`Applied "${action.label}" to canvas`);
+    } else {
+      // Either the target table is no longer in the catalog, or the event store
+      // deduped/rejected it. Be honest — never show "Applied" for a no-op.
+      toast.error(`Couldn't apply "${action.label}" — open the table actions instead`);
+    }
+  }, [isReadOnly, selectedProjectId, tables, addEvent, markAiSuggestionApplied]);
+
   const handleSearchResultClick = useCallback((result: GlobalSearchResult) => {
     if (result.type === 'table' && result.database && result.schema) {
       const table = tables.find(t => t.table === result.name && t.schema === result.schema);
@@ -3168,6 +3455,41 @@ export default function ExploreDesignPage() {
     setShowEventPanel(savedPanelState.event);
   }, [savedPanelState]);
 
+  // ── Deploy tab body (docked, no modal) ──
+  // The 8-step deployment stepper now lives INSIDE the right-bar "Deploy" tab as
+  // an embedded stepper (redesign R1/R2 — match the workflow module's
+  // deploy-in-a-tab). This node is injected into ContextRightBar via
+  // `deployOverride` for both the catalog and modeling views. Permission gating
+  // and the event-store-seeded DeploymentValidation logic are unchanged — only
+  // the host (modal → docked panel) differs. We intentionally pass no `onClose`
+  // so the embedded stepper stays put (no auto-close on verify success).
+  const deployTabNode = (
+    <ErrorBoundary>
+      {selectedProjectId ? (
+        <PermissionGate
+          module="explore_design"
+          action="deploy"
+          projectId={selectedProjectId}
+          title="Deployment restricted"
+          description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to Snowflake requires an administrator to grant deploy access."
+        >
+          <DeploymentValidation
+            embedded
+            database={selectedDatabase}
+            schemas={schemaKeys}
+            projectId={selectedProjectId}
+          />
+        </PermissionGate>
+      ) : (
+        <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-400">
+          <Rocket className="mb-3 h-8 w-8 text-slate-300" />
+          <p className="text-sm font-medium">Select a project to deploy</p>
+          <p className="mt-1 text-xs">Choose a project, then your pending changes appear here for review &amp; deploy.</p>
+        </div>
+      )}
+    </ErrorBoundary>
+  );
+
   return (
     <ErrorBoundary>
     <div className={cn(
@@ -3272,7 +3594,7 @@ export default function ExploreDesignPage() {
                     ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
                     : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
                 )}
-                onClick={() => setViewMode('catalog')}
+                onClick={() => { trackTabSwitch('catalog'); setViewMode('catalog'); }}
               >
                 <LayoutGrid className="h-3.5 w-3.5" />
                 Catalog
@@ -3286,11 +3608,11 @@ export default function ExploreDesignPage() {
                 )}
                 onClick={() => {
                   if (!modelingChoice && readOnlyGuard()) return;
-                  if (!modelingChoice) {
-                    setShowTemplateModal(true);
-                  } else {
-                    setViewMode('modeling');
-                  }
+                  trackTabSwitch('modeling');
+                  // No popup — go straight to the ReactFlow canvas; the inline
+                  // onboarding panel (DWH template / scratch) shows on the canvas
+                  // itself when no template choice has been made yet.
+                  setViewMode('modeling');
                 }}
               >
                 <Workflow className="h-3.5 w-3.5" />
@@ -3299,8 +3621,12 @@ export default function ExploreDesignPage() {
             </div>
           </div>
 
-          {/* RIGHT: search + deploy + overflow */}
+          {/* RIGHT: ADN badge + search + deploy + overflow */}
           <div className="flex items-center gap-2">
+            {/* R6 — per-project 5-axis ADN. Honest "—" per axis with no
+                per-project source; muted "ADN —" when the rollup is unprovisioned
+                (404/501) or errors; hidden until a project is selected. */}
+            <AdnHeaderBadge projectId={selectedProjectId} />
             <GlobalSearch
               value={searchQuery}
               onChange={setSearchQuery}
@@ -3424,17 +3750,6 @@ export default function ExploreDesignPage() {
                       setIsLoadingSchemas(false);
                     }
                   },
-                },
-                {
-                  label: 'Import',
-                  icon: Upload,
-                  onClick: () => {},
-                  disabled: isReadOnly,
-                },
-                {
-                  label: 'Export',
-                  icon: Download,
-                  onClick: () => {},
                 },
                 {
                   label: showSidebar ? 'Hide Sources' : 'Show Sources',
@@ -3608,8 +3923,10 @@ export default function ExploreDesignPage() {
         />
       )}
 
-      {/* Compact Source Selector — hidden, auto-load replaces it */}
-      {false && !isFullscreen && selectedProjectId && (
+      {/* Compact Source Selector — DB/schema picker (restores source+data selection).
+          Was hard-disabled by `false &&`; the auto-load that "replaced" it left the
+          Catalog/Modeling panes with no way to pick a source → "No tables loaded". */}
+      {!isFullscreen && selectedProjectId && (
         <CompactSourceSelector
           databases={databases}
           selectedDatabase={selectedDatabase}
@@ -3646,8 +3963,11 @@ export default function ExploreDesignPage() {
         )}
 
         {/* LEFT Panel - Tables List (collapsible) — workspace hidden until a
-            project is selected so the empty state above can take full space. */}
-        {selectedProjectId && showSidebar && viewMode === 'catalog' && (() => {
+            project is selected so the empty state above can take full space.
+            Now ALSO shown in modeling view: a source-selection rail to inject
+            source tables into the React-Flow model (select → "Add to Modeling"),
+            harmonizing modeling with catalog (Power-BI-Desktop style). */}
+        {selectedProjectId && showSidebar && (viewMode === 'catalog' || viewMode === 'modeling') && (() => {
           const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
           const allSelected = selectedTables.size === catalogTables.length && catalogTables.length > 0;
           return (
@@ -4036,11 +4356,55 @@ export default function ExploreDesignPage() {
                                   {inlinePreviewData.columns.map((col: string) => {
                                     const colMeta = tableColumns.find((c) => c.name === col || c.name === col.toUpperCase());
                                     return (
-                                      <th key={col} className="px-2.5 py-1.5 text-left whitespace-nowrap">
+                                      <th key={col} className="px-2.5 py-1.5 text-left whitespace-nowrap group/col">
                                         <div className="flex items-center gap-1">
                                           {colMeta?.isPrimaryKey && <Key className="h-3 w-3 text-amber-500 shrink-0" />}
                                           {colMeta?.isSensitive && <Shield className="h-3 w-3 text-red-400 shrink-0" />}
-                                          <span className="font-medium text-slate-600 dark:text-slate-300">{col}</span>
+                                          {columnEdit?.column === col && columnEdit.mode === 'rename' ? (
+                                            <input
+                                              autoFocus
+                                              defaultValue={col}
+                                              onBlur={(e) => handleColumnRename(colMeta?.name ?? col, e.target.value)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') handleColumnRename(colMeta?.name ?? col, (e.target as HTMLInputElement).value);
+                                                else if (e.key === 'Escape') setColumnEdit(null);
+                                              }}
+                                              className="w-24 px-1 py-0.5 text-[11px] font-mono rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                            />
+                                          ) : columnEdit?.column === col && columnEdit.mode === 'retype' ? (
+                                            <select
+                                              autoFocus
+                                              defaultValue={(colMeta?.dataType || '').split('(')[0].toUpperCase()}
+                                              onBlur={() => setColumnEdit(null)}
+                                              onChange={(e) => handleColumnRetype(colMeta?.name ?? col, (colMeta?.dataType || '').split('(')[0].toUpperCase(), e.target.value)}
+                                              className="px-1 py-0.5 text-[11px] font-mono rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                            >
+                                              {COLUMN_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                                            </select>
+                                          ) : columnEdit?.column === col && columnEdit.mode === 'drop' ? (
+                                            <span className="flex items-center gap-1">
+                                              <span className="font-medium text-red-500">{col}?</span>
+                                              <button onClick={() => handleColumnDrop(colMeta?.name ?? col)} className="px-1 rounded bg-red-500 text-white text-[9px] font-semibold hover:bg-red-600">Drop</button>
+                                              <button onClick={() => setColumnEdit(null)} className="px-1 rounded bg-slate-200 dark:bg-slate-700 text-[9px] font-semibold text-slate-600 dark:text-slate-300">Cancel</button>
+                                            </span>
+                                          ) : (
+                                            <>
+                                              <span className="font-medium text-slate-600 dark:text-slate-300">{col}</span>
+                                              {!isReadOnly && (
+                                                <span className="inline-flex items-center gap-0.5 opacity-0 group-hover/col:opacity-100 transition-opacity">
+                                                  {canEditCols && (
+                                                    <>
+                                                      <button title="Rename column" onClick={() => { if (readOnlyGuard()) return; setColumnEdit({ column: col, mode: 'rename', value: col, oldType: '' }); }} className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-blue-500"><Columns3 className="h-3 w-3" /></button>
+                                                      <button title="Change type" onClick={() => { if (readOnlyGuard()) return; setColumnEdit({ column: col, mode: 'retype', value: '', oldType: (colMeta?.dataType || '').split('(')[0].toUpperCase() }); }} className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-blue-500"><Database className="h-3 w-3" /></button>
+                                                    </>
+                                                  )}
+                                                  {canDropObjects && (
+                                                    <button title="Drop column" onClick={() => { if (readOnlyGuard()) return; setColumnEdit({ column: col, mode: 'drop', value: '', oldType: '' }); }} className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500"><Trash2 className="h-3 w-3" /></button>
+                                                  )}
+                                                </span>
+                                              )}
+                                            </>
+                                          )}
                                         </div>
                                       </th>
                                     );
@@ -4085,7 +4449,7 @@ export default function ExploreDesignPage() {
                                             ) : (
                                               <span className="text-[9px] text-green-500">0% null</span>
                                             )}
-                                            <span className="text-[9px] text-slate-400">{(pc.distinct_count ?? 0).toLocaleString()} uniq</span>
+                                            <span className="text-[9px] text-slate-400">{fmtNum(pc.distinct_count)} uniq</span>
                                             <span className="flex items-center gap-0.5">
                                               <span className="w-6 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden inline-block">
                                                 <span className={cn("block h-full rounded-full", qScore >= 80 ? "bg-green-500" : qScore >= 60 ? "bg-yellow-500" : "bg-red-500")} style={{ width: `${qScore}%` }} />
@@ -4214,8 +4578,9 @@ export default function ExploreDesignPage() {
                 selectedDatabase={selectedDatabase}
                 selectedSchema={schemas[0] || ''}
                 userRole={sessionRole || (userRole as string) || undefined}
-                onOpenDeployModal={() => setShowDeploymentModal(true)}
+                onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'catalog', pendingEvents: displayablePendingEvents.length }); setActiveRightTab('deploy'); setRightBarOpen(true); }}
                 onDeselectTable={() => { setSelectedTable(null); setRightBarOpen(false); }}
+                deployOverride={deployTabNode}
               />
               </div>{/* end center+right row */}
             </>
@@ -4223,8 +4588,14 @@ export default function ExploreDesignPage() {
 
 
           {viewMode === 'modeling' && (
-            // Modeling View
-            <div className="flex-1 overflow-hidden relative">
+            // Modeling View — canvas + right action cockpit (mirrors catalog).
+            // Flex row: the canvas child carries `min-w-0` so it yields/reclaims
+            // width when the right cockpit collapses, and `<ContextRightBar/>` is
+            // a shrink-0 sibling (its own w-12 mini-rail handles the collapsed
+            // state). The fullscreen header stays absolutely positioned inside
+            // the canvas child.
+            <div className="flex-1 overflow-hidden flex">
+            <div className="flex-1 min-w-0 overflow-hidden relative">
               {/* Fullscreen Header */}
               {isFullscreen && (
                 <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b dark:border-slate-800">
@@ -4401,7 +4772,9 @@ export default function ExploreDesignPage() {
                             return;
                           }
                         }
-                        setShowDeploymentModal(true);
+                        trackFeatureClick('deploy', { view: 'modeling', pendingEvents: displayablePendingEvents.length });
+                        setActiveRightTab('deploy');
+                        setRightBarOpen(true);
                       }}
                       disabled={!selectedProjectId || isReadOnly}
                     >
@@ -4416,12 +4789,54 @@ export default function ExploreDesignPage() {
               )}
 
               <ErrorBoundary>
+              {/* Re-open the source rail when it's hidden (modeling had no toggle,
+                  so a manually-hidden rail was lost). A slim left-edge handle. */}
+              {!showSidebar && (
+                <button
+                  onClick={() => setShowSidebar(true)}
+                  className="absolute left-0 top-1/2 z-20 -translate-y-1/2 flex items-center rounded-r-lg border border-l-0 border-slate-200 bg-white/95 py-3 pl-1 pr-1.5 text-slate-500 shadow-sm backdrop-blur hover:bg-white hover:text-slate-700 dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-400"
+                  title="Show source tables"
+                  aria-label="Show source tables"
+                >
+                  <PanelLeft className="h-4 w-4" />
+                </button>
+              )}
+              {/* Inline onboarding (no popup): choose DWH template or scratch
+                  directly on the canvas. Replaces the Start-Modeling modal. */}
+              {!modelingChoice && (
+                <ModelingTemplateModal
+                  inline
+                  isOpen
+                  projectName={selectedProjectName || undefined}
+                  onSelect={(choice) => {
+                    if (choice === 'dwh_template') {
+                      setShowLocationPicker(true);
+                    } else {
+                      setModelingChoice(choice);
+                      if (selectedProjectId) {
+                        modelingChoicesByProject.current.set(selectedProjectId, { choice });
+                        addProjectEvent(selectedProjectId, {
+                          module_name: 'EXPLORE_DESIGN',
+                          event_type: 'MODELING_TEMPLATE_CHOSEN',
+                          status: 'completed',
+                          details: { choice },
+                          entity_id: `template-${choice}`,
+                          entity_type: 'modeling_config',
+                        }).catch(() => {});
+                      }
+                    }
+                  }}
+                />
+              )}
               <ModelingCanvas
                 tables={tables.filter(t => modelingTableIds.has(t.id))}
                 tableColumns={tableColumnsMap}
                 onColumnsMapUpdate={setTableColumnsMap}
                 onTableSelect={handleTableClick}
+                selectedTableId={selectedTable?.id}
                 onTableExclude={handleRemoveFromModeling}
+                onOpenContextBar={handleOpenContextBar}
+                onRegisterActionDispatch={handleRegisterActionDispatch}
                 isReadOnly={isReadOnly}
                 onRelationCreate={async (source, target, sourceCol, targetCol, transformation) => {
                   if (readOnlyGuard()) return;
@@ -4543,6 +4958,57 @@ export default function ExploreDesignPage() {
                 initialMappings={initialColumnMappings}
               />
               </ErrorBoundary>
+            </div>
+
+              {/* Right action cockpit — same component as catalog, fed the
+                  modeling-selected node as selectedTable. When nothing is
+                  selected it shows the model overview (counts / target DWH /
+                  ADN) instead of the bare empty canvas. Collapsible via its own
+                  w-12 mini-rail (reuses rightBarOpen / onToggle). */}
+              <ContextRightBar
+                selectedTable={selectedTable}
+                tableColumns={tableColumns}
+                projectId={selectedProjectId}
+                isOpen={rightBarOpen}
+                onToggle={() => setRightBarOpen(!rightBarOpen)}
+                activeTab={activeRightTab}
+                onTabChange={setActiveRightTab}
+                focusedAction={focusedAction}
+                onFocusAction={setFocusedAction}
+                columnClassifications={columnClassifications}
+                classificationDetails={classificationDetails}
+                isClassifying={isClassifying}
+                classifyUnavailable={classifyUnavailable}
+                onRunClassify={handleAIClassify}
+                onAddEvent={addEvent}
+                profileData={inlineProfileData}
+                historyEvents={events.slice(0, 50).map((e: any) => ({
+                  id: e.id || String(Math.random()),
+                  type: e.type || 'Event',
+                  status: (e.status === 'deployed' || e.status === 'success') ? 'success' as const : e.status === 'error' ? 'error' as const : e.status === 'warning' ? 'warning' as const : 'pending' as const,
+                  actor: e.createdBy || e.actor || currentUsername || 'System',
+                  timestamp: e.createdAt || e.timestamp || new Date().toISOString(),
+                  object: e.target?.table || e.target?.schema || '—',
+                  message: e.error || undefined,
+                }))}
+                pendingEventsCount={displayablePendingEvents.length}
+                pendingEvents={displayablePendingEvents}
+                selectedDatabase={selectedDatabase}
+                selectedSchema={selectedTable?.schema || schemas[0] || ''}
+                userRole={sessionRole || (userRole as string) || undefined}
+                onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'modeling', pendingEvents: displayablePendingEvents.length }); setActiveRightTab('deploy'); setRightBarOpen(true); }}
+                onDeselectTable={() => { setSelectedTable(null); }}
+                onNodeAction={handleNodeContextAction}
+                deployOverride={deployTabNode}
+                emptyOverride={
+                  <ModelOverview
+                    tableCount={modelingTableIds.size}
+                    relationCount={defaultRelationships.length + initialColumnMappings.length}
+                    targetDwh={selectedDatabase || dwhTargetDatabase || ''}
+                    projectId={selectedProjectId}
+                  />
+                }
+              />
             </div>
           )}
         </div>
@@ -4796,34 +5262,15 @@ export default function ExploreDesignPage() {
             </button>
           </div>
           <div className="flex-1 overflow-auto p-5">
-            <AiFeatureToggle />
+            <AiFeatureToggle onSuggestionAction={handleAiSuggestionAction} />
           </div>
         </div>
       )}
 
-      {/* Deployment Modal — B1-B5 pipeline is now inside DeploymentValidation */}
-      <Modal
-        isOpen={showDeploymentModal}
-        onClose={() => setShowDeploymentModal(false)}
-        customSize="1050px"
-      >
-        <ErrorBoundary>
-          <PermissionGate
-            module="explore_design"
-            action="deploy"
-            projectId={selectedProjectId}
-            title="Deployment restricted"
-            description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to Snowflake requires an administrator to grant deploy access."
-          >
-            <DeploymentValidation
-              onClose={() => setShowDeploymentModal(false)}
-              database={selectedDatabase /*|| 'CP_DATA360'*/}
-              schemas={schemaKeys}
-              projectId={selectedProjectId!}
-            />
-          </PermissionGate>
-        </ErrorBoundary>
-      </Modal>
+      {/* Deployment is no longer a centered modal — the 8-step stepper now lives
+          docked in the right-bar "Deploy" tab (see `deployTabNode`, injected into
+          ContextRightBar via `deployOverride`). The former <Modal> render was
+          removed per redesign R1/R2 (match the workflow module's deploy-in-a-tab). */}
 
       {/* AI-Guided Modeling Wizard — on approval it emits model events into the
           event store, then hands off to the existing DeploymentValidation
@@ -4843,7 +5290,10 @@ export default function ExploreDesignPage() {
             setShowAiGuidedWizard(false);
             setAiModelSeed('');
             setScanSeedTables([]);
-            setShowDeploymentModal(true);
+            // Hand off to the docked Deploy tab (stepper opens at Review, seeded
+            // by the event store) instead of the removed deployment modal.
+            setActiveRightTab('deploy');
+            setRightBarOpen(true);
           }}
         />
       )}
@@ -4865,6 +5315,7 @@ export default function ExploreDesignPage() {
         projectId={selectedProjectId!}
         initialTableType={createTableType}
         onTableCreated={(tableName: string, database: string, schema: string, columns: any[]) => {
+          trackFeatureClick('create_table', { tableType: createTableType, columns: columns.length });
           // Add the new table to the modeling view immediately
           const tableId = `${database}.${schema}.${tableName}`;
 
@@ -4939,6 +5390,7 @@ export default function ExploreDesignPage() {
           projectId={selectedProjectId}
           existingRelationship={null}
           onRelationshipCreated={() => {
+            trackFeatureClick('create_relationship');
             // Refresh relationships if needed
             toast.success('Relationship event added to queue');
           }}

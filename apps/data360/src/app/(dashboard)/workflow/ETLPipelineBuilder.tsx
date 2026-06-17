@@ -64,6 +64,7 @@ import {
 } from '@/components/project-onboarding/workflow-templates';
 import RunApprovalStatusHero from './components/RunApprovalStatusHero';
 import RollbackVersionDialog from './components/RollbackVersionDialog';
+import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import WorkflowSmartPanel, { type CanvasNodeSnapshot } from './components/WorkflowSmartPanel';
 import { validateGraph } from './components/etl-catalog-grounding';
 import CustomConnectionLine from './components/CustomConnectionLine';
@@ -78,6 +79,7 @@ import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import type { ContributorRole } from '@/app/services/api/types';
 import type {
   Workflow,
@@ -539,6 +541,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+
+  // Usage analytics (R11/H10): PAGE_VIEW auto-fires on mount via this hook;
+  // key lifecycle actions (load / run / deploy) fire FEATURE_CLICK below.
+  // Fire-and-forget — events are batched and silent-fail; never blocks render.
+  const { trackFeatureClick } = useTrackEvent();
   const initialProjectIdRef = useRef<string | null>(
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('project')
@@ -683,12 +690,13 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [aiNextStepHint, setAiNextStepHint] = useState(false);
 
   // Workflow tags (chip strip in header). Loaded from getWorkflow when a
-  // workflow is opened; saving back to the backend isn't wired (no
-  // updateWorkflow endpoint yet) so the tagsGap flag drives a Backend-Gap
-  // tooltip on the "+ tag" affordance.
+  // workflow is opened; edits persist via PATCH /workflow/{id} (a workflow is a
+  // project row, so tags land in the shared project TAGS column with cache
+  // invalidation). Updates are optimistic and revert on error.
   const [workflowTags, setWorkflowTags] = useState<string[]>([]);
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagDraft, setTagDraft] = useState('');
+  const [savingTags, setSavingTags] = useState(false);
   // Auto-save / draft restore state.
   const [draftRestorePrompt, setDraftRestorePrompt] = useState<null | {
     key: string;
@@ -747,6 +755,54 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     }
     return false;
   }, [isReadOnly]);
+
+  // Persist the workflow tag set via PATCH /workflow/{id}. Optimistic: the
+  // caller already shows `nextTags`; on success we re-sync from the server
+  // response, on failure we revert to `prevTags` and surface an honest error.
+  const persistWorkflowTags = useCallback(
+    async (nextTags: string[], prevTags: string[]) => {
+      if (!activeWorkflowId) return;
+      setSavingTags(true);
+      try {
+        const updated = await workflowApi.updateWorkflow(activeWorkflowId, {
+          tags: nextTags,
+        });
+        setWorkflowTags(updated.tags ?? nextTags);
+        toast.success('Tag saved');
+      } catch (err) {
+        setWorkflowTags(prevTags);
+        toast.error(getApiErrorMessage(err) || 'Failed to save tag');
+      } finally {
+        setSavingTags(false);
+      }
+    },
+    [activeWorkflowId],
+  );
+
+  const handleRemoveTag = useCallback(
+    (tag: string) => {
+      if (readOnlyGuard() || savingTags) return;
+      const prev = workflowTags;
+      const next = prev.filter((t) => t !== tag);
+      setWorkflowTags(next);
+      void persistWorkflowTags(next, prev);
+    },
+    [readOnlyGuard, savingTags, workflowTags, persistWorkflowTags],
+  );
+
+  const handleAddTag = useCallback(
+    (raw: string) => {
+      const tag = raw.trim();
+      if (!tag) return;
+      if (readOnlyGuard() || savingTags) return;
+      if (workflowTags.includes(tag)) return;
+      const prev = workflowTags;
+      const next = [...prev, tag];
+      setWorkflowTags(next);
+      void persistWorkflowTags(next, prev);
+    },
+    [readOnlyGuard, savingTags, workflowTags, persistWorkflowTags],
+  );
 
   // Execution state
   const [lastExecution, setLastExecution] = useState<WorkflowExecutionResponse | null>(null);
@@ -1708,16 +1764,26 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         // Fetch full workflow metadata (tags, created_at) alongside steps.
         // getWorkflow was previously dead in app code — now used to feed
         // the header tags chip strip and the draft-restore comparison.
-        const [stepsResponse, workflowMeta] = await Promise.all([
+        // Parallelize the whole open waterfall: steps + metadata + contributors +
+        // latest deployment all resolve together instead of in three serial stages.
+        // Only `listSteps` is allowed to reject the load (its 404 drives the
+        // is404 branch below); the three non-critical reads each `.catch` to a
+        // degraded value so a slow/failed sidecar never fails or blocks the open.
+        const [stepsResponse, workflowMeta, contributors, deploymentsRes] = await Promise.all([
           workflowApi.listSteps(wf.id),
-          // Metadata (tags / created_at) is non-critical — the pipeline still
-          // loads from steps if it fails. Surface the failure as a non-blocking
-          // toast instead of silently swallowing it, then degrade to null.
+          // Metadata (tags / created_at) is non-critical and this endpoint may be
+          // unavailable (returns 404) — the pipeline loads fully from steps. Degrade
+          // SILENTLY to null; never surface a "Not Found" toast for optional metadata.
           workflowApi.getWorkflow(wf.id).catch((e) => {
-            console.warn('Failed to load workflow metadata (tags/created_at):', e);
-            toast.error(getApiErrorMessage(e) || 'Could not load workflow tags');
+            console.warn('Workflow metadata unavailable (tags/created_at) — degrading:', e);
             return null;
           }),
+          // Contributors → the current user's role for this workflow. Non-critical:
+          // degrade to null (derived below as 'owner'), matching the prior catch path.
+          listContributors(wf.id).catch(() => null),
+          // Latest deployment (limit:1) → pending/approved approval badge.
+          // Non-critical: degrade to null and leave approvalStatus at its 'none' default.
+          workflowApi.listDeployments(wf.id, { limit: 1 }).catch(() => null),
         ]);
         const { nodes: newNodes, edges: newEdges } = stepsToReactFlow(stepsResponse.steps || []);
         setNodes(newNodes);
@@ -1737,10 +1803,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         dirtyNodeIdsRef.current.clear();
         setSaveStatus('idle');
 
-        // Determine user's role for this workflow project
+        // Determine the user's role for this workflow project from the already-
+        // resolved contributors result. Wrapped in try/catch so a malformed entry
+        // (missing username) defaults to 'owner' instead of leaking to the outer
+        // catch — preserving the original local-degrade behavior. null → 'owner'.
         try {
-          const contributors = await listContributors(wf.id);
-          const me = contributors.find(
+          const me = contributors?.find(
             (c) => c.username.toLowerCase() === currentUsername.toLowerCase()
           );
           setUserRole(me?.role ?? 'owner');
@@ -1748,20 +1816,20 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           setUserRole('owner');
         }
 
-        // Check if there's an active pending/approved deployment
-        try {
-          const deploymentsRes = await workflowApi.listDeployments(wf.id, { limit: 1 });
-          const latest = (deploymentsRes as any)?.deployments?.[0];
-          if (latest?.status === 'pending_approval') {
-            setApprovalStatus('pending');
-          } else if (latest?.status === 'approved') {
-            setApprovalStatus('approved');
-          }
-        } catch {
-          // ignore — deployment check is non-critical
+        // Check if there's an active pending/approved deployment from the
+        // already-resolved deployments result (non-critical — null leaves 'none').
+        const latestDeployment = (deploymentsRes as any)?.deployments?.[0];
+        if (latestDeployment?.status === 'pending_approval') {
+          setApprovalStatus('pending');
+        } else if (latestDeployment?.status === 'approved') {
+          setApprovalStatus('approved');
         }
 
         toast.success(`Loaded workflow: ${wf.name}`);
+        trackFeatureClick('workflow_pipeline_loaded', {
+          workflow_id: wf.id,
+          step_count: newNodes.length,
+        });
       } catch (error) {
         console.error('Failed to load workflow:', error);
         // Be honest: the steps-read route (/steps) is purged on this backend,
@@ -1779,7 +1847,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         setIsPipelineLoading(false);
       }
     },
-    [setNodes, setEdges]
+    [setNodes, setEdges, trackFeatureClick]
   );
 
   // Auto-select workflow from URL ?project=<id> once workflows are loaded
@@ -2014,6 +2082,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             trigger_type: 'manual',
           });
           setLastExecution(response);
+          trackFeatureClick('workflow_pipeline_executed', {
+            workflow_id: activeWorkflowId,
+            status: response.status,
+          });
 
           if (response.status === 'completed' || response.status === 'success') {
             setPhase('execute', { phase: 'completed' });
@@ -2056,7 +2128,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         if (!dryRun) setExecutionRefreshKey((k) => k + 1);
       }
     },
-    [activeWorkflowId, nodes, setPhase, markUnavailable, loadResultsPreview]
+    [activeWorkflowId, nodes, setPhase, markUnavailable, loadResultsPreview, trackFeatureClick]
   );
   // Fire-and-forget variant for non-gated callers (toolbar Run button, ⌘Enter
   // shortcut): the error is already surfaced via pipelineError/phase inside
@@ -2250,6 +2322,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       setPhase('deploy', { phase: 'completed' });
       toast.success('Pipeline submitted for approval!');
       setApprovalStatus('pending');
+      trackFeatureClick('workflow_deploy_requested', {
+        workflow_id: activeWorkflowId,
+        version_id: latestVersionId,
+      });
     } catch (error: any) {
       if (is404(error)) {
         // The deployment lifecycle routes are purged — honest disabled state;
@@ -2275,7 +2351,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       // Re-throw so the gated SmartPanel caller reports the real outcome.
       throw new Error(headline);
     }
-  }, [activeWorkflowId, readOnlyGuard, setPhase, markUnavailable]);
+  }, [activeWorkflowId, readOnlyGuard, setPhase, markUnavailable, trackFeatureClick]);
 
   // ============================================
   // EXPORT & DUPLICATE
@@ -3001,12 +3077,21 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       <div aria-live="polite" aria-atomic="true" className="sr-only" role="status">
         {shortcutAnnounce}
       </div>
-      {/* Project Gate: blocks the canvas until a workflow project is selected */}
-      <WorkflowProjectGate
-        isOpen={showProjectGate}
-        onSelect={handleGateSelect}
-        onCreated={handleProjectCreated}
-      />
+      {/* Project Gate: blocks the canvas until a workflow project is selected.
+          Mount it only while the gate is open — the parent-side equivalent of
+          `enabled: isOpen` on its internal listProjects query. Without this guard
+          the gate stays mounted with isOpen=false and re-fires a DUPLICATE
+          listProjects on every load (the active gate is ProjectGatePanel, fed by
+          the shared `workflows` query). NB: the early return at ~line 2883 makes
+          `showProjectGate` always false here, so this branch is currently inert —
+          which is exactly why the duplicate fetch had no visible payoff. */}
+      {showProjectGate && (
+        <WorkflowProjectGate
+          isOpen={showProjectGate}
+          onSelect={handleGateSelect}
+          onCreated={handleProjectCreated}
+        />
+      )}
       {/* Unified creation flow — also reachable from the main canvas. */}
       <UnifiedProjectWizard
         open={showCreateWizard}
@@ -3091,8 +3176,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             </button>
           )}
         </nav>
-        {/* The right-bar (WorkflowSmartPanel) is always visible — no toggle.
-            Sections are switched via the panel's icon rail. */}
+        {/* R6 — 5-axis ADN health badge (top-right), fed by THIS workflow's
+            per-project rollup. Renders honest "—" for any axis without a
+            per-project source (no fake 0). Skeleton while loading; nothing
+            when the rollup route isn't provisioned (404/501).
+            The right-bar (WorkflowSmartPanel) stays visible — no toggle. */}
+        <AdnHeaderBadge projectId={activeWorkflowId} />
       </div>
 
       {/* ── Header — grouped clusters with subtle separators ──
@@ -3176,9 +3265,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
           {/* ── Tags chip strip ──
               Reads tags from getWorkflow (loaded on handleLoadPipeline).
-              No backend updateWorkflow endpoint exists today — clicks
-              mutate local state and surface a Backend-Gap tooltip on
-              the "+ tag" affordance so the limitation is visible. */}
+              Add/remove persist via PATCH /workflow/{id} (handleAddTag /
+              handleRemoveTag) — optimistic with revert-on-error. */}
           {activeWorkflowId && (
             <div className="flex items-center gap-1 flex-wrap max-w-[320px]" aria-label="Workflow tags">
               {workflowTags.map((tag) => (
@@ -3191,11 +3279,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                   {!isReadOnly && (
                     <button
                       type="button"
-                      onClick={() => {
-                        setWorkflowTags((prev) => prev.filter((t) => t !== tag));
-                        toast('Backend Gap: PATCH /workflow/{id} not implemented — tag removed locally only', { icon: 'ℹ️' });
-                      }}
-                      className="ml-0.5 rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-600 dark:hover:text-slate-100"
+                      onClick={() => handleRemoveTag(tag)}
+                      disabled={savingTags}
+                      className="ml-0.5 rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-600 dark:hover:text-slate-100"
                       aria-label={`Remove tag ${tag}`}
                     >
                       <X className="h-2.5 w-2.5" />
@@ -3213,11 +3299,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                     onBlur={() => { setShowTagInput(false); setTagDraft(''); }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
-                        const next = tagDraft.trim();
-                        if (next && !workflowTags.includes(next)) {
-                          setWorkflowTags((prev) => [...prev, next]);
-                          toast('Backend Gap: PATCH /workflow/{id} not implemented — tag added locally only', { icon: 'ℹ️' });
-                        }
+                        handleAddTag(tagDraft);
                         setShowTagInput(false);
                         setTagDraft('');
                       } else if (e.key === 'Escape') {
@@ -3233,8 +3315,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                   <button
                     type="button"
                     onClick={() => setShowTagInput(true)}
-                    className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-500 transition-colors hover:border-purple-400 hover:text-purple-600 dark:border-slate-600 dark:text-slate-400"
-                    title="Add tag (Backend Gap: PATCH /workflow/{id} for metadata isn't wired — tag stays local)"
+                    disabled={savingTags}
+                    className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-500 transition-colors hover:border-purple-400 hover:text-purple-600 disabled:opacity-50 dark:border-slate-600 dark:text-slate-400"
+                    title="Add a tag — saved to this workflow"
                   >
                     <Plus className="h-2.5 w-2.5" />
                     tag

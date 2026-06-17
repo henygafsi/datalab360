@@ -39,7 +39,7 @@ import {
 } from '@/app/services/governance/policies';
 
 // Policy types that can be applied
-type PolicyCategory = 'masking' | 'rls' | 'tags' | 'aggregation';
+export type PolicyCategory = 'masking' | 'rls' | 'tags' | 'aggregation';
 
 // Applied policy info
 interface AppliedPolicy {
@@ -58,6 +58,9 @@ interface PolicyAssignmentPanelProps {
   className?: string;
   isTemplateTable?: boolean;
   projectId?: string | null;
+  /** Tab to pre-select on open (deep-link). Defaults to 'masking'. The panel is
+   *  mounted fresh each time it opens, so this seeds the initial tab directly. */
+  initialCategory?: PolicyCategory;
 }
 
 // Policy Category Tab
@@ -481,7 +484,8 @@ const MaskingPolicySection: React.FC<{
       </div>
 
       {/* Replace Confirmation Modal */}
-      <Modal isOpen={showReplaceConfirm} onClose={() => setShowReplaceConfirm(false)}>
+      {showReplaceConfirm && (
+      <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
         <div className="p-6 space-y-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-full">
@@ -523,7 +527,8 @@ const MaskingPolicySection: React.FC<{
             </Button>
           </div>
         </div>
-      </Modal>
+      </div>
+      )}
     </div>
   );
 };
@@ -861,7 +866,8 @@ const RLSPolicySection: React.FC<{
       )}
 
       {/* Replace Confirmation Modal */}
-      <Modal isOpen={showReplaceConfirm} onClose={() => setShowReplaceConfirm(false)}>
+      {showReplaceConfirm && (
+      <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
         <div className="p-6 space-y-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-full">
@@ -907,7 +913,8 @@ const RLSPolicySection: React.FC<{
             </Button>
           </div>
         </div>
-      </Modal>
+      </div>
+      )}
     </div>
   );
 };
@@ -1307,9 +1314,17 @@ const PolicyAssignmentPanel: React.FC<PolicyAssignmentPanelProps> = ({
   className,
   isTemplateTable,
   projectId,
+  initialCategory,
 }) => {
-  const [activeTab, setActiveTab] = useState<PolicyCategory>('masking');
+  const [activeTab, setActiveTab] = useState<PolicyCategory>(initialCategory ?? 'masking');
   const [appliedPolicies, setAppliedPolicies] = useState<AppliedPolicy[]>([]);
+
+  // Deep-link the requested tab even if the panel is reused without remounting
+  // (open→reopen with a new category). Guarded on a truthy value so the default
+  // callers (initialCategory === undefined) never force-reset the user's tab.
+  useEffect(() => {
+    if (initialCategory) setActiveTab(initialCategory);
+  }, [initialCategory]);
 
   if (!table) {
     return (

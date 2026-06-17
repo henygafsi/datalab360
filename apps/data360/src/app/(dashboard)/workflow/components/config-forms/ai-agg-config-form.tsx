@@ -19,7 +19,7 @@ const AIAggConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
-        <p className="text-xs text-purple-700 dark:text-purple-300">Aggregate text data semantically with Cortex AI_AGG. Summarize grouped text using AI.</p>
+        <p className="text-xs text-purple-700 dark:text-purple-300">Aggregate text data semantically with AI. Summarize grouped text using AI.</p>
       </div>
       <FormField label="Group Column" required error={errors.group_column}>
         <Select value={config.group_column || ''} onChange={(v) => updateConfig({ group_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.group_column} />

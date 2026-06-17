@@ -22,7 +22,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { cn } from '@/lib/utils';
-import { Button, Badge, Input, Modal, Tooltip, Select, Checkbox } from 'rizzui';
+import { Button, Badge, Input, Tooltip, Select, Checkbox } from 'rizzui';
 import {
   ZoomIn, ZoomOut, Maximize2, Download, Upload, Undo2, Redo2,
   Grid3X3, Layers, Eye, EyeOff, Lock, Unlock, Plus, Minus,
@@ -32,13 +32,16 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import TableNode, { TableNodeData, TableNodeColumn } from './TableNode';
-import PolicyAssignmentPanel from './PolicyAssignmentPanel';
+import PolicyAssignmentPanel, { PolicyCategory } from './PolicyAssignmentPanel';
 import AddColumnModal, { ComputedColumn } from './AddColumnModal';
 import ColumnMappingModal from './ColumnMappingModal';
 import MappingSummaryPanel from './MappingSummaryPanel';
-import TableOptionsSidebar, { TableOptionAction } from './TableOptionsSidebar';
+// TableOptionsSidebar (T1 — RETIRED as a separate panel): the modeling view no
+// longer floats it; its actions now live in the unified ContextRightBar cockpit.
+// The component file is retained (it backs other surfaces) but is not rendered here.
 import { useEventStore, createColumnMappingEvent, createTableRenameEvent } from '../stores/event-store';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 // Custom node types
 const nodeTypes = {
@@ -86,7 +89,22 @@ interface ModelingCanvasProps {
   tables: TableItem[];
   tableColumns: Map<string, ColumnInfo[]>;
   onTableSelect?: (table: TableItem) => void;
+  /** Id of the page-selected table — drives zoom-to-selected framing on the canvas. */
+  selectedTableId?: string | null;
   onTableExclude?: (tableId: string) => void;
+  /**
+   * Opens the unified ContextRightBar cockpit on the Actions tab for a table.
+   * Replaces the retired standalone TableOptionsSidebar: a node's "more"/context
+   * action (`open_options`) routes here instead of floating a second panel.
+   */
+  onOpenContextBar?: (table: TableItem) => void;
+  /**
+   * Registers the canvas's live context-action dispatcher with the parent so the
+   * unified ContextRightBar can route table actions (FK, relation, PK picker,
+   * duplicate, DE-table modals, exclude…) through the SAME handleNodeContextAction
+   * path the node menu used. Stable wrapper — always calls the latest handler.
+   */
+  onRegisterActionDispatch?: (dispatch: (tableId: string, action: string) => void) => void;
   onRelationCreate?: (source: string, target: string, sourceCol: string, targetCol: string, transformation?: string | null) => void;
   className?: string;
   projectId?: string | null;
@@ -110,19 +128,145 @@ interface ModelingCanvasProps {
   onToggleEventPanel?: () => void;
 }
 
-// Auto-layout helper
-const autoLayout = (nodes: Node[]): Node[] => {
+// Smart hierarchical L→R auto-layout.
+//
+// Replaces the old sqrt-grid (which ignored edges) with a dependency-aware,
+// left-to-right layered placement that honors EDGE DIRECTION: every edge means
+// `source` feeds `target`, so sources land on the left and downstream targets
+// flow rightward, layered by dependency depth. Direction is taken straight from
+// `edge.source → edge.target` (the same node ids as `tables[].id`); both FK and
+// mapping edges share that semantic, so we rank them uniformly — `data.edgeType`
+// only drives styling, never layout.
+//
+// Ranking = longest-path layering via Kahn's algorithm (topological), so a node
+// sits one column right of its deepest upstream dependency. Cycles (FK/mapping
+// graphs can loop) are handled gracefully: any node never reaching indegree 0 is
+// appended past the resolved ranks so it still gets a position and we never spin.
+// Nodes with no edges go to a dedicated leftover lane below the layered graph.
+//
+// Hand-rolled on purpose — no dagre/elkjs dependency.
+const autoLayout = (nodes: Node[], edges: Edge[] = []): Node[] => {
   const PADDING = 50;
   const NODE_WIDTH = 250;
   const NODE_HEIGHT = 200;
-  const COLS = Math.ceil(Math.sqrt(nodes.length));
+  const X_GAP = 120; // extra horizontal breathing room between ranks
+  const RANK_DX = NODE_WIDTH + X_GAP;
+  const ROW_DY = NODE_HEIGHT + PADDING;
 
-  return nodes.map((node, idx) => ({
+  if (nodes.length === 0) return nodes;
+
+  const nodeIds = new Set(nodes.map((n) => n.id));
+
+  // Build the directed adjacency from edges, deduping repeated directed pairs
+  // (multi-column mappings / coexisting FK+mapping commonly produce duplicates;
+  // double-counting indegree would break Kahn's queue). Self-loops are ignored.
+  const adjacency = new Map<string, Set<string>>(); // source -> targets
+  const indegree = new Map<string, number>();
+  nodes.forEach((n) => {
+    adjacency.set(n.id, new Set());
+    indegree.set(n.id, 0);
+  });
+
+  const connected = new Set<string>();
+  const seenPairs = new Set<string>();
+  edges.forEach((e) => {
+    const { source, target } = e;
+    if (!source || !target || source === target) return;
+    if (!nodeIds.has(source) || !nodeIds.has(target)) return;
+    const pairKey = `${source}->${target}`;
+    if (seenPairs.has(pairKey)) return;
+    seenPairs.add(pairKey);
+    adjacency.get(source)!.add(target);
+    indegree.set(target, (indegree.get(target) || 0) + 1);
+    connected.add(source);
+    connected.add(target);
+  });
+
+  // Partition: layered (has ≥1 edge) vs leftover (isolated, no edges).
+  const layeredIds = nodes.map((n) => n.id).filter((id) => connected.has(id));
+  const leftoverIds = nodes.map((n) => n.id).filter((id) => !connected.has(id));
+
+  // Longest-path layering over the connected sub-graph via Kahn's algorithm.
+  // rank[node] = max(rank[upstream]) + 1, so x grows with dependency depth.
+  const rank = new Map<string, number>();
+  const localIndegree = new Map<string, number>();
+  layeredIds.forEach((id) => localIndegree.set(id, indegree.get(id) || 0));
+
+  // Seed the queue with all current sources (indegree 0). Each pop relaxes its
+  // out-edges; a target enters the queue once all its in-edges are consumed.
+  let queue = layeredIds.filter((id) => (localIndegree.get(id) || 0) === 0);
+  queue.forEach((id) => rank.set(id, 0));
+
+  let processed = 0;
+  while (queue.length > 0) {
+    const next: string[] = [];
+    for (const id of queue) {
+      processed++;
+      const r = rank.get(id) || 0;
+      adjacency.get(id)!.forEach((tgt) => {
+        // Longest-path: target sits at least one rank right of this source.
+        rank.set(tgt, Math.max(rank.get(tgt) ?? 0, r + 1));
+        const remaining = (localIndegree.get(tgt) || 0) - 1;
+        localIndegree.set(tgt, remaining);
+        if (remaining === 0) next.push(tgt);
+      });
+    }
+    queue = next;
+  }
+
+  // Cycle remainder: any connected node Kahn never drained is part of a cycle.
+  // Give it a rank past everything resolved so it still gets a real position
+  // (and never re-enters the loop). processed < layeredIds.length signals this.
+  if (processed < layeredIds.length) {
+    let maxRank = 0;
+    rank.forEach((r) => { if (r > maxRank) maxRank = r; });
+    let cycleRank = maxRank + 1;
+    layeredIds.forEach((id) => {
+      if (!rank.has(id)) rank.set(id, cycleRank++);
+    });
+  }
+
+  // Group layered nodes by rank (column) and stack them vertically within it.
+  const ranksMap = new Map<number, string[]>();
+  layeredIds.forEach((id) => {
+    const r = rank.get(id) ?? 0;
+    if (!ranksMap.has(r)) ranksMap.set(r, []);
+    ranksMap.get(r)!.push(id);
+  });
+
+  const positions = new Map<string, { x: number; y: number }>();
+  // Tallest column drives where the leftover lane starts (so it never overlaps).
+  let maxRowsInRank = 0;
+  ranksMap.forEach((ids) => { if (ids.length > maxRowsInRank) maxRowsInRank = ids.length; });
+
+  ranksMap.forEach((ids, r) => {
+    // Vertically center each column's stack against the tallest column.
+    const offset = ((maxRowsInRank - ids.length) * ROW_DY) / 2;
+    ids.forEach((id, row) => {
+      positions.set(id, {
+        x: PADDING + r * RANK_DX,
+        y: PADDING + offset + row * ROW_DY,
+      });
+    });
+  });
+
+  // Leftover lane: a compact grid beneath the layered graph for edgeless nodes.
+  // Wrapped into a sqrt grid (not a single strip) so it stays compact when most
+  // tables are isolated — notably at initial render, where no edges exist yet and
+  // every node is a leftover (this preserves the old compact default view).
+  const layeredBottom = PADDING + Math.max(maxRowsInRank, 1) * ROW_DY;
+  const laneY = layeredBottom + (layeredIds.length > 0 ? ROW_DY : 0); // gap below the graph (none if no graph)
+  const LEFT_COLS = Math.max(1, Math.ceil(Math.sqrt(leftoverIds.length)));
+  leftoverIds.forEach((id, idx) => {
+    positions.set(id, {
+      x: PADDING + (idx % LEFT_COLS) * RANK_DX,
+      y: laneY + Math.floor(idx / LEFT_COLS) * ROW_DY,
+    });
+  });
+
+  return nodes.map((node) => ({
     ...node,
-    position: {
-      x: PADDING + (idx % COLS) * (NODE_WIDTH + PADDING),
-      y: PADDING + Math.floor(idx / COLS) * (NODE_HEIGHT + PADDING),
-    },
+    position: positions.get(node.id) || { x: PADDING, y: PADDING },
   }));
 };
 
@@ -131,7 +275,10 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   tables,
   tableColumns,
   onTableSelect,
+  selectedTableId,
   onTableExclude,
+  onOpenContextBar,
+  onRegisterActionDispatch,
   onRelationCreate,
   className,
   projectId,
@@ -155,6 +302,16 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { fitView, zoomIn, zoomOut, getNodes, getEdges } = useReactFlow();
   const { addEvent, undoEvent, redoEvent, canUndo, canRedo, events } = useEventStore(projectId);
+
+  // System 2 Action-RBAC — gate every mutating context-menu / sidebar action.
+  // Catalog's ContextRightBar gates each mutating button via useCanPerform; the
+  // modeling canvas previously only checked `isReadOnly`, bypassing action-RBAC.
+  // Match the catalog fail-open-while-loading behavior (allowed || loading); the
+  // hook also fail-opens on a hard backend error so a hiccup never locks a user out.
+  const writePerm = useCanPerform('explore_design', 'create', projectId);
+  const approvePerm = useCanPerform('explore_design', 'approve', projectId);
+  const canWrite = writePerm.allowed || writePerm.loading;
+  const canApprove = approvePerm.allowed || approvePerm.loading;
 
   // Use ref for addEvent to avoid dependency issues in useMemo
   const addEventRef = useRef(addEvent);
@@ -204,6 +361,24 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     return mappings;
   }, [tables, targetTableIds, defaultRelationships, dynamicMappings]);
 
+  // FK badge source (P1): the foreign-key column is the CHILD-side column of each
+  // relationship (`child_column` on `${db}.${child_schema}.${child_table}`); the
+  // `parent_column` is the referenced PK side and already gets the Key badge — so
+  // it is intentionally NOT badged as a FK. Derived purely from the static,
+  // already-deployed `defaultRelationships` prop (events are deliberately kept out
+  // of the node-build memo — see the eventsRef note above — so there is no FK
+  // removal/sticky-state concern here). Keys: `${tableId}::${columnName}`.
+  const fkColumnSet = useMemo(() => {
+    const set = new Set<string>();
+    const database = tables[0]?.database;
+    if (!database) return set;
+    defaultRelationships.forEach((rel) => {
+      const childId = `${database}.${rel.child_schema}.${rel.child_table}`;
+      set.add(`${childId}::${rel.child_column}`);
+    });
+    return set;
+  }, [tables, defaultRelationships]);
+
   // Convert tables to nodes - only depend on tables and tableColumns, not events
   // Mark tables as 'target' (DWH) or 'source' for visual distinction
   const initialNodes: Node<TableNodeData>[] = useMemo(() => {
@@ -225,6 +400,9 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
             name: c.name,
             dataType: c.dataType,
             isPrimaryKey: c.isPrimaryKey,
+            // P1: light the FK Link2 badge. Honor an explicit upstream flag if one
+            // ever sets it, otherwise fall back to the derived defaultRelationships set.
+            isForeignKey: c.isForeignKey ?? fkColumnSet.has(`${table.id}::${c.name}`),
             isNullable: c.isNullable,
             isSensitive: c.isSensitive,
           })),
@@ -250,7 +428,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       };
     });
     return autoLayout(nodes);
-  }, [tables, tableColumns, targetTableIds, targetMappedColumns]);
+  }, [tables, tableColumns, targetTableIds, targetMappedColumns, fkColumnSet]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -271,6 +449,75 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialNodes]);
+
+  // Governance badges (P1): populate node.data.config (RLS / tags) from the
+  // event spine so TableNode's existing RLS/Tag badge block stops reading an
+  // always-undefined config. Net state — APPLIED adds, REMOVED deletes (events
+  // are chronological / append-only), so apply-then-remove correctly nets to off.
+  // qualityScore/rowCount are left undefined on purpose: there is no per-table
+  // score source in scope, and TableNode's `!= null` guards self-hide them as an
+  // honest "—" rather than a fake 0. Runs after the node-reset effect above
+  // (shares `initialNodes` in deps) and is guarded so it can never loop even if
+  // `events` is a fresh array each render.
+  useEffect(() => {
+    // Per-table net governance state, keyed by `${db}.${schema}.${table}`.
+    const rlsByTable = new Map<string, Set<string>>();
+    const tagsByTable = new Map<string, Set<string>>();
+    events.forEach((e) => {
+      const t = e.target;
+      if (!t?.database || !t?.schema || !t?.table) return;
+      const tableId = `${t.database}.${t.schema}.${t.table}`;
+      if (e.type === 'RLS_POLICY_APPLIED' || e.type === 'RLS_POLICY_REMOVED') {
+        const name = e.payload?.policyName;
+        if (!name) return;
+        if (!rlsByTable.has(tableId)) rlsByTable.set(tableId, new Set<string>());
+        const set = rlsByTable.get(tableId)!;
+        if (e.type === 'RLS_POLICY_APPLIED') set.add(name); else set.delete(name);
+      } else if (e.type === 'TAG_APPLIED' || e.type === 'TAG_REMOVED') {
+        const name: string | undefined = e.payload?.tagName ?? e.payload?.tag;
+        // SENSITIVE:-prefixed tags are the sensitive-column marker (event-store
+        // reuses TAG events for it) — exclude so the tag badge isn't inflated.
+        if (!name || name.startsWith('SENSITIVE:')) return;
+        if (!tagsByTable.has(tableId)) tagsByTable.set(tableId, new Set<string>());
+        const set = tagsByTable.get(tableId)!;
+        if (e.type === 'TAG_APPLIED') set.add(name); else set.delete(name);
+      }
+    });
+
+    setNodes((prev) => {
+      let changed = false;
+      const next = prev.map((n) => {
+        const rls = rlsByTable.get(n.id);
+        const tags = tagsByTable.get(n.id);
+        const hasRLS = !!rls && rls.size > 0;
+        const tagList = tags && tags.size > 0 ? Array.from(tags) : undefined;
+        const prevConfig = n.data.config;
+        const sameRLS = (prevConfig?.hasRLS ?? false) === hasRLS;
+        const prevTags = prevConfig?.tags;
+        const sameTags =
+          (prevTags?.length ?? 0) === (tagList?.length ?? 0) &&
+          (prevTags ?? []).every((tg, i) => tg === tagList?.[i]);
+        if (sameRLS && sameTags) return n;
+        changed = true;
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            config: {
+              ...prevConfig,
+              hasRLS,
+              tags: tagList,
+              // qualityScore / rowCount intentionally left as-is (undefined) —
+              // no per-table source; TableNode self-hides them as honest "—".
+            },
+          },
+        };
+      });
+      // Loop-breaker: identical state => return prev (React no-op, no re-render).
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, initialNodes]);
 
   // Create edges from default relationships
   useEffect(() => {
@@ -467,6 +714,10 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
   // Policy and column modals state
   const [showPolicyPanel, setShowPolicyPanel] = useState(false);
+  // Tab the policy panel opens on (deep-link). 'aggregation' routes here from the
+  // distinct "Apply aggregation" option so it lands on its own real surface
+  // (PolicyAssignmentPanel aggregation tab); the other labels keep the default tab.
+  const [policyPanelCategory, setPolicyPanelCategory] = useState<PolicyCategory | undefined>(undefined);
   const [showAddColumnModal, setShowAddColumnModal] = useState(false);
   const [showAddSimpleColumnModal, setShowAddSimpleColumnModal] = useState(false);
   const [newColumnName, setNewColumnName] = useState('');
@@ -493,6 +744,15 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     sourceId: string;
     targetId: string;
   } | null>(null);
+
+  // Rename table modal state (replaces window.prompt() — structured, consistent with
+  // the other in-canvas modals). Gating happens on the open path (the gated `rename`
+  // switch case), so the confirm here only emits the event — same as add_new_column.
+  const [renameState, setRenameState] = useState<{ table: TableItem; value: string } | null>(null);
+
+  // Set-primary-key modal state (replaces window.prompt() column picker). Only non-PK
+  // columns are offered; the empty-columns guard stays on the open path.
+  const [pkState, setPkState] = useState<{ table: TableItem; columns: ColumnInfo[]; selected: string } | null>(null);
 
   // Track all ETL column mappings for the summary panel (FK relationships are handled separately)
   const [columnMappingsList, setColumnMappingsList] = useState<Array<{
@@ -947,9 +1207,10 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   );
 
   // Helper to open policy panel for a table
-  const openPolicyPanel = useCallback((table: TableItem) => {
+  const openPolicyPanel = useCallback((table: TableItem, category?: PolicyCategory) => {
     setSelectedTableForPanel(table);
     setSelectedTableColumns(tableColumns.get(table.id) || []);
+    setPolicyPanelCategory(category);
     setShowPolicyPanel(true);
   }, [tableColumns]);
 
@@ -980,23 +1241,39 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
     const columns = tableColumns.get(table.id) || [];
 
+    // Action-RBAC gate (System 2). Every mutating action is gated; `open_options`
+    // only opens UI (the actions it routes back through are gated at dispatch).
+    // Object-creating DE actions are `create`; only the destructive `exclude`
+    // requires `approve`. `duplicate` is a copy (create), not destructive.
+    const CREATE_ACTIONS = new Set([
+      'rename', 'add_new_column', 'add_column', 'add_computed_column',
+      'policies', 'masking', 'rls', 'tags', 'aggregation',
+      'pk_config', 'fk_config', 'relation', 'duplicate',
+      'dynamic_table', 'event_table', 'hybrid_table', 'stream', 'alert',
+    ]);
+    const APPROVE_ACTIONS = new Set(['exclude']);
+    if (CREATE_ACTIONS.has(action) && !canWrite) {
+      toast.error('You do not have permission to modify this model');
+      return;
+    }
+    if (APPROVE_ACTIONS.has(action) && !canApprove) {
+      toast.error('You do not have permission for this action');
+      return;
+    }
+
     switch (action) {
       case 'open_options':
-        // Open table options sidebar
-        openTableOptions(table);
+        // Unified right bar (T1): the node "more"/context action no longer opens
+        // a separate TableOptionsSidebar — it opens the ContextRightBar cockpit on
+        // its Actions tab so there is exactly ONE right panel. Selecting the table
+        // also frames it on the canvas via the existing onTableSelect path.
+        onTableSelect?.(table);
+        onOpenContextBar?.(table);
         break;
       case 'rename':
-        {
-          const newName = prompt('Enter new table name:', table.table);
-          if (newName && newName !== table.table) {
-            addEvent({
-              type: 'TABLE_RENAMED',
-              target: { database: table.database, schema: table.schema, table: table.table },
-              payload: { newName },
-            });
-            toast.success(`Rename "${table.table}" → "${newName}" added to pending changes`);
-          }
-        }
+        // Open the structured rename modal (replaces window.prompt()). The event is
+        // emitted on confirm; gating already happened at the top of this handler.
+        setRenameState({ table, value: table.table });
         break;
       case 'add_new_column':
         setSelectedTableForPanel(table);
@@ -1024,29 +1301,25 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       case 'masking':
       case 'rls':
       case 'tags':
-      case 'aggregation':
+        // Default policy tab (collapsing/deep-linking these four is T3's call).
         openPolicyPanel(table);
         break;
-      case 'pk_config':
-        // Show column selection for primary key
+      case 'aggregation':
+        // Distinct surface: deep-link to the panel's real aggregation tab so the
+        // option is no longer indistinguishable from the other policy labels.
+        openPolicyPanel(table, 'aggregation');
+        break;
+      case 'pk_config': {
+        // Open the structured primary-key picker (replaces window.prompt()). Only
+        // non-PK columns are offered; the empty-columns guard stays on this open path.
         const pkColumns = columns.filter(c => !c.isPrimaryKey);
         if (pkColumns.length === 0) {
           toast.error('No columns available for primary key');
           return;
         }
-        const pkColumn = prompt(
-          `Select column for Primary Key:\n${pkColumns.map((c, i) => `${i + 1}. ${c.name} (${c.dataType})`).join('\n')}\n\nEnter column name:`,
-          pkColumns[0]?.name
-        );
-        if (pkColumn && pkColumns.some(c => c.name === pkColumn)) {
-          addEvent({
-            type: 'PRIMARY_KEY_SET',
-            target: { database: table.database, schema: table.schema, table: table.table },
-            payload: { columns: [pkColumn] },
-          });
-          toast.success(`Primary key set: ${pkColumn}`);
-        }
+        setPkState({ table, columns: pkColumns, selected: pkColumns[0]?.name || '' });
         break;
+      }
       case 'fk_config':
         // Start FK linking mode
         setRelationMode(true);
@@ -1068,22 +1341,29 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         }
         break;
       case 'duplicate':
-        // Duplicate node
-        const node = nodes.find((n) => n.id === nodeId);
-        if (node) {
-          const newNode = {
-            ...node,
-            id: `${node.id}_copy`,
-            position: {
-              x: node.position.x + 50,
-              y: node.position.y + 50,
+        {
+          // Emit a real, deployable TABLE_CREATED event for the copy (same shape
+          // as CreateTableModal / DWH template tables) instead of cloning a local
+          // node with an id that matches no real table. The copy lands as a
+          // pending change (toast), undoable like any other event.
+          const copyName = `${table.table}_COPY`;
+          addEvent({
+            type: 'TABLE_CREATED',
+            projectId: projectId || undefined,
+            target: { database: table.database, schema: table.schema, table: copyName },
+            payload: {
+              tableName: copyName,
+              columns: columns.map((c) => ({
+                name: c.name,
+                dataType: c.dataType,
+                nullable: c.isNullable,
+                primaryKey: c.isPrimaryKey,
+              })),
+              primaryKeys: columns.filter((c) => c.isPrimaryKey).map((c) => c.name),
+              duplicatedFrom: table.table,
             },
-            data: {
-              ...node.data,
-              table: `${node.data.table}_copy`,
-            },
-          };
-          setNodes((nds) => [...nds, newNode]);
+          });
+          toast.success(`Duplicate "${copyName}" added to pending changes`);
         }
         break;
       case 'dynamic_table':
@@ -1102,11 +1382,41 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         if (onAlertCreate) onAlertCreate(table);
         break;
     }
-  }, [tables, nodes, setNodes, openPolicyPanel, openAddColumnModal, openTableOptions, tableColumns, addEvent,
-      onDynamicTableCreate, onEventTableCreate, onHybridTableCreate, onStreamCreate, onAlertCreate]);
+  }, [tables, setNodes, openPolicyPanel, openAddColumnModal, openTableOptions, tableColumns, addEvent, projectId,
+      canWrite, canApprove, onDynamicTableCreate, onEventTableCreate, onHybridTableCreate, onStreamCreate, onAlertCreate,
+      onTableSelect, onOpenContextBar]);
 
   // Update ref for context action handler
   handleNodeContextActionRef.current = handleNodeContextAction;
+
+  // Register a STABLE dispatcher with the parent so the unified ContextRightBar can
+  // route table actions through the SAME handleNodeContextAction path the node menu
+  // used. The wrapper closes over the live ref (always-fresh handler), so this
+  // effect registers exactly once — no churn when the handler's deps change.
+  useEffect(() => {
+    onRegisterActionDispatch?.((tableId: string, action: string) => {
+      handleNodeContextActionRef.current(tableId, action);
+    });
+  }, [onRegisterActionDispatch]);
+
+  // Zoom-to-selected — frame the page-selected node when it changes. Driven off
+  // the prop (which the page sets from the same click → onTableSelect path) so
+  // centering happens exactly once per selection, never double-fired from
+  // onNodeClick. fitView's left-biased padding keeps the framed node clear of the
+  // 380px right cockpit; node-not-yet-present is a no-op (guarded by getNodes()).
+  const lastFramedId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedTableId) { lastFramedId.current = null; return; }
+    if (selectedTableId === lastFramedId.current) return;
+    const exists = getNodes().some((n) => n.id === selectedTableId);
+    if (!exists) return;
+    lastFramedId.current = selectedTableId;
+    // Slight delay lets a freshly-added node mount before we frame it.
+    const t = setTimeout(() => {
+      fitView({ nodes: [{ id: selectedTableId }], padding: 0.5, duration: 400, maxZoom: 1.2 });
+    }, 60);
+    return () => clearTimeout(t);
+  }, [selectedTableId, getNodes, fitView]);
 
   // Node click handler
   const onNodeClick = useCallback(
@@ -1148,12 +1458,14 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     toast.success('Model exported');
   }, [getNodes, getEdges]);
 
-  // Auto-layout
+  // Auto-layout — pass the live edges so the hierarchical L→R ranking can honor
+  // FK/mapping direction (this is the fully-populated path; the initial-render
+  // useMemo runs with no edges yet and falls back to the leftover lane).
   const handleAutoLayout = useCallback(() => {
-    setNodes((nds) => autoLayout(nds));
+    setNodes((nds) => autoLayout(nds, getEdges()));
     setTimeout(() => fitView({ padding: 0.2 }), 100);
     toast.success('Layout applied');
-  }, [setNodes, fitView]);
+  }, [setNodes, getEdges, fitView]);
 
   return (
     <div ref={reactFlowWrapper} className={cn('w-full h-full', className)}>
@@ -1412,12 +1724,14 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           <PolicyAssignmentPanel
             table={selectedTableForPanel}
             columns={selectedTableColumns}
+            initialCategory={policyPanelCategory}
             onPolicyApplied={() => {
               toast.success('Policy applied successfully');
             }}
             onClose={() => {
               setShowPolicyPanel(false);
               setSelectedTableForPanel(null);
+              setPolicyPanelCategory(undefined);
             }}
             isTemplateTable={events.some(
               e => e.type === 'TABLE_CREATED' &&
@@ -1464,7 +1778,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       )}
 
       {/* Add Simple Column Modal */}
-      <Modal isOpen={showAddSimpleColumnModal} onClose={() => setShowAddSimpleColumnModal(false)}>
+      {showAddSimpleColumnModal && (
+      <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
         <div className="p-6">
           <h3 className="text-lg font-semibold mb-4">
             Add Column to {selectedTableForPanel?.table}
@@ -1557,7 +1872,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
             </Button>
           </div>
         </div>
-      </Modal>
+      </div>
+      )}
 
       {/* Column Mapping Modal */}
       <ColumnMappingModal
@@ -1638,28 +1954,17 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         </div>
       )}
 
-      {/* Table Options Sidebar */}
-      {showTableOptions && tableForOptions && (
-        <div className="absolute right-0 top-0 h-full z-50 shadow-xl">
-          <TableOptionsSidebar
-            table={tableForOptions}
-            columns={tableColumns.get(tableForOptions.id) || []}
-            onClose={closeTableOptions}
-            onAction={(action: TableOptionAction) => {
-              // Handle action through existing handler
-              handleNodeContextAction(tableForOptions.id, action);
-              // Close sidebar after action (except for some actions)
-              if (!['open_options'].includes(action)) {
-                closeTableOptions();
-              }
-            }}
-          />
-        </div>
-      )}
+      {/* Table Options Sidebar (T1 — RETIRED).
+          The standalone TableOptionsSidebar used to float here as a SECOND right
+          panel that overlapped the ContextRightBar cockpit. It is gone: a node's
+          "more"/context action now routes through `open_options` → the page's
+          unified ContextRightBar (Actions tab). All of its actions live in that one
+          bar's Actions section, dispatched through the same handleNodeContextAction
+          path via `onRegisterActionDispatch`. */}
 
       {/* FK Column Picker Modal */}
       {fkPickerState && (
-        <Modal isOpen onClose={() => setFkPickerState(null)} customSize="440px">
+        <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
           <div className="p-5">
             <h3 className="text-lg font-semibold mb-1 flex items-center gap-2">
               <GitBranch className="h-5 w-5 text-amber-500" />
@@ -1752,7 +2057,102 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
               </Button>
             </div>
           </div>
-        </Modal>
+        </div>
+      )}
+
+      {/* Rename Table Modal (structured — replaces window.prompt()) */}
+      {renameState && (() => {
+        const { table } = renameState;
+        const trimmed = renameState.value.trim();
+        const canRename = !!trimmed && trimmed !== table.table;
+        const confirmRename = () => {
+          if (canRename) {
+            addEvent({
+              type: 'TABLE_RENAMED',
+              target: { database: table.database, schema: table.schema, table: table.table },
+              payload: { newName: trimmed },
+            });
+            toast.success(`Rename "${table.table}" → "${trimmed}" added to pending changes`);
+          }
+          setRenameState(null);
+        };
+        return (
+          <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
+            <div className="p-5">
+              <h3 className="text-lg font-semibold mb-4">
+                Rename {table.table}
+              </h3>
+              <Input
+                label="New table name"
+                placeholder="e.g. FACT_ORDERS"
+                value={renameState.value}
+                onChange={(e) => setRenameState(prev => prev ? { ...prev, value: e.target.value } : null)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && canRename) confirmRename(); }}
+              />
+              <div className="flex justify-end gap-2 mt-5">
+                <Button variant="outline" size="sm" onClick={() => setRenameState(null)}>
+                  Cancel
+                </Button>
+                <Button size="sm" disabled={!canRename} onClick={confirmRename}>
+                  Rename
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Set Primary Key Modal (structured — replaces window.prompt()) */}
+      {pkState && (
+        // No-popup: docked floating card (no backdrop) so the canvas + the
+        // highlighted target table stay visible while you pick the PK column.
+        <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
+          <div className="p-5">
+            <h3 className="text-lg font-semibold mb-1">
+              Set primary key
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">{pkState.table.table}</p>
+            <div>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1 block">
+                Column
+              </label>
+              <select
+                className="w-full border rounded-lg px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700"
+                value={pkState.selected}
+                onChange={(e) => setPkState(prev => prev ? { ...prev, selected: e.target.value } : null)}
+              >
+                {pkState.columns.map(c => (
+                  <option key={c.name} value={c.name}>
+                    {c.name} ({c.dataType})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <Button variant="outline" size="sm" onClick={() => setPkState(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={!pkState.selected}
+                onClick={() => {
+                  const { table, selected } = pkState;
+                  if (selected) {
+                    addEvent({
+                      type: 'PRIMARY_KEY_SET',
+                      target: { database: table.database, schema: table.schema, table: table.table },
+                      payload: { columns: [selected] },
+                    });
+                    toast.success(`Primary key set: ${selected}`);
+                  }
+                  setPkState(null);
+                }}
+              >
+                Set primary key
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

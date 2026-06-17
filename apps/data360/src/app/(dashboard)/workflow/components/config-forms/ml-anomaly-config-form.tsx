@@ -19,7 +19,7 @@ const MLAnomalyConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-        <p className="text-xs text-red-700 dark:text-red-300">Detect anomalies in time-series data using Snowflake ML. Flags outlier data points.</p>
+        <p className="text-xs text-red-700 dark:text-red-300">Detect anomalies in time-series data using the analytics engine. Flags outlier data points.</p>
       </div>
       <FormField label="Timestamp Column" required error={errors.timestamp_column}>
         <Select value={config.timestamp_column || ''} onChange={(v) => updateConfig({ timestamp_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.timestamp_column} />

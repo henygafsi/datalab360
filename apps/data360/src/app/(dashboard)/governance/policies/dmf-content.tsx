@@ -140,6 +140,10 @@ export default function DMFContent() {
   // gouvernance:delete. Fail-open while the allow-set loads (no flash).
   const deletePerm = useCanPerform('gouvernance', 'delete');
   const canDeleteDmf = deletePerm.allowed || deletePerm.loading;
+  // Creating a data metric function maps to gouvernance:create — mirror the
+  // exact gating every sibling policy-content file uses for its create button.
+  const createPerm = useCanPerform('gouvernance', 'create');
+  const canCreatePolicy = createPerm.allowed || createPerm.loading;
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [database, setDatabase] = useState('');
@@ -505,7 +509,7 @@ export default function DMFContent() {
           <Button variant="outline" onClick={() => { setThError(null); setShowThreshold(true); }} className="gap-2">
             <PiChartBar className="w-4 h-4" /> Set Threshold
           </Button>
-          <Button onClick={() => { setCreateError(null); setShowCreate(true); }} className="gap-2 bg-teal-600 text-white hover:bg-teal-700">
+          <Button onClick={() => { setCreateError(null); setShowCreate(true); }} disabled={!canCreatePolicy} title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined} className="gap-2 bg-teal-600 text-white hover:bg-teal-700">
             <PiPlus className="w-4 h-4" /> Create DMF
           </Button>
         </div>
@@ -647,7 +651,7 @@ export default function DMFContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={() => handleCreate()} disabled={creating} className="bg-teal-600 text-white hover:bg-teal-700">
+            <Button onClick={() => handleCreate()} disabled={creating || !canCreatePolicy} title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined} className="bg-teal-600 text-white hover:bg-teal-700">
               {creating ? <Loader variant="spinner" size="sm" /> : 'Create'}
             </Button>
           </>
@@ -699,7 +703,8 @@ export default function DMFContent() {
             <Button variant="outline" onClick={() => setShowAssociate(false)}>Cancel</Button>
             <Button
               onClick={() => handleAssociate()}
-              disabled={associating || !assocTarget.table || !assocDmfName || assocColumns.length === 0}
+              disabled={!canCreatePolicy || associating || !assocTarget.table || !assocDmfName || assocColumns.length === 0}
+              title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined}
               className="bg-teal-600 text-white hover:bg-teal-700"
             >
               {associating ? <Loader variant="spinner" size="sm" /> : 'Associate'}
@@ -858,7 +863,7 @@ export default function DMFContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowSchedule(false)}>Cancel</Button>
-            <Button onClick={() => handleSchedule()} disabled={!schedTarget.table || !schedForm.schedule} className="bg-teal-600 text-white hover:bg-teal-700">Set Schedule</Button>
+            <Button onClick={() => handleSchedule()} disabled={!canCreatePolicy || !schedTarget.table || !schedForm.schedule} title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined} className="bg-teal-600 text-white hover:bg-teal-700">Set Schedule</Button>
           </>
         }
       >
@@ -917,7 +922,8 @@ export default function DMFContent() {
             <Button variant="outline" onClick={() => setShowThreshold(false)} disabled={thSubmitting}>Cancel</Button>
             <Button
               onClick={() => handleSetThreshold()}
-              disabled={thSubmitting || !thForm.table_name.trim() || !thForm.column_name.trim()}
+              disabled={!canCreatePolicy || thSubmitting || !thForm.table_name.trim() || !thForm.column_name.trim()}
+              title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined}
               className="bg-teal-600 text-white hover:bg-teal-700 gap-1.5"
             >
               {thSubmitting ? <Loader variant="spinner" size="sm" /> : null}
@@ -1051,7 +1057,8 @@ export default function DMFContent() {
                           variant="outline"
                           size="sm"
                           onClick={() => setConfirmDisassociate({ fqn: thisFqn, dmf: dmfName, cols: thisCols })}
-                          disabled={disassociating}
+                          disabled={disassociating || !canDeleteDmf}
+                          title={!canDeleteDmf ? 'You lack the "delete" permission on governance. Ask an administrator to grant it.' : undefined}
                           className="gap-1 text-red-600 hover:bg-red-50"
                         >
                           <PiLinkBreak className="w-3.5 h-3.5" /> Disassociate

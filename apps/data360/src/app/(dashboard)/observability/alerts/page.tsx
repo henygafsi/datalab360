@@ -17,6 +17,7 @@ import {
 } from '@/app/services/observability';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import type { ObservabilityAlert } from '@/app/services/observability/types';
 
@@ -48,6 +49,14 @@ export default function AlertsPage() {
   const [selected, setSelected] = useState<ObservabilityAlert | null>(null);
   const [ackingId, setAckingId] = useState<string | null>(null);
   const { isOpen, open, close } = useActionPanel<'details'>();
+
+  // Action-RBAC gate (H8): acknowledging an alert is an observability alert-config
+  // write. `configure-alerts` is the action-registry key for the cost/alerts surface
+  // (the strings my-permissions returns). Fail-open while the allow-set loads so a
+  // transient backend hiccup never locks an admin out of their own control.
+  const ackPerm = useCanPerform('observability', 'configure-alerts');
+  const canAck = ackPerm.allowed || ackPerm.loading;
+  const ackDeniedTitle = 'You lack the "configure-alerts" permission on observability. Ask an administrator to grant it.';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -249,7 +258,8 @@ export default function AlertsPage() {
                           size="sm"
                           variant="outline"
                           isLoading={ackingId === a.id}
-                          disabled={ackingId !== null}
+                          disabled={ackingId !== null || !canAck}
+                          title={!canAck ? ackDeniedTitle : undefined}
                           className="gap-1 border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400"
                           onClick={() => acknowledge(a)}
                         >
@@ -320,7 +330,8 @@ export default function AlertsPage() {
                 <Button
                   size="sm"
                   isLoading={ackingId === selected.id}
-                  disabled={ackingId !== null}
+                  disabled={ackingId !== null || !canAck}
+                  title={!canAck ? ackDeniedTitle : undefined}
                   className="w-full gap-1 bg-green-600 text-white hover:bg-green-700"
                   onClick={() => acknowledge(selected)}
                 >

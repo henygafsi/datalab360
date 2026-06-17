@@ -26,7 +26,7 @@ const SharedDataSourceConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
         <p className="text-xs text-purple-700 dark:text-purple-300">
-          Read data from a Snowflake Data Sharing database. Access shared tables from other Snowflake accounts without copying data.
+          Read data from a shared database. Access shared tables from other accounts without copying data.
         </p>
       </div>
 

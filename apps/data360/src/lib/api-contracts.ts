@@ -206,6 +206,12 @@ export const API = {
     list: () => `/projects${qs({ project_type: 'WORKFLOW' })}`,
     /** POST /workflow — create a workflow. */
     create: () => '/workflow',
+    /**
+     * PATCH /workflow/{id} — update workflow metadata (tags / name / description).
+     * A workflow is a project row, so this persists to the shared project TAGS
+     * column with cache invalidation (verified vs backend).
+     */
+    update: (id: string) => `/workflow/${enc(id)}`,
     capabilities: () => '/workflow/capabilities',
     steps: (id: string) => `/workflow/${enc(id)}/steps`,
     step: (id: string, stepId: string) => `/workflow/${enc(id)}/steps/${enc(stepId)}`,
@@ -541,6 +547,13 @@ export const API = {
     moduleHealth:         (days?: number)  => `/command-center/module-health${days != null ? `?days=${days}` : ''}`,
     /** POST /command-center/warm-user-cache — warms user-specific KPI cache on login. */
     warmUserCache:        ()               => '/command-center/warm-user-cache',
+    /**
+     * GET /command-center/cache-metrics — runtime cache & API-call telemetry:
+     * hit-rate, memory footprint, key-counts by prefix, service warm-cycle status,
+     * and top endpoints (call count · avg/max latency · error rate). Admin-only.
+     * Self-hides on 404/501 (route not deployed on this backend yet).
+     */
+    cacheMetrics:         ()               => '/command-center/cache-metrics',
     /** GET /command-center/tabs/{tab}[?days=<n>] — consolidated per-tab endpoint. */
     tab:                  (tab: string, days?: number) =>
       `/command-center/tabs/${enc(tab)}${days != null ? `?days=${days}` : ''}`,

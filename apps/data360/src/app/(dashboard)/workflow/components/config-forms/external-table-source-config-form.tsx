@@ -26,7 +26,7 @@ const ExternalTableSourceConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
         <p className="text-xs text-cyan-700 dark:text-cyan-300">
-          Read data from a Snowflake external table. External tables reference data stored in external stages (S3, Azure, GCS).
+          Read data from an external table. External tables reference data stored in external stages (S3, Azure, GCS).
         </p>
       </div>
 

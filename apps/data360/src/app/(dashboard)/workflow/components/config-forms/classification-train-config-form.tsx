@@ -19,7 +19,7 @@ const ClassificationTrainConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
-        <p className="text-xs text-emerald-700 dark:text-emerald-300">Train a classification model using Snowflake ML. Predicts categorical labels from features.</p>
+        <p className="text-xs text-emerald-700 dark:text-emerald-300">Train a classification model using the analytics engine. Predicts categorical labels from features.</p>
       </div>
       <FormField label="Target Column" required error={errors.target_column} hint="Column to predict">
         <Select value={config.target_column || ''} onChange={(v) => updateConfig({ target_column: v })} options={columnOptions} placeholder="Select target" error={!!errors.target_column} />

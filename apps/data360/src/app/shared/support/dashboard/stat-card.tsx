@@ -2,6 +2,7 @@
 
 import { Title, Text } from 'rizzui';
 import cn from '@core/utils/class-names';
+import { dash } from '@/app/shared/ui/format';
 
 const metricCardClasses = {
   base: 'border border-muted bg-gray-0 p-5 dark:bg-gray-800 lg:p-6',
@@ -15,7 +16,9 @@ const metricCardClasses = {
 
 type MetricCardTypes = {
   title: string;
-  metric: string | number;
+  // Accepts a missing value — the card renders "—" for null/undefined/NaN
+  // (R3); a genuine 0 still renders as 0.
+  metric: string | number | null | undefined;
   icon?: React.ReactNode;
   iconClassName?: string;
   contentClassName?: string;
@@ -69,7 +72,7 @@ export default function MetricCard({
               {title}
             </Text>
             <Title as="h4" className={cn(metricClassName)}>
-              {metric}
+              {dash(metric)}
             </Title>
 
             {info ? info : null}

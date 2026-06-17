@@ -56,6 +56,7 @@ import {
 } from '@/app/services/command-center';
 import type { SummaryResponse } from '@/app/services/command-center/types';
 import { InsightActionButton } from '@/app/shared/insights';
+import { dash } from '@/app/shared/ui/format';
 import AuditTable, { type Row } from './AuditTable';
 import type {
   AccountCreditHistoryResponse,
@@ -975,7 +976,9 @@ function KpiCard({
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: string | number;
+  // Accepts a missing value — renders "—" for null/undefined/NaN (R3); a genuine
+  // 0 still renders as 0.
+  value: string | number | null | undefined;
 }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
@@ -984,7 +987,7 @@ function KpiCard({
         <Icon className="h-3.5 w-3.5 text-slate-400" />
       </div>
       <div className="mt-1 truncate text-lg font-semibold text-slate-900 dark:text-white">
-        {value}
+        {dash(value)}
       </div>
     </div>
   );
@@ -995,13 +998,14 @@ function StatStripItem({
   value,
 }: {
   label: string;
-  value: string | number;
+  // Missing → "—" (R3); a genuine 0 still renders as 0.
+  value: string | number | null | undefined;
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/40">
       <div className="text-[11px] text-slate-500">{label}</div>
       <div className="mt-0.5 truncate text-sm font-semibold text-slate-900 dark:text-white">
-        {value}
+        {dash(value)}
       </div>
     </div>
   );

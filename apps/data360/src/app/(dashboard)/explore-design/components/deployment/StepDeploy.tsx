@@ -311,7 +311,7 @@ export default function StepDeploy() {
             {config.deploymentType === 'with_approval'
               ? 'This will submit your changes for approval before deployment.'
               : config.atomicDeployment
-              ? 'This will deploy atomically — all or nothing.'
+              ? 'This runs a two-phase deployment (Schema DDL → Data Ingestion). Steps run in dependency order and each is retried once — not all-or-nothing; already-applied steps are not auto-rolled-back if a later step fails.'
               : 'This will execute a two-phase deployment: Schema DDL → Data Ingestion.'}
           </p>
           <div className="flex justify-center gap-3">

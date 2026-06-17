@@ -42,7 +42,7 @@ const ClusteringConfigForm: React.FC<{
           onChange={(v) => updateConfig({ method: v as ClusteringConfig['method'] })}
           options={[
             { value: 'kmeans_sql', label: 'K-Means (SQL)' },
-            { value: 'cortex_ml', label: 'Cortex ML' },
+            { value: 'cortex_ml', label: 'Built-in ML' },
           ]}
         />
       </FormField>

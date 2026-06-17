@@ -69,6 +69,12 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
   const canDeleteFiles = deletePerm.allowed || deletePerm.loading;
   const deleteDeniedReason =
     'You lack the "delete" permission on connect. Ask an administrator to grant it.';
+  // Uploading files to a stage maps to connect:upload (a dedicated registry
+  // action, distinct from ingest). Same fail-open-while-loading policy.
+  const uploadPerm = useCanPerform('connect', 'upload');
+  const canUpload = uploadPerm.allowed || uploadPerm.loading;
+  const uploadDeniedReason =
+    'You lack the "upload" permission on connect. Ask an administrator to grant it.';
   const [loading, setLoading] = useState(false);
   const [currentStage, setCurrentStage] = useState<string | null>(null);
   const [files, setFiles] = useState<StageItem[]>([]);
@@ -672,13 +678,14 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                   multiple
                   accept=".csv,.json,.parquet,.txt"
                   onChange={handleUpload}
-                  disabled={uploading || !currentStage}
+                  disabled={uploading || !currentStage || !canUpload}
                   className="hidden"
                 />
                 <Button
                   as="span"
                   className="bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
-                  disabled={uploading || !currentStage}
+                  disabled={uploading || !currentStage || !canUpload}
+                  title={!canUpload ? uploadDeniedReason : undefined}
                 >
                   <HiUpload className={`h-4 w-4 mr-2 ${uploading ? 'animate-bounce' : ''}`} />
                   Upload Files

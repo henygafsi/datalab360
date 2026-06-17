@@ -19,11 +19,12 @@
 import React, { useState } from 'react';
 import {
   Gauge, Zap, ShieldCheck, GitBranch, Upload, UserCog, Sparkles, History,
-  Play, Link2, CalendarClock, Tag, Activity, Database, Shield, Lightbulb,
+  Play, Link2, CalendarClock, Activity, Database, Shield, Lightbulb,
+  ArrowUpRight, Boxes, EyeOff,
 } from 'lucide-react';
-import { Badge } from 'rizzui';
 import { cn } from '@/lib/utils';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
+import GovernancePostureCard, { type GovernancePostureData } from '@/app/shared/score-cards/GovernancePostureCard';
 
 type MetricRow = { [key: string]: unknown };
 
@@ -85,9 +86,22 @@ export default function SmartRightBar({
 
   const tableName = selectedRow ? String(selectedRow.TABLE_NAME || selectedRow.table_name || '') : null;
   const schemaName = selectedRow ? String(selectedRow.SCHEMA_NAME || selectedRow.TABLE_SCHEMA || '') : null;
+  const columnName = selectedRow ? String(selectedRow.COLUMN_NAME || selectedRow.column_name || '') : '';
 
   // Docked panel "opens" only when a table row is selected (open-on-select).
   if (!selectedRow || !tableName) return null;
+
+  // ── Outbound prefilled deep-links (mirror of the inbound scan-prefill pattern
+  // and the lineage CTA below). We carry the selected table (and column) as
+  // honest context breadcrumbs and a truthful `from=data-quality` origin — NOT
+  // `from=scan`, which would fire the destinations' account-wide scan banners
+  // and mis-advertise generic suggestions as "this table". The destination lands
+  // on the right page/tab and can adopt the context params as they're consumed. ──
+  const exploreModelHref =
+    `/explore-design?intent=model&from=data-quality&table=${encodeURIComponent(tableName)}`;
+  const governanceMaskingHref =
+    `/governance/policies?tab=masking&from=data-quality&table=${encodeURIComponent(tableName)}` +
+    (columnName ? `&column=${encodeURIComponent(columnName)}` : '');
 
   // While the context fan-out is in flight, the active section shows skeletons —
   // mirrors the previous inline panel's loading state.
@@ -102,6 +116,7 @@ export default function SmartRightBar({
       id: 'context',
       icon: Gauge,
       label: 'Context',
+      help: "Snapshot of this table's data-quality score and how many metric checks are attached to it. A score below 80% means freshness, completeness or validity needs a closer look.",
       render: () => loading ? loadingBody : (
         <>
           {/* DQ score + DMF count */}
@@ -109,7 +124,7 @@ export default function SmartRightBar({
             <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
               <p className="text-[10px] text-gray-500 dark:text-gray-400">DQ Score</p>
               <p className={cn('text-lg font-bold',
-                data?.dqScore === null ? 'text-gray-400' :
+                (data?.dqScore === null || data?.dqScore === undefined) ? 'text-gray-400' :
                 (data?.dqScore ?? 0) >= 80 ? 'text-green-600 dark:text-green-400' :
                 (data?.dqScore ?? 0) >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
               )}>
@@ -133,6 +148,7 @@ export default function SmartRightBar({
       id: 'actions',
       icon: Zap,
       label: 'Actions',
+      help: 'Run a quality check on this table right now, attach a new metric check to it, or set checks to run on a schedule. Any action you lack permission for is shown greyed out.',
       render: () => loading ? loadingBody : (
         // Run Check / Associate DMF / Set Schedule — verbatim handlers + RBAC gates.
         <div className="space-y-1.5">
@@ -185,30 +201,67 @@ export default function SmartRightBar({
       id: 'governance',
       icon: ShieldCheck,
       label: 'Governance',
+      help: 'Columns on this table that have been flagged as sensitive (such as PII) and the classification tags applied to them. Use it to confirm regulated data is properly labelled before the table is shared.',
       render: () => loading ? loadingBody : (
-        // Classification coverage + PII tags.
-        data?.classificationTags && data.classificationTags.length > 0 ? (
-          <div className="space-y-1">
-            {data.classificationTags.slice(0, 4).map((tag, i) => (
-              <div key={i} className="flex items-center gap-2 text-xs">
-                <Tag className="h-3 w-3 text-amber-500 flex-shrink-0" />
-                <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{String(tag.COLUMN_NAME || '—')}</span>
-                <Badge variant="flat" color="warning" className="text-[10px] ml-auto flex-shrink-0">{String(tag.TAG_NAME || tag.CATEGORY || '—')}</Badge>
-              </div>
-            ))}
-            {data.classificationTags.length > 4 && (
-              <p className="text-[10px] text-gray-400 dark:text-gray-500">+{data.classificationTags.length - 4} more tags</p>
-            )}
-          </div>
-        ) : (
-          <p className="text-xs text-gray-400 dark:text-gray-500">No classification tags. Run SYSTEM$CLASSIFY to tag sensitive columns.</p>
-        )
+        // Converged onto the shared GovernancePostureCard. This payload is
+        // classification-tags-only: map each tag row → the card's tag chips
+        // (classification → column). We deliberately do NOT feed `dqScore` as the
+        // governance score (quality ≠ governance) and do NOT synthesize sensitive/
+        // masked counts the backend didn't report — those grid cells stay honest
+        // "—". Empty tags → the card's neutral empty message.
+        <GovernancePostureCard
+          compact
+          title="Governance"
+          data={{
+            tags: (data?.classificationTags ?? []).map((tag) => ({
+              tag_name: String(tag.TAG_NAME || tag.CATEGORY || '—'),
+              tag_value: tag.COLUMN_NAME ? String(tag.COLUMN_NAME) : null,
+            })),
+          } satisfies GovernancePostureData}
+        />
+      ),
+    },
+    {
+      id: 'act',
+      icon: ArrowUpRight,
+      label: 'Act',
+      help: 'Shortcuts to a related task for this table — model it downstream in Explore & Design, or review its masking rules in Governance. The table (and column) is carried over so you land in the right place.',
+      render: () => (
+        // Outbound prefilled deep-link CTAs — model the table downstream, or
+        // review its masking controls — mirroring the lineage deep-link below.
+        <div className="space-y-2">
+          <a
+            href={exploreModelHref}
+            className="group flex items-start gap-2.5 rounded-lg border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50 dark:bg-indigo-900/10 px-3 py-2 hover:bg-indigo-100 dark:hover:bg-indigo-900/20 transition-colors"
+          >
+            <Boxes className="h-4 w-4 text-indigo-500 mt-0.5 flex-shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-medium text-indigo-700 dark:text-indigo-300">Model this in Explore &amp; Design</span>
+              <span className="block text-[10px] text-indigo-600/70 dark:text-indigo-400/70 truncate">Open the AI-guided modeler with this table carried over.</span>
+            </span>
+            <ArrowUpRight className="h-3.5 w-3.5 text-indigo-400 flex-shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </a>
+          <a
+            href={governanceMaskingHref}
+            className="group flex items-start gap-2.5 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/10 px-3 py-2 hover:bg-amber-100 dark:hover:bg-amber-900/20 transition-colors"
+          >
+            <EyeOff className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-medium text-amber-700 dark:text-amber-300">Review masking in Governance</span>
+              <span className="block text-[10px] text-amber-600/70 dark:text-amber-400/70 truncate">
+                {columnName ? `Open masking policies for ${columnName}.` : 'Open masking policies for this table.'}
+              </span>
+            </span>
+            <ArrowUpRight className="h-3.5 w-3.5 text-amber-400 flex-shrink-0 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </a>
+        </div>
       ),
     },
     {
       id: 'lineage',
       icon: GitBranch,
       label: 'Lineage',
+      help: 'Opens this table in the Observability lineage view, where you can trace where its data comes from and what downstream tables depend on it.',
       render: () => loading ? loadingBody : (
         // Deep-link to /observability/lineage.
         <a
@@ -224,6 +277,7 @@ export default function SmartRightBar({
       id: 'ingestion',
       icon: Upload,
       label: 'Ingestion',
+      help: 'The result of the most recent data load into this table. A failed or partial status here often explains a sudden drop in the quality score.',
       render: () => loading ? loadingBody : (
         // Last load status + COPY_HISTORY freshness.
         <div className="flex items-center gap-2">
@@ -237,6 +291,7 @@ export default function SmartRightBar({
       id: 'ownership',
       icon: UserCog,
       label: 'Ownership',
+      help: 'The business owner and data steward responsible for this table. Reach out to them when you spot a quality issue that needs fixing at the source.',
       render: () => loading ? loadingBody : (
         // Data owner + steward from catalog.
         <div className="space-y-1">
@@ -257,6 +312,7 @@ export default function SmartRightBar({
       id: 'ai-tips',
       icon: Sparkles,
       label: 'AI Tips',
+      help: "Plain-language suggestions for raising this table's quality score, generated from its current checks and metrics. Treat them as a starting checklist, not a mandatory to-do list.",
       render: () => loading ? loadingBody : (
         // AI-generated DQ recommendations.
         <div className="rounded-lg border border-amber-100 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-900/10 px-3 py-2">
@@ -278,6 +334,7 @@ export default function SmartRightBar({
       id: 'history',
       icon: History,
       label: 'DMF History',
+      help: 'The most recent metric measurements recorded for this table. Use it to confirm a check is actually running and to see when its quality last changed.',
       render: () => loading ? loadingBody : (
         // Last 5 DMF measurements.
         data?.dmfHistory && data.dmfHistory.length > 0 ? (

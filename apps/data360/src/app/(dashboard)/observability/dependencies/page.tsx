@@ -20,7 +20,7 @@ export default function DependencyGraphPage() {
       />
       <FreshnessDisclaimer
         className="mb-4"
-        detail="Dependencies come from Snowflake ACCOUNT_USAGE.OBJECT_DEPENDENCIES, which is delayed (typically up to a few hours). Newly created objects may not appear immediately."
+        detail="Dependencies come from the data warehouse's ACCOUNT_USAGE.OBJECT_DEPENDENCIES, which is delayed (typically up to a few hours). Newly created objects may not appear immediately."
       />
       <DependenciesCard />
     </div>

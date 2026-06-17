@@ -44,6 +44,9 @@ export default function AggregationPoliciesContent() {
   const [selectedPolicy, setSelectedPolicy] = useState<EnrichedPolicy | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  // In-flight guards for the create/apply POSTs (prevent double-submit).
+  const [isCreating, setIsCreating] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
 
   // Form state for creating policy
   const [policyName, setPolicyName] = useState('');
@@ -58,12 +61,14 @@ export default function AggregationPoliciesContent() {
   const [table, setTable] = useState('');
 
   const handleCreate = async () => {
+    if (isCreating) return;
     if (!policyName || !aggregationConstraint) {
       setCreateError('Please fill in all required fields.');
       return;
     }
 
     setCreateError(null);
+    setIsCreating(true);
     try {
       const requestData = {
         policy_name: policyName,
@@ -80,16 +85,20 @@ export default function AggregationPoliciesContent() {
       refetch();
     } catch (error) {
       setCreateError(formatPolicyError(error, 'Failed to create policy'));
+    } finally {
+      setIsCreating(false);
     }
   };
 
   const handleApply = async () => {
+    if (isApplying) return;
     if (!selectedPolicy || !database || !schema || !table) {
       setApplyError('Please select all required fields.');
       return;
     }
 
     setApplyError(null);
+    setIsApplying(true);
     try {
       await applyAggregationPolicy({
         policy_name: selectedPolicy.name,
@@ -104,6 +113,8 @@ export default function AggregationPoliciesContent() {
       refetch();
     } catch (error) {
       setApplyError(formatPolicyError(error, 'Failed to apply policy'));
+    } finally {
+      setIsApplying(false);
     }
   };
 
@@ -200,7 +211,7 @@ export default function AggregationPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!canCreatePolicy} className="bg-cyan-600 hover:bg-cyan-700">Create Policy</Button>
+            <Button onClick={handleCreate} isLoading={isCreating} disabled={!canCreatePolicy || isCreating} className="bg-cyan-600 hover:bg-cyan-700">Create Policy</Button>
           </>
         }
       >
@@ -260,7 +271,7 @@ export default function AggregationPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => { setShowApplyPanel(false); setSelectedPolicy(null); resetApplyForm(); }}>Cancel</Button>
-            <Button onClick={handleApply} disabled={!canApplyPolicy || !database || !schema || !table} title={!canApplyPolicy ? 'You lack the "apply" permission on governance. Ask an administrator to grant it.' : undefined} className="bg-cyan-600 hover:bg-cyan-700">Apply Policy</Button>
+            <Button onClick={handleApply} isLoading={isApplying} disabled={!canApplyPolicy || isApplying || !database || !schema || !table} title={!canApplyPolicy ? 'You lack the "apply" permission on governance. Ask an administrator to grant it.' : undefined} className="bg-cyan-600 hover:bg-cyan-700">Apply Policy</Button>
           </>
         }
       >

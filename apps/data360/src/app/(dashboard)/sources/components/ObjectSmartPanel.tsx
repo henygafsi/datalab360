@@ -33,12 +33,18 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Package, Shield, GitBranch, Zap, User, Gauge,
-  Lightbulb, Clock, ArrowRight,
+  Lightbulb, Clock, ArrowRight, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
-import { applyRecommendation, type Recommendation, type ObjectHistoryResponse } from '@/app/services/catalog';
+import { useCanPerform } from '@/hooks/useCanPerform';
+import {
+  applyRecommendation,
+  type Recommendation,
+  type ObjectHistoryResponse,
+  type Object360Response,
+} from '@/app/services/catalog';
 import type {
   TableContext,
   TableGovernance,
@@ -47,6 +53,13 @@ import type {
   TableOwnership,
 } from '@/app/services/catalog/rightbar';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
+import GovernancePostureCard, { type GovernancePostureData } from '@/app/shared/score-cards/GovernancePostureCard';
+import SourceAiSummary, {
+  type SourceDescriptor,
+  type GovernanceContext,
+  type LineageContext,
+  type ProfileContext,
+} from '@/app/shared/source-hub/SourceAiSummary';
 
 interface SelectedObject {
   database: string;
@@ -96,6 +109,13 @@ const objectRecommendationsUrl = (db: string, s: string, t: string) =>
 
 const objectHistoryUrl = (db: string, s: string, t: string) =>
   API.catalog.objectHistory(`${db}.${s}.${t}`);
+
+// Consolidated per-object 360 (catalog.object360). `include_profile=true` runs a
+// sample profiling pass server-side, so this is the one section fetched LAZILY
+// (see the gated useSection below) rather than eagerly with the other eight.
+// Object id format is `TYPE:DB.SCHEMA.NAME` (matches getObject360 / objectIdFromTable).
+const object360Url = (db: string, s: string, t: string) =>
+  `${API.catalog.object360(`TABLE:${db}.${s}.${t}`)}?include_profile=true`;
 
 // ---------------------------------------------------------------------------
 // Per-section fetch state machine
@@ -264,8 +284,24 @@ function Pill({ children, tone = 'gray' }: { children: React.ReactNode; tone?: '
   );
 }
 
-/** One object-scoped recommendation with an Apply CTA (POST then refetch). */
-function RecoRow({ reco, onApplied }: { reco: Recommendation; onApplied: () => void }) {
+/**
+ * One object-scoped recommendation with an Apply CTA (POST then refetch).
+ *
+ * Apply is a mutating action, so it is gated through System-2 Action-RBAC by the
+ * parent (`useCanPerform('data_products', 'edit')` — applying a remediation edits
+ * the catalog object; `data_products` is the registry module for catalog/object
+ * surfaces). `canApply` is fail-open while the permission set loads; when it
+ * resolves to a denial the button is honestly disabled with an ask-admin tooltip.
+ */
+function RecoRow({
+  reco,
+  onApplied,
+  canApply,
+}: {
+  reco: Recommendation;
+  onApplied: () => void;
+  canApply: boolean;
+}) {
   const [applying, setApplying] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const title = reco.title || reco.feature || reco.rule_id;
@@ -274,6 +310,7 @@ function RecoRow({ reco, onApplied }: { reco: Recommendation; onApplied: () => v
   const tone = sev === 'critical' || sev === 'high' ? 'rose' : sev === 'medium' ? 'amber' : 'gray';
 
   const apply = async () => {
+    if (!canApply) return;
     setApplying(true);
     setErr(null);
     try {
@@ -298,8 +335,13 @@ function RecoRow({ reco, onApplied }: { reco: Recommendation; onApplied: () => v
         <button
           type="button"
           onClick={apply}
-          disabled={applying}
-          className="shrink-0 rounded bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          disabled={applying || !canApply}
+          title={
+            !canApply
+              ? 'You lack the "edit" permission on data products. Ask an administrator to grant it.'
+              : undefined
+          }
+          className="shrink-0 rounded bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {applying ? '…' : 'Apply'}
         </button>
@@ -330,6 +372,23 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
   const recos      = useSection<RecommendationsResponse>(selected ? objectRecommendationsUrl : null, selected);
   const history    = useSection<ObjectHistoryResponse>(selected ? objectHistoryUrl : null, selected);
 
+  // Intentionally LAZY (breaks this file's "all fetches fire eagerly" invariant):
+  // object360 with include_profile=true triggers sample-profiling queries, so we
+  // only hit it once the user opens the AI Summary tab. It enriches the AI brief
+  // (column count, sample null-rate, storage size, owner/comment, persisted scores).
+  const object360  = useSection<Object360Response>(
+    selected && activeSection === 'ai-summary' ? object360Url : null,
+    selected,
+  );
+
+  // System-2 Action-RBAC gate for the per-recommendation "Apply" CTA (a mutating
+  // remediation that edits the catalog object). `data_products` is the registry
+  // module for catalog/object surfaces (`catalog` itself is not registered);
+  // `edit` is its mutate action. Fail-open while loading (advisory gate; the
+  // module-level cache is usually warm), hard-deny only on a definitive allow-set.
+  const applyPerm = useCanPerform('data_products', 'edit');
+  const canApplyReco = applyPerm.allowed || applyPerm.loading;
+
   // Idle state: nothing selected — keep the column footprint with a quiet hint.
   if (!selected) {
     return (
@@ -344,10 +403,116 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
 
   const sections: RightTabSection[] = [
     {
+      // S-AI — AI SUMMARY (ephemeral, per-view brief composed from the data this
+      // panel already fetches + the lazy object360 enrichment). Leads the rail.
+      id: 'ai-summary',
+      icon: Sparkles,
+      label: 'AI Summary',
+      description: 'Plain-language brief of this table from its context, governance, lineage and quality',
+      help: 'A plain-language brief of this table, written on demand from its context, governance, lineage and quality signals. Generate it when you need it — it is ephemeral and nothing is stored.',
+      render: () => {
+        const ctx = context.data;
+        const gov = governance.data;
+        const lin = lineage.data;
+        const own = ownership.data;
+        const sc = scores.data;
+        const o = object360.data;
+        const prof = o?.tiers?.object?.profiling;
+
+        // Storage size in bytes — prefer exact warehouse metadata, then profiled
+        // bytes, then convert the context's GB figure. Honest "absent" → undefined.
+        const sizeBytes =
+          o?.snowflake_metadata?.total_storage_bytes ??
+          prof?.bytes ??
+          (ctx?.size_gb != null ? Math.round(ctx.size_gb * 1024 ** 3) : undefined) ??
+          undefined;
+
+        // Key columns from the profiling sample (only when actually profiled).
+        const entities =
+          prof?.available && prof.per_column?.length
+            ? prof.per_column.slice(0, 12).map((c) => c.column)
+            : undefined;
+
+        // Sample null-rate: real, defensible (over the profiled sample), not faked.
+        let nullRatePct: number | undefined;
+        if (prof?.available && prof.per_column?.length) {
+          const cells = prof.per_column.reduce((a, c) => a + (c.sample_total || 0), 0);
+          const nulls = prof.per_column.reduce((a, c) => a + (c.null_count || 0), 0);
+          if (cells > 0) nullRatePct = Math.round((nulls / cells) * 100);
+        }
+
+        const sensitiveColumns = gov?.pii_columns?.map((c) => c.column_name);
+        const maskedColumns = gov?.pii_columns
+          ?.filter((c) => c.masking_status !== 'NONE')
+          .map((c) => c.column_name);
+
+        const descriptor: SourceDescriptor = {
+          kind: 'table',
+          name: selected.table,
+          database: selected.database,
+          schema: selected.schema,
+          description: o?.snowflake_metadata?.comment ?? undefined,
+          owner: own?.owner_email ?? ctx?.owner ?? o?.snowflake_metadata?.owner ?? undefined,
+          rowCount: ctx?.row_count ?? prof?.rows ?? undefined,
+          columnCount: prof?.available && prof.columns ? prof.columns : undefined,
+          sizeBytes,
+          tags: ctx?.tags?.length ? ctx.tags.map((t) => `${t.tag_name}: ${t.tag_value}`) : undefined,
+          entities,
+        };
+
+        // NOTE: deliberately no `classification` — data_class is a pipeline tier
+        // (SOURCE/INTERMEDIATE/PRODUCT), not a sensitivity label, so feeding it as
+        // a classification would misframe it. Omit rather than guess.
+        const governanceCtx: GovernanceContext = {
+          sensitiveColumns: sensitiveColumns?.length ? sensitiveColumns : undefined,
+          maskedColumns: maskedColumns?.length ? maskedColumns : undefined,
+          policies: gov?.rls_policies?.length ? gov.rls_policies.map((p) => p.policy_name) : undefined,
+        };
+
+        const lineageCtx: LineageContext = {
+          upstream: lin?.upstream?.length ? lin.upstream.map((n) => n.name) : undefined,
+          downstream: lin?.downstream?.length ? lin.downstream.map((n) => n.name) : undefined,
+        };
+
+        const freshnessSrc = ingestion.data?.last_run ?? ctx?.last_altered ?? null;
+        const profileCtx: ProfileContext = {
+          qualityScore:
+            sc?.scores?.quality_score ?? o?.persisted_scores?.scores?.quality_score ?? undefined,
+          nullRatePct,
+          freshness: freshnessSrc ? `updated ${fmtDate(freshnessSrc)}` : undefined,
+          issues: sc?.top_issues?.length ? sc.top_issues : undefined,
+        };
+
+        return (
+          <div className="space-y-2">
+            <p className="text-[11px] leading-relaxed text-gray-400 dark:text-gray-500">
+              A plain-language brief built from this table&apos;s context, governance, lineage
+              and quality signals. Ephemeral — generated on demand, nothing is stored.
+            </p>
+            <SourceAiSummary
+              // Remount on table change: SourceAiSummary keeps its generated text
+              // in local state and (with autoRun off) never self-resets, so without
+              // a key the prior table's summary would linger after selection changes.
+              // Key on the FQN — not the descriptor — so object360 resolving for the
+              // SAME table doesn't wipe an already-generated summary.
+              key={`${selected.database}.${selected.schema}.${selected.table}`}
+              descriptor={descriptor}
+              governance={governanceCtx}
+              lineage={lineageCtx}
+              profile={profileCtx}
+              autoRun={false}
+              title="Object summary"
+            />
+          </div>
+        );
+      },
+    },
+    {
       // S0 — TRUST SCORES (DQ / GOV / COST / trust rollup + recommended actions)
       id: 'scores',
       icon: Gauge,
       label: 'Trust Scores',
+      help: 'A 0-100 rollup of how trustworthy this table is, blending its quality, governance, cost and ML-readiness. Follow a recommended action to lift a weak score; "—" means that dimension has not been computed yet.',
       render: () => (
         <SectionBody state={scores}>
           {(d) =>
@@ -398,13 +563,19 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'recommendations',
       icon: Lightbulb,
       label: 'Recommendations',
+      help: 'Concrete, table-specific fixes we suggest — for example adding masking or documentation. Click Apply on any item to action it right here; the list refreshes once the change lands.',
       render: () => (
         <SectionBody state={recos}>
           {(d) =>
             d.items && d.items.length > 0 ? (
               <div className="space-y-1.5">
                 {d.items.slice(0, 6).map((r) => (
-                  <RecoRow key={r.reco_id} reco={r} onApplied={() => void recos.refetch()} />
+                  <RecoRow
+                    key={r.reco_id}
+                    reco={r}
+                    canApply={canApplyReco}
+                    onApplied={() => void recos.refetch()}
+                  />
                 ))}
               </div>
             ) : (
@@ -419,6 +590,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'context',
       icon: Package,
       label: 'Context',
+      help: 'The table’s key facts at a glance: type, row count, size, owner, key dates and tags. Use it to confirm you are looking at the right object before you act on it.',
       render: () => (
         <SectionBody state={context}>
           {(d) => (
@@ -447,29 +619,25 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'governance',
       icon: Shield,
       label: 'Governance',
+      help: 'Shows how well this table is protected: its governance rate, its sensitive (PII) columns and any row-access policies. Red pills flag sensitive columns with no masking — the ones that most need attention.',
       render: () => (
         <SectionBody state={governance}>
           {(d) => (
-            <div className="space-y-1.5">
-              <Field
-                label="Gov rate"
-                value={d.gov_rate === null || d.gov_rate === undefined ? '—' : `${Math.round(d.gov_rate * 100)}%`}
-              />
-              <Field label="PII columns" value={num(d.pii_columns?.length)} />
-              <Field label="RLS policies" value={num(d.rls_policies?.length)} />
-              {d.pii_columns && d.pii_columns.length > 0 && (
-                <div className="flex flex-wrap gap-1 pt-1">
-                  {d.pii_columns.slice(0, 8).map((c) => (
-                    <Pill
-                      key={c.column_name}
-                      tone={c.masking_status === 'NONE' ? 'rose' : c.masking_status === 'PARTIAL' ? 'amber' : 'emerald'}
-                    >
-                      {c.column_name}
-                    </Pill>
-                  ))}
-                </div>
-              )}
-            </div>
+            // Converged onto the shared GovernancePostureCard (presentational `data`
+            // path — no self-fetch; SectionBody above still owns loading/gap/error).
+            // Pass ONLY the array-provenance fields: TableGovernance.sensitive_columns
+            // is an ARRAY, not a count, so spreading `d` would corrupt the card's
+            // numeric `sensitive_columns` slot. The card derives sensitive/masked/
+            // unprotected (and the RED pills) from pii_columns' masking_status.
+            <GovernancePostureCard
+              compact
+              title="Governance"
+              data={{
+                gov_rate: d.gov_rate,
+                pii_columns: d.pii_columns,
+                rls_policies: d.rls_policies,
+              } satisfies GovernancePostureData}
+            />
           )}
         </SectionBody>
       ),
@@ -479,6 +647,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'lineage',
       icon: GitBranch,
       label: 'Lineage',
+      help: 'The tables that feed this one (upstream) and the ones that depend on it (downstream), with a risk level for changes. Check downstream impact before you alter, rename or drop this table.',
       render: () => (
         <SectionBody state={lineage}>
           {(d) => (
@@ -526,6 +695,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'ingestion',
       icon: Zap,
       label: 'Ingestion',
+      help: 'How this table is loaded: its pipeline, mode, schedule, last and next run, and the typical cost per refresh. Use it to check whether the data is fresh and what each load costs.',
       render: () => (
         <SectionBody state={ingestion}>
           {(d) => (
@@ -548,6 +718,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'ownership',
       icon: User,
       label: 'Ownership',
+      help: 'Who owns and maintains this table, plus the people who query it most (its top consumers). Use it to find the right contact and to see who relies on the data before you change it.',
       render: () => (
         <SectionBody state={ownership}>
           {(d) => (
@@ -586,6 +757,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       id: 'history',
       icon: Clock,
       label: 'History',
+      help: 'A timeline of recent events on this object across sources — loads, edits and access. Use it to trace what changed and when; failed events are shown in red.',
       render: () => (
         <SectionBody state={history}>
           {(d) =>

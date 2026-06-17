@@ -19,7 +19,7 @@ const FinetuneConfigForm: React.FC<{
   return (
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
-        <p className="text-xs text-purple-700 dark:text-purple-300">Fine-tune a Cortex LLM on your data. Creates a custom model for your specific use case.</p>
+        <p className="text-xs text-purple-700 dark:text-purple-300">Fine-tune an AI model on your data. Creates a custom model for your specific use case.</p>
       </div>
       <FormField label="Base Model" required error={errors.base_model}>
         <Select value={config.base_model || 'llama3.1-8b'} onChange={(v) => updateConfig({ base_model: v })} options={[

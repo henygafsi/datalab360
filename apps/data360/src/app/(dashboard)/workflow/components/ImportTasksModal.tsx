@@ -57,6 +57,16 @@ export default function ImportTasksModal({
     if (open) void fetchGraphs();
   }, [open]);
 
+  // Esc-to-close (panel had no keyboard dismiss).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   const handleImport = async (graph: TaskGraph) => {
     if (importingFqn) return;
     const root = graph.tasks.find((t) => t.is_root) ?? graph.tasks[0];

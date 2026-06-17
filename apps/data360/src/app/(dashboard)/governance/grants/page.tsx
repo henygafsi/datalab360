@@ -105,7 +105,7 @@ function SourceProductGrantsPanel() {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Source & Product Access</h2>
           <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"><HiOutlineShieldCheck className="w-3 h-3 mr-1 inline" />Catalog RBAC</Badge>
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Control which roles can access sources (databases, stages) and data products. Grants propagate to Snowflake objects.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Control which roles can access sources (databases, stages) and data products. Grants propagate to the underlying data-warehouse objects.</p>
       </div>
 
       {/* Grant form — pure action surface: content-gated on gouvernance:grant
@@ -633,7 +633,7 @@ export default function GrantsManagementPage() {
             </div>
             <h3 className="font-semibold text-gray-900 dark:text-white">User Grants</h3>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">Snowflake role assignments per user. Maps SSO identities (Entra ID, Okta, SAML) to Snowflake roles like SYSADMIN, ANALYST.</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">Role assignments per user. Maps SSO identities (Entra ID, Okta, SAML) to data-warehouse roles like SYSADMIN, ANALYST.</p>
         </div>
 
         <div className="bg-violet-50/80 dark:bg-violet-950/30 rounded-xl border border-violet-200/60 dark:border-violet-800/40 p-5">
@@ -653,7 +653,7 @@ export default function GrantsManagementPage() {
             </div>
             <h3 className="font-semibold text-gray-900 dark:text-white">Stage Grants</h3>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">Read/write access to Snowflake stages (data loading areas). Controls which roles can upload or access raw files.</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">Read/write access to data-loading stages (staging areas). Controls which roles can upload or access raw files.</p>
         </div>
       </div>
 
@@ -730,7 +730,7 @@ export default function GrantsManagementPage() {
               <HiOutlineCube className="h-4 w-4" />
               Stage Grants
               <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400">
-                Snowflake
+                Storage
               </Badge>
             </button>
             <button
@@ -783,7 +783,7 @@ export default function GrantsManagementPage() {
                   Module Access Control
                 </Badge>
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Toggle module access for each Snowflake role. Changes take effect on next user login.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Toggle module access for each role. Changes take effect on next user login.</p>
             </div>
             <GrantsTable />
           </div>
@@ -799,7 +799,7 @@ export default function GrantsManagementPage() {
                   RBAC
                 </Badge>
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">View and manage Snowflake roles granted to each user. Users with SSO (Entra ID, Okta, SAML) appear with their identity provider.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">View and manage data-warehouse roles granted to each user. Users with SSO (Entra ID, Okta, SAML) appear with their identity provider.</p>
             </div>
             <UserGrantsTable />
           </div>
@@ -812,7 +812,7 @@ export default function GrantsManagementPage() {
                 </h2>
                 <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400">
                   <HiOutlineCube className="w-3 h-3 mr-1 inline" />
-                  Snowflake Stages
+                  Storage Stages
                 </Badge>
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400">Control which roles can read, write, or own data loading stages. Stages are used for file uploads and data ingestion.</p>

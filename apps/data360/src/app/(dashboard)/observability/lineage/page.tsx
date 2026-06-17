@@ -81,7 +81,7 @@ export default function LineagePage() {
       />
       <FreshnessDisclaimer
         className="mb-4"
-        detail="Lineage is reconstructed from Snowflake ACCOUNT_USAGE.ACCESS_HISTORY, which is delayed (typically up to ~3 hours). Recent queries may not be reflected yet."
+        detail="Lineage is reconstructed from the data warehouse's ACCOUNT_USAGE.ACCESS_HISTORY, which is delayed (typically up to ~3 hours). Recent queries may not be reflected yet."
       />
 
       {notDeployed ? (

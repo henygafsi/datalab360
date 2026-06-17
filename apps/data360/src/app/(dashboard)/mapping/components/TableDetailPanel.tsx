@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Badge, Button, Input, Modal, Select as RizzSelect, Text, Tooltip } from 'rizzui';
+import { Badge, Button, Input, Modal, Select as RizzSelect, Text } from 'rizzui';
 import {
   Key, Database, Table2, Columns3, Shield, Clock, RefreshCw,
   History, AlertTriangle, Check, Info, ChevronDown, ChevronRight,
   Lock, Eye, EyeOff, Layers, Copy, Settings
 } from 'lucide-react';
+import { Tooltip } from '@/app/shared/ui/Tooltip';
 import { cn } from '@/lib/utils';
 import type { TableItem, ColumnInfo } from './VirtualizedTableList';
 
@@ -311,12 +312,16 @@ const ColumnMaskingRow: React.FC<{
             <Lock className="h-3 w-3 mr-1" />
             {masking.policyName}
           </Badge>
-          <button
-            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-            onClick={() => onMaskingChange(null)}
-          >
-            <EyeOff className="h-4 w-4 text-slate-500" />
-          </button>
+          <Tooltip label="Remove the masking policy from this column">
+            <button
+              type="button"
+              aria-label="Remove masking"
+              className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+              onClick={() => onMaskingChange(null)}
+            >
+              <EyeOff className="h-4 w-4 text-slate-500" />
+            </button>
+          </Tooltip>
         </div>
       ) : (
         <button
@@ -451,23 +456,26 @@ export const TableDetailPanel: React.FC<TableDetailPanelProps> = ({
       {/* Tabs */}
       <div className="flex border-b dark:border-slate-800">
         {[
-          { id: 'columns', label: 'Columns', icon: Columns3 },
-          { id: 'ingestion', label: 'Ingestion', icon: RefreshCw },
-          { id: 'masking', label: 'Masking', icon: Shield },
+          { id: 'columns', label: 'Columns', icon: Columns3, description: 'Review columns and flag primary keys, nullable and sensitive fields' },
+          { id: 'ingestion', label: 'Ingestion', icon: RefreshCw, description: 'Choose how this table is loaded — full refresh, incremental, snapshot or SCD' },
+          { id: 'masking', label: 'Masking', icon: Shield, description: 'Apply masking policies to protect sensitive columns' },
         ].map((tab) => (
-          <button
-            key={tab.id}
-            className={cn(
-              'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors',
-              activeTab === tab.id
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            )}
-            onClick={() => setActiveTab(tab.id as any)}
-          >
-            <tab.icon className="h-4 w-4" />
-            {tab.label}
-          </button>
+          <Tooltip key={tab.id} label={tab.description} side="bottom">
+            <button
+              type="button"
+              aria-label={tab.label}
+              className={cn(
+                'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors',
+                activeTab === tab.id
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              )}
+              onClick={() => setActiveTab(tab.id as any)}
+            >
+              <tab.icon className="h-4 w-4" />
+              {tab.label}
+            </button>
+          </Tooltip>
         ))}
       </div>
 

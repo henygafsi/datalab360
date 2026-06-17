@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/app/shared/ui/Tooltip';
 
 /**
  * ActionRail — shared, non-blocking right-rail action panel.
@@ -113,14 +114,16 @@ export default function ActionRail({
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close panel"
-          className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <Tooltip label="Close this panel" side="left">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close panel"
+            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Scrollable body */}

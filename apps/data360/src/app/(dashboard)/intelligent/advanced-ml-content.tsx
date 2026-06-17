@@ -301,6 +301,11 @@ function FineTuningSection() {
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
   const [detailJobId, setDetailJobId] = useState<string | null>(null);
   const [confirmCancelJob, setConfirmCancelJob] = useState<string | null>(null);
+  // System 2 Action-RBAC: creating a fine-tune job maps to cortex:create
+  // (same gate the sibling semantic-models 'create' uses). Fail-open while the
+  // allow-set loads (no flash of a disabled control).
+  const createPerm = useCanPerform('cortex', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
 
   const fetchJobs = useCallback(async () => {
     const result = await listFineTuneJobs();
@@ -355,7 +360,7 @@ function FineTuningSection() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Fine-Tuning Jobs</h3>
-        <Button onClick={() => { setShowCreate((v) => !v); setFormError(null); }} className="gap-2 bg-amber-600 text-white hover:bg-amber-700">
+        <Button onClick={() => { setShowCreate((v) => !v); setFormError(null); }} disabled={!canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2 bg-amber-600 text-white hover:bg-amber-700">
           <PiPlus className="w-4 h-4" /> New Fine-Tune Job
         </Button>
       </div>
@@ -372,7 +377,7 @@ function FineTuningSection() {
           {formError && <InlineError message={formError} onDismiss={() => setFormError(null)} />}
           <div className="flex justify-end gap-3 pt-1">
             <Button variant="outline" size="sm" onClick={() => { setShowCreate(false); setFormError(null); }}>Cancel</Button>
-            <Button size="sm" onClick={handleCreate} disabled={creating} className="bg-amber-600 text-white hover:bg-amber-700">
+            <Button size="sm" onClick={handleCreate} disabled={creating || !canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="bg-amber-600 text-white hover:bg-amber-700">
               {creating ? <Loader variant="spinner" size="sm" /> : 'Start Training'}
             </Button>
           </div>
@@ -468,6 +473,10 @@ function ClassificationSection() {
   // while the allow-set loads (no flash of a disabled control).
   const deletePerm = useCanPerform('cortex', 'delete');
   const canDeleteModel = deletePerm.allowed || deletePerm.loading;
+  // Training a classification model maps to cortex:create (it produces a
+  // persistent model artifact). Fail-open while the allow-set loads.
+  const createPerm = useCanPerform('cortex', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
 
   const fetchModels = useCallback(async () => {
     const result = await listClassificationModels();
@@ -554,7 +563,7 @@ function ClassificationSection() {
           <Button variant="outline" onClick={() => { setShowPredict((v) => !v); setPredictError(null); setPredictNotice(null); }} className="gap-2">
             <PiPlay className="w-4 h-4" /> Predict
           </Button>
-          <Button onClick={() => { setShowTrain((v) => !v); setTrainError(null); }} className="gap-2 bg-blue-600 text-white hover:bg-blue-700">
+          <Button onClick={() => { setShowTrain((v) => !v); setTrainError(null); }} disabled={!canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2 bg-blue-600 text-white hover:bg-blue-700">
             <PiPlus className="w-4 h-4" /> Train Model
           </Button>
         </div>
@@ -574,7 +583,7 @@ function ClassificationSection() {
           {trainError && <InlineError message={trainError} onDismiss={() => setTrainError(null)} />}
           <div className="flex justify-end gap-3 pt-1">
             <Button variant="outline" size="sm" onClick={() => { setShowTrain(false); setTrainError(null); }}>Cancel</Button>
-            <Button size="sm" onClick={handleTrain} disabled={training} className="bg-blue-600 text-white hover:bg-blue-700">
+            <Button size="sm" onClick={handleTrain} disabled={training || !canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="bg-blue-600 text-white hover:bg-blue-700">
               {training ? <Loader variant="spinner" size="sm" /> : 'Train'}
             </Button>
           </div>
@@ -760,6 +769,10 @@ function DocumentAISection() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  // Creating a Document AI model maps to cortex:create (same gate as the
+  // sibling semantic-models 'create'). Fail-open while the allow-set loads.
+  const createPerm = useCanPerform('cortex', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
 
   const fetchDocModels = useCallback(async () => {
     const result = await listDocumentAIModels();
@@ -850,7 +863,7 @@ function DocumentAISection() {
           <Button variant="outline" onClick={() => { setShowPredict((v) => !v); setPredictError(null); }} className="gap-2" aria-expanded={showPredict}>
             <PiEye className="w-4 h-4" /> Extract from Document
           </Button>
-          <Button onClick={() => { setShowCreate((v) => !v); setCreateError(null); }} className="gap-2 bg-red-600 text-white hover:bg-red-700" aria-expanded={showCreate}>
+          <Button onClick={() => { setShowCreate((v) => !v); setCreateError(null); }} disabled={!canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2 bg-red-600 text-white hover:bg-red-700" aria-expanded={showCreate}>
             <PiPlus className="w-4 h-4" /> Create Model
           </Button>
         </div>
@@ -868,7 +881,7 @@ function DocumentAISection() {
           {createError && <InlineError message={createError} onDismiss={() => setCreateError(null)} />}
           <div className="flex justify-end gap-3 pt-1">
             <Button variant="outline" size="sm" onClick={() => { setShowCreate(false); setCreateError(null); }}>Cancel</Button>
-            <Button size="sm" onClick={handleCreate} disabled={creating} className="bg-red-600 text-white hover:bg-red-700">
+            <Button size="sm" onClick={handleCreate} disabled={creating || !canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="bg-red-600 text-white hover:bg-red-700">
               {creating ? <Loader variant="spinner" size="sm" /> : 'Create'}
             </Button>
           </div>
@@ -1014,6 +1027,10 @@ function TopInsightsSection() {
   const [analyzeForm, setAnalyzeForm] = useState({ instance_name: '', input_data: '', label_column: '', metric_column: '', database: '', schema: '' });
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
+  // Creating a Top Insights instance maps to cortex:create (same gate as the
+  // sibling semantic-models 'create'). Fail-open while the allow-set loads.
+  const createPerm = useCanPerform('cortex', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
 
   const fetchInstances = useCallback(async () => {
     const result = await listTopInsights();
@@ -1071,7 +1088,7 @@ function TopInsightsSection() {
           <Button variant="outline" onClick={() => { setShowAnalyze((v) => !v); setAnalyzeError(null); }} className="gap-2" aria-expanded={showAnalyze}>
             <PiTrendUp className="w-4 h-4" /> Analyze
           </Button>
-          <Button onClick={() => { setShowCreate((v) => !v); setCreateError(null); }} className="gap-2 bg-green-600 text-white hover:bg-green-700" aria-expanded={showCreate}>
+          <Button onClick={() => { setShowCreate((v) => !v); setCreateError(null); }} disabled={!canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2 bg-green-600 text-white hover:bg-green-700" aria-expanded={showCreate}>
             <PiPlus className="w-4 h-4" /> New Instance
           </Button>
         </div>
@@ -1089,7 +1106,7 @@ function TopInsightsSection() {
           {createError && <InlineError message={createError} onDismiss={() => setCreateError(null)} />}
           <div className="flex justify-end gap-3 pt-1">
             <Button variant="outline" size="sm" onClick={() => { setShowCreate(false); setCreateError(null); }}>Cancel</Button>
-            <Button size="sm" onClick={handleCreate} disabled={creating} className="bg-green-600 text-white hover:bg-green-700">
+            <Button size="sm" onClick={handleCreate} disabled={creating || !canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="bg-green-600 text-white hover:bg-green-700">
               {creating ? <Loader variant="spinner" size="sm" /> : 'Create'}
             </Button>
           </div>

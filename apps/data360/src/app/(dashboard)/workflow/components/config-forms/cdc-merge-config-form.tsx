@@ -26,7 +26,7 @@ const CdcMergeConfigForm: React.FC<{
     <div className="space-y-4">
       <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
         <p className="text-xs text-emerald-700 dark:text-emerald-300">
-          Reads CDC rows from a Snowflake Stream and applies a MERGE INTO on the target table. Use after a stream_consume block.
+          Reads CDC rows from a change stream and applies a MERGE INTO on the target table. Use after a stream_consume block.
         </p>
       </div>
 

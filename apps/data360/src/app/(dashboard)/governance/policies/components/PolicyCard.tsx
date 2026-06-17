@@ -66,8 +66,12 @@ export default function PolicyCard({
   // from an object → gouvernance:revoke. Fail-open while the allow-set loads.
   const deletePerm = useCanPerform('gouvernance', 'delete');
   const revokePerm = useCanPerform('gouvernance', 'revoke');
+  // Applying a policy to an object → gouvernance:apply (same action the
+  // policy-content apply panels gate their submit with). Fail-open while loading.
+  const applyPerm = useCanPerform('gouvernance', 'apply');
   const canDeletePolicy = deletePerm.allowed || deletePerm.loading;
   const canRevokePolicy = revokePerm.allowed || revokePerm.loading;
+  const canApplyPolicy = applyPerm.allowed || applyPerm.loading;
 
   const accent = ACCENT_CLASSES[accentColor] || ACCENT_CLASSES.purple;
   const { granted_objects, granted_roles, granted_objects_count } = policy;
@@ -247,7 +251,14 @@ export default function PolicyCard({
           </Button>
         )}
         {onApply && (
-          <Button variant="outline" size="sm" onClick={() => onApply(policy)} className={`gap-1 ${accent.button}`}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onApply(policy)}
+            disabled={!canApplyPolicy}
+            title={!canApplyPolicy ? 'You lack the "apply" permission on governance. Ask an administrator to grant it.' : undefined}
+            className={`gap-1 ${accent.button}`}
+          >
             <PiPlay className="w-3.5 h-3.5" /> {applyLabel}
           </Button>
         )}

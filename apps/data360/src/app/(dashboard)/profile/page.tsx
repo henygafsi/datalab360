@@ -1,5 +1,4 @@
-import ProfileHeader from '@/app/shared/profile/profile-header';
-import ProfileDetails from '@/app/shared/profile/profile-details';
+import ProfileView from '@/app/shared/profile/profile-view';
 import { metaObject } from '@/config/site.config';
 
 export const metadata = {
@@ -7,10 +6,5 @@ export const metadata = {
 };
 
 export default function ProfilePage() {
-  return (
-    <div className="@container">
-      <ProfileHeader />
-      <ProfileDetails />
-    </div>
-  );
+  return <ProfileView />;
 }

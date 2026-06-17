@@ -7,6 +7,7 @@ import {
   X, Table2, Edit2, Plus, Copy, Key, Link2, Shield, Lock, Eye,
   Tag, Database, ArrowRight, Trash2,
   RefreshCw, Upload, GitMerge, Sigma,
+  Boxes, Activity, Layers,
 } from 'lucide-react';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 
@@ -289,6 +290,12 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
               <ActionRow icon={Eye} label="Row-level security" onClick={() => onAction('rls')} />
               <ActionRow icon={Tag} label="Apply tags" onClick={() => onAction('tags')} />
               <ActionRow icon={Database} label="Apply aggregation" onClick={() => onAction('aggregation')} />
+            </Group>
+
+            <Group title="Data engineering">
+              <ActionRow icon={Boxes} label="Create dynamic table" onClick={() => onAction('dynamic_table')} />
+              <ActionRow icon={Activity} label="Create event table" onClick={() => onAction('event_table')} />
+              <ActionRow icon={Layers} label="Create hybrid table" onClick={() => onAction('hybrid_table')} />
             </Group>
 
             <div className="border-t border-slate-200 pt-3 dark:border-slate-700">

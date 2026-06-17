@@ -27,6 +27,7 @@ import {
   Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { dash } from '@/app/shared/ui/format';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { GlassPanel } from '@/app/shared/glass';
 import EmptyState from '@/components/ui/EmptyState';
@@ -77,6 +78,7 @@ import {
   Chip,
   type ModuleUsage,
   type PermMap,
+  type DisplayMap,
 } from './shared';
 
 const ADMIN_ROLES = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'];
@@ -108,9 +110,15 @@ export default function AccessControlCenter() {
   const [draft, setDraft] = useState<PermMap>(new Map());
   const [permPhase, setPermPhase] = useState<Phase>('idle');
   const [permError, setPermError] = useState<string | null>(null);
+  // Provenance of the loaded role matrix: 'matrix' = derived from the hardcoded
+  // system template (module-level read/write), 'db' = stored per-action rows.
+  const [permSource, setPermSource] = useState<string>('');
 
   const [previewUser, setPreviewUser] = useState('');
-  const [effectiveMap, setEffectiveMap] = useState<PermMap>(new Map());
+  // Read-only effective view uses DisplayMap (carries the fail-open 'default'
+  // state) — deliberately a DIFFERENT type from the editable PermMap so a
+  // fail-open default can never be serialized into the role-permissions PUT.
+  const [effectiveMap, setEffectiveMap] = useState<DisplayMap>(new Map());
   const [effRole, setEffRole] = useState('');
   const [effSnowflake, setEffSnowflake] = useState<string[]>([]);
   const [effPhase, setEffPhase] = useState<Phase>('idle');
@@ -187,6 +195,7 @@ export default function AccessControlCenter() {
       setOriginal(new Map(m));
       setDraft(new Map(m));
       setIsSystemRole(Boolean(res.is_system));
+      setPermSource(res.source || '');
       setPermPhase('ready');
     } catch (e) {
       setPermError(getApiErrorMessage(e));
@@ -206,10 +215,17 @@ export default function AccessControlCenter() {
     setEffError(null);
     try {
       const res = await getEffectiveUserPermissions(username);
-      const m: PermMap = new Map();
+      const m: DisplayMap = new Map();
       for (const p of res.permissions) {
-        if (p.decision === 'allow') m.set(keyOf(p.module, p.page, p.tab ?? '*', p.action), 'allow');
-        else if (p.decision === 'deny') m.set(keyOf(p.module, p.page, p.tab ?? '*', p.action), 'deny');
+        const k = keyOf(p.module, p.page, p.tab ?? '*', p.action);
+        if (p.decision === 'deny') {
+          m.set(k, 'deny');
+        } else if (p.decision === 'allow') {
+          // Honest provenance: a 'default' source is the gate failing OPEN on a
+          // coordinate the role's matrix does not cover — NOT an intentional
+          // grant. Render it distinctly instead of a confident green ALLOW.
+          m.set(k, p.source === 'default' ? 'default' : 'allow');
+        }
       }
       setEffectiveMap(m);
       setEffRole(res.d360_role || '');
@@ -309,7 +325,7 @@ export default function AccessControlCenter() {
         const res = await applyTemplate(selectedRole, template, 'replace');
         invalidateMyPermissions();
         toast({
-          title: `Applied "${template}" → ${selectedRole} (${res.permissions_applied ?? 0} perms)`,
+          title: `Applied "${template}" → ${selectedRole} (${dash(res.permissions_applied)} perms)`,
         });
         await loadPerms(selectedRole);
       } catch (e) {
@@ -354,16 +370,18 @@ export default function AccessControlCenter() {
     ? registry?.registry?.[selectedModule]?.label || selectedModule
     : '';
   const moduleCounts = useMemo(() => {
-    if (!selectedModule) return { allow: 0, deny: 0 };
+    if (!selectedModule) return { allow: 0, deny: 0, def: 0 };
     let allow = 0;
     let deny = 0;
+    let def = 0;
     for (const [k, v] of activeMap) {
       if (k.startsWith(`${selectedModule}:`)) {
         if (v === 'allow') allow += 1;
         else if (v === 'deny') deny += 1;
+        else if (v === 'default') def += 1;
       }
     }
-    return { allow, deny };
+    return { allow, deny, def };
   }, [selectedModule, activeMap]);
 
   const statusPill: StatusPillSpec = !editable
@@ -560,22 +578,39 @@ export default function AccessControlCenter() {
                     )}
                   </div>
                   <p className="text-[10px] text-slate-400">
-                    Exact effective decision (mirrors runtime enforcement). Read-only.
+                    Exact effective decision (mirrors runtime enforcement). Amber{' '}
+                    <span className="font-semibold">default</span> cells are fail-open — allowed only
+                    because no rule covers them, not an explicit grant. Read-only.
                   </p>
                 </div>
               )}
             </>
           )}
 
-          {/* Legend */}
+          {/* Legend — mode-aware: the editor stores allow/inherit/deny; the
+              read-only "Test user" view additionally surfaces the fail-open
+              'default' decision (allowed only because the gate fails open). */}
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2 text-[10px] text-slate-400 dark:border-slate-800">
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1" title="Explicit ALLOW — the role grants this">
               <span className="inline-block h-3 w-4 rounded bg-emerald-500/90" /> allow
             </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-3 w-4 rounded bg-slate-200 dark:bg-slate-700" /> inherit
-            </span>
-            <span className="flex items-center gap-1">
+            {mode === 'role' ? (
+              <span
+                className="flex items-center gap-1"
+                title="No stored rule — resolved by the role default at runtime (currently fail-open ALLOW unless strict mode is enabled). Gray does NOT mean denied."
+              >
+                <span className="inline-block h-3 w-4 rounded bg-slate-200 dark:bg-slate-700" /> inherit
+              </span>
+            ) : (
+              <span
+                className="flex items-center gap-1"
+                title="Fail-open default — allowed only because the gate fails open (no rule covers this for the role). Not an explicit grant."
+              >
+                <span className="inline-block h-3 w-4 rounded border border-dashed border-amber-400/80 bg-amber-100/60 dark:border-amber-500/60 dark:bg-amber-500/10" />{' '}
+                default
+              </span>
+            )}
+            <span className="flex items-center gap-1" title="Explicit DENY">
               <span className="inline-block h-3 w-4 rounded bg-rose-500/90" /> deny
             </span>
           </div>
@@ -596,6 +631,18 @@ export default function AccessControlCenter() {
 
       {/* ── Centre: the module → page → tab → action tree ── */}
       <div className="min-w-0 flex-1 space-y-3">
+        {/* Provenance banner — honest about the source of a system role's grid. */}
+        {mode === 'role' && selectedRole && permPhase === 'ready' && permSource === 'matrix' && (
+          <div className="flex items-start gap-1.5 rounded-lg border border-sky-200 bg-sky-50/70 px-2.5 py-2 text-[10px] leading-snug text-sky-800 dark:border-sky-900/40 dark:bg-sky-900/20 dark:text-sky-200">
+            <Info className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>
+              Derived from the system template (module-level read/write), not per-action stored rules.
+              A module the role can write grants <span className="font-semibold">every</span> action in
+              it at template granularity — so per-action limits (e.g. blocking destructive actions on a
+              writable module) are not yet expressible here. Read-only.
+            </span>
+          </div>
+        )}
         {mode === 'role' && !selectedRole ? (
           <EmptyState icon={KeyRound} compact title="Select a role to view & edit its action matrix" />
         ) : mode === 'role' && (permPhase === 'loading' || permPhase === 'idle') ? (
@@ -630,6 +677,7 @@ export default function AccessControlCenter() {
           selectedRole={subjectName}
           roleAllow={moduleCounts.allow}
           roleDeny={moduleCounts.deny}
+          roleDefault={moduleCounts.def}
           features={features}
           canGovern={canGovern}
           togglingKey={togglingKey}

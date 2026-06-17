@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { Button, Input, Password } from 'rizzui';
+import { useEffect, useState } from 'react';
+import { Button, Input, Password, Select } from 'rizzui';
+import { toast } from 'react-hot-toast';
 import { addUser } from '@/app/services/governance/fetch_users';
-import { UserPlus, User, Mail, Lock, X } from 'lucide-react';
+import { getD360Roles, type D360Role } from '@/app/services/governance/fetch_roles';
+import { UserPlus, User, Mail, Lock, ShieldCheck, X } from 'lucide-react';
 
 
 type AddUserFormProps = {
@@ -11,12 +13,49 @@ type AddUserFormProps = {
   onClose: () => void;
 };
 
+type RoleOption = { label: string; value: string };
+
 export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormProps) {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [role, setRole] = useState(''); // '' = no role (assignment is optional)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Live roles list (populates the picker). Failures are non-fatal: the picker
+  // falls back to an honest empty/disabled state and creation still works.
+  const [roleOptions, setRoleOptions] = useState<RoleOption[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [rolesError, setRolesError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setRolesLoading(true);
+      setRolesError(false);
+      try {
+        const roles = await getD360Roles();
+        if (!active) return;
+        const opts = roles
+          .filter((r: D360Role) => !!r.role_name)
+          .map((r: D360Role) => ({
+            label: r.display_name?.trim() || r.role_name,
+            value: r.role_name,
+          }));
+        setRoleOptions(opts);
+      } catch {
+        if (!active) return;
+        setRolesError(true);
+        setRoleOptions([]);
+      } finally {
+        if (active) setRolesLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -24,15 +63,40 @@ export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormPr
     setError(null);
 
     try {
-      await addUser({ username, password, email });
+      const result = await addUser({ username, password, email, role });
+      // 2xx → the user was created. A role was requested only if `role` is set.
+      if (role) {
+        if (result.role_error) {
+          // Partial success: user exists, role grant failed → non-fatal warning.
+          const msg =
+            typeof result.role_error === 'string'
+              ? result.role_error
+              : result.message || 'unknown error';
+          toast.error(`User created, role assignment failed: ${msg}`);
+        } else {
+          toast.success('User created + role assigned');
+        }
+      } else {
+        toast.success('User created');
+      }
+      // The user exists in every 2xx branch — always refresh the list and close.
       onAddUserSuccess?.();
       onClose();
     } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred.');
+      // Hard failure (non-2xx): user was NOT created → inline error, keep form open.
+      setError(err?.message || 'An unexpected error occurred.');
     } finally {
       setLoading(false);
     }
   }
+
+  const rolePlaceholder = rolesLoading
+    ? 'Loading roles…'
+    : rolesError
+      ? 'Roles unavailable'
+      : roleOptions.length === 0
+        ? 'No roles available'
+        : 'Select a role (optional)';
 
   return (
     <div className="p-1">
@@ -87,6 +151,29 @@ export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormPr
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
+        />
+
+        <Select
+          label="Role"
+          prefix={<ShieldCheck className="h-4 w-4 text-gray-400" />}
+          options={roleOptions}
+          value={role}
+          onChange={(val: any) => setRole(val ?? '')}
+          placeholder={rolePlaceholder}
+          disabled={rolesLoading || rolesError || roleOptions.length === 0}
+          clearable={!!role}
+          onClear={() => setRole('')}
+          getOptionValue={(o: RoleOption) => o.value}
+          displayValue={(selected: string) =>
+            roleOptions.find((o) => o.value === selected)?.label ?? ''
+          }
+          inPortal={false}
+          dropdownClassName="!z-[1]"
+          helperText={
+            rolesError
+              ? 'Could not load roles — the user can be created without a role and assigned one later.'
+              : 'Assigned when the user is created. Leave empty to skip.'
+          }
         />
 
         {error && (

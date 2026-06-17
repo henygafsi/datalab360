@@ -429,7 +429,7 @@ export default function DeployAppWizard({
         });
         const code = (out.response || '').trim();
         if (!code) {
-          throw new Error('Cortex returned an empty response.');
+          throw new Error('The AI returned an empty response.');
         }
         setSnap((prev) => ({
           ...prev,
@@ -549,7 +549,7 @@ export default function DeployAppWizard({
                   Deploy App
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Scaffold an app, then hand off to Snowpark Services
+                  Scaffold an app, then hand off to the hosted app service
                 </p>
               </div>
             </div>
@@ -758,7 +758,7 @@ function Step3Describe({
           Describe your app
         </h3>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          One sentence is enough. Cortex will draft the code grounded on the source schema you picked.
+          One sentence is enough. AI will draft the code grounded on the source schema you picked.
         </p>
       </header>
 

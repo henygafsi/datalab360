@@ -64,19 +64,10 @@ function KpiCard({ icon: Icon, label, value, sub }: KpiSpec) {
   );
 }
 
+// Feature Governance and Performance are now first-class section tabs on this
+// same page, so their old nav-cards (which duplicated the tabs) are removed.
+// Config Data360 is the only genuinely separate route, so it stays a nav-card.
 const NAV_CARDS: { label: string; description: string; href: string; icon: LucideIcon }[] = [
-  {
-    label: 'Feature Governance',
-    description: 'Per-account feature & addon enablement matrix',
-    href: '/administration/feature-governance',
-    icon: ToggleRight,
-  },
-  {
-    label: 'Performance',
-    description: 'Endpoints · users · cache · modules · errors',
-    href: routes.adminPerformance.view,
-    icon: Gauge,
-  },
   {
     label: 'Config Data360',
     description: 'Metadata · tables · date columns · cache & refresh',

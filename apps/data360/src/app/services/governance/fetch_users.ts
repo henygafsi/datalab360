@@ -3,7 +3,48 @@
  * Works in both server-side (SSR) and client-side contexts
  */
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import { UserTableDataType } from '@/app/shared/governance/users/table';
+
+/**
+ * Raw single-user detail as returned by GET /gouvernance/users/{username}
+ * (SHOW USERS columns, all strings). Unlike {@link getUserDetails}, this is NOT
+ * mapped to UserTableDataType, so callers that need warehouse/comment/namespace/
+ * security columns can read them directly.
+ */
+export interface UserDetailRaw {
+  name?: string;
+  login_name?: string;
+  display_name?: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  comment?: string;
+  disabled?: string;
+  default_warehouse?: string;
+  default_namespace?: string;
+  default_role?: string;
+  default_secondary_roles?: string;
+  created_on?: string;
+  last_success_login?: string;
+  owner?: string;
+  has_password?: string;
+  has_rsa_public_key?: string;
+}
+
+/**
+ * Fetches the raw detail object for a single user (unmapped Snowflake fields).
+ * @param username The username to fetch.
+ */
+export async function getUserDetailRaw(username: string): Promise<UserDetailRaw> {
+  try {
+    const response = await apiClient.get(API.gouvernance.userDetail(username));
+    return (response.data || {}) as UserDetailRaw;
+  } catch (error) {
+    console.error('Error fetching raw user details:', error);
+    throw error;
+  }
+}
 
 /**
  * Fetches the list of users from the backend API.
@@ -56,13 +97,53 @@ export async function getUsers(): Promise<UserTableDataType[]> {
 }
 
 /**
- * Adds a new user to the backend.
- * @param userData The user data to be sent to the API.
+ * Result of POST /gouvernance/add-user.
+ *
+ * The backend now accepts an optional `role` and performs role assignment as part
+ * of user creation (partial-success): on a 2xx the user is ALWAYS created, but the
+ * role grant may have failed independently — surfaced via `role_error`. Callers must
+ * treat `role_error` (on a successful response) as a non-fatal warning, not a throw.
  */
-export async function addUser(userData: { username: string; password: string; email: string }): Promise<string> {
+export interface AddUserResult {
+  /** Human-readable backend message, when provided. */
+  message?: string;
+  /** True if the optional role was successfully assigned. */
+  role_assigned?: boolean;
+  /** Non-null when role assignment failed (user still created). String = the reason. */
+  role_error?: string | null;
+  /** Raw backend payload (object or legacy string) for any extra fields. */
+  raw: unknown;
+}
+
+/**
+ * Adds a new user to the backend, optionally assigning a role at creation time.
+ * @param userData The user data. `role` is optional; when omitted no role is sent.
+ * @returns A structured result. A truthy `role_error` means the user was created
+ *          but the role grant failed (partial success) — do NOT treat as an error.
+ */
+export async function addUser(userData: {
+  username: string;
+  password: string;
+  email: string;
+  role?: string;
+}): Promise<AddUserResult> {
   try {
-    const response = await apiClient.post('/gouvernance/add-user', userData);
-    return response.data as string;
+    // Drop an empty/whitespace-only role so we never POST role: "".
+    const role = userData.role?.trim() ? userData.role.trim() : undefined;
+    const payload = { ...userData, role };
+    const response = await apiClient.post('/gouvernance/add-user', payload);
+    const data = response.data;
+
+    // Backend may return a bare string (legacy) or a structured object (new).
+    if (typeof data === 'string') {
+      return { message: data, raw: data };
+    }
+    return {
+      message: data?.message ?? data?.detail ?? undefined,
+      role_assigned: data?.role_assigned,
+      role_error: data?.role_error ?? null,
+      raw: data,
+    };
   } catch (error) {
     console.error('Error adding user:', error);
     throw error;

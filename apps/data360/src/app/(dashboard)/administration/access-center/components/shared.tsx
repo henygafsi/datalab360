@@ -62,6 +62,19 @@ export type PermLevel = 'allow' | 'deny';
 /** Map of `module:page:tab:action` → stored level. Absent key = inherit. */
 export type PermMap = Map<string, PermLevel>;
 
+/**
+ * Display-only cell state. EXTENDS the stored {@link PermLevel} with `'default'`
+ * — the fail-open runtime decision the backend returns (`source:'default'`) for a
+ * coordinate NOT covered by the role's matrix. It is allowed *only because the
+ * gate fails open*, not because of an intentional grant, so it must render
+ * distinctly from an explicit ALLOW. This state appears ONLY in the read-only
+ * "Test user" (effective) view; it MUST NEVER enter a {@link PermMap}, the cycle
+ * editor, or the role-permissions PUT (that would persist a fake grant row).
+ */
+export type CellState = PermLevel | 'default';
+/** Display map for the read-only effective ("Test user") view. */
+export type DisplayMap = Map<string, CellState>;
+
 export const keyOf = (m: string, p: string, t: string, a: string) =>
   `${m}:${p}:${t}:${a}`;
 

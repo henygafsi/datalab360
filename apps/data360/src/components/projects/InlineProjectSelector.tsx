@@ -100,7 +100,17 @@ export default function InlineProjectSelector({
     if (hasFetched.current || loading) return;
     setLoading(true);
     try {
-      const res = await getUnifiedProjects();
+      // GET /projects/unified?mine_only=false lists ALL account projects —
+      // including seeded samples (SEED_DASH_* / SEED_WF_*) owned by other
+      // identities. The backend now honours `mine_only` (default true scopes to
+      // the caller's own / contributed projects, which hid every seed). The
+      // payload is cross-type and already in UnifiedProject shape, so we filter
+      // to this selector's module type here.
+      const res = await getUnifiedProjects({
+        mine_only: false,
+        limit: 100,
+        offset: 0,
+      });
       const filtered = (res?.projects ?? []).filter(
         (p) => p.type === effectiveType && p.status !== 'deleted',
       );

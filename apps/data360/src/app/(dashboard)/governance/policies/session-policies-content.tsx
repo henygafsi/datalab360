@@ -48,6 +48,7 @@ export default function SessionPoliciesContent() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Form state
   const [policyName, setPolicyName] = useState('');
@@ -77,6 +78,7 @@ export default function SessionPoliciesContent() {
   };
 
   const handleCreate = async () => {
+    if (isCreating) return;
     if (!policyName) {
       setCreateError('Please provide a policy name.');
       return;
@@ -96,6 +98,7 @@ export default function SessionPoliciesContent() {
     }
 
     setCreateError(null);
+    setIsCreating(true);
     try {
       const requestData = {
         policy_name: policyName,
@@ -112,6 +115,8 @@ export default function SessionPoliciesContent() {
       refetch();
     } catch (error) {
       setCreateError(formatPolicyError(error, 'Failed to create policy'));
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -218,7 +223,7 @@ export default function SessionPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!canCreatePolicy} className="bg-indigo-600 hover:bg-indigo-700">Create Policy</Button>
+            <Button onClick={handleCreate} isLoading={isCreating} disabled={!canCreatePolicy || isCreating} className="bg-indigo-600 hover:bg-indigo-700">Create Policy</Button>
           </>
         }
       >

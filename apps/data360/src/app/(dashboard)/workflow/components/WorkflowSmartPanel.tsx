@@ -78,14 +78,25 @@ import { API } from '@/lib/api-contracts';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import InsightActionButton from '@/app/shared/insights/InsightActionButton';
+import { HelpPopover } from '@/app/shared/ui/HelpPopover';
+import { Tooltip } from '@/app/shared/ui/Tooltip';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import ProjectKpiStrip from '@/app/shared/score-cards/ProjectKpiStrip';
 import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
+import { useAtomValue } from 'jotai';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import * as workflowApi from '@/app/services/api/workflowApi';
 import type {
   WorkflowDeployment,
   WorkflowVersion,
+  WorkflowDeploymentListResponse,
+  WorkflowVersionsResponse,
 } from '@/app/services/api/types';
+import {
+  useWorkflowSectionQuery,
+  evictWorkflowSectionCache,
+} from './useWorkflowSectionCache';
 // Operational tabs folded in from the former second rail (WorkflowProjectBar /
 // ContextBar). They join THIS single icon rail as the Usage / Cost / Governance
 // sections so the builder shows ONE right-tab, not two. Reused verbatim (same
@@ -639,40 +650,41 @@ function DeploySection({
   onOpenRollback: () => void;
   onReload?: () => void;
 }) {
-  const [depStatus, setDepStatus] = useState<FetchStatus>('loading');
-  const [depCode, setDepCode] = useState<number | undefined>(undefined);
-  const [deployments, setDeployments] = useState<WorkflowDeployment[]>([]);
-  const [verStatus, setVerStatus] = useState<FetchStatus>('loading');
-  const [versions, setVersions] = useState<WorkflowVersion[]>([]);
+  // Cached, keyed by [workflowId, section]. Re-activating the Deploy tab serves
+  // the cached lists instead of refiring the listDeployments + listVersions
+  // waterfall; an SSE invalidation (handled in the panel root) evicts these so a
+  // freshly-submitted deployment / new version still shows up immediately.
+  const dep = useWorkflowSectionQuery<WorkflowDeploymentListResponse>(
+    workflowId ? `wf:${workflowId}:deployments` : null,
+    () => workflowApi.listDeployments(workflowId as string, { limit: 20 }),
+    { enabled: !!workflowId },
+  );
+  const ver = useWorkflowSectionQuery<WorkflowVersionsResponse>(
+    workflowId ? `wf:${workflowId}:versions` : null,
+    () => workflowApi.listVersions(workflowId as string, { limit: 20 }),
+    { enabled: !!workflowId },
+  );
 
-  const load = useCallback(async () => {
-    if (!workflowId) return;
-    setDepStatus('loading');
-    setVerStatus('loading');
-    // Deployments
-    try {
-      const res = await workflowApi.listDeployments(workflowId, { limit: 20 });
-      setDeployments(res.deployments ?? []);
-      setDepStatus('ok');
-    } catch (err: unknown) {
-      const code = (err as { response?: { status?: number } })?.response?.status;
-      setDepCode(code);
-      setDepStatus(code === 404 || code === 501 ? 'gap' : 'error');
-    }
-    // Versions
-    try {
-      const res = await workflowApi.listVersions(workflowId, { limit: 20 });
-      setVersions(res.versions ?? []);
-      setVerStatus('ok');
-    } catch (err: unknown) {
-      const code = (err as { response?: { status?: number } })?.response?.status;
-      setVerStatus(code === 404 || code === 501 ? 'gap' : 'error');
-    }
-  }, [workflowId]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const deployments: WorkflowDeployment[] = dep.data?.deployments ?? [];
+  const versions: WorkflowVersion[] = ver.data?.versions ?? [];
+  const isGap = (s: number | null) => s === 404 || s === 501;
+  const depStatus: FetchStatus =
+    dep.state === 'done'
+      ? 'ok'
+      : dep.state === 'error'
+        ? isGap(dep.errorStatus)
+          ? 'gap'
+          : 'error'
+        : 'loading';
+  const depCode = dep.errorStatus ?? undefined;
+  const verStatus: FetchStatus =
+    ver.state === 'done'
+      ? 'ok'
+      : ver.state === 'error'
+        ? isGap(ver.errorStatus)
+          ? 'gap'
+          : 'error'
+        : 'loading';
 
   return (
     <div className="space-y-5">
@@ -712,7 +724,10 @@ function DeploySection({
                       onAction={() => workflowApi.executeDeployment(workflowId!, d.deployment_id)}
                       successToast="Deployment executed"
                       pingBell
-                      onDone={() => onReload?.()}
+                      onDone={() => {
+                        dep.reload();
+                        onReload?.();
+                      }}
                       unavailableHint="Deployment execute isn’t available on this backend"
                     />
                   </div>
@@ -958,6 +973,20 @@ function ActionsCluster(props: WorkflowSmartPanelProps) {
 
   return (
     <div className="border-b border-gray-200 bg-gray-50/60 px-3 py-2.5 dark:border-gray-700 dark:bg-gray-800/40">
+      {/* Zone label — anchors this strip as the COMMITTED lifecycle/creation
+          actions, the counterpart to (and visually distinct from) the AI assist
+          suggestions in the AI section, so a suggestion is never mistaken for a
+          committed action. The AI banner points users back here ("Actions bar"). */}
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+          <Play className="h-3 w-3" aria-hidden />
+          Actions
+        </p>
+        <span className="text-[9px] font-medium text-gray-400 dark:text-gray-500">
+          take effect when clicked
+        </span>
+      </div>
+
       {/* Create cluster */}
       {showCreateGroup && (
       <div className="mb-2">
@@ -1121,11 +1150,77 @@ const RAIL: RailItem[] = [
 
 const RAIL_IDS = new Set(RAIL.map((r) => r.id));
 
+// In-journey click "?" help for each section (R14/H3). Shown next to the active
+// section title in the panel header via <HelpPopover>. Typed as a total record
+// so TypeScript flags any missing section — the header is the single help point
+// for ALL sections, including those whose bodies live in other files
+// (Usage/Cost/Governance + the legacy Results/Runs/SQL/Schedule bodies). Plain
+// language, no vendor names.
+const SECTION_HELP: Record<WorkflowPanelSection, string> = {
+  changes:
+    'Shows the blocks you have added, changed or removed since this workflow was last saved. Review it before you submit so you know exactly what will go live.',
+  submit:
+    'Runs a safe validation of the workflow before it touches real data. Pick "cloned data" for production sources or "temp tables" for pipelines, then submit it for deployment approval.',
+  deploy:
+    'Lists every production deployment and saved version of this workflow, with who did what and when. Use it to compare versions or roll back to an earlier one.',
+  block:
+    'Configure the block you selected on the canvas — its source, transform or destination settings. Click any block on the canvas to edit it here.',
+  ai:
+    'Smart suggestions to improve this workflow, such as adding a quality check or scheduling off-peak. Each suggestion can open the right tool or run a safe preview.',
+  results:
+    'The output of the most recent run, so you can confirm the workflow produced the data you expected.',
+  runs:
+    'A history of every time this workflow ran, with status and timing. Use it to spot failed or slow runs.',
+  usage:
+    'How often this workflow runs and how much data it moves over time, so you can track activity at a glance.',
+  cost:
+    'The estimated compute cost of running this workflow. Use it to keep an eye on spend and find the most expensive steps.',
+  governance:
+    'Who can access this workflow and which data policies apply to it. Use it to check permissions and compliance.',
+  sql:
+    'The query this workflow compiles to, shown read-only. Review it to understand exactly what will run before you deploy.',
+  schedule:
+    'Set when this workflow runs automatically on a recurring schedule. You can also pause or resume an existing schedule here.',
+};
+
+// Short, hover-length descriptions for each rail icon (what each tab does). The
+// rail buttons only carry an icon, so the native bare label ("Changes") was not
+// self-explanatory — this gives a one-line "what it does" on hover/focus via the
+// shared <Tooltip>. The longer click-help stays in SECTION_HELP (header
+// <HelpPopover>). Total record so a missing section is a TS error. No vendor
+// names.
+const RAIL_TIP: Record<WorkflowPanelSection, string> = {
+  changes: 'Review blocks added, changed or removed since the last save',
+  submit: 'Safely validate the workflow, then submit it for deployment approval',
+  deploy: 'Deployment history and saved versions — compare or roll back',
+  block: 'Configure the block you selected on the canvas',
+  ai: 'AI suggestions to improve this workflow — proposals only, nothing runs',
+  results: 'Output of the most recent run',
+  runs: 'History of every run, with status and timing',
+  usage: 'How often this workflow runs and how much data it moves',
+  cost: 'Estimated compute cost of running this workflow',
+  governance: 'Who can access this workflow and which policies apply',
+  sql: 'The read-only query this workflow compiles to',
+  schedule: 'Run this workflow automatically on a recurring schedule',
+};
+
 // Versioned, minimal localStorage keys (client-localstorage-schema): persist the
 // user's last section ("draft of menu" → preselect on return) and whether the
 // always-on actions strip is collapsed so the active section can run full-height.
 const PANEL_SECTION_KEY = 'data360.wf.panel.section.v1';
 const PANEL_ACTIONS_COLLAPSED_KEY = 'data360.wf.panel.actionsCollapsed.v1';
+
+// SSE cache-invalidation keys that should drop this workflow's cached section
+// data (Deploy / Usage / Cost / Governance). Mirrors the keys the builder already
+// reacts to (deployments / projects) plus the run/version/workflow spine.
+const WORKFLOW_INVALIDATION_KEYS = new Set<string>([
+  CACHE_KEYS.WORKFLOWS,
+  CACHE_KEYS.DEPLOYMENTS,
+  CACHE_KEYS.RUNS,
+  CACHE_KEYS.PROJECTS,
+  CACHE_KEYS.PROJECT_VERSIONS,
+  CACHE_KEYS.APPROVALS,
+]);
 
 // ---------------------------------------------------------------------------
 // Main panel
@@ -1181,6 +1276,21 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep the lazy-section cache honest after mutations. The panel is always
+  // mounted, so it (not the unmounted sections) owns the eviction: when an SSE
+  // invalidation touches a workflow-relevant key, drop this workflow's cached
+  // section data so the active section refetches at once and the others fetch
+  // fresh on their next activation. Without this, "fetch-once / serve-on-revisit"
+  // would otherwise mask a freshly-submitted deployment, a new run, or a new
+  // version — the same freshness contract the rest of the app gets via
+  // useCacheAwareQuery.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation || !activeWorkflowId) return;
+    const relevant = lastInvalidation.keys.some((k) => WORKFLOW_INVALIDATION_KEYS.has(k));
+    if (relevant) evictWorkflowSectionCache(`wf:${activeWorkflowId}:`);
+  }, [lastInvalidation, activeWorkflowId]);
+
   // Persist section + collapse state as they change.
   useEffect(() => {
     try { window.localStorage.setItem(PANEL_SECTION_KEY, activeSection); } catch { /* ignore */ }
@@ -1202,9 +1312,18 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
         {/* Header — active section label + workflow name + actions-collapse toggle */}
         <div className="flex items-start justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
-              {active.label}
-            </p>
+            <div className="flex items-center gap-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+                {active.label}
+              </p>
+              {/* In-journey click "?" help for the ACTIVE section (R14/H3). */}
+              <HelpPopover
+                label={SECTION_HELP[active.id]}
+                title={active.label}
+                side="bottom"
+                ariaLabel={`What is the ${active.label} section?`}
+              />
+            </div>
             <h2 className="truncate text-sm font-bold text-gray-900 dark:text-white">
               {activeWorkflowName || 'New workflow'}
             </h2>
@@ -1291,15 +1410,18 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
                 />
               )}
               {/* Operational sections folded in from the former second rail.
-                  Panel is always open, so `enabled` collapses to "has an id". */}
+                  Each tab's fetch is gated on it being the ACTIVE section (not a
+                  hardcoded `enabled`), so even if a future refactor keeps them
+                  mounted for transitions they won't fetch until active; the
+                  module cache then serves re-activations without a refetch. */}
               {activeSection === 'usage' && activeWorkflowId && (
-                <UsageTab workflowId={activeWorkflowId} enabled />
+                <UsageTab workflowId={activeWorkflowId} enabled={activeSection === 'usage'} />
               )}
               {activeSection === 'cost' && activeWorkflowId && (
-                <CostTab workflowId={activeWorkflowId} enabled />
+                <CostTab workflowId={activeWorkflowId} enabled={activeSection === 'cost'} />
               )}
               {activeSection === 'governance' && activeWorkflowId && (
-                <GovernanceTab workflowId={activeWorkflowId} enabled />
+                <GovernanceTab workflowId={activeWorkflowId} enabled={activeSection === 'governance'} />
               )}
               {activeSection === 'block' && (
                 blockSlot ?? (
@@ -1312,7 +1434,24 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
                 )
               )}
               {activeSection === 'ai' && (
-                <div className="space-y-4">
+                <div className="space-y-3">
+                  {/* Clear AI/action boundary: everything in this section is AI
+                      ASSIST (proposals). It is visually + textually separated
+                      from the committed lifecycle "Actions" strip above so a
+                      suggestion is never mistaken for a committed action. */}
+                  <div className="flex items-start gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 dark:border-violet-900/50 dark:bg-violet-900/15">
+                    <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" aria-hidden />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-violet-700 dark:text-violet-300">
+                        AI assist · suggestions
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-snug text-violet-600/80 dark:text-violet-300/70">
+                        Proposals to improve this workflow — not committed actions.
+                        Review each before you run it. To Save, Run or Submit the
+                        workflow itself, use the Actions bar above.
+                      </p>
+                    </div>
+                  </div>
                   {/* AI-prefilled cross-module CTA blocks (deep-link with intent),
                       scoped to workflow + the active project. Rendered above the
                       existing AI assist (wizard slot or rule-based suggestions). */}
@@ -1322,7 +1461,7 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
                       module: 'workflow',
                       projectId: activeWorkflowId ?? undefined,
                     }}
-                    title="Actions IA suggérées"
+                    title="Suggestions IA"
                   />
                   {aiSlot ?? <AiSection workflowId={activeWorkflowId} blocks={currentBlocks} />}
                 </div>
@@ -1338,6 +1477,13 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
       </div>
 
       {/* ── Icon rail (far-right edge, vertical flip menu) ── */}
+      {/* Keep overflow-y-auto: the parent builder row is overflow-hidden, so the
+          rail MUST be able to scroll to stay reachable under browser zoom / short
+          viewports (WCAG reflow) — reachability wins over a styled bubble. A
+          scroll container also clips the leftward <Tooltip> bubble at the rail
+          edge, so the bubble degrades gracefully to the shared component's native
+          title/aria mirror (still a hover/focus tooltip, just unstyled in the
+          rail). On-click deep help stays in the header <HelpPopover>. */}
       <nav
         aria-label="Workflow panel sections"
         className="flex w-12 shrink-0 flex-col items-center gap-1 overflow-y-auto border-l border-gray-200 bg-gray-50 py-2 dark:border-gray-700 dark:bg-gray-800/60"
@@ -1345,23 +1491,33 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
         {RAIL.map((item) => {
           const Icon = item.icon;
           const isActive = item.id === activeSection;
+          // Hover/focus tooltip (what each tab does) via the shared <Tooltip>;
+          // it mirrors the description into title + aria for touch/SR users. The
+          // button keeps its own short accessible name (the section label), and
+          // the on-click deep help is the header <HelpPopover> that reflects
+          // whichever rail icon is active — so every rail icon has BOTH a
+          // tooltip and on-click help without crowding the 48px rail.
           return (
-            <button
+            <Tooltip
               key={item.id}
-              type="button"
-              onClick={() => onSectionChange(item.id)}
-              aria-label={item.label}
-              aria-pressed={isActive}
-              title={item.label}
-              className={cn(
-                'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors',
-                isActive
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200',
-              )}
+              side="left"
+              label={`${item.label}: ${RAIL_TIP[item.id]}`}
             >
-              <Icon className="h-4 w-4" />
-            </button>
+              <button
+                type="button"
+                onClick={() => onSectionChange(item.id)}
+                aria-label={item.label}
+                aria-pressed={isActive}
+                className={cn(
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors',
+                  isActive
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200',
+                )}
+              >
+                <Icon className="h-4 w-4" />
+              </button>
+            </Tooltip>
           );
         })}
       </nav>

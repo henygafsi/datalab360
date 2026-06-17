@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { InsightActionButton } from '@/app/shared/insights';
+import { dash, fmtNum } from '@/app/shared/ui/format';
 
 // ---------------------------------------------------------------------------
 // Data Catalog Object Explorer — backed by GET /api/snowflake/explorer/*.
@@ -268,8 +269,10 @@ function objectIcon(type?: string): ReactNode {
 function KpiCard({ icon, label, value, accent }: {
   icon: ReactNode;
   label: string;
-  // `string` lets callers pass an honest "—" for absent metrics (never a fake 0).
-  value: number | string;
+  // Accepts a missing value — renders "—" for null/undefined/NaN (R3); a
+  // genuine 0 still renders as 0. `string` also lets callers pass a pre-formatted
+  // label, which passes through unchanged.
+  value: number | string | null | undefined;
   accent: string;
 }) {
   return (
@@ -278,7 +281,7 @@ function KpiCard({ icon, label, value, accent }: {
         {icon}
       </div>
       <div className="text-xl font-bold text-gray-900 dark:text-white leading-none">
-        {typeof value === 'number' ? value.toLocaleString() : value}
+        {typeof value === 'number' ? fmtNum(value) : dash(value)}
       </div>
       <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate mt-1">{label}</div>
     </div>

@@ -97,6 +97,11 @@ export const aiFeaturesAtom = atom((get) => {
 // Suggestions (session-only, not persisted)
 export const aiSuggestionsAtom = atom<AiSuggestion[]>([]);
 
+// Applied suggestion ids (session-only) — the suggestion's action CTA was
+// dispatched to the canvas event store. Kept visible (NOT dismissed) so the row
+// can render an "Applied to canvas" confirmation instead of vanishing.
+export const aiAppliedSuggestionIdsAtom = atom<Set<string>>(new Set<string>());
+
 // Feedback tracking (persisted — improves future accuracy)
 export interface AiFeedback {
   suggestionId: string;
@@ -180,6 +185,7 @@ export function useAiSuggestions(projectId?: string | null) {
   const activeSuggestions = useAtomValue(activeAiSuggestionsAtom);
   const [feedback, setFeedback] = useAtom(aiFeedbackAtom);
   const feedbackStats = useAtomValue(aiFeedbackStatsAtom);
+  const [appliedSuggestionIds, setAppliedSuggestionIds] = useAtom(aiAppliedSuggestionIdsAtom);
 
   const addSuggestion = (suggestion: Omit<AiSuggestion, 'id' | 'dismissed' | 'timestamp'>) => {
     const id = `${suggestion.featureId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -213,6 +219,12 @@ export function useAiSuggestions(projectId?: string | null) {
     });
   };
 
+  /**
+   * Record positive feedback ("Helpful"). This ONLY logs a thumbs-up — it does
+   * NOT execute/apply the suggestion. Applying is done exclusively via the
+   * action CTA (see markApplied). Kept named acceptSuggestion for callers, but
+   * the UX label is "Helpful" to stop conflating feedback with execution.
+   */
   const acceptSuggestion = (suggestion: AiSuggestion) => {
     setFeedback((prev) => [
       ...prev,
@@ -222,6 +234,7 @@ export function useAiSuggestions(projectId?: string | null) {
     syncFeedbackToServer(suggestion, true);
   };
 
+  /** Record negative feedback ("Not helpful"). Does NOT execute anything. */
   const rejectSuggestion = (suggestion: AiSuggestion) => {
     setFeedback((prev) => [
       ...prev,
@@ -231,9 +244,39 @@ export function useAiSuggestions(projectId?: string | null) {
     syncFeedbackToServer(suggestion, false);
   };
 
-  const clearAll = () => setSuggestions([]);
+  /**
+   * Mark a suggestion as applied to the canvas after its action CTA dispatched a
+   * real event. Keeps the row visible (NOT dismissed) so an "Applied" state can
+   * render. Optionally auto-records positive feedback (the user did act on it).
+   */
+  const markApplied = (suggestion: AiSuggestion, recordFeedback = true) => {
+    setAppliedSuggestionIds((prev) => {
+      if (prev.has(suggestion.id)) return prev;
+      const next = new Set(prev);
+      next.add(suggestion.id);
+      return next;
+    });
+    if (recordFeedback) {
+      setFeedback((prev) => [
+        ...prev,
+        { suggestionId: suggestion.id, featureId: suggestion.featureId, action: 'accepted', title: suggestion.title, timestamp: Date.now() },
+      ]);
+      syncFeedbackToServer(suggestion, true, 'User applied suggestion to canvas');
+    }
+  };
 
-  const replaceSuggestions = (next: AiSuggestion[]) => setSuggestions(next);
+  const isApplied = (id: string) => appliedSuggestionIds.has(id);
 
-  return { suggestions, activeSuggestions, addSuggestion, dismiss, acceptSuggestion, rejectSuggestion, clearAll, replaceSuggestions, feedback, feedbackStats };
+  const clearAll = () => {
+    setSuggestions([]);
+    setAppliedSuggestionIds(new Set());
+  };
+
+  const replaceSuggestions = (next: AiSuggestion[]) => {
+    setSuggestions(next);
+    // A fresh analysis run produces new suggestion ids — drop stale applied ids.
+    setAppliedSuggestionIds(new Set());
+  };
+
+  return { suggestions, activeSuggestions, addSuggestion, dismiss, acceptSuggestion, rejectSuggestion, markApplied, isApplied, appliedSuggestionIds, clearAll, replaceSuggestions, feedback, feedbackStats };
 }

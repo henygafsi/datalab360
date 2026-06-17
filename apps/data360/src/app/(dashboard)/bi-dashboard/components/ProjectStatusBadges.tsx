@@ -243,10 +243,10 @@ function KpiPopover({ card, unavailable }: { card: ScoreCard | null; unavailable
       )}
       {card.note && <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">{card.note}</p>}
       <Link
-        href="/command-center"
+        href="/account-overview"
         className="mt-2 inline-flex items-center gap-1 rounded-md border border-cyan-200 bg-cyan-50 px-2 py-1 text-[11px] font-medium text-cyan-700 hover:bg-cyan-100 dark:border-cyan-800 dark:bg-cyan-900/20 dark:text-cyan-300"
       >
-        Open Command Center
+        Open Account Overview
         <ArrowUpRight className="h-3 w-3" />
       </Link>
     </div>
