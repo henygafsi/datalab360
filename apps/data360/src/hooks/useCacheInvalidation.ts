@@ -274,11 +274,11 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
     let apiUrl = (rawApiUrl || '').trim();
     const isRelative = apiUrl.startsWith('/');
     if (!isRelative) {
-      if (apiUrl.startsWith('//')) apiUrl = `https:${apiUrl}`;
-      if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `https://${apiUrl}`;
-      if (process.env.NODE_ENV === 'production' && apiUrl.startsWith('http://')) {
-        apiUrl = `https://${apiUrl.slice(7)}`;
-      }
+      // HTTPS is not yet available on the backend, so don't force-upgrade to
+      // https (that would break the SSE connection). An explicit https:// URL
+      // in the env var is still honored.
+      if (apiUrl.startsWith('//')) apiUrl = `http:${apiUrl}`;
+      if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `http://${apiUrl}`;
     }
     // No token in URL — JWT is passed via Authorization header in fetch().
     const streamUrl = `${apiUrl}/cache-stream/stream`;

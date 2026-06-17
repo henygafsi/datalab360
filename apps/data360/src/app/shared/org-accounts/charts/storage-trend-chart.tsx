@@ -12,6 +12,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import type { StorageTrend, DateRange } from '@/app/services/org-accounts/types';
+import { safeNum, safeToFixed } from '@/lib/format-number';
 
 interface StorageTrendChartProps {
   data: StorageTrend[];
@@ -42,11 +43,13 @@ export default function StorageTrendChart({
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const formatStorage = (value: number) => {
-    if (value >= 1000) {
-      return `${(value / 1000).toFixed(1)} PB`;
+  const formatStorage = (value: number | string | null | undefined) => {
+    const n = safeNum(value);
+    if (n == null) return '—';
+    if (n >= 1000) {
+      return `${(n / 1000).toFixed(1)} PB`;
     }
-    return `${value.toFixed(1)} TB`;
+    return `${n.toFixed(1)} TB`;
   };
 
   if (loading) {
@@ -105,7 +108,7 @@ export default function StorageTrendChart({
                 tickLine={false}
               />
               <YAxis
-                tickFormatter={(value) => `${value.toFixed(1)}`}
+                tickFormatter={(value) => `${safeToFixed(value, 1)}`}
                 stroke="#9ca3af"
                 fontSize={12}
                 tickLine={false}

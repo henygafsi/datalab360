@@ -8,6 +8,10 @@
 
 // Environment-based configuration with secure defaults
 const ENV_PRIMARY_DB = process.env.NEXT_PUBLIC_PRIMARY_DB || 'CP_DATA360';
+// HTTPS is not yet available on the backend, so the server-side default and the
+// bare-host upgrade both use http. An explicit https:// URL in the env var is
+// still honored for when the backend gains TLS.
+const DEFAULT_SERVER_API_URL = 'http://api.datalab360.io';
 
 // Client-side calls go through the Next.js rewrite (`/api-proxy/*`) so the browser
 // only sees same-origin HTTPS — the rewrite proxies to the backend over HTTP on
@@ -16,14 +20,14 @@ const ENV_PRIMARY_DB = process.env.NEXT_PUBLIC_PRIMARY_DB || 'CP_DATA360';
 function resolveApiUrl(rawUrl: string): string {
   if (typeof window !== 'undefined') return '/api-proxy';
   let url = (rawUrl || '').trim();
-  if (!url) return 'http://api.datalab360.io';
+  if (!url) return DEFAULT_SERVER_API_URL;
   if (url.startsWith('//')) url = `http:${url}`;
   if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   return url;
 }
 
 const ENV_API_URL = resolveApiUrl(
-  process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io',
+  process.env.NEXT_PUBLIC_API_URL || DEFAULT_SERVER_API_URL,
 );
 
 /**

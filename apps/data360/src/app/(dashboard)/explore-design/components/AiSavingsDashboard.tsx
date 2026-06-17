@@ -10,6 +10,7 @@ import { toast } from 'react-hot-toast';
 import { aiGetSavings } from '@/app/services/api/exploreDesignApi';
 import { getApiErrorMessage } from '@/lib/api-client';
 import type { AiSavingsResponse } from '@/app/services/api/types';
+import { safeNum, safeToFixed } from '@/lib/format-number';
 
 interface AiSavingsDashboardProps {
   projectId: string;
@@ -46,7 +47,10 @@ const AiSavingsDashboard: React.FC<AiSavingsDashboardProps> = ({
     fetchSavings();
   }, [fetchSavings]);
 
-  const formatCredits = (v: number) => v.toFixed(4);
+  const formatCredits = (v: number | string | null | undefined) => {
+    const n = safeNum(v);
+    return n == null ? '—' : n.toFixed(4);
+  };
 
   return (
     <div className={cn('border dark:border-slate-700 rounded-lg overflow-hidden', className)}>
@@ -57,7 +61,7 @@ const AiSavingsDashboard: React.FC<AiSavingsDashboardProps> = ({
           AI Savings
           {data && data.roi_multiplier > 1 && (
             <Badge size="sm" className="bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30">
-              {data.roi_multiplier.toFixed(1)}x ROI
+              {safeToFixed(data.roi_multiplier, 1)}x ROI
             </Badge>
           )}
         </span>
@@ -109,7 +113,7 @@ const AiSavingsDashboard: React.FC<AiSavingsDashboardProps> = ({
               <Zap className="h-4 w-4 text-purple-500 mx-auto mb-1" />
               <p className="text-xs text-slate-500">ROI Multiplier</p>
               <p className="text-lg font-bold text-purple-700 dark:text-purple-300">
-                {data.roi_multiplier.toFixed(1)}x
+                {safeToFixed(data.roi_multiplier, 1)}x
               </p>
               <p className="text-[10px] text-slate-400">return</p>
             </div>

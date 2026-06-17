@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { listWatermarks, getWatermark } from '@/app/services/api/exploreDesignApi';
 import type { Watermark } from '@/app/services/api/types';
+import { safeLocale } from '@/lib/format-number';
 
 interface WatermarkDisplayProps {
   projectId: string | null;
@@ -95,7 +96,7 @@ const WatermarkDisplay: React.FC<WatermarkDisplayProps> = ({
                 <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg text-center">
                   <p className="text-xs text-slate-500 mb-1">Rows loaded</p>
                   <p className="text-sm font-semibold">
-                    {watermark.rows_loaded.toLocaleString()}
+                    {safeLocale(watermark.rows_loaded)}
                   </p>
                 </div>
               </div>

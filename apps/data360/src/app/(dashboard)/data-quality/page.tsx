@@ -42,6 +42,7 @@ import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 import SmartRightBar from './components/SmartRightBar';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import { useProjectContext } from '@/hooks/useProjectContext';
+import { safeLocale, safeArray } from '@/lib/format-number';
 
 // ── Types ──
 
@@ -633,7 +634,7 @@ function PaginationControls({
   return (
     <div className="flex items-center justify-between px-3 py-2 border-t border-gray-200 dark:border-gray-700">
       <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-        <span>{total.toLocaleString()} total rows</span>
+        <span>{safeLocale(total)} total rows</span>
         <span className="text-gray-300 dark:text-gray-600">|</span>
         <label className="flex items-center gap-1">
           Per page:
@@ -2521,7 +2522,7 @@ export default function DataQualityPage() {
             <SkeletonBar className="h-8 w-full" />
           </div>
         ) : thResult ? (
-          thResult.checks.length === 0 ? (
+          safeArray(thResult.checks).length === 0 ? (
             <EmptyState compact title="No checks ran" description="Configure at least one check above, then run again." />
           ) : (
             <div className="space-y-2 pt-1">
@@ -2538,7 +2539,7 @@ export default function DataQualityPage() {
                 </div>
               )}
               <div className="space-y-1.5">
-                {thResult.checks.map((c, i) => {
+                {safeArray(thResult.checks).map((c, i) => {
                   const s = String(c.status ?? '').toUpperCase();
                   return (
                     <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5">

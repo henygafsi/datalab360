@@ -9,6 +9,7 @@
 import type { ElementType } from 'react';
 import { Activity, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { safeNum } from '@/lib/format-number';
 import { GlassPanel } from '@/app/shared/glass';
 import MetricHelp from '@/components/ui/MetricHelp';
 
@@ -20,8 +21,10 @@ export const fmtInt = (n: number | null | undefined): string =>
 export const fmtMs = (n: number | null | undefined): string =>
   n == null || Number.isNaN(n) ? '—' : `${Math.round(n)} ms`;
 
-export const fmtPct = (n: number | null | undefined, digits = 1): string =>
-  n == null || Number.isNaN(n) ? '—' : `${n.toFixed(digits)}%`;
+export const fmtPct = (n: number | string | null | undefined, digits = 1): string => {
+  const v = safeNum(n);
+  return v == null ? '—' : `${v.toFixed(digits)}%`;
+};
 
 export const fmtTime = (ts: string | null | undefined): string => {
   if (!ts) return '—';

@@ -6,6 +6,7 @@ import { BarChart3, Hash, AlertCircle, Layers, ArrowDown, ArrowUp } from 'lucide
 import toast from 'react-hot-toast';
 import { getColumnProfile, type ColumnProfileResponse } from '@/app/services/audit';
 import { cn } from '@/lib/utils';
+import { safeLocale } from '@/lib/format-number';
 
 interface Props {
   table: string;
@@ -114,7 +115,7 @@ export default function ColumnProfilePanel({ table, column, className, onClose }
                   <div className="h-full rounded bg-blue-500/70 dark:bg-blue-400/50"
                     style={{ width: `${(item.count / maxCount) * 100}%` }} />
                 </div>
-                <span className="w-14 text-right text-gray-500 dark:text-gray-400">{item.count.toLocaleString()}</span>
+                <span className="w-14 text-right text-gray-500 dark:text-gray-400">{safeLocale(item.count)}</span>
               </div>
             ))}
           </div>

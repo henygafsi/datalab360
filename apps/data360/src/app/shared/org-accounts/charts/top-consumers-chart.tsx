@@ -2,6 +2,7 @@
 
 import { Text } from 'rizzui';
 import cn from '@core/utils/class-names';
+import { safeNum, safeLocale } from '@/lib/format-number';
 import {
   BarChart,
   Bar,
@@ -40,11 +41,13 @@ export default function TopConsumersChart({
   // Ensure data is always a valid array
   const chartData = Array.isArray(data) ? data : [];
 
-  const formatCredits = (value: number) => {
-    if (value >= 1000) {
-      return `${(value / 1000).toFixed(1)}K`;
+  const formatCredits = (value: number | string | null | undefined) => {
+    const n = safeNum(value);
+    if (n == null) return '—';
+    if (n >= 1000) {
+      return `${(n / 1000).toFixed(1)}K`;
     }
-    return value.toFixed(0);
+    return n.toFixed(0);
   };
 
   // Truncate account names for display
@@ -111,7 +114,7 @@ export default function TopConsumersChart({
                           {item.account_name}
                         </Text>
                         <Text className="text-sm text-gray-600 dark:text-gray-300">
-                          Credits: <span className="font-semibold text-amber-600">{item.total_credits.toLocaleString()}</span>
+                          Credits: <span className="font-semibold text-amber-600">{safeLocale(item.total_credits)}</span>
                         </Text>
                       </div>
                     );

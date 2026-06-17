@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Text, Badge, Button, Loader } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
+import { safeToFixed, safeArray } from '@/lib/format-number';
 import {
   PiXBold,
   PiArrowSquareOut,
@@ -274,7 +275,7 @@ export default function AccountDetailModal({
                       </div>
                     )}
                   </div>
-                  {detail.health.issues.length > 0 && (
+                  {safeArray(detail.health.issues).length > 0 && (
                     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                       <div className="flex items-center gap-2 mb-2">
                         <PiWarningDuotone className="h-4 w-4 text-amber-600" />
@@ -283,7 +284,7 @@ export default function AccountDetailModal({
                         </Text>
                       </div>
                       <ul className="space-y-1">
-                        {detail.health.issues.map((issue, i) => (
+                        {safeArray(detail.health.issues).map((issue, i) => (
                           <li key={i} className="text-sm text-gray-600 dark:text-gray-300 flex items-start gap-2">
                             <span className="text-amber-500 mt-1">•</span>
                             {issue}
@@ -292,7 +293,7 @@ export default function AccountDetailModal({
                       </ul>
                     </div>
                   )}
-                  {detail.health.recommendations.length > 0 && (
+                  {safeArray(detail.health.recommendations).length > 0 && (
                     <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                       <div className="flex items-center gap-2 mb-2">
                         <PiLightbulbDuotone className="h-4 w-4 text-blue-600" />
@@ -301,7 +302,7 @@ export default function AccountDetailModal({
                         </Text>
                       </div>
                       <ul className="space-y-1">
-                        {detail.health.recommendations.map((rec, i) => (
+                        {safeArray(detail.health.recommendations).map((rec, i) => (
                           <li key={i} className="text-sm text-gray-600 dark:text-gray-300 flex items-start gap-2">
                             <span className="text-blue-500 mt-1">•</span>
                             {rec}
@@ -321,7 +322,7 @@ export default function AccountDetailModal({
                     <Text className="text-xs text-gray-500">Credits (30d)</Text>
                   </div>
                   <Text className="text-xl font-bold text-gray-900 dark:text-white">
-                    {detail?.credits?.total_credits != null ? detail.credits.total_credits.toFixed(2) : '—'}
+                    {safeToFixed(detail?.credits?.total_credits, 2)}
                   </Text>
                 </div>
                 <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
@@ -330,7 +331,7 @@ export default function AccountDetailModal({
                     <Text className="text-xs text-gray-500">Storage</Text>
                   </div>
                   <Text className="text-xl font-bold text-gray-900 dark:text-white">
-                    {detail?.storage?.total_tb != null ? `${detail.storage.total_tb.toFixed(2)} TB` : '—'}
+                    {detail?.storage?.total_tb != null ? `${safeToFixed(detail.storage.total_tb, 2)} TB` : '—'}
                   </Text>
                 </div>
                 <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
@@ -387,7 +388,7 @@ export default function AccountDetailModal({
                                     {data.warehouse_name}
                                   </Text>
                                   <Text className="text-xs text-gray-600">
-                                    Credits: {data.total_credits != null ? data.total_credits.toFixed(2) : '—'}
+                                    Credits: {safeToFixed(data.total_credits, 2)}
                                   </Text>
                                 </div>
                               );

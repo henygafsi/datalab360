@@ -16,6 +16,7 @@ import {
 import { PiWarehouseDuotone, PiWarningCircleDuotone } from 'react-icons/pi';
 import { getWarehouses } from '@/app/services/org-accounts/hooks';
 import { formatCredits, extractApiError } from '@/app/services/org-accounts/utils';
+import { safeToFixed } from '@/lib/format-number';
 import type { Warehouse, DateRange } from '@/app/services/org-accounts/types';
 
 interface WarehousesTabProps {
@@ -149,9 +150,9 @@ export default function WarehousesTab({ refreshKey }: WarehousesTabProps) {
                     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
                       <Text className="text-sm font-medium text-gray-900 dark:text-white">{item.warehouse_name}</Text>
                       {item.account_name && <Text className="text-xs text-gray-500">Account: {item.account_name}</Text>}
-                      <Text className="text-sm text-indigo-600">Total: {item.total_credits?.toFixed(3)}</Text>
-                      <Text className="text-sm text-blue-600">Compute: {item.compute_credits?.toFixed(3)}</Text>
-                      <Text className="text-sm text-green-600">Cloud: {item.cloud_credits?.toFixed(3)}</Text>
+                      <Text className="text-sm text-indigo-600">Total: {safeToFixed(item.total_credits, 3)}</Text>
+                      <Text className="text-sm text-blue-600">Compute: {safeToFixed(item.compute_credits, 3)}</Text>
+                      <Text className="text-sm text-green-600">Cloud: {safeToFixed(item.cloud_credits, 3)}</Text>
                     </div>
                   );
                 }} />
@@ -186,9 +187,9 @@ export default function WarehousesTab({ refreshKey }: WarehousesTabProps) {
                 <tr key={`${wh.account_name}-${wh.warehouse_name}-${i}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                   <td className="px-4 py-2"><Text className="text-sm text-gray-900 dark:text-white">{wh.account_name || '-'}</Text></td>
                   <td className="px-4 py-2"><Text className="text-sm font-medium text-gray-900 dark:text-white">{wh.warehouse_name}</Text></td>
-                  <td className="px-4 py-2 text-right"><Text className="text-sm font-medium text-indigo-600">{wh.total_credits.toFixed(3)}</Text></td>
-                  <td className="px-4 py-2 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{wh.compute_credits.toFixed(3)}</Text></td>
-                  <td className="px-4 py-2 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{wh.cloud_credits.toFixed(3)}</Text></td>
+                  <td className="px-4 py-2 text-right"><Text className="text-sm font-medium text-indigo-600">{safeToFixed(wh.total_credits, 3)}</Text></td>
+                  <td className="px-4 py-2 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{safeToFixed(wh.compute_credits, 3)}</Text></td>
+                  <td className="px-4 py-2 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{safeToFixed(wh.cloud_credits, 3)}</Text></td>
                 </tr>
               ))}
             </tbody>

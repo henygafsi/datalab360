@@ -57,6 +57,7 @@ import {
 import type { SummaryResponse } from '@/app/services/command-center/types';
 import { InsightActionButton } from '@/app/shared/insights';
 import { dash } from '@/app/shared/ui/format';
+import { safeNum, safeToFixed } from '@/lib/format-number';
 import AuditTable, { type Row } from './AuditTable';
 import type {
   AccountCreditHistoryResponse,
@@ -97,7 +98,8 @@ function fmtBytes(b: number | null | undefined): string {
 }
 
 /** Credit values are usually small decimals — keep one decimal, abbreviate large totals. */
-function fmtCredits(n: number | null | undefined): string {
+function fmtCredits(value: number | string | null | undefined): string {
+  const n = safeNum(value);
   if (n == null) return '—';
   if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
@@ -933,7 +935,7 @@ function HomeAccountFallback({ orgAdmin }: { orgAdmin: boolean | null }) {
         <KpiCard
           icon={HardDrive}
           label="Storage"
-          value={c?.storage_tb == null ? '—' : `${c.storage_tb.toFixed(2)} TB`}
+          value={c?.storage_tb == null ? '—' : `${safeToFixed(c.storage_tb, 2)} TB`}
         />
         <KpiCard
           icon={CreditCard}

@@ -14,6 +14,7 @@ import {
   PiArrowSquareOut,
 } from 'react-icons/pi';
 import { useAuth } from '@/hooks/useAuth';
+import { safeToFixed, safeArray } from '@/lib/format-number';
 import type { ClientAccount, AccountFilters, HealthScore } from '@/app/services/org-accounts/types';
 import AccountLifecycleMenu, { normalizeRole } from './AccountLifecycleMenu';
 import AccountCreationWizard from './AccountCreationWizard';
@@ -109,7 +110,7 @@ export default function AccountsTable({
 
   // Create health score map for quick lookup
   const healthScoreMap = useMemo(() => {
-    return new Map(healthScores.map((h) => [h.account_name, h]));
+    return new Map(safeArray(healthScores).map((h) => [h.account_name, h]));
   }, [healthScores]);
 
   // Filter and sort accounts
@@ -213,8 +214,8 @@ export default function AccountsTable({
       a.edition || '',
       a.is_active ? 'Active' : 'Inactive',
       a.created_on ? new Date(a.created_on).toLocaleDateString() : '',
-      creditUsage[a.account_name] != null ? creditUsage[a.account_name].toFixed(2) : '',
-      storageUsage[a.account_name] != null ? storageUsage[a.account_name].toFixed(2) : '',
+      creditUsage[a.account_name] != null ? safeToFixed(creditUsage[a.account_name], 2, '') : '',
+      storageUsage[a.account_name] != null ? safeToFixed(storageUsage[a.account_name], 2, '') : '',
     ]);
 
     const csvContent = [headers, ...rows].map((row) => row.join(',')).join('\n');
@@ -510,12 +511,12 @@ export default function AccountsTable({
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Text className="text-sm font-medium text-gray-900 dark:text-white">
-                        {hasCredits ? creditsVal.toFixed(2) : '—'}
+                        {hasCredits ? safeToFixed(creditsVal, 2) : '—'}
                       </Text>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Text className="text-sm font-medium text-gray-900 dark:text-white">
-                        {hasStorage ? `${storageVal.toFixed(2)} TB` : '—'}
+                        {hasStorage ? `${safeToFixed(storageVal, 2)} TB` : '—'}
                       </Text>
                     </td>
                     <td className="px-4 py-3">

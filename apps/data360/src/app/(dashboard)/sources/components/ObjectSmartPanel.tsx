@@ -39,6 +39,7 @@ import { cn } from '@/lib/utils';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { safeNum } from '@/lib/format-number';
 import {
   applyRecommendation,
   type Recommendation,
@@ -173,9 +174,12 @@ function useSection<T>(
 // ---------------------------------------------------------------------------
 
 /** null/undefined numeric → "—", never 0. */
-function num(v: number | null | undefined, fmt?: (n: number) => string): string {
-  if (v === null || v === undefined) return '—';
-  return fmt ? fmt(v) : String(v);
+function num(v: number | string | null | undefined, fmt?: (n: number) => string): string {
+  // Backend may send numeric fields as strings; coerce + guard so a non-numeric
+  // value renders "—" instead of crashing the formatter (e.g. "85".toFixed).
+  const n = safeNum(v);
+  if (n === null) return '—';
+  return fmt ? fmt(n) : String(n);
 }
 
 /** null/empty string → "—". */

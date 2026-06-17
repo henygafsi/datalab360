@@ -3,6 +3,7 @@
 import cn from '@core/utils/class-names';
 import { Text, Title, Badge } from 'rizzui';
 import { PiShieldCheckDuotone, PiLockKeyDuotone, PiUsersThreeDuotone, PiWarningDuotone, PiMaskHappyDuotone, PiTableDuotone } from 'react-icons/pi';
+import { safeToFixed } from '@/lib/format-number';
 import type { SecurityPosture } from '@/app/services/observability/types';
 
 interface SecurityPostureCardProps {
@@ -70,7 +71,7 @@ export default function SecurityPostureCard({ data, isLoading, className }: Secu
     {
       icon: PiLockKeyDuotone,
       label: 'MFA Coverage',
-      value: `${mfaCoverage.toFixed(0)}%`,
+      value: `${safeToFixed(mfaCoverage, 0)}%`,
       detail: `${mfaEnabledUsers} of ${totalUsers} users`,
       progress: mfaCoverage,
       color: mfaCoverage >= 80 ? 'success' : mfaCoverage >= 50 ? 'warning' : 'danger',

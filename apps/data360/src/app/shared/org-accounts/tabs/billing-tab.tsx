@@ -29,6 +29,7 @@ import {
   getOrganizationCosts,
 } from '@/app/services/org-accounts/hooks';
 import { formatCredits, formatDate, extractApiError } from '@/app/services/org-accounts/utils';
+import { safeNum, safeToFixed, safeLocale } from '@/lib/format-number';
 import type {
   BalanceResponse,
   ContractItem,
@@ -110,8 +111,10 @@ function aggregateCosts(raw: any[]): AccountCost[] {
   return Array.from(map.values()).sort((a, b) => b.total_cost - a.total_cost);
 }
 
-function formatCurrency(amount: number, currency = 'USD'): string {
-  return amount.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function formatCurrency(amount: number | string | null | undefined, currency = 'USD'): string {
+  const n = safeNum(amount);
+  if (n == null) return '—';
+  return n.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export default function BillingTab({ refreshKey }: BillingTabProps) {
@@ -284,7 +287,7 @@ export default function BillingTab({ refreshKey }: BillingTabProps) {
                       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
                         <Text className="text-sm font-medium text-gray-900 dark:text-white">{item.account_name}</Text>
                         <Text className="text-sm text-gray-600">Cost: <span className="font-semibold text-green-600">{formatCurrency(item.total_cost, item.currency)}</span></Text>
-                        {Object.entries(item.service_breakdown).slice(0, 4).map(([svc, amt]) => (
+                        {Object.entries(item.service_breakdown ?? {}).slice(0, 4).map(([svc, amt]) => (
                           <Text key={svc} className="text-xs text-gray-500">{svc.replace(/_/g, ' ')}: {formatCurrency(amt, item.currency)}</Text>
                         ))}
                       </div>
@@ -369,7 +372,7 @@ export default function BillingTab({ refreshKey }: BillingTabProps) {
                     <td className="px-4 py-3"><Text className="font-medium text-gray-900 dark:text-white">{c.contract_number}</Text></td>
                     <td className="px-4 py-3"><Badge variant="flat" color="primary" className="text-xs">{c.contract_item}</Badge></td>
                     <td className="px-4 py-3"><Text className="text-sm text-gray-600 dark:text-gray-300">{formatDate(c.start_date)} - {formatDate(c.end_date)}</Text></td>
-                    <td className="px-4 py-3 text-right"><Text className="font-medium text-gray-900 dark:text-white">{c.amount.toLocaleString()}</Text></td>
+                    <td className="px-4 py-3 text-right"><Text className="font-medium text-gray-900 dark:text-white">{safeLocale(c.amount)}</Text></td>
                     <td className="px-4 py-3"><Text className="text-gray-600 dark:text-gray-300">{c.currency}</Text></td>
                   </tr>
                 ))}
@@ -407,7 +410,7 @@ export default function BillingTab({ refreshKey }: BillingTabProps) {
                     <td className="px-4 py-2"><Text className="text-sm text-gray-900 dark:text-white">{r.account_name}</Text></td>
                     <td className="px-4 py-2"><Badge variant="flat" color="info" className="text-xs">{r.service_type.replace(/_/g, ' ')}</Badge></td>
                     <td className="px-4 py-2"><Text className="text-sm text-gray-600 dark:text-gray-300">{r.usage_type}</Text></td>
-                    <td className="px-4 py-2 text-right"><Text className="text-sm font-medium text-gray-900 dark:text-white">{r.effective_rate.toFixed(2)}</Text></td>
+                    <td className="px-4 py-2 text-right"><Text className="text-sm font-medium text-gray-900 dark:text-white">{safeToFixed(r.effective_rate, 2)}</Text></td>
                     <td className="px-4 py-2"><Text className="text-sm text-gray-600 dark:text-gray-300">{r.currency}</Text></td>
                   </tr>
                 ))}

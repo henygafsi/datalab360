@@ -9,18 +9,24 @@ export const CURRENCY_OPTIONS = {
   fractions: 2,
 };
 
-// Client → /api-proxy (Next rewrite, same-origin HTTPS).
-// Server → backend direct via NEXT_PUBLIC_API_BASE_URL or default HTTP.
+// HTTPS is not yet available on the backend, so the server-side default and the
+// bare-host upgrade both use http. (The client never uses this — it always goes
+// through the same-origin /api-proxy rewrite.) An explicit https:// URL in the
+// env var is still honored for when the backend gains TLS.
+const DEFAULT_SERVER_API_URL = 'http://api.datalab360.io';
+
+// Client -> /api-proxy (Next rewrite, same-origin HTTPS).
+// Server -> backend direct via NEXT_PUBLIC_API_BASE_URL or default.
 function _normalizeApiUrl(u: string): string {
   if (typeof window !== 'undefined') return '/api-proxy';
   let url = (u || '').trim();
-  if (!url) return 'http://api.datalab360.io';
+  if (!url) return DEFAULT_SERVER_API_URL;
   if (url.startsWith('//')) url = `http:${url}`;
   if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   return url;
 }
 export const API_BASE_URL = _normalizeApiUrl(
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://api.datalab360.io',
+  process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_SERVER_API_URL,
 );
 
 export const ROW_PER_PAGE_OPTIONS = [

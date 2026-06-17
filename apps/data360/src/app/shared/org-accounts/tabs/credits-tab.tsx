@@ -29,6 +29,7 @@ import {
   getWarehouseCredits,
 } from '@/app/services/org-accounts/hooks';
 import { formatCredits, extractApiError } from '@/app/services/org-accounts/utils';
+import { safeToFixed } from '@/lib/format-number';
 import type {
   AccountCredit,
   TopConsumer,
@@ -418,9 +419,9 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
                     return (
                       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
                         <Text className="text-sm font-medium text-gray-900 dark:text-white">{formatDate(item.usage_date)}</Text>
-                        <Text className="text-sm text-blue-600">Compute: {item.compute_credits?.toFixed(2)}</Text>
-                        <Text className="text-sm text-green-600">Cloud: {item.cloud_services_credits?.toFixed(2)}</Text>
-                        <Text className="text-sm font-semibold text-gray-900 dark:text-white">Billed: {item.total_billed?.toFixed(2)}</Text>
+                        <Text className="text-sm text-blue-600">Compute: {safeToFixed(item.compute_credits, 2)}</Text>
+                        <Text className="text-sm text-green-600">Cloud: {safeToFixed(item.cloud_services_credits, 2)}</Text>
+                        <Text className="text-sm font-semibold text-gray-900 dark:text-white">Billed: {safeToFixed(item.total_billed, 2)}</Text>
                       </div>
                     );
                   }} />
@@ -517,7 +518,7 @@ function AiConsumptionCard() {
             Monthly total
           </Text>
           <div className="mt-1 text-3xl font-bold text-purple-600">
-            {total > 0 ? total.toFixed(3) : '—'}
+            {total > 0 ? safeToFixed(total, 3) : '—'}
             <span className="ml-1 text-base font-medium text-gray-500">cr</span>
           </div>
           <Text className="mt-1 text-xs text-gray-500">
@@ -546,7 +547,7 @@ function AiConsumptionCard() {
                     />
                   </div>
                   <span className="w-16 text-right text-xs font-semibold tabular-nums text-gray-900 dark:text-white">
-                    {row.credits.toFixed(3)} cr
+                    {safeToFixed(row.credits, 3)} cr
                   </span>
                 </li>
               ))}
@@ -581,7 +582,7 @@ function AiConsumptionCard() {
                     return (
                       <div className="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs shadow-md dark:border-gray-700 dark:bg-gray-800">
                         <div className="font-medium">{p.date}</div>
-                        <div className="text-purple-600">{p.credits.toFixed(4)} cr</div>
+                        <div className="text-purple-600">{safeToFixed(p.credits, 4)} cr</div>
                       </div>
                     );
                   }}

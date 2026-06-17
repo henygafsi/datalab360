@@ -13,6 +13,7 @@ import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { InsightActionButton } from '@/app/shared/insights';
 import { dash, fmtNum } from '@/app/shared/ui/format';
+import { safeLocale } from '@/lib/format-number';
 
 // ---------------------------------------------------------------------------
 // Data Catalog Object Explorer — backed by GET /api/snowflake/explorer/*.
@@ -315,7 +316,7 @@ function FacetGroup({ label, items, activeValue, onToggle }: {
             aria-pressed={active}
           >
             <span className="truncate max-w-[140px]">{it.value}</span>
-            <span className="opacity-60">{it.count.toLocaleString()}</span>
+            <span className="opacity-60">{safeLocale(it.count)}</span>
           </button>
         );
       })}

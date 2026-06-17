@@ -51,6 +51,7 @@ import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { isUnavailable } from '@/lib/http-status';
 import { fmtNum } from '@/app/shared/ui/format';
+import { safeLocale } from '@/lib/format-number';
 import { createSchemaClone } from '@/app/services/explore-design';
 // TODO verify endpoint: reuses the org-accounts warehouse usage rollup (the only
 // existing contract that lists warehouse names) to populate DE create modals.
@@ -4426,7 +4427,7 @@ export default function ExploreDesignPage() {
                         </span>
                         {inlineProfileData && (
                           <>
-                            <span className="text-xs text-slate-500">{inlineProfileData.row_count.toLocaleString()} rows</span>
+                            <span className="text-xs text-slate-500">{safeLocale(inlineProfileData.row_count)} rows</span>
                             <span className={cn('text-xs font-medium', inlineProfileData.aggregate_quality_score >= 80 ? 'text-green-600' : inlineProfileData.aggregate_quality_score >= 60 ? 'text-amber-600' : 'text-red-600')}>
                               Quality {inlineProfileData.aggregate_quality_score}%
                             </span>
@@ -4480,7 +4481,7 @@ export default function ExploreDesignPage() {
                             <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Data Preview</span>
                             {inlinePreviewData && (
                               <Badge className="bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400 text-[10px]">
-                                {inlinePreviewData.total_rows.toLocaleString()} rows
+                                {safeLocale(inlinePreviewData.total_rows)} rows
                               </Badge>
                             )}
                             <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[10px] gap-1">

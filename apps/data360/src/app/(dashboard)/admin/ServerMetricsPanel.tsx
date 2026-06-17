@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { safeLocale, safeToFixed } from '@/lib/format-number';
 import EmptyState from '@/components/ui/EmptyState';
 import { GlassPanel } from '@/app/shared/glass';
 import { getServerMetrics, type ServerMetrics } from '@/app/services/admin-visibility';
@@ -158,12 +159,12 @@ export default function ServerMetricsPanel() {
       </div>
 
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
-        <Card label="Requests / min" icon={Activity} value={String(m.requests_per_min)} sub={`${m.total_requests.toLocaleString()} total`} />
+        <Card label="Requests / min" icon={Activity} value={String(m.requests_per_min)} sub={`${safeLocale(m.total_requests)} total`} />
         <Card label="Avg response" icon={Timer} value={`${Math.round(m.latency.avg_ms)} ms`} sub={`p90 ${Math.round(m.latency.p90_ms)}ms · p99 ${Math.round(m.latency.p99_ms)}ms`} />
-        <Card label="Error rate" icon={AlertTriangle} tint={m.error_rate > 5 ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-slate-100'} value={`${m.error_rate.toFixed(2)}%`} sub={`${m.error_count} errors`} />
+        <Card label="Error rate" icon={AlertTriangle} tint={m.error_rate > 5 ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-slate-100'} value={`${safeToFixed(m.error_rate, 2)}%`} sub={`${m.error_count} errors`} />
         <Card label="Uptime" icon={Gauge} value={fmtUptime(m.uptime_seconds)} />
         <Card label="Memory (RSS)" icon={HardDrive} value={`${Math.round(m.memory_rss_mb)} MB`} />
-        <Card label="CPU load" icon={Cpu} value={m.cpu_load != null ? m.cpu_load.toFixed(2) : '—'} sub={`${m.cpu_count} cores`} />
+        <Card label="CPU load" icon={Cpu} value={m.cpu_load != null ? safeToFixed(m.cpu_load, 2) : '—'} sub={`${m.cpu_count} cores`} />
         <Card label="Requests / 5min" icon={BarChart3} value={String(m.requests_per_5min)} />
         <Card label="p50 latency" icon={Gauge} value={`${Math.round(m.latency.p50_ms)} ms`} />
       </div>
@@ -195,7 +196,7 @@ export default function ServerMetricsPanel() {
                       <td className="max-w-[300px] truncate px-3 py-1 font-mono text-slate-700 dark:text-slate-200" title={`${e.method} ${e.path}`}>
                         <span className="text-slate-400">{e.method}</span> {e.path}
                       </td>
-                      <td className="px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200">{e.requests.toLocaleString()}</td>
+                      <td className="px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200">{safeLocale(e.requests)}</td>
                       <td className={cn('px-2 py-1 text-right', e.errors > 0 ? 'font-semibold text-red-600 dark:text-red-400' : 'text-slate-300 dark:text-slate-600')}>{e.errors || '·'}</td>
                       <td className="px-2 py-1 text-right text-slate-500 dark:text-slate-400">{Math.round(e.avg_ms)} ms</td>
                       <td className="px-2 py-1 text-right text-slate-400">{Math.round(e.max_ms)} ms</td>

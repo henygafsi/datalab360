@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { GlassPanel } from '@/app/shared/glass';
 import EmptyState from '@/components/ui/EmptyState';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { safeLocale } from '@/lib/format-number';
 import {
   getUserActivitySummary,
   type UserActivitySummaryResponse,
@@ -171,12 +172,12 @@ export default function ActivityDashboard() {
                         {m.module_name}
                       </p>
                       <p className="text-[10px] text-slate-400">
-                        {m.event_count.toLocaleString()} events · {m.unique_users} users
+                        {safeLocale(m.event_count)} events · {m.unique_users} users
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-3 text-right">
                       <span className="text-[10px] text-slate-400">
-                        {m.failure_count.toLocaleString()} failed
+                        {safeLocale(m.failure_count)} failed
                       </span>
                       <span
                         className={cn(
@@ -220,7 +221,7 @@ export default function ActivityDashboard() {
                       </p>
                     </div>
                     <span className="shrink-0 text-sm font-bold tabular-nums text-slate-700 dark:text-slate-200">
-                      {u.total_actions.toLocaleString()}
+                      {safeLocale(u.total_actions)}
                     </span>
                   </div>
                 ))}

@@ -15,6 +15,7 @@ import {
 } from './ai-guided-strategy';
 import { useAiCostEstimate } from '@/hooks/useAiCostEstimate';
 import type { TableRef } from '@/app/services/api/types';
+import { safeLocale } from '@/lib/format-number';
 
 interface StepDetectSchemaProps {
   projectId: string;
@@ -378,7 +379,7 @@ const TableCard: React.FC<TableCardProps> = ({
         {table.ref.table}
       </span>
       <span className="text-[11px] text-slate-400">
-        {table.rowCount.toLocaleString()} rows · {table.columns.length} cols
+        {safeLocale(table.rowCount)} rows · {table.columns.length} cols
       </span>
       {table.usedHeuristic && (
         <span

@@ -22,6 +22,7 @@ import { routes } from '@/config/routes';
 import * as GouvernanceService from '@/app/services/governance';
 import { getCortexRecommend } from '@/app/services/cortex';
 import { redirectToLogin, shouldRedirectToLoginOnError } from '@/lib/api-client';
+import { safeNum, safeToFixed } from '@/lib/format-number';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#84CC16'];
 const API_BASE_URL = (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
@@ -708,7 +709,7 @@ export default function GouvernanceDashboard() {
 
         <KPICard
           title="Est. cost (7d)"
-          value={dashboardData?.estimated_cost_usd_7d != null ? `$${dashboardData.estimated_cost_usd_7d.toFixed(2)}` : dashboardData?.estimated_cost_usd_30d != null ? `$${dashboardData.estimated_cost_usd_30d.toFixed(2)} (30d)` : '—'}
+          value={safeNum(dashboardData?.estimated_cost_usd_7d) != null ? `$${safeToFixed(dashboardData?.estimated_cost_usd_7d, 2)}` : safeNum(dashboardData?.estimated_cost_usd_30d) != null ? `$${safeToFixed(dashboardData?.estimated_cost_usd_30d, 2)} (30d)` : '—'}
           subtitle="Approx. USD from credits"
           icon={<PiChartLine className="w-6 h-6" />}
           color="purple"
@@ -1515,9 +1516,9 @@ export default function GouvernanceDashboard() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
-                      {activity.EXECUTION_TIME_SEC !== null && activity.EXECUTION_TIME_SEC !== undefined ? (
+                      {safeNum(activity.EXECUTION_TIME_SEC) != null ? (
                         <span className="font-mono">
-                          {activity.EXECUTION_TIME_SEC.toFixed(2)}s
+                          {safeToFixed(activity.EXECUTION_TIME_SEC, 2)}s
                         </span>
                       ) : (
                         <span className="text-slate-400">-</span>

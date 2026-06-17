@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { safeLocale } from '@/lib/format-number';
 import EmptyState from '@/components/ui/EmptyState';
 import { GlassPanel } from '@/app/shared/glass';
 import {
@@ -573,7 +574,7 @@ function CacheTab() {
             <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
               {byClass.map((c) => (
                 <span key={c.prefix} className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
-                  {c.class} · {c.count.toLocaleString()}
+                  {c.class} · {safeLocale(c.count)}
                 </span>
               ))}
             </div>
