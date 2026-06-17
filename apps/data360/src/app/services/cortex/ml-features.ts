@@ -351,10 +351,11 @@ export function getSentimentEmoji(score: number): string {
   return '😞';
 }
 
-export function formatBytes(bytes?: number): string {
-  if (!bytes) return 'N/A';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+export function formatBytes(bytes?: number | string | null): string {
+  const b = bytes == null || bytes === '' ? NaN : Number(bytes);
+  if (!Number.isFinite(b) || b === 0) return 'N/A';
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(b / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }

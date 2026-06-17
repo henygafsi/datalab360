@@ -379,12 +379,14 @@ tables:
  * @param bytes - File size in bytes
  * @returns Formatted string (e.g., "1.5 KB")
  */
-export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
+export function formatFileSize(bytes: number | string | null | undefined): string {
+  const b = bytes == null || bytes === '' ? NaN : Number(bytes);
+  if (!Number.isFinite(b)) return '—';
+  if (b === 0) return '0 Bytes';
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  const i = Math.floor(Math.log(b) / Math.log(k));
+  return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 /**
