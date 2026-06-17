@@ -52,6 +52,9 @@ import { getApiErrorMessage } from '@/lib/api-client';
 import { isUnavailable } from '@/lib/http-status';
 import { fmtNum } from '@/app/shared/ui/format';
 import { createSchemaClone } from '@/app/services/explore-design';
+// TODO verify endpoint: reuses the org-accounts warehouse usage rollup (the only
+// existing contract that lists warehouse names) to populate DE create modals.
+import { getWarehouses } from '@/app/services/org-accounts/hooks';
 import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
 import { useAuth } from '@/hooks/useAuth';
 import { useSession } from 'next-auth/react';
@@ -1102,6 +1105,11 @@ export default function ExploreDesignPage() {
   const [alertModal, setAlertModal] = useState(false);
   const [eventTableModal, setEventTableModal] = useState(false);
   const [hybridTableModal, setHybridTableModal] = useState(false);
+  // Account warehouses for the DE create modals (Dynamic Table / Alert). Fetched
+  // once, non-blocking; failures (e.g. non-admin → 403) degrade to [] and the
+  // modals fall back to their default warehouse. Sourced from the existing
+  // org-accounts usage rollup — the only contract that lists warehouse names.
+  const [accountWarehouses, setAccountWarehouses] = useState<string[]>([]);
 
   // AI column classification
   const [columnClassifications, setColumnClassifications] = useState<Map<string, Record<string, string>>>(new Map());
@@ -1233,6 +1241,27 @@ export default function ExploreDesignPage() {
 
   // Refresh trigger for tables
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Load account warehouses once for the DE create modals — fail-soft so a
+  // 403 (non-admin) or slow query never blocks the page; modals fall back to
+  // their default warehouse when the list is empty.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getWarehouses();
+        if (cancelled) return;
+        setAccountWarehouses(
+          (res?.warehouses ?? [])
+            .map((w) => w.warehouse_name)
+            .filter((n): n is string => Boolean(n)),
+        );
+      } catch {
+        if (!cancelled) setAccountWarehouses([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Event store with project filtering
   const {
@@ -3471,7 +3500,7 @@ export default function ExploreDesignPage() {
           action="deploy"
           projectId={selectedProjectId}
           title="Deployment restricted"
-          description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to Snowflake requires an administrator to grant deploy access."
+          description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to the data warehouse requires an administrator to grant deploy access."
         >
           <DeploymentValidation
             embedded
@@ -4138,7 +4167,7 @@ export default function ExploreDesignPage() {
               {/* Catalog Toolbar - Create Dropdown */}
               <div className="px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2">
                 <div className="relative">
-                  <Tooltip content={isReadOnly ? 'View-only access' : 'Create new Snowflake object'}>
+                  <Tooltip content={isReadOnly ? 'View-only access' : 'Create new object'}>
                     <Button
                       variant="outline"
                       size="sm"
@@ -5494,28 +5523,33 @@ export default function ExploreDesignPage() {
         isOpen={dynamicTableModal}
         onClose={() => setDynamicTableModal(false)}
         sourceTable={selectedTable || undefined}
-        warehouses={[]}
+        warehouses={accountWarehouses}
+        onCreated={() => setRefreshTrigger(prev => prev + 1)}
       />
       <StreamModal
         isOpen={streamModal}
         onClose={() => setStreamModal(false)}
         sourceTable={selectedTable || undefined}
+        onCreated={() => setRefreshTrigger(prev => prev + 1)}
       />
       <AlertModal
         isOpen={alertModal}
         onClose={() => setAlertModal(false)}
         sourceTable={selectedTable || undefined}
-        warehouses={[]}
+        warehouses={accountWarehouses}
+        onCreated={() => setRefreshTrigger(prev => prev + 1)}
       />
       <EventTableModal
         isOpen={eventTableModal}
         onClose={() => setEventTableModal(false)}
         context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
+        onCreated={() => setRefreshTrigger(prev => prev + 1)}
       />
       <HybridTableModal
         isOpen={hybridTableModal}
         onClose={() => setHybridTableModal(false)}
         context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
+        onCreated={() => setRefreshTrigger(prev => prev + 1)}
       />
 
       {/* Catalog Policy + Ingestion panels moved to right rail — no modals */}

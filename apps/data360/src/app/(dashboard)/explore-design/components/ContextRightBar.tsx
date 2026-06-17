@@ -151,7 +151,7 @@ export default function ContextRightBar({
   activeTab, onTabChange, focusedAction, onFocusAction,
   columnClassifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify,
   onAddEvent, profileData, historyEvents,
-  pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onOpenDeployModal, onDeselectTable,
+  pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onDeselectTable,
   emptyOverride, onNodeAction, deployOverride,
 }: ContextRightBarProps) {
 
@@ -266,7 +266,7 @@ export default function ContextRightBar({
     {
       id: 'quality', icon: BarChart3, label: 'Quality',
       render: () => selectedTable
-        ? <QualityPanel table={selectedTable} columns={tableColumns} profileData={profileData} onAddEvent={onAddEvent} />
+        ? <QualityPanel table={selectedTable} columns={tableColumns} projectId={projectId} profileData={profileData} onAddEvent={onAddEvent} />
         : empty,
     },
     {
@@ -292,7 +292,6 @@ export default function ContextRightBar({
           pendingEvents={pendingEvents}
           database={selectedDatabase}
           schema={selectedSchema}
-          onOpenDeployModal={onOpenDeployModal}
         />
       ) : empty),
     },
@@ -977,10 +976,18 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
 // C. Quality Panel
 // ---------------------------------------------------------------------------
 
-function QualityPanel({ table, columns, profileData, onAddEvent }: { table: TableItem; columns: ColumnInfo[]; profileData?: any; onAddEvent: (e: any) => void }) {
-  const nullCols = profileData?.columns?.filter((c: any) => (c.null_count ?? 0) > 0).length ?? 0;
-  const pkCandidate = columns.find((c) => c.isPrimaryKey)?.name || columns[0]?.name || '—';
-  const qualityScore = profileData?.aggregate_quality_score ?? 100;
+function QualityPanel({ table, columns, projectId, profileData, onAddEvent }: { table: TableItem; columns: ColumnInfo[]; projectId: string | null; profileData?: any; onAddEvent: (e: any) => void }) {
+  // Honest: only score/count when a real profile exists. Un-profiled tables
+  // render an em-dash with neutral (slate) styling — never an asserted 100%.
+  const nullCols: number | null = profileData
+    ? (profileData?.columns?.filter((c: any) => (c.null_count ?? 0) > 0).length ?? 0)
+    : null;
+  // Only surface a PK candidate when a real primary key exists — don't present
+  // an arbitrary first column as a "candidate".
+  const pkCandidate = columns.find((c) => c.isPrimaryKey)?.name ?? '—';
+  const qualityScore: number | null =
+    profileData?.aggregate_quality_score ?? null;
+  const hasScore = qualityScore != null;
 
   return (
     <div className="p-4 space-y-4">
@@ -988,19 +995,21 @@ function QualityPanel({ table, columns, profileData, onAddEvent }: { table: Tabl
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4">
         <div className="flex items-center justify-between mb-3">
           <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Quality Score</h4>
-          <span className={cn('text-lg font-bold', qualityScore >= 80 ? 'text-green-600' : qualityScore >= 60 ? 'text-amber-600' : 'text-red-600')}>{qualityScore}%</span>
+          <span className={cn('text-lg font-bold', !hasScore ? 'text-slate-400' : qualityScore >= 80 ? 'text-green-600' : qualityScore >= 60 ? 'text-amber-600' : 'text-red-600')}>{hasScore ? `${qualityScore}%` : '—'}</span>
         </div>
         <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-          <div className={cn('h-full rounded-full transition-all', qualityScore >= 80 ? 'bg-green-500' : qualityScore >= 60 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: `${qualityScore}%` }} />
+          <div className={cn('h-full rounded-full transition-all', !hasScore ? 'bg-slate-300 dark:bg-slate-600' : qualityScore >= 80 ? 'bg-green-500' : qualityScore >= 60 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: hasScore ? `${qualityScore}%` : '0%' }} />
         </div>
       </div>
 
       {/* Metrics grid */}
       <div className="grid grid-cols-2 gap-2">
-        <MetricCard label="Null columns" value={nullCols} total={columns.length} color={nullCols > 0 ? 'amber' : 'green'} />
-        <MetricCard label="Duplicate risk" value="Low" color="green" />
-        <MetricCard label="PK candidate" value={pkCandidate} color="blue" />
-        <MetricCard label="Freshness" value="Not set" color="slate" />
+        <MetricCard label="Null columns" value={nullCols == null ? '—' : nullCols} total={nullCols == null ? undefined : columns.length} color={nullCols == null ? 'slate' : nullCols > 0 ? 'amber' : 'green'} />
+        {/* No duplicate-risk / freshness field on the profile payload — render an
+            honest "—" rather than a hardcoded "Low" / "Not set" for every table. */}
+        <MetricCard label="Duplicate risk" value="—" color="slate" />
+        <MetricCard label="PK candidate" value={pkCandidate} color={pkCandidate === '—' ? 'slate' : 'blue'} />
+        <MetricCard label="Freshness" value="—" color="slate" />
       </div>
 
       {/* Actions — real API calls */}
@@ -1020,7 +1029,7 @@ function QualityPanel({ table, columns, profileData, onAddEvent }: { table: Tabl
             deploy path lands. */}
         <ActionBtn label="Set up monitoring" icon={Plus} onClick={() => {
           const colName = columns.find((c) => c.dataType === 'TIMESTAMP' || c.dataType === 'DATE')?.name || columns[0]?.name || 'UPDATED_AT';
-          onAddEvent({ type: 'QUALITY_GATE_SET', projectId: table.database, target: { database: table.database, schema: table.schema, table: table.table }, payload: { gateType: 'freshness', maxAgeHours: 24, column: colName } });
+          onAddEvent({ type: 'QUALITY_GATE_SET', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { gateType: 'freshness', maxAgeHours: 24, column: colName } });
           toast.success(`Freshness monitoring on ${colName} added to draft`);
         }} fullWidth />
       </div>
@@ -1137,12 +1146,12 @@ const DEPLOY_STEPS: { id: StepId; label: string; icon: React.ElementType; desc: 
   { id: 'pre_checks', label: 'Pre-Checks', icon: Shield, desc: 'Validate permissions and conflicts', required: true },
   { id: 'dry_run', label: 'Dry Run', icon: Play, desc: 'Simulate deployment on clone schema', required: false },
   { id: 'impact', label: 'Impact Analysis', icon: AlertTriangle, desc: 'Check downstream dependencies', required: false },
-  { id: 'deploy', label: 'Execute Deploy', icon: Rocket, desc: 'Apply DDL to Snowflake', required: true },
+  { id: 'deploy', label: 'Execute Deploy', icon: Rocket, desc: 'Apply changes to the data warehouse', required: true },
   { id: 'verify', label: 'Post-Verify', icon: CheckCircle, desc: 'Verify deployed objects', required: false },
 ];
 
-function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pendingEvents, database, schema }: {
-  projectId: string | null; pendingEventsCount: number; onOpenDeployModal: () => void;
+function DeployPanel({ projectId, pendingEventsCount, pendingEvents, database, schema }: {
+  projectId: string | null; pendingEventsCount: number;
   pendingEvents?: any[]; database?: string; schema?: string;
 }) {
   const [stepStatus, setStepStatus] = useState<Record<StepId, StepStatus>>({
@@ -1343,7 +1352,7 @@ function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pending
       action="deploy"
       projectId={projectId}
       title="Deployment restricted"
-      description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. You can keep modelling, but applying changes to Snowflake requires an administrator to grant deploy access."
+      description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. You can keep modelling, but applying changes to the data warehouse requires an administrator to grant deploy access."
     >
     <div className="p-4 space-y-4">
       {/* Header */}

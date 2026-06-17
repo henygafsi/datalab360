@@ -18,11 +18,13 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   context?: { database: string; schema: string };
+  /** Called after a successful create so the canvas / source list can refresh. */
+  onCreated?: () => void;
 }
 
 const EMPTY_COL: ColumnDef = { name: '', data_type: 'VARCHAR', primary_key: false, not_null: false, autoincrement: false };
 
-export default function HybridTableModal({ isOpen, onClose, context }: Props) {
+export default function HybridTableModal({ isOpen, onClose, context, onCreated }: Props) {
   const [name, setName] = useState('');
   const [columns, setColumns] = useState<ColumnDef[]>([{ ...EMPTY_COL, name: 'id', data_type: 'NUMBER', primary_key: true, not_null: true, autoincrement: true }]);
   const [loading, setLoading] = useState(false);
@@ -44,6 +46,7 @@ export default function HybridTableModal({ isOpen, onClose, context }: Props) {
         name, columns, database: context?.database, schema: context?.schema,
       });
       toast.success(`Hybrid table "${name}" created`);
+      onCreated?.();
       onClose();
     } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create hybrid table'); }
     finally { setLoading(false); }

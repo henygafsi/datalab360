@@ -16,6 +16,8 @@ interface Props {
   sourceTable?: { database: string; schema: string; table: string };
   warehouses?: string[];
   columns?: { name: string; dataType: string }[];
+  /** Called after a successful create so the canvas / source list can refresh. */
+  onCreated?: () => void;
 }
 
 // ── Prebuilt Alert Templates ──────────────────────────────────────
@@ -122,7 +124,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   'deployment': 'Deployment',
 };
 
-export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = [], columns = [] }: Props) {
+export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = [], columns = [], onCreated }: Props) {
   const [mode, setMode] = useState<'templates' | 'custom'>('templates');
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [selectedColumn, setSelectedColumn] = useState('');
@@ -167,6 +169,7 @@ export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = 
         schema: sourceTable?.schema,
       });
       toast.success(`Alert "${name}" created`);
+      onCreated?.();
       onClose();
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || 'Failed to create alert');

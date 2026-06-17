@@ -11,9 +11,11 @@ interface Props {
   onClose: () => void;
   sourceTable?: { database: string; schema: string; table: string };
   warehouses?: string[];
+  /** Called after a successful create so the canvas / source list can refresh. */
+  onCreated?: () => void;
 }
 
-export default function DynamicTableModal({ isOpen, onClose, sourceTable, warehouses = [] }: Props) {
+export default function DynamicTableModal({ isOpen, onClose, sourceTable, warehouses = [], onCreated }: Props) {
   const [name, setName] = useState('');
   const [targetLag, setTargetLag] = useState('20 minutes');
   const [warehouse, setWarehouse] = useState('');
@@ -30,6 +32,7 @@ export default function DynamicTableModal({ isOpen, onClose, sourceTable, wareho
         database: sourceTable?.database, schema: sourceTable?.schema,
       });
       toast.success(`Dynamic table "${name}" created`);
+      onCreated?.();
       onClose();
     } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create dynamic table'); }
     finally { setLoading(false); }
