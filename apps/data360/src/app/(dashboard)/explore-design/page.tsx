@@ -3210,6 +3210,56 @@ export default function ExploreDesignPage() {
     toast.success(`Removed ${table.table} from modeling`);
   }, [tables, selectedProjectId, addEvent]);
 
+  // Canvas "+ Add table" — 'manual' reuses the standard CreateTableModal flow
+  // (define columns by hand, Power BI style); 'empty' drops a blank draft table
+  // straight onto the canvas so it lands in the model first, then gets fed from
+  // sources. Both keep the select -> add-to-modeling -> configure-ingestion flow.
+  const handleAddTableFromCanvas = useCallback((mode: 'manual' | 'empty') => {
+    if (readOnlyGuard()) return;
+    if (!selectedProjectId) { toast.error('Select a project first'); return; }
+
+    if (mode === 'manual') {
+      setCreateTableType('standard');
+      setShowCreateTableModal(true);
+      return;
+    }
+
+    // 'empty' — blank table to be populated by source mappings.
+    const db = dwhTargetDatabase || selectedDatabase || '';
+    const schema = dwhTargetSchema || '';
+    if (!db || !schema) {
+      toast.error('Set a target database & schema (DWH location) before adding an empty table');
+      return;
+    }
+    let n = 1;
+    while (tables.some(t => t.id === `${db}.${schema}.NEW_TABLE_${n}`)) n += 1;
+    const tableName = `NEW_TABLE_${n}`;
+    const tableId = `${db}.${schema}.${tableName}`;
+    const newTable: TableItem = {
+      id: tableId,
+      database: db,
+      schema,
+      table: tableName,
+      columnCount: 0,
+      hasPrimaryKey: false,
+      status: 'pending',
+      sensitiveColumns: 0,
+    };
+    setTables(prev => (prev.some(t => t.id === tableId) ? prev : [...prev, newTable]));
+    setTargetTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
+    setModelingTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
+    setTableColumnsMap(prev => { const next = new Map(prev); next.set(tableId, []); return next; });
+    addEvent({
+      type: 'TABLE_CREATED',
+      projectId: selectedProjectId || undefined,
+      target: { database: db, schema, table: tableName },
+      payload: { tableId, tableName, mode: 'empty', columns: 0 },
+    });
+    setSelectedTable(newTable);
+    handleOpenContextBar(newTable);
+    toast.success(`Empty table "${tableName}" added — feed it from sources`);
+  }, [readOnlyGuard, selectedProjectId, dwhTargetDatabase, selectedDatabase, dwhTargetSchema, tables, addEvent, handleOpenContextBar]);
+
   // Add primary key to a table - saves event for later execution
   // AI Column Classification handler
   const handleAIClassify = useCallback(async () => {
@@ -4974,6 +5024,7 @@ export default function ExploreDesignPage() {
                   setSelectedTable(table);
                   setAlertModal(true);
                 }}
+                onAddTable={handleAddTableFromCanvas}
                 className={cn("h-full", isFullscreen && "pt-16")}
                 projectId={selectedProjectId}
                 defaultRelationships={defaultRelationships}
