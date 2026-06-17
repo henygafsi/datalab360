@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Modal, Button, Badge, Input, Text, Tooltip, Select } from 'rizzui';
-import { X, ArrowRight, Plus, Trash2, Search, Check, Link2, AlertTriangle, Wand2 } from 'lucide-react';
+import { Button, Badge, Input, Text, Tooltip, Select } from 'rizzui';
+import { ArrowRight, Plus, Trash2, Search, Check, Link2, AlertTriangle, Wand2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import DesignDockPanel from './DesignDockPanel';
 // Column transformation type (previously from old explore-design service)
 type ColumnTransformation =
   | null
@@ -282,21 +283,41 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
   if (!sourceTable || !targetTable) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} size="xl">
-      <div className="p-6 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <Text className="text-lg font-semibold">Column Mapping</Text>
-            <Text className="text-sm text-slate-500">
-              Map multiple source columns to target columns
-            </Text>
-          </div>
-          <button onClick={handleClose} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
-            <X className="h-5 w-5 text-slate-500" />
-          </button>
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Column Mapping"
+      subtitle="Map multiple source columns to target columns"
+      icon={
+        <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+          <Link2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
         </div>
-
+      }
+      widthClass="max-w-3xl"
+      footer={
+        <div className="flex items-center justify-between">
+          <Text className="text-sm text-slate-500">
+            {localMappings.length > 0
+              ? `${localMappings.length} new mapping(s) to save`
+              : 'Select columns and add mappings'
+            }
+          </Text>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={handleClose}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveAndClose}
+              disabled={localMappings.length === 0}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+            >
+              Save {localMappings.length > 0 ? `(${localMappings.length})` : ''} Mappings
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div>
         {/* Tables Info */}
         <div className="flex items-center gap-4 mb-6 p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
           <div className="flex-1">
@@ -707,30 +728,8 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
             )}
           </div>
         )}
-
-        {/* Actions */}
-        <div className="flex items-center justify-between mt-6 pt-4 border-t dark:border-slate-700">
-          <Text className="text-sm text-slate-500">
-            {localMappings.length > 0
-              ? `${localMappings.length} new mapping(s) to save`
-              : 'Select columns and add mappings'
-            }
-          </Text>
-          <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={handleClose}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSaveAndClose}
-              disabled={localMappings.length === 0}
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-            >
-              Save {localMappings.length > 0 ? `(${localMappings.length})` : ''} Mappings
-            </Button>
-          </div>
-        </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 };
 

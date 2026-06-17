@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { Modal, Button, Input } from 'rizzui';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Button, Input } from 'rizzui';
 import { Sparkles, X, Loader2, Table2, LayoutDashboard } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { autoCreateDashboard } from '@/app/services/api/biDashboardApi';
@@ -44,6 +45,16 @@ export default function AutoCreateModal({ isOpen, onClose, onCreated }: AutoCrea
     source.database &&
     source.schema &&
     (mode === 'schema' || (mode === 'table' && source.table));
+
+  // Escape-to-close (non-blocking drawer — page stays interactive).
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -94,8 +105,16 @@ export default function AutoCreateModal({ isOpen, onClose, onCreated }: AutoCrea
     }
   };
 
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="560px">
+  if (!isOpen) return null;
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <aside
+      role="dialog"
+      aria-modal="false"
+      aria-label="Auto-create Dashboard"
+      className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-lg flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+    >
       <div className="p-6">
         <div className="flex items-start justify-between mb-5">
           <div className="flex items-center gap-3">
@@ -243,6 +262,7 @@ export default function AutoCreateModal({ isOpen, onClose, onCreated }: AutoCrea
           </Button>
         </div>
       </div>
-    </Modal>
+    </aside>,
+    document.body,
   );
 }

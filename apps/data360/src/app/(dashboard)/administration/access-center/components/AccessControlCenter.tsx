@@ -716,62 +716,61 @@ export default function AccessControlCenter() {
         />
       )}
 
-      {/* Template chooser */}
+      {/* Template chooser — inline panel (no full-bleed scrim) */}
       {templateMenu && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setTemplateMenu(false)}
+        <GlassPanel
+          depth={3}
+          radius="2xl"
+          className="mt-3 w-full max-w-sm p-4 ring-1 ring-[hsl(var(--primary)/0.25)]"
         >
-          <GlassPanel
-            depth={3}
-            radius="2xl"
-            className="w-full max-w-sm p-4"
-            // stop propagation so clicks inside don't dismiss
+          <div
+            role="dialog"
+            aria-labelledby="template-chooser-title"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setTemplateMenu(false);
+            }}
           >
-            <div onClick={(e) => e.stopPropagation()}>
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
-                <Wand2 className="h-4 w-4 text-[hsl(var(--primary))]" /> Apply a system template
-              </p>
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                Seeds <span className="font-semibold">{selectedRole || 'the role'}</span> with a standard
-                template (wholesale replace).
-              </p>
-              <div className="mt-3 max-h-64 space-y-1 overflow-auto">
-                {templates.length === 0 ? (
-                  <p className="text-[11px] text-slate-400">No templates available — —</p>
-                ) : (
-                  templates.map((t) => (
-                    <button
-                      key={t.name}
-                      type="button"
-                      onClick={() => {
-                        setTemplateMenu(false);
-                        setConfirm({ kind: 'template', template: t.name });
-                      }}
-                      className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-left text-[11px] text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                    >
-                      <span className="font-medium">{t.display_name || t.name}</span>
-                      {typeof t.permission_count === 'number' && (
-                        <Chip tone="slate">{t.permission_count} perms</Chip>
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
-              <div className="mt-3 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setTemplateMenu(false)}
-                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  Cancel
-                </button>
-              </div>
+            <p id="template-chooser-title" className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+              <Wand2 className="h-4 w-4 text-[hsl(var(--primary))]" /> Apply a system template
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+              Seeds <span className="font-semibold">{selectedRole || 'the role'}</span> with a standard
+              template (wholesale replace).
+            </p>
+            <div className="mt-3 max-h-64 space-y-1 overflow-auto">
+              {templates.length === 0 ? (
+                <p className="text-[11px] text-slate-400">No templates available — —</p>
+              ) : (
+                templates.map((t) => (
+                  <button
+                    key={t.name}
+                    type="button"
+                    onClick={() => {
+                      setTemplateMenu(false);
+                      setConfirm({ kind: 'template', template: t.name });
+                    }}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-left text-[11px] text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <span className="font-medium">{t.display_name || t.name}</span>
+                    {typeof t.permission_count === 'number' && (
+                      <Chip tone="slate">{t.permission_count} perms</Chip>
+                    )}
+                  </button>
+                ))
+              )}
             </div>
-          </GlassPanel>
-        </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setTemplateMenu(false)}
+                className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </GlassPanel>
       )}
     </div>
   );

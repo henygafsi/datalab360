@@ -4670,24 +4670,20 @@ const ProjectsTab = memo(function ProjectsTab({
         </SectionCard>
       </div>
 
-      {/* Reject Deployment Modal */}
+      {/* Reject Deployment — inline non-blocking confirm (no scrim) */}
       {rejectModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={() => setRejectModal(null)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              setRejectModal(null);
-              setRejectReason('');
-            }
-          }}
-        >
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center p-4 sm:justify-end">
           <div
-            role="dialog"
-            aria-modal="true"
+            role="alertdialog"
             aria-labelledby="reject-modal-title"
-            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900"
-            onClick={(e) => e.stopPropagation()}
+            aria-describedby="reject-modal-desc"
+            className="pointer-events-auto w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setRejectModal(null);
+                setRejectReason('');
+              }
+            }}
           >
             <h3
               id="reject-modal-title"
@@ -4695,7 +4691,7 @@ const ProjectsTab = memo(function ProjectsTab({
             >
               Reject Deployment
             </h3>
-            <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+            <p id="reject-modal-desc" className="mb-4 text-sm text-gray-500 dark:text-gray-400">
               Reject deployment for{' '}
               <span className="font-medium text-gray-900 dark:text-white">
                 {rejectModal.projectName}

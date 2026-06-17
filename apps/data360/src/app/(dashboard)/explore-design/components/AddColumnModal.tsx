@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { Button, Input, Select, Textarea, Badge, Modal, Text, Tooltip } from 'rizzui';
+import { Button, Input, Select, Textarea, Badge, Text, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
   Code, Database, FileCode2, Play, X, Plus, Check, AlertTriangle,
   Info, Columns3, RefreshCw, Wand2, Copy, Eye, Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import DesignDockPanel from './DesignDockPanel';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 import { useEventStore } from '../stores/event-store';
 
@@ -299,28 +300,38 @@ const AddColumnModal: React.FC<AddColumnModalProps> = ({
   ]);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="800px">
-      <div className="max-h-[85vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-6 py-4 border-b dark:border-slate-700 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-              <Plus className="h-5 w-5 text-blue-600" />
-            </div>
-            <div>
-              <Text className="text-lg font-semibold">Add Computed Column</Text>
-              <Text className="text-sm text-slate-500">
-                {table.database}.{table.schema}.{table.table}
-              </Text>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
-            <X className="h-5 w-5" />
-          </button>
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Add Computed Column"
+      subtitle={`${table.database}.${table.schema}.${table.table}`}
+      icon={
+        <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+          <Plus className="h-5 w-5 text-blue-600" />
         </div>
-
+      }
+      widthClass="max-w-xl"
+      footer={
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-amber-600">
+            <AlertTriangle className="h-4 w-4" />
+            <Text className="text-sm">Column will be created during deployment</Text>
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={handleSubmit} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Add Column
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div>
         {/* Content */}
-        <div className="flex-1 overflow-auto p-6">
+        <div>
           <div className="grid grid-cols-3 gap-6">
             {/* Left side - Form */}
             <div className="col-span-2 space-y-5">
@@ -500,25 +511,8 @@ const AddColumnModal: React.FC<AddColumnModalProps> = ({
             </div>
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="px-6 py-4 border-t dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
-          <div className="flex items-center gap-2 text-amber-600">
-            <AlertTriangle className="h-4 w-4" />
-            <Text className="text-sm">Column will be created during deployment</Text>
-          </div>
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmit} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Add Column
-            </Button>
-          </div>
-        </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 };
 

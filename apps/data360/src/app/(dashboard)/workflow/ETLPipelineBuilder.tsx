@@ -3105,39 +3105,46 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       {showApproachFork && (
         <div
           role="dialog"
-          aria-modal="true"
           aria-label="Change approach"
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          className="fixed inset-y-0 right-0 z-[60] flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setShowApproachFork(false);
+          }}
         >
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={() => setShowApproachFork(false)}
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-          />
-          <div className="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-              Change how you build this workflow
-            </h3>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Switch to AI to scaffold from a description, or keep building
-              manually. Your current canvas is preserved.
-            </p>
-            <div className="mt-4">
-              <ManualAiTemplateFork
-                value={null}
-                onChange={(mode: BuildMode) => {
-                  setShowApproachFork(false);
-                  if (mode === 'ai') {
-                    setAiSeedDescription('');
-                    setActiveTab('ai');
-                  } else if (mode === 'template') {
-                    setShowCreateWizard(true);
-                  }
-                  // manual → just dismiss; the canvas stays as-is.
-                }}
-              />
+          <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-5 dark:border-slate-700">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                Change how you build this workflow
+              </h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Switch to AI to scaffold from a description, or keep building
+                manually. Your current canvas is preserved.
+              </p>
             </div>
+            <button
+              type="button"
+              aria-label="Close"
+              autoFocus
+              onClick={() => setShowApproachFork(false)}
+              className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto p-5">
+            <ManualAiTemplateFork
+              value={null}
+              onChange={(mode: BuildMode) => {
+                setShowApproachFork(false);
+                if (mode === 'ai') {
+                  setAiSeedDescription('');
+                  setActiveTab('ai');
+                } else if (mode === 'template') {
+                  setShowCreateWizard(true);
+                }
+                // manual → just dismiss; the canvas stays as-is.
+              }}
+            />
           </div>
         </div>
       )}

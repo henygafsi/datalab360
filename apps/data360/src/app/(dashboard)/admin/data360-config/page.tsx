@@ -147,16 +147,26 @@ function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  // Non-blocking inline confirm (no fixed inset-0 scrim). Escape/cancel dismiss.
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-      <GlassPanel depth={3} radius="2xl" className="w-full max-w-sm p-4">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+    <div
+      role="alertdialog"
+      aria-labelledby="d360-confirm-title"
+      aria-describedby="d360-confirm-body"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onCancel();
+      }}
+      className="mt-2"
+    >
+      <GlassPanel depth={3} radius="2xl" className="w-full max-w-sm p-4 ring-1 ring-amber-300/50 dark:ring-amber-500/30">
+        <p id="d360-confirm-title" className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
           <AlertTriangle className="h-4 w-4 text-amber-500" /> {title}
         </p>
-        <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{body}</p>
+        <p id="d360-confirm-body" className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{body}</p>
         <div className="mt-3 flex justify-end gap-2">
           <button
             type="button"
+            autoFocus
             onClick={onCancel}
             className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >

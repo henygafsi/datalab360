@@ -15,7 +15,7 @@ import type { ReactNode } from 'react';
 export type ConfigVariant = 'modal' | 'panel';
 
 export default function ConfigShell({
-  variant = 'modal',
+  variant = 'panel',
   isOpen,
   onClose,
   customSize,
