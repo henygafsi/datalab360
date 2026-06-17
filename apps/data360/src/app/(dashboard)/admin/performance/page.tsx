@@ -121,6 +121,7 @@ export default function PerformancePage() {
     () => getPerfOverview(account as string, hours),
     [account, hours],
     account ? liveMs : null,
+    !!account, // don't fetch /performance/<account>/overview until an account is selected (was firing with null → 403)
   );
   useEffect(() => {
     if (overview.state === 'done') setUpdatedAt(new Date().toLocaleTimeString());

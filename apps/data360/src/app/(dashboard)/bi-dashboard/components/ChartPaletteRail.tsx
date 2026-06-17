@@ -148,6 +148,7 @@ export default function ChartPaletteRail({
   const [search, setSearch] = useState('');
   const [textTitle, setTextTitle] = useState('');
   const [textContent, setTextContent] = useState('');
+  const [savingText, setSavingText] = useState(false);
   const [savedDraft, setSavedDraft] = useState<DraftPayload | null>(null);
 
   // ── Draft load on mount ───────────────────────────────────────────────
@@ -166,6 +167,17 @@ export default function ChartPaletteRail({
       /* ignore bad draft */
     }
   }, [projectId]);
+
+  // Esc-to-close for the inline text-widget modal (backdrop click already
+  // closes it; keyboard dismiss was missing).
+  useEffect(() => {
+    if (activeModal !== 'text') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActiveModal(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeModal]);
 
   const clearDraft = useCallback(() => {
     try {
@@ -268,21 +280,27 @@ export default function ChartPaletteRail({
     [projectId, pageId, existingWidgets, onWidgetAdded, clearDraft],
   );
 
-  const handleTextSave = () => {
+  const handleTextSave = async () => {
+    if (savingText) return;
     if (!textTitle.trim()) {
       toast.error('Title is required');
       return;
     }
-    void createAndNotify(
-      'text',
-      null,
-      textTitle.trim(),
-      { database: '', schema: '', table: '', x: null, measures: [], filters: [], groupBy: [], limit: null },
-      undefined,
-      { text_content: textContent, height: 2 },
-    );
-    setTextTitle('');
-    setTextContent('');
+    setSavingText(true);
+    try {
+      await createAndNotify(
+        'text',
+        null,
+        textTitle.trim(),
+        { database: '', schema: '', table: '', x: null, measures: [], filters: [], groupBy: [], limit: null },
+        undefined,
+        { text_content: textContent, height: 2 },
+      );
+      setTextTitle('');
+      setTextContent('');
+    } finally {
+      setSavingText(false);
+    }
   };
 
   // Filter tiles by search query
@@ -514,11 +532,11 @@ export default function ChartPaletteRail({
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={handleTextSave}
-                  disabled={!canCreate}
+                  disabled={!canCreate || savingText}
                   title={!canCreate ? createDeniedReason : undefined}
                   className="rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Add widget
+                  {savingText ? 'Adding…' : 'Add widget'}
                 </motion.button>
               </div>
             </motion.div>

@@ -14,12 +14,15 @@ interface ModelingTemplateModalProps {
   isOpen: boolean;
   onSelect: (choice: ModelingChoice) => void;
   projectName?: string;
+  /** Render as an inline onboarding panel on the canvas (no modal popup). */
+  inline?: boolean;
 }
 
 const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
   isOpen,
   onSelect,
   projectName,
+  inline = false,
 }) => {
   const [selected, setSelected] = useState<ModelingChoice | null>(null);
 
@@ -28,8 +31,7 @@ const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
     onSelect(selected);
   };
 
-  return (
-    <Modal isOpen={isOpen} onClose={() => {}} customSize="680px">
+  const content = (
       <div className="p-6">
         {/* Header */}
         <div className="text-center mb-6">
@@ -237,6 +239,23 @@ const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
           {selected && <ArrowRight className="h-4 w-4 ml-1" />}
         </Button>
       </div>
+  );
+
+  // Inline onboarding panel — centered on the modeling canvas, no popup/backdrop.
+  if (inline) {
+    if (!isOpen) return null;
+    return (
+      <div className="absolute inset-0 z-20 flex items-center justify-center p-6 pointer-events-none">
+        <div className="w-full max-w-[680px] rounded-2xl border border-slate-200 bg-white/95 shadow-xl backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95 pointer-events-auto">
+          {content}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Modal isOpen={isOpen} onClose={() => {}} customSize="680px">
+      {content}
     </Modal>
   );
 };

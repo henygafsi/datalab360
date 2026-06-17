@@ -17,6 +17,13 @@ export function usePerfFetch<T>(
   fetcher: () => Promise<T>,
   deps: ReadonlyArray<unknown>,
   liveMs?: number | null,
+  /**
+   * Gate the fetch. Defaults to true so existing callers are unchanged. Pass
+   * `false` (e.g. before an account is selected) to skip firing entirely —
+   * prevents the `/performance/null/overview` 403 from a premature null-account
+   * fetch. When it flips true, the fetch runs.
+   */
+  enabled: boolean = true,
 ) {
   const [data, setData] = useState<T | null>(null);
   const [state, setState] = useState<PerfState>('idle');
@@ -45,13 +52,13 @@ export function usePerfFetch<T>(
   }, []);
 
   useEffect(() => {
-    void load(true);
+    if (enabled) void load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [enabled, ...deps]);
 
   useEffect(() => {
     if (timer.current) clearInterval(timer.current);
-    if (liveMs) timer.current = setInterval(() => void load(false), liveMs);
+    if (liveMs && enabled) timer.current = setInterval(() => void load(false), liveMs);
     return () => {
       if (timer.current) clearInterval(timer.current);
     };

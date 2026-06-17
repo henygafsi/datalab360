@@ -124,7 +124,7 @@ export default function SmartRightBar({
             <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
               <p className="text-[10px] text-gray-500 dark:text-gray-400">DQ Score</p>
               <p className={cn('text-lg font-bold',
-                data?.dqScore === null ? 'text-gray-400' :
+                (data?.dqScore === null || data?.dqScore === undefined) ? 'text-gray-400' :
                 (data?.dqScore ?? 0) >= 80 ? 'text-green-600 dark:text-green-400' :
                 (data?.dqScore ?? 0) >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
               )}>

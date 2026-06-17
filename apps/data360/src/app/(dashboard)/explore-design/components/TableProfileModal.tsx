@@ -27,6 +27,7 @@ import {
   Layers,
   Copy,
   EyeOff,
+  Minus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'react-hot-toast';
@@ -58,7 +59,9 @@ interface ColumnProfile {
   max_length?: number;
   avg_length?: number;
   most_frequent?: Array<{ value: any; count: number; percentage: number }>;
-  data_quality_score: number;
+  // null when the backend did not compute a quality score — render '—' / neutral,
+  // never a fabricated 100 (which would falsely read as a perfect green score).
+  data_quality_score: number | null;
   is_unique: boolean;
   has_nulls: boolean;
   masking_policy?: string | null;
@@ -285,7 +288,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
     row_count: number;
     column_count: number;
     columns: ColumnProfile[];
-    overall_quality_score: number;
+    overall_quality_score: number | null;
     masking?: MaskingSummary | null;
   } | null>(null);
   const [sortBy, setSortBy] = useState<'name' | 'quality' | 'nulls'>('name');
@@ -331,7 +334,8 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
           distinct_percentage: distinctPct,
           min_value: col.min_value,
           max_value: col.max_value,
-          data_quality_score: col.quality_score ?? 100,
+          // Preserve missing-ness — never fabricate a 100 for an uncomputed score.
+          data_quality_score: col.quality_score ?? null,
           is_unique: distinctCount != null && distinctCount === totalRows && totalRows > 0,
           has_nulls: nullCount != null && nullCount > 0,
           // Additive governance overlay — present on the backend response even
@@ -344,7 +348,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
         row_count: data.row_count,
         column_count: data.column_count,
         columns: mappedColumns,
-        overall_quality_score: data.aggregate_quality_score ?? 100,
+        overall_quality_score: data.aggregate_quality_score ?? null,
         masking: (data as { masking?: MaskingSummary | null }).masking ?? null,
       });
     } catch (err: any) {
@@ -515,13 +519,15 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
     toast.success('Clustering DDL copied to clipboard');
   };
 
-  const getQualityColor = (score: number) => {
+  const getQualityColor = (score: number | null) => {
+    if (score == null) return 'text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-400';
     if (score >= 80) return 'text-green-600 bg-green-100 dark:bg-green-900/30';
     if (score >= 60) return 'text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30';
     return 'text-red-600 bg-red-100 dark:bg-red-900/30';
   };
 
-  const getQualityIcon = (score: number) => {
+  const getQualityIcon = (score: number | null) => {
+    if (score == null) return <Minus className="h-4 w-4 text-slate-400" />;
     if (score >= 80) return <CheckCircle2 className="h-4 w-4 text-green-500" />;
     if (score >= 60) return <AlertTriangle className="h-4 w-4 text-yellow-500" />;
     return <AlertCircle className="h-4 w-4 text-red-500" />;
@@ -560,7 +566,9 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
         comparison = a.column.localeCompare(b.column);
         break;
       case 'quality':
-        comparison = a.data_quality_score - b.data_quality_score;
+        // Sort needs a concrete number; treat unknown as -1 for ordering only
+        // (never rendered — this does not fabricate a score).
+        comparison = (a.data_quality_score ?? -1) - (b.data_quality_score ?? -1);
         break;
       case 'nulls':
         // Sorting needs a concrete number; treat unknown as 0 for ordering only.
@@ -626,7 +634,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
           <div className="flex items-center gap-2">
             {profileData && (
               <Badge className={cn("text-white", getQualityColor(profileData.overall_quality_score))}>
-                Quality: {profileData.overall_quality_score}%
+                Quality: {profileData.overall_quality_score != null ? `${profileData.overall_quality_score}%` : '—'}
               </Badge>
             )}
             <Button
@@ -657,7 +665,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
               <TrendingUp className="h-4 w-4 text-slate-400" />
               <span className="text-slate-500">Overall Quality:</span>
               <span className={cn("font-medium px-2 py-0.5 rounded", getQualityColor(profileData.overall_quality_score))}>
-                {profileData.overall_quality_score}%
+                {profileData.overall_quality_score != null ? `${profileData.overall_quality_score}%` : '—'}
               </span>
             </div>
             {(profileData.masking?.masked_column_count ?? 0) > 0 && (
@@ -836,7 +844,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                         </span>
                         <div className={cn("flex items-center gap-1 px-2 py-1 rounded text-xs font-medium", getQualityColor(col.data_quality_score))}>
                           {getQualityIcon(col.data_quality_score)}
-                          {col.data_quality_score}%
+                          {col.data_quality_score != null ? `${col.data_quality_score}%` : '—'}
                         </div>
                       </div>
                     </button>
@@ -870,13 +878,14 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                                 <div
                                   className={cn(
                                     "h-full rounded-full transition-all",
+                                    col.data_quality_score == null ? "bg-slate-300 dark:bg-slate-600" :
                                     col.data_quality_score >= 80 ? "bg-green-500" :
                                     col.data_quality_score >= 60 ? "bg-yellow-500" : "bg-red-500"
                                   )}
-                                  style={{ width: `${col.data_quality_score}%` }}
+                                  style={{ width: col.data_quality_score != null ? `${col.data_quality_score}%` : '0%' }}
                                 />
                               </div>
-                              <span className="text-lg font-bold">{col.data_quality_score}%</span>
+                              <span className="text-lg font-bold">{col.data_quality_score != null ? `${col.data_quality_score}%` : '—'}</span>
                             </div>
                           </div>
 
@@ -1050,7 +1059,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                             getQualityColor(col.data_quality_score),
                           )}>
                             {getQualityIcon(col.data_quality_score)}
-                            {col.data_quality_score}%
+                            {col.data_quality_score != null ? `${col.data_quality_score}%` : '—'}
                           </div>
                         </td>
 
@@ -1229,17 +1238,17 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                 <span className="flex items-center gap-1">
                   <CheckCircle2 className="h-4 w-4 text-green-500" />
                   <span className="text-slate-500">Good:</span>
-                  <span className="font-medium">{profileData.columns.filter(c => c.data_quality_score >= 80).length}</span>
+                  <span className="font-medium">{profileData.columns.filter(c => c.data_quality_score != null && c.data_quality_score >= 80).length}</span>
                 </span>
                 <span className="flex items-center gap-1">
                   <AlertTriangle className="h-4 w-4 text-yellow-500" />
                   <span className="text-slate-500">Warning:</span>
-                  <span className="font-medium">{profileData.columns.filter(c => c.data_quality_score >= 60 && c.data_quality_score < 80).length}</span>
+                  <span className="font-medium">{profileData.columns.filter(c => c.data_quality_score != null && c.data_quality_score >= 60 && c.data_quality_score < 80).length}</span>
                 </span>
                 <span className="flex items-center gap-1">
                   <AlertCircle className="h-4 w-4 text-red-500" />
                   <span className="text-slate-500">Poor:</span>
-                  <span className="font-medium">{profileData.columns.filter(c => c.data_quality_score < 60).length}</span>
+                  <span className="font-medium">{profileData.columns.filter(c => c.data_quality_score != null && c.data_quality_score < 60).length}</span>
                 </span>
               </div>
               <Button variant="outline" size="sm" onClick={onClose}>

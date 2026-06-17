@@ -57,6 +57,8 @@ export default function MaskingPoliciesContent() {
   // Inline form-level errors (replace error toasts).
   const [createError, setCreateError] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  // In-flight guard for the create POST (prevents double-submit double-POST).
+  const [isCreating, setIsCreating] = useState(false);
 
   // Form state for creating policy
   const [policyName, setPolicyName] = useState('');
@@ -126,6 +128,7 @@ export default function MaskingPoliciesContent() {
   };
 
   const handleCreate = async () => {
+    if (isCreating) return;
     if (!policyName || !columnType) {
       setCreateError('Please fill in all required fields.');
       return;
@@ -137,6 +140,7 @@ export default function MaskingPoliciesContent() {
     }
 
     setCreateError(null);
+    setIsCreating(true);
     try {
       const requestData = {
         policy_name: policyName,
@@ -156,6 +160,8 @@ export default function MaskingPoliciesContent() {
       refetch();
     } catch (error) {
       setCreateError(formatErrorMessage(error, 'Failed to create policy'));
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -331,7 +337,7 @@ export default function MaskingPoliciesContent() {
             <Button variant="outline" onClick={() => setShowCreatePanel(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} disabled={!canCreatePolicy} className="bg-amber-600 hover:bg-amber-700">
+            <Button onClick={handleCreate} isLoading={isCreating} disabled={!canCreatePolicy || isCreating} className="bg-amber-600 hover:bg-amber-700">
               Create Policy
             </Button>
           </>

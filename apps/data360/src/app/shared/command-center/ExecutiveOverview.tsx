@@ -99,7 +99,7 @@ export default function ExecutiveOverview({ days = 30, onNavigateTab }: { days?:
     <section className="rounded-2xl border border-gray-200 bg-gradient-to-br from-white to-slate-50/60 p-4 dark:border-gray-700 dark:from-gray-900 dark:to-gray-900">
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Cloud className="h-4 w-4 text-indigo-500" />
-        <h3 className="text-sm font-bold text-gray-900 dark:text-white">Vue exécutive — Data360 × Snowflake</h3>
+        <h3 className="text-sm font-bold text-gray-900 dark:text-white">Vue exécutive — Data360</h3>
         {auth?.account_name && (
           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">
             {auth.account_name}{auth.role ? ` · ${auth.role}` : ''}

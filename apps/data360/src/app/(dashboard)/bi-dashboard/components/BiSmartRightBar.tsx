@@ -609,6 +609,7 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
   const [pickerLoading, setPickerLoading] = useState(false);
   const [selected, setSelected] = useState('');
   const [granting, setGranting] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const loadShares = useCallback(async () => {
     setLoading(true);
@@ -673,6 +674,8 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
   };
 
   const revoke = async (share: DashboardShare) => {
+    if (revokingId) return;
+    setRevokingId(share.share_id);
     try {
       await revokeDashboardShare(projectId, share.share_id);
       toast.success(`Access removed for ${share.grantee}.`);
@@ -680,6 +683,8 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
       onSharesChanged?.();
     } catch {
       toast.error('Couldn’t revoke access.');
+    } finally {
+      setRevokingId(null);
     }
   };
 
@@ -765,12 +770,13 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
                 <button
                   type="button"
                   onClick={() => revoke(s)}
-                  disabled={!canRevoke}
+                  disabled={!canRevoke || !!revokingId}
+                  aria-busy={revokingId === s.share_id}
                   aria-label={`Revoke access for ${s.grantee}`}
                   title={canRevoke ? 'Revoke access' : 'Requires the "revoke-share" permission on Business Reporting.'}
                   className="shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-400"
                 >
-                  <Trash2 className="h-3.5 w-3.5" />
+                  {revokingId === s.share_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 </button>
               </li>
             ))}

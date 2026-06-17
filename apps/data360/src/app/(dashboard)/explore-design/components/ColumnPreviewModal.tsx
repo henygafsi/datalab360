@@ -29,7 +29,9 @@ interface ColumnProfile {
   max_length?: number;
   avg_length?: number;
   most_frequent?: Array<{ value: any; count: number; percentage: number }>;
-  data_quality_score: number;
+  // null when the backend did not compute a quality score — render '—' / neutral,
+  // never a fabricated 100.
+  data_quality_score: number | null;
   is_unique: boolean;
   has_nulls: boolean;
 }
@@ -64,7 +66,8 @@ const getDataTypeIcon = (dataType: string) => {
   return <Database className="h-4 w-4" />;
 };
 
-const getQualityColor = (score: number) => {
+const getQualityColor = (score: number | null) => {
+  if (score == null) return 'text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-400';
   if (score >= 90) return 'text-green-600 bg-green-100 dark:bg-green-900/30 dark:text-green-400';
   if (score >= 70) return 'text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400';
   return 'text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400';
@@ -144,7 +147,7 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
           distinct_percentage: distinctPct,
           min_value: profileResp.min_value,
           max_value: profileResp.max_value,
-          data_quality_score: profileResp.quality_score ?? 100,
+          data_quality_score: profileResp.quality_score ?? null,
           is_unique: distinctCount === totalRows && totalRows > 0,
           has_nulls: nullCount > 0,
           most_frequent: topFrequent.length > 0 ? topFrequent : undefined,
@@ -299,7 +302,9 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
                         'p-3 rounded-full',
                         getQualityColor(profileData.data_quality_score)
                       )}>
-                        {profileData.data_quality_score >= 90 ? (
+                        {profileData.data_quality_score == null ? (
+                          <Minus className="h-6 w-6" />
+                        ) : profileData.data_quality_score >= 90 ? (
                           <Check className="h-6 w-6" />
                         ) : profileData.data_quality_score >= 70 ? (
                           <Minus className="h-6 w-6" />
@@ -313,10 +318,11 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
                         </p>
                         <p className={cn(
                           'text-2xl font-bold',
+                          profileData.data_quality_score == null ? 'text-slate-500 dark:text-slate-400' :
                           profileData.data_quality_score >= 90 ? 'text-green-600' :
                           profileData.data_quality_score >= 70 ? 'text-amber-600' : 'text-red-600'
                         )}>
-                          {profileData.data_quality_score}%
+                          {profileData.data_quality_score != null ? `${profileData.data_quality_score}%` : '—'}
                         </p>
                       </div>
                     </div>

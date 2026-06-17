@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { formatDistanceToNow } from 'date-fns';
 import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
@@ -612,6 +613,7 @@ function ProjectsGovernancePageInner() {
     fetchPendingDeploys();
   }, [fetchPendingDeploys]);
 
+  const canApprove = useCanPerform('gouvernance', 'approve');
   const handleApproveDeploy = useCallback(async (projectId: string, deploymentId: string, projectName: string) => {
     if (deployActionLoading) return;
     setDeployActionLoading(deploymentId);
@@ -719,7 +721,8 @@ function ProjectsGovernancePageInner() {
                 <div className="flex items-center gap-2 ml-4">
                   <button
                     onClick={() => handleApproveDeploy(d.project_id, d.deployment_id, d.project_name)}
-                    disabled={deployActionLoading === d.deployment_id}
+                    disabled={deployActionLoading === d.deployment_id || (!canApprove.allowed && !canApprove.loading)}
+                    title={(!canApprove.allowed && !canApprove.loading) ? 'You do not have permission to approve deployments.' : undefined}
                     className="rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50 flex items-center gap-1"
                   >
                     <Check className="h-3.5 w-3.5" />

@@ -219,7 +219,7 @@ export default function SourceHub({ onSelectSource, defaultView = 'cards', class
         connectorMetaFor(s.type).label.toLowerCase().includes(q),
       );
     }
-    return [...result].sort((a, b) => a.name.localeCompare(b.name));
+    return [...result].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
   }, [sources, typeFilter, search]);
 
   const externalCount = useMemo(

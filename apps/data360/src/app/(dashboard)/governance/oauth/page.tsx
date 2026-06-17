@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   listOAuthIntegrations,
   listApiKeys,
@@ -1047,6 +1048,7 @@ function ApiKeysTab({
 
   // Assign RSA key state
   const [assigningUser, setAssigningUser] = useState<string | null>(null);
+  const canRevoke = useCanPerform('gouvernance', 'revoke');
   const [rsaKey, setRsaKey] = useState('');
   const [assigning, setAssigning] = useState(false);
 
@@ -1102,6 +1104,7 @@ function ApiKeysTab({
   };
 
   const handleRevoke = async (username: string) => {
+    if (!window.confirm(`Revoke the RSA key for ${username}? This immediately disables key-pair authentication for that user.`)) return;
     setRevoking(username);
     try {
       await revokeRSAKey(username);
@@ -1460,7 +1463,8 @@ className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                             </button>
                             <button
                               onClick={() => handleRevoke(user.user_name)}
-                              disabled={revoking === user.user_name}
+                              disabled={revoking === user.user_name || (!canRevoke.allowed && !canRevoke.loading)}
+                              title={(!canRevoke.allowed && !canRevoke.loading) ? 'You do not have permission to revoke RSA keys.' : undefined}
                               className="px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50"
                             >
                               {revoking === user.user_name ? 'Revoking...' : 'Revoke Key'}

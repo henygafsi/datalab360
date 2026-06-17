@@ -208,8 +208,8 @@ export default function StepConfigure() {
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-emerald-500" />
             <div>
-              <span className="text-sm font-medium">Atomic Deployment</span>
-              <p className="text-xs text-slate-500">Clone → Execute → Verify → Apply or Auto-Rollback</p>
+              <span className="text-sm font-medium">Sequential, idempotent deployment</span>
+              <p className="text-xs text-slate-500">Steps run in dependency order; each is retried once. Re-runs are idempotent.</p>
             </div>
           </div>
           <button
@@ -227,7 +227,7 @@ export default function StepConfigure() {
         </div>
         {config.atomicDeployment && (
           <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded text-xs text-emerald-700 dark:text-emerald-300">
-            All DDL actions will execute atomically. If any fails, the entire deployment rolls back automatically.
+            DDL actions run in dependency order and each step is retried once; re-runs are idempotent. This is not all-or-nothing — steps that already applied are not auto-rolled-back if a later step fails. Use the per-action rollback to reverse a step.
           </div>
         )}
       </div>

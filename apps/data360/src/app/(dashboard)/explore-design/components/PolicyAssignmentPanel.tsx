@@ -484,7 +484,8 @@ const MaskingPolicySection: React.FC<{
       </div>
 
       {/* Replace Confirmation Modal */}
-      <Modal isOpen={showReplaceConfirm} onClose={() => setShowReplaceConfirm(false)}>
+      {showReplaceConfirm && (
+      <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
         <div className="p-6 space-y-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-full">
@@ -526,7 +527,8 @@ const MaskingPolicySection: React.FC<{
             </Button>
           </div>
         </div>
-      </Modal>
+      </div>
+      )}
     </div>
   );
 };
@@ -864,7 +866,8 @@ const RLSPolicySection: React.FC<{
       )}
 
       {/* Replace Confirmation Modal */}
-      <Modal isOpen={showReplaceConfirm} onClose={() => setShowReplaceConfirm(false)}>
+      {showReplaceConfirm && (
+      <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
         <div className="p-6 space-y-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-full">
@@ -910,7 +913,8 @@ const RLSPolicySection: React.FC<{
             </Button>
           </div>
         </div>
-      </Modal>
+      </div>
+      )}
     </div>
   );
 };

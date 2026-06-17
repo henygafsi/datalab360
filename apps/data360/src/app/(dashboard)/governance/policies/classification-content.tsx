@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Button, Input, Loader } from 'rizzui';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 import toast from 'react-hot-toast';
 import {
@@ -328,6 +329,13 @@ function ClassificationTable({ rows, emptyHint }: { rows: ColumnRow[]; emptyHint
 }
 
 export default function ClassificationContent() {
+  // System 2 Action-RBAC. New Classifier / Add Regex Rule map to gouvernance:create,
+  // Apply Tags to gouvernance:apply. Fail-open while the allow-set loads (no flash of disabled).
+  const createPerm = useCanPerform('gouvernance', 'create');
+  const applyPerm = useCanPerform('gouvernance', 'apply');
+  const canCreatePolicy = createPerm.allowed || createPerm.loading;
+  const canApplyPolicy = applyPerm.allowed || applyPerm.loading;
+
   const [activeSection, setActiveSection] = useState<ActiveSection>('classify');
 
   // Classify
@@ -618,7 +626,8 @@ export default function ClassificationContent() {
             <TargetSummary target={applyTarget} />
             <Button
               onClick={handleApply}
-              disabled={applying || !fqn(applyTarget)}
+              disabled={!canApplyPolicy || applying || !fqn(applyTarget)}
+              title={!canApplyPolicy ? 'You lack the "apply" permission on governance. Ask an administrator to grant it.' : undefined}
               className="gap-2 bg-green-600 text-white hover:bg-green-700"
             >
               {applying ? <Loader variant="spinner" size="sm" /> : <PiCheckCircle className="w-4 h-4" />}
@@ -642,10 +651,10 @@ export default function ClassificationContent() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => { setRegexError(null); setShowAddRegex(true); }} className="gap-2">
+              <Button variant="outline" onClick={() => { setRegexError(null); setShowAddRegex(true); }} disabled={!canCreatePolicy} title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined} className="gap-2">
                 <PiPlus className="w-4 h-4" /> Add Regex Rule
               </Button>
-              <Button onClick={() => { setClassifierError(null); setShowCreateClassifier(true); }} className="gap-2 bg-amber-600 text-white hover:bg-amber-700">
+              <Button onClick={() => { setClassifierError(null); setShowCreateClassifier(true); }} disabled={!canCreatePolicy} title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined} className="gap-2 bg-amber-600 text-white hover:bg-amber-700">
                 <PiPlus className="w-4 h-4" /> New Classifier
               </Button>
             </div>
@@ -667,7 +676,7 @@ export default function ClassificationContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowCreateClassifier(false)}>Cancel</Button>
-            <Button onClick={handleCreateClassifier} disabled={creatingClassifier} className="bg-amber-600 text-white hover:bg-amber-700">
+            <Button onClick={handleCreateClassifier} disabled={!canCreatePolicy || creatingClassifier} className="bg-amber-600 text-white hover:bg-amber-700">
               {creatingClassifier ? <Loader variant="spinner" size="sm" /> : 'Create'}
             </Button>
           </>
@@ -714,7 +723,7 @@ export default function ClassificationContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowAddRegex(false)}>Cancel</Button>
-            <Button onClick={handleAddRegex} className="bg-amber-600 text-white hover:bg-amber-700">Add Rule</Button>
+            <Button onClick={handleAddRegex} disabled={!canCreatePolicy} className="bg-amber-600 text-white hover:bg-amber-700">Add Rule</Button>
           </>
         }
       >

@@ -21,10 +21,36 @@ interface SessionGuardProps {
  * - Monitors token expiration
  * - Handles graceful redirect on auth failures
  */
+/**
+ * Synchronous, network-free check for an already-valid JWT in localStorage.
+ * Lets the guard render the app shell IMMEDIATELY instead of blocking the whole
+ * screen behind a `/api/auth/session` round-trip + hydration on every load — the
+ * cause of the multi-second full-screen "Verifying session..." that reads as a loop.
+ */
+function hasValidLocalToken(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const token =
+      localStorage.getItem('access_token') || localStorage.getItem('snowflake_token');
+    if (!token || !token.includes('.')) return false;
+    const payload = JSON.parse(atob(token.split('.')[1] || '{}')) as { exp?: number };
+    // exp is unix seconds; render if absent or still in the future.
+    if (payload.exp && payload.exp * 1000 < Date.now()) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default function SessionGuard({ children, fallback }: SessionGuardProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [isReady, setIsReady] = useState(false);
+  // Optimistic: a valid local JWT lets us render now and verify in the background.
+  const [optimistic, setOptimistic] = useState(false);
+  useEffect(() => {
+    setOptimistic(hasValidLocalToken());
+  }, []);
 
   // Handle token expiration
   const handleTokenExpired = useCallback(async () => {
@@ -53,13 +79,15 @@ export default function SessionGuard({ children, fallback }: SessionGuardProps) 
     }
   }, [status, session, router, handleTokenExpired]);
 
-  // Show loading state while session is being determined
-  if (status === 'loading' || !isReady) {
+  // If the background check DEFINITIVELY says signed-out, stop and redirect —
+  // even if we were rendering optimistically from a stale local token.
+  if (status === 'unauthenticated') {
     return fallback || <SessionGuardLoadingFallback />;
   }
 
-  // If not authenticated, show loading (redirect is happening)
-  if (status === 'unauthenticated') {
+  // Render as soon as EITHER the session verified (isReady) OR a valid local
+  // token exists (optimistic). No more waiting on the network for every page.
+  if (!isReady && !optimistic) {
     return fallback || <SessionGuardLoadingFallback />;
   }
 

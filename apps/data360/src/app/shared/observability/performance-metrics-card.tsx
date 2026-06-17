@@ -20,17 +20,21 @@ function formatDuration(ms: number | undefined | null): string {
 }
 
 function formatDurationSec(sec: number | undefined | null): string {
-  if (sec == null) return '0s';
-  if (sec < 60) return `${sec.toFixed(1)}s`;
-  if (sec < 3600) return `${(sec / 60).toFixed(1)}m`;
-  return `${(sec / 3600).toFixed(1)}h`;
+  // Coerce + finite-guard: the backend sometimes sends these as strings, and a
+  // bare `.toFixed()` on a string crashed the whole observability dashboard.
+  const n = Number(sec);
+  if (sec == null || !Number.isFinite(n)) return '—';
+  if (n < 60) return `${n.toFixed(1)}s`;
+  if (n < 3600) return `${(n / 60).toFixed(1)}m`;
+  return `${(n / 3600).toFixed(1)}h`;
 }
 
 function formatMB(mb: number | undefined | null): string {
-  if (mb == null) return '0 MB';
-  if (mb >= 1024 * 1024) return `${(mb / (1024 * 1024)).toFixed(1)} TB`;
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-  return `${mb.toFixed(1)} MB`;
+  const n = Number(mb);
+  if (mb == null || !Number.isFinite(n)) return '—';
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} TB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} GB`;
+  return `${n.toFixed(1)} MB`;
 }
 
 function formatNumber(num: number | undefined | null): string {

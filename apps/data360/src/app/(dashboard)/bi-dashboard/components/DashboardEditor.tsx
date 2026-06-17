@@ -994,7 +994,11 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
               }
             }}
           >
-            <Download className="h-3.5 w-3.5" /> Export JSON
+            {isExporting ? (
+              <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Exporting...</>
+            ) : (
+              <><Download className="h-3.5 w-3.5" /> Export JSON</>
+            )}
           </Button>
         </div>
       </div>

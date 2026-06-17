@@ -48,6 +48,7 @@ export default function PasswordPoliciesContent() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Form state
   const [policyName, setPolicyName] = useState('');
@@ -83,12 +84,14 @@ export default function PasswordPoliciesContent() {
   };
 
   const handleCreate = async () => {
+    if (isCreating) return;
     if (!policyName) {
       setCreateError('Please provide a policy name.');
       return;
     }
 
     setCreateError(null);
+    setIsCreating(true);
     try {
       const requestData = {
         policy_name: policyName,
@@ -111,6 +114,8 @@ export default function PasswordPoliciesContent() {
       refetch();
     } catch (error) {
       setCreateError(formatPolicyError(error, 'Failed to create policy'));
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -223,7 +228,7 @@ export default function PasswordPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!canCreatePolicy} className="bg-red-600 hover:bg-red-700">Create Policy</Button>
+            <Button onClick={handleCreate} isLoading={isCreating} disabled={!canCreatePolicy || isCreating} className="bg-red-600 hover:bg-red-700">Create Policy</Button>
           </>
         }
       >

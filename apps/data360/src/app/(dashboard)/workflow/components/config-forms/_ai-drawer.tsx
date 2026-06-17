@@ -54,6 +54,16 @@ export const AIGenerateDrawer: React.FC<AIGenerateDrawerProps> = ({ open, onClos
     }
   }, [open]);
 
+  // Esc-to-close (drawer previously only closed via the X / Cancel buttons).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const handleGenerate = async () => {

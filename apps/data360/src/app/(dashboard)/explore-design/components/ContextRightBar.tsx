@@ -455,6 +455,9 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
   const policiesRef = useRef<HTMLDivElement>(null);
   const ingestionRef = useRef<HTMLDivElement>(null);
   const addColRef = useRef<HTMLDivElement>(null);
+  const [detectingPipes, setDetectingPipes] = useState(false);
+  const [listingFiles, setListingFiles] = useState(false);
+  const [loadingDdl, setLoadingDdl] = useState(false);
 
   useEffect(() => {
     if (focusedAction === 'policies') policiesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -547,9 +550,11 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
           <ActionBtn label="Configure" icon={RefreshCw} disabled={!canWrite} onClick={() => onFocusAction('ingestion')} />
           <ActionBtn label="Run refresh" icon={Play} disabled={!canExecute} onClick={() => {
             onAddEvent({ type: 'INGESTION_MODE_SET', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { mode: 'full_refresh' } });
-            toast.success('Refresh added to draft');
+            toast.success('Refresh added — review in Deploy tab');
           }} />
-          <ActionBtn label="Detect pipes" icon={Search} onClick={async () => {
+          <ActionBtn label="Detect pipes" icon={Search} loading={detectingPipes} onClick={async () => {
+            if (detectingPipes) return;
+            setDetectingPipes(true);
             try {
               const { listStreams, listDynamicTables } = await import('@/app/services/explore-design/de-objects');
               const [streams, dynTables] = await Promise.allSettled([
@@ -559,7 +564,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
               const sCount = streams.status === 'fulfilled' ? (streams.value?.streams?.length || 0) : 0;
               const dCount = dynTables.status === 'fulfilled' ? (dynTables.value?.dynamic_tables?.length || 0) : 0;
               toast.success(`Found ${sCount} streams, ${dCount} dynamic tables in ${table.schema}`);
-            } catch { toast.error('Detection failed'); }
+            } catch { toast.error('Detection failed'); } finally { setDetectingPipes(false); }
           }} />
         </div>
         {/* Add as data-product asset vs. link to project — two distinct flows
@@ -620,12 +625,14 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
           </div>
           <p className="text-[11px] text-slate-500">Manage files, SFTP connections, and stage access.</p>
           <div className="flex flex-wrap gap-2">
-            <ActionBtn label="List files" icon={Eye} onClick={async () => {
+            <ActionBtn label="List files" icon={Eye} loading={listingFiles} onClick={async () => {
+              if (listingFiles) return;
+              setListingFiles(true);
               try {
                 const { listSnowflakeStageFiles } = await import('@/app/(dashboard)/data-source-connection/connectionServices');
                 const res = await listSnowflakeStageFiles(table.table);
                 toast.success(`${res?.files?.length || 0} files in stage`);
-              } catch { toast.error('Failed to list stage files'); }
+              } catch { toast.error('Failed to list stage files'); } finally { setListingFiles(false); }
             }} />
             <ActionBtn label="Create SFTP" icon={Plus} disabled={!canWrite} onClick={() => {
               if (!canWrite) { toast.error('Insufficient permissions'); return; }
@@ -641,7 +648,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             }} />}
           </div>
           <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-[10px] text-slate-500">
-            <p>Access: <span className="font-medium text-slate-700 dark:text-slate-300">{userRole || 'accountadmin'}</span></p>
+            <p>Access: <span className="font-medium text-slate-700 dark:text-slate-300">{userRole || '—'}</span></p>
             <p>Source type: Stage ({table.database})</p>
           </div>
         </div>
@@ -654,16 +661,18 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">View Actions</h4>
           </div>
           <div className="flex flex-wrap gap-2">
-            <ActionBtn label="View DDL" icon={FileText} onClick={async () => {
+            <ActionBtn label="View DDL" icon={FileText} loading={loadingDdl} onClick={async () => {
+              if (loadingDdl) return;
+              setLoadingDdl(true);
               try {
                 const api = await import('@/app/services/api/exploreDesignApi');
                 const res = await api.sqlDiff(projectId || '', { database: table.database, schema_name: table.schema, event_ids: [] });
                 toast.success(`DDL: ${res?.diffs?.length || 0} changes found`);
-              } catch { toast.error('DDL diff not available — no pending changes'); }
+              } catch { toast.error('DDL diff not available — no pending changes'); } finally { setLoadingDdl(false); }
             }} />
             <ActionBtn label="Refresh view" icon={RefreshCw} disabled={!canExecute} onClick={() => {
               onAddEvent({ type: 'VIEW_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
-              toast.success('View refresh added to draft');
+              toast.success('View refresh added — review in Deploy tab');
             }} />
             {canWrite && <ActionBtn label="Alter view" icon={Plus} onClick={() => onFocusAction('add_column')} />}
           </div>
@@ -716,7 +725,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
         <div className="rounded-xl border border-red-200 dark:border-red-800 p-3 space-y-2">
           <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wider">Danger Zone</p>
           <div className="flex flex-wrap gap-1.5">
-            <ActionBtn label="Drop table" icon={AlertTriangle} onClick={() => {
+            <ActionBtn label="Drop table" icon={AlertTriangle} disabled={!canApprove} onClick={() => {
               onAddEvent({ type: 'TABLE_DROP_REQUEST', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { approval_required: true, reason: 'Manual request from catalog' } });
               toast.success('Drop request submitted — requires approval before execution');
               onDeselectTable?.();
@@ -761,7 +770,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
         <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Access Context</p>
         <div className="grid grid-cols-2 gap-1 text-[10px]">
           <span className="text-slate-500">Role</span>
-          <span className="font-medium text-slate-700 dark:text-slate-300">{userRole || 'accountadmin'}</span>
+          <span className="font-medium text-slate-700 dark:text-slate-300">{userRole || '—'}</span>
           <span className="text-slate-500">Database</span>
           <span className="font-mono text-slate-700 dark:text-slate-300">{table.database}</span>
           <span className="text-slate-500">Schema</span>
@@ -1926,23 +1935,25 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
 });
 PoliciesCard.displayName = 'PoliciesCard';
 
-function ActionBtn({ label, icon: Icon, onClick, primary, fullWidth, disabled }: {
-  label: string; icon: React.ElementType; onClick: () => void; primary?: boolean; fullWidth?: boolean; disabled?: boolean;
+function ActionBtn({ label, icon: Icon, onClick, primary, fullWidth, disabled, loading }: {
+  label: string; icon: React.ElementType; onClick: () => void; primary?: boolean; fullWidth?: boolean; disabled?: boolean; loading?: boolean;
 }) {
+  const isDisabled = disabled || loading;
   return (
     <button
       onClick={onClick}
-      disabled={disabled}
+      disabled={isDisabled}
+      aria-busy={loading || undefined}
       className={cn(
         'inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-medium rounded-lg transition-colors',
         primary
           ? 'bg-blue-600 hover:bg-blue-700 text-white'
           : 'border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800',
         fullWidth && 'w-full justify-center',
-        disabled && 'opacity-40 cursor-not-allowed'
+        isDisabled && 'opacity-40 cursor-not-allowed'
       )}
     >
-      <Icon className="h-3 w-3" />{label}
+      {loading ? <Loader variant="spinner" size="sm" className="h-3 w-3" /> : <Icon className="h-3 w-3" />}{label}
     </button>
   );
 }

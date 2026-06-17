@@ -22,7 +22,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { cn } from '@/lib/utils';
-import { Button, Badge, Input, Modal, Tooltip, Select, Checkbox } from 'rizzui';
+import { Button, Badge, Input, Tooltip, Select, Checkbox } from 'rizzui';
 import {
   ZoomIn, ZoomOut, Maximize2, Download, Upload, Undo2, Redo2,
   Grid3X3, Layers, Eye, EyeOff, Lock, Unlock, Plus, Minus,
@@ -361,6 +361,24 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     return mappings;
   }, [tables, targetTableIds, defaultRelationships, dynamicMappings]);
 
+  // FK badge source (P1): the foreign-key column is the CHILD-side column of each
+  // relationship (`child_column` on `${db}.${child_schema}.${child_table}`); the
+  // `parent_column` is the referenced PK side and already gets the Key badge — so
+  // it is intentionally NOT badged as a FK. Derived purely from the static,
+  // already-deployed `defaultRelationships` prop (events are deliberately kept out
+  // of the node-build memo — see the eventsRef note above — so there is no FK
+  // removal/sticky-state concern here). Keys: `${tableId}::${columnName}`.
+  const fkColumnSet = useMemo(() => {
+    const set = new Set<string>();
+    const database = tables[0]?.database;
+    if (!database) return set;
+    defaultRelationships.forEach((rel) => {
+      const childId = `${database}.${rel.child_schema}.${rel.child_table}`;
+      set.add(`${childId}::${rel.child_column}`);
+    });
+    return set;
+  }, [tables, defaultRelationships]);
+
   // Convert tables to nodes - only depend on tables and tableColumns, not events
   // Mark tables as 'target' (DWH) or 'source' for visual distinction
   const initialNodes: Node<TableNodeData>[] = useMemo(() => {
@@ -382,6 +400,9 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
             name: c.name,
             dataType: c.dataType,
             isPrimaryKey: c.isPrimaryKey,
+            // P1: light the FK Link2 badge. Honor an explicit upstream flag if one
+            // ever sets it, otherwise fall back to the derived defaultRelationships set.
+            isForeignKey: c.isForeignKey ?? fkColumnSet.has(`${table.id}::${c.name}`),
             isNullable: c.isNullable,
             isSensitive: c.isSensitive,
           })),
@@ -407,7 +428,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       };
     });
     return autoLayout(nodes);
-  }, [tables, tableColumns, targetTableIds, targetMappedColumns]);
+  }, [tables, tableColumns, targetTableIds, targetMappedColumns, fkColumnSet]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -428,6 +449,75 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialNodes]);
+
+  // Governance badges (P1): populate node.data.config (RLS / tags) from the
+  // event spine so TableNode's existing RLS/Tag badge block stops reading an
+  // always-undefined config. Net state — APPLIED adds, REMOVED deletes (events
+  // are chronological / append-only), so apply-then-remove correctly nets to off.
+  // qualityScore/rowCount are left undefined on purpose: there is no per-table
+  // score source in scope, and TableNode's `!= null` guards self-hide them as an
+  // honest "—" rather than a fake 0. Runs after the node-reset effect above
+  // (shares `initialNodes` in deps) and is guarded so it can never loop even if
+  // `events` is a fresh array each render.
+  useEffect(() => {
+    // Per-table net governance state, keyed by `${db}.${schema}.${table}`.
+    const rlsByTable = new Map<string, Set<string>>();
+    const tagsByTable = new Map<string, Set<string>>();
+    events.forEach((e) => {
+      const t = e.target;
+      if (!t?.database || !t?.schema || !t?.table) return;
+      const tableId = `${t.database}.${t.schema}.${t.table}`;
+      if (e.type === 'RLS_POLICY_APPLIED' || e.type === 'RLS_POLICY_REMOVED') {
+        const name = e.payload?.policyName;
+        if (!name) return;
+        if (!rlsByTable.has(tableId)) rlsByTable.set(tableId, new Set<string>());
+        const set = rlsByTable.get(tableId)!;
+        if (e.type === 'RLS_POLICY_APPLIED') set.add(name); else set.delete(name);
+      } else if (e.type === 'TAG_APPLIED' || e.type === 'TAG_REMOVED') {
+        const name: string | undefined = e.payload?.tagName ?? e.payload?.tag;
+        // SENSITIVE:-prefixed tags are the sensitive-column marker (event-store
+        // reuses TAG events for it) — exclude so the tag badge isn't inflated.
+        if (!name || name.startsWith('SENSITIVE:')) return;
+        if (!tagsByTable.has(tableId)) tagsByTable.set(tableId, new Set<string>());
+        const set = tagsByTable.get(tableId)!;
+        if (e.type === 'TAG_APPLIED') set.add(name); else set.delete(name);
+      }
+    });
+
+    setNodes((prev) => {
+      let changed = false;
+      const next = prev.map((n) => {
+        const rls = rlsByTable.get(n.id);
+        const tags = tagsByTable.get(n.id);
+        const hasRLS = !!rls && rls.size > 0;
+        const tagList = tags && tags.size > 0 ? Array.from(tags) : undefined;
+        const prevConfig = n.data.config;
+        const sameRLS = (prevConfig?.hasRLS ?? false) === hasRLS;
+        const prevTags = prevConfig?.tags;
+        const sameTags =
+          (prevTags?.length ?? 0) === (tagList?.length ?? 0) &&
+          (prevTags ?? []).every((tg, i) => tg === tagList?.[i]);
+        if (sameRLS && sameTags) return n;
+        changed = true;
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            config: {
+              ...prevConfig,
+              hasRLS,
+              tags: tagList,
+              // qualityScore / rowCount intentionally left as-is (undefined) —
+              // no per-table source; TableNode self-hides them as honest "—".
+            },
+          },
+        };
+      });
+      // Loop-breaker: identical state => return prev (React no-op, no re-render).
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, initialNodes]);
 
   // Create edges from default relationships
   useEffect(() => {
@@ -1688,7 +1778,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       )}
 
       {/* Add Simple Column Modal */}
-      <Modal isOpen={showAddSimpleColumnModal} onClose={() => setShowAddSimpleColumnModal(false)}>
+      {showAddSimpleColumnModal && (
+      <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
         <div className="p-6">
           <h3 className="text-lg font-semibold mb-4">
             Add Column to {selectedTableForPanel?.table}
@@ -1781,7 +1872,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
             </Button>
           </div>
         </div>
-      </Modal>
+      </div>
+      )}
 
       {/* Column Mapping Modal */}
       <ColumnMappingModal
@@ -1872,7 +1964,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
       {/* FK Column Picker Modal */}
       {fkPickerState && (
-        <Modal isOpen onClose={() => setFkPickerState(null)} customSize="440px">
+        <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
           <div className="p-5">
             <h3 className="text-lg font-semibold mb-1 flex items-center gap-2">
               <GitBranch className="h-5 w-5 text-amber-500" />
@@ -1965,7 +2057,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
               </Button>
             </div>
           </div>
-        </Modal>
+        </div>
       )}
 
       {/* Rename Table Modal (structured — replaces window.prompt()) */}
@@ -1985,7 +2077,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           setRenameState(null);
         };
         return (
-          <Modal isOpen onClose={() => setRenameState(null)} customSize="420px">
+          <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
             <div className="p-5">
               <h3 className="text-lg font-semibold mb-4">
                 Rename {table.table}
@@ -2006,13 +2098,15 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 </Button>
               </div>
             </div>
-          </Modal>
+          </div>
         );
       })()}
 
       {/* Set Primary Key Modal (structured — replaces window.prompt()) */}
       {pkState && (
-        <Modal isOpen onClose={() => setPkState(null)} customSize="420px">
+        // No-popup: docked floating card (no backdrop) so the canvas + the
+        // highlighted target table stay visible while you pick the PK column.
+        <div className="fixed bottom-8 left-1/2 z-40 -translate-x-1/2 w-[420px] max-w-[90vw] rounded-xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900">
           <div className="p-5">
             <h3 className="text-lg font-semibold mb-1">
               Set primary key
@@ -2058,7 +2152,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
               </Button>
             </div>
           </div>
-        </Modal>
+        </div>
       )}
     </div>
   );

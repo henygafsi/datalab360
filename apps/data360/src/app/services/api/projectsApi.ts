@@ -54,9 +54,21 @@ const PREFIX = '/projects';
 // Project CRUD
 // ============================================================================
 
+// In-flight dedup: explore-design's page + ProjectSelector each call listProjects
+// on open, firing 3-4 identical /projects requests (~524ms each) concurrently.
+// Share one in-flight promise per params signature so the burst collapses to a
+// single request. Cleared on settle, so later refetches still hit the network.
+const _listProjectsInFlight = new Map<string, Promise<ProjectListResponse>>();
 export async function listProjects(params?: ListProjectsParams) {
-  const { data } = await apiClient.get<ProjectListResponse>(PREFIX, { params });
-  return data;
+  const key = JSON.stringify(params ?? {});
+  const inFlight = _listProjectsInFlight.get(key);
+  if (inFlight) return inFlight;
+  const p = apiClient
+    .get<ProjectListResponse>(PREFIX, { params })
+    .then(({ data }) => data)
+    .finally(() => _listProjectsInFlight.delete(key));
+  _listProjectsInFlight.set(key, p);
+  return p;
 }
 
 export async function getProject(projectId: string) {

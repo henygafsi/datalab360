@@ -74,6 +74,9 @@ export default function TagPoliciesContent() {
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  // In-flight guards for the create/apply mutations (mirrors masking-policies-content).
+  const [isCreating, setIsCreating] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
   // After a successful apply we surface an interactive next-step strip instead
   // of dead-ending on a toast. Holds the tag + object we just tagged so the CTAs
   // can re-open the right panels with that context.
@@ -126,7 +129,9 @@ export default function TagPoliciesContent() {
       return;
     }
 
+    if (isCreating) return;
     setCreateError(null);
+    setIsCreating(true);
     try {
       await createTag({
         tag_name: tagName,
@@ -141,6 +146,8 @@ export default function TagPoliciesContent() {
       refetch();
     } catch (error) {
       setCreateError(formatPolicyError(error, 'Failed to create tag'));
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -168,7 +175,9 @@ export default function TagPoliciesContent() {
       return;
     }
 
+    if (isApplying) return;
     setApplyError(null);
+    setIsApplying(true);
     try {
       await applyTag({
         tag_name: selectedTag.tag_name,
@@ -195,6 +204,8 @@ export default function TagPoliciesContent() {
       refetch();
     } catch (error) {
       setApplyError(formatPolicyError(error, 'Failed to apply tag'));
+    } finally {
+      setIsApplying(false);
     }
   };
 
@@ -379,7 +390,7 @@ export default function TagPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!canCreatePolicy} className="bg-green-600 hover:bg-green-700">Create Tag</Button>
+            <Button onClick={handleCreate} isLoading={isCreating} disabled={!canCreatePolicy || isCreating} className="bg-green-600 hover:bg-green-700">Create Tag</Button>
           </>
         }
       >
@@ -430,7 +441,7 @@ export default function TagPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => { setShowApplyPanel(false); setSelectedTag(null); resetApplyForm(); }}>Cancel</Button>
-            <Button onClick={handleApply} disabled={!canApplyTag || !database || !tagValue} title={!canApplyTag ? 'You lack the "grant" permission on governance. Ask an administrator to grant it.' : undefined} className="bg-green-600 hover:bg-green-700">{applyTodoLabel}</Button>
+            <Button onClick={handleApply} isLoading={isApplying} disabled={!canApplyTag || !database || !tagValue || isApplying} title={!canApplyTag ? 'You lack the "grant" permission on governance. Ask an administrator to grant it.' : undefined} className="bg-green-600 hover:bg-green-700">{applyTodoLabel}</Button>
           </>
         }
       >

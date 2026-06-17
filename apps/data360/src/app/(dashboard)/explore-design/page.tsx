@@ -1132,6 +1132,18 @@ export default function ExploreDesignPage() {
   const dropDeniedReason =
     'You lack the "delete" permission on Explore & Design. Ask an administrator to grant it.';
 
+  // Action-RBAC for in-place column ALTERs (rename / retype). Fail-open while
+  // the allow-set loads (mirrors canDropObjects). Drop reuses dropObjPerm.
+  const editColPerm = useCanPerform('explore_design', 'edit');
+  const canEditCols = editColPerm.allowed || editColPerm.loading;
+  // Inline per-column ALTER editor (rename / retype / drop-confirm). No browser
+  // dialogs (this file replaced confirm() with inline state, see confirmDrop).
+  const [columnEdit, setColumnEdit] = useState<
+    { column: string; mode: 'rename' | 'retype' | 'drop'; value: string; oldType: string } | null
+  >(null);
+  // Snowflake types offered by the retype picker (mirrors AddColumnModal DATA_TYPES).
+  const COLUMN_TYPE_OPTIONS = ['VARCHAR', 'NUMBER', 'INTEGER', 'FLOAT', 'BOOLEAN', 'DATE', 'TIMESTAMP', 'VARIANT', 'ARRAY', 'OBJECT'];
+
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('catalog');
   // Persist viewMode to localStorage
@@ -1335,6 +1347,76 @@ export default function ExploreDesignPage() {
     }
     return false;
   }, [isReadOnly]);
+
+  // ── Per-column ALTER dispatchers (P0) ─────────────────────────────────────
+  // Wire DROP / RENAME / retype into the existing EventStore. The deployment-
+  // utils generator already emits the SQL + rollbackSql for each of these event
+  // types — we only need to emit the event with the exact payload shape it reads:
+  //   COLUMN_RENAMED      → payload.oldName / payload.newName, target.column = oldName
+  //   COLUMN_TYPE_CHANGED → target.column, payload.oldType / payload.newType
+  //   REMOVE_COLUMN       → payload.columnName (+ target.column)
+  // addEvent() silently rejects non-significant events (returns null), so oldType
+  // and a changed value are load-bearing — without them the action no-ops.
+  const handleColumnRename = useCallback((columnName: string, newName: string) => {
+    if (readOnlyGuard()) return;
+    if (!selectedTable) return;
+    const trimmed = newName.trim().toUpperCase();
+    if (!trimmed || trimmed === columnName.toUpperCase()) { setColumnEdit(null); return; }
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(trimmed)) {
+      toast.error('Invalid column name');
+      return;
+    }
+    const added = addEvent({
+      type: 'COLUMN_RENAMED',
+      projectId: selectedProjectId || undefined,
+      target: {
+        database: selectedTable.database,
+        schema: selectedTable.schema,
+        table: selectedTable.table,
+        column: columnName,
+      },
+      payload: { oldName: columnName, newName: trimmed },
+    });
+    setColumnEdit(null);
+    if (added) toast.success(`Rename "${columnName}" → "${trimmed}" queued`);
+  }, [readOnlyGuard, selectedTable, selectedProjectId, addEvent]);
+
+  const handleColumnRetype = useCallback((columnName: string, oldType: string, newType: string) => {
+    if (readOnlyGuard()) return;
+    if (!selectedTable) return;
+    if (!newType || newType === oldType) { setColumnEdit(null); return; }
+    const added = addEvent({
+      type: 'COLUMN_TYPE_CHANGED',
+      projectId: selectedProjectId || undefined,
+      target: {
+        database: selectedTable.database,
+        schema: selectedTable.schema,
+        table: selectedTable.table,
+        column: columnName,
+      },
+      payload: { oldType, newType },
+    });
+    setColumnEdit(null);
+    if (added) toast.success(`Type change "${columnName}" ${oldType || '?'} → ${newType} queued`);
+  }, [readOnlyGuard, selectedTable, selectedProjectId, addEvent]);
+
+  const handleColumnDrop = useCallback((columnName: string) => {
+    if (readOnlyGuard()) return;
+    if (!selectedTable) return;
+    const added = addEvent({
+      type: 'REMOVE_COLUMN',
+      projectId: selectedProjectId || undefined,
+      target: {
+        database: selectedTable.database,
+        schema: selectedTable.schema,
+        table: selectedTable.table,
+        column: columnName,
+      },
+      payload: { columnName },
+    });
+    setColumnEdit(null);
+    if (added) toast.success(`Drop column "${columnName}" queued`);
+  }, [readOnlyGuard, selectedTable, selectedProjectId, addEvent]);
 
   // ── Scan deep-link: accept an AI-suggested data product ───────────────────
   // Seeds the AI-guided wizard with the suggestion's description + source
@@ -1605,22 +1687,14 @@ export default function ExploreDesignPage() {
         const dbList = await getDatabases();
         setDatabases(Array.isArray(dbList) ? dbList : []);
         if (Array.isArray(dbList) && dbList.length > 0) {
-          const firstDb = dbList[0];
-          setSelectedDatabase(prev => prev || firstDb);
-          // Auto-load schemas for ALL databases in parallel, skip system schemas
-          const allSchemasMap = new Map<string, string>();
-          const allSchemaNames: string[] = [];
-          await Promise.allSettled(dbList.map(async (db: string) => {
-            try {
-              const schemaList = await getSchemas(db);
-              if (schemaList) schemaList.forEach((s: string) => {
-                allSchemasMap.set(s, db);
-                allSchemaNames.push(s);
-              });
-            } catch { /* skip inaccessible db */ }
-          }));
-          setSchemas(allSchemaNames);
-          setSelectedSchemas(allSchemasMap);
+          // Select the first db ONLY — do NOT fan getSchemas across EVERY database.
+          // That fan-out (one getSchemas per db, then getTables per (db,schema), then
+          // getTableColumns per table) ran on project open over the user's no-retry
+          // connection — the cause of the "project display so long" + a cursor-race
+          // amplifier. The loadSchemas effect (keyed on selectedDatabase) loads the
+          // selected db's schemas into the picker; schema/table loading is user-driven
+          // from the restored CompactSourceSelector.
+          setSelectedDatabase(prev => prev || dbList[0]);
         }
       } catch (error: any) {
         console.error('[Explore-Design] Failed to load databases:', error);
@@ -1638,7 +1712,10 @@ export default function ExploreDesignPage() {
     loadDatabases();
   }, [selectedProjectId, isOffline, router, sseRefreshKey]);
 
-  // Load masking policies on mount
+  // Load masking policies — DEFERRED off the initial critical path. The
+  // /masking/batch-details call is ~1.4s and masking is only needed once the
+  // user opens the policies/security section, so loading it during project-open
+  // made the catalog "display too long". Fire it after the first paint settles.
   useEffect(() => {
     const loadMaskingPolicies = async () => {
       setIsLoadingPolicies(true);
@@ -1657,21 +1734,32 @@ export default function ExploreDesignPage() {
         setIsLoadingPolicies(false);
       }
     };
-    loadMaskingPolicies();
+    const t = setTimeout(loadMaskingPolicies, 2500);
+    return () => clearTimeout(t);
   }, []);
 
   // Load DWH template tables from hardcoded DDL — only when DWH template chosen
   const [defaultModelingTablesLoaded, setDefaultModelingTablesLoaded] = useState(false);
   // Loading/error UI for the default DWH (target) model load in Modeling view
   const [isLoadingModelingTables, setIsLoadingModelingTables] = useState(false);
+  // Guards the "no DWH target → open picker" prompt so it fires once per project (no modal loop).
+  const targetPromptRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Only load when in modeling view AND DWH template was chosen
     if (viewMode !== 'modeling' || modelingChoice !== 'dwh_template') return;
     // Skip if already loaded and tables exist
     if (defaultModelingTablesLoaded && tables.some(t => targetTableIds.has(t.id))) return;
-    // Need a target location
-    if (!dwhTargetDatabase || !dwhTargetSchema) return;
+    // Need a target location. If none is set (new project, or a restored choice with no
+    // saved location), OPEN the location picker once instead of silently doing nothing —
+    // a silent return here = zero TABLE_CREATED events = Deploy creates no real DWH tables.
+    if (!dwhTargetDatabase || !dwhTargetSchema) {
+      if (selectedProjectId && targetPromptRef.current !== selectedProjectId) {
+        targetPromptRef.current = selectedProjectId;
+        setShowLocationPicker(true);
+      }
+      return;
+    }
 
     const db = dwhTargetDatabase;
     const schema = dwhTargetSchema;
@@ -1825,29 +1913,37 @@ export default function ExploreDesignPage() {
   // Load schemas when database changes (skip — all-DB load handles this now)
   useEffect(() => {
     if (!selectedDatabase) {
-      return; // schemas loaded by all-DB effect
+      return;
     }
-    // Skip single-DB schema load — all-DB effect handles this
-    return;
-
+    // Load schemas for the SELECTED database. R2 removed the old all-databases
+    // fan-out that used to populate this; this single-DB loader is now what fills
+    // the source picker AND makes the Catalog show tables. It was previously
+    // short-circuited by an early `return` → empty Catalog ("No tables loaded").
+    let cancelled = false;
     const loadSchemas = async () => {
       setIsLoadingSchemas(true);
       try {
         const schemaList = await getSchemas(selectedDatabase);
+        if (cancelled) return;
         setSchemas(schemaList || []);
         if (schemaList && schemaList.length > 0) {
-          const allMap = new Map<string, string>();
-          schemaList.forEach((s: string) => allMap.set(s, selectedDatabase));
-          setSelectedSchemas(allMap);
+          // Auto-select the first non-system schema so tables render immediately
+          // (one schema, not a fan-out). The user adds more via the source picker.
+          const firstSchema = schemaList.find((s: string) => !/^INFORMATION_SCHEMA$/i.test(s)) || schemaList[0];
+          setSelectedSchemas(new Map([[firstSchema, selectedDatabase]]));
+        } else {
+          setSelectedSchemas(new Map());
         }
       } catch (error) {
+        if (cancelled) return;
         console.error('[Explore-Design] Failed to load schemas:', error);
         toast.error('Failed to load schemas');
       } finally {
-        setIsLoadingSchemas(false);
+        if (!cancelled) setIsLoadingSchemas(false);
       }
     };
     loadSchemas();
+    return () => { cancelled = true; };
   }, [selectedDatabase]);
 
   // Load tables when schemas are selected
@@ -2262,9 +2358,10 @@ export default function ExploreDesignPage() {
     // one click → one bar, focused on the table's actions. Consistent across the
     // catalog list and the modeling canvas (both route user clicks through here).
     setActiveRightTab('actions');
-    // Auto-collapse the Source Tables rail on select so the detail + actions
-    // get the full width; the "Show Sources" toggle reopens it.
-    setShowSidebar(false);
+    // Keep the Source Tables rail PINNED on select. It used to auto-collapse here,
+    // which hid the source selection the instant you clicked a table on the canvas
+    // ("on la voit plus") — and modeling had no re-open toggle. The user closes it
+    // manually via the panel toggle (and can re-open it from the modeling rail).
   }, []);
 
   // Handle project selection - load events for the selected project
@@ -3512,11 +3609,10 @@ export default function ExploreDesignPage() {
                 onClick={() => {
                   if (!modelingChoice && readOnlyGuard()) return;
                   trackTabSwitch('modeling');
-                  if (!modelingChoice) {
-                    setShowTemplateModal(true);
-                  } else {
-                    setViewMode('modeling');
-                  }
+                  // No popup — go straight to the ReactFlow canvas; the inline
+                  // onboarding panel (DWH template / scratch) shows on the canvas
+                  // itself when no template choice has been made yet.
+                  setViewMode('modeling');
                 }}
               >
                 <Workflow className="h-3.5 w-3.5" />
@@ -3827,8 +3923,10 @@ export default function ExploreDesignPage() {
         />
       )}
 
-      {/* Compact Source Selector — hidden, auto-load replaces it */}
-      {false && !isFullscreen && selectedProjectId && (
+      {/* Compact Source Selector — DB/schema picker (restores source+data selection).
+          Was hard-disabled by `false &&`; the auto-load that "replaced" it left the
+          Catalog/Modeling panes with no way to pick a source → "No tables loaded". */}
+      {!isFullscreen && selectedProjectId && (
         <CompactSourceSelector
           databases={databases}
           selectedDatabase={selectedDatabase}
@@ -4258,11 +4356,55 @@ export default function ExploreDesignPage() {
                                   {inlinePreviewData.columns.map((col: string) => {
                                     const colMeta = tableColumns.find((c) => c.name === col || c.name === col.toUpperCase());
                                     return (
-                                      <th key={col} className="px-2.5 py-1.5 text-left whitespace-nowrap">
+                                      <th key={col} className="px-2.5 py-1.5 text-left whitespace-nowrap group/col">
                                         <div className="flex items-center gap-1">
                                           {colMeta?.isPrimaryKey && <Key className="h-3 w-3 text-amber-500 shrink-0" />}
                                           {colMeta?.isSensitive && <Shield className="h-3 w-3 text-red-400 shrink-0" />}
-                                          <span className="font-medium text-slate-600 dark:text-slate-300">{col}</span>
+                                          {columnEdit?.column === col && columnEdit.mode === 'rename' ? (
+                                            <input
+                                              autoFocus
+                                              defaultValue={col}
+                                              onBlur={(e) => handleColumnRename(colMeta?.name ?? col, e.target.value)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') handleColumnRename(colMeta?.name ?? col, (e.target as HTMLInputElement).value);
+                                                else if (e.key === 'Escape') setColumnEdit(null);
+                                              }}
+                                              className="w-24 px-1 py-0.5 text-[11px] font-mono rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                            />
+                                          ) : columnEdit?.column === col && columnEdit.mode === 'retype' ? (
+                                            <select
+                                              autoFocus
+                                              defaultValue={(colMeta?.dataType || '').split('(')[0].toUpperCase()}
+                                              onBlur={() => setColumnEdit(null)}
+                                              onChange={(e) => handleColumnRetype(colMeta?.name ?? col, (colMeta?.dataType || '').split('(')[0].toUpperCase(), e.target.value)}
+                                              className="px-1 py-0.5 text-[11px] font-mono rounded border border-blue-300 dark:border-blue-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                            >
+                                              {COLUMN_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+                                            </select>
+                                          ) : columnEdit?.column === col && columnEdit.mode === 'drop' ? (
+                                            <span className="flex items-center gap-1">
+                                              <span className="font-medium text-red-500">{col}?</span>
+                                              <button onClick={() => handleColumnDrop(colMeta?.name ?? col)} className="px-1 rounded bg-red-500 text-white text-[9px] font-semibold hover:bg-red-600">Drop</button>
+                                              <button onClick={() => setColumnEdit(null)} className="px-1 rounded bg-slate-200 dark:bg-slate-700 text-[9px] font-semibold text-slate-600 dark:text-slate-300">Cancel</button>
+                                            </span>
+                                          ) : (
+                                            <>
+                                              <span className="font-medium text-slate-600 dark:text-slate-300">{col}</span>
+                                              {!isReadOnly && (
+                                                <span className="inline-flex items-center gap-0.5 opacity-0 group-hover/col:opacity-100 transition-opacity">
+                                                  {canEditCols && (
+                                                    <>
+                                                      <button title="Rename column" onClick={() => { if (readOnlyGuard()) return; setColumnEdit({ column: col, mode: 'rename', value: col, oldType: '' }); }} className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-blue-500"><Columns3 className="h-3 w-3" /></button>
+                                                      <button title="Change type" onClick={() => { if (readOnlyGuard()) return; setColumnEdit({ column: col, mode: 'retype', value: '', oldType: (colMeta?.dataType || '').split('(')[0].toUpperCase() }); }} className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-blue-500"><Database className="h-3 w-3" /></button>
+                                                    </>
+                                                  )}
+                                                  {canDropObjects && (
+                                                    <button title="Drop column" onClick={() => { if (readOnlyGuard()) return; setColumnEdit({ column: col, mode: 'drop', value: '', oldType: '' }); }} className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500"><Trash2 className="h-3 w-3" /></button>
+                                                  )}
+                                                </span>
+                                              )}
+                                            </>
+                                          )}
                                         </div>
                                       </th>
                                     );
@@ -4647,6 +4789,45 @@ export default function ExploreDesignPage() {
               )}
 
               <ErrorBoundary>
+              {/* Re-open the source rail when it's hidden (modeling had no toggle,
+                  so a manually-hidden rail was lost). A slim left-edge handle. */}
+              {!showSidebar && (
+                <button
+                  onClick={() => setShowSidebar(true)}
+                  className="absolute left-0 top-1/2 z-20 -translate-y-1/2 flex items-center rounded-r-lg border border-l-0 border-slate-200 bg-white/95 py-3 pl-1 pr-1.5 text-slate-500 shadow-sm backdrop-blur hover:bg-white hover:text-slate-700 dark:border-slate-700 dark:bg-slate-900/95 dark:text-slate-400"
+                  title="Show source tables"
+                  aria-label="Show source tables"
+                >
+                  <PanelLeft className="h-4 w-4" />
+                </button>
+              )}
+              {/* Inline onboarding (no popup): choose DWH template or scratch
+                  directly on the canvas. Replaces the Start-Modeling modal. */}
+              {!modelingChoice && (
+                <ModelingTemplateModal
+                  inline
+                  isOpen
+                  projectName={selectedProjectName || undefined}
+                  onSelect={(choice) => {
+                    if (choice === 'dwh_template') {
+                      setShowLocationPicker(true);
+                    } else {
+                      setModelingChoice(choice);
+                      if (selectedProjectId) {
+                        modelingChoicesByProject.current.set(selectedProjectId, { choice });
+                        addProjectEvent(selectedProjectId, {
+                          module_name: 'EXPLORE_DESIGN',
+                          event_type: 'MODELING_TEMPLATE_CHOSEN',
+                          status: 'completed',
+                          details: { choice },
+                          entity_id: `template-${choice}`,
+                          entity_type: 'modeling_config',
+                        }).catch(() => {});
+                      }
+                    }
+                  }}
+                />
+              )}
               <ModelingCanvas
                 tables={tables.filter(t => modelingTableIds.has(t.id))}
                 tableColumns={tableColumnsMap}
