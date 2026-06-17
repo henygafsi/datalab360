@@ -3239,6 +3239,17 @@ export default function ExploreDesignPage() {
     if (readOnlyGuard()) return;
     if (!selectedProjectId) { toast.error('Select a project first'); return; }
 
+    // Both modes need somewhere for the table to live. If no DWH target is set
+    // (e.g. a "from scratch" model), open the location picker first instead of
+    // dead-ending on a toast — also keeps created tables out of an empty schema.
+    const db = dwhTargetDatabase || selectedDatabase || '';
+    const schema = dwhTargetSchema || '';
+    if (!db || !schema) {
+      toast('Pick where new tables should live first', { icon: '📍' });
+      setShowLocationPicker(true);
+      return;
+    }
+
     if (mode === 'manual') {
       setCreateTableType('standard');
       setShowCreateTableModal(true);
@@ -3246,12 +3257,6 @@ export default function ExploreDesignPage() {
     }
 
     // 'empty' — blank table to be populated by source mappings.
-    const db = dwhTargetDatabase || selectedDatabase || '';
-    const schema = dwhTargetSchema || '';
-    if (!db || !schema) {
-      toast.error('Set a target database & schema (DWH location) before adding an empty table');
-      return;
-    }
     let n = 1;
     while (tables.some(t => t.id === `${db}.${schema}.NEW_TABLE_${n}`)) n += 1;
     const tableName = `NEW_TABLE_${n}`;
