@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Button, Badge, Input, Tooltip, Modal } from 'rizzui';
+import { Button, Badge, Input, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
@@ -199,6 +199,8 @@ export default function ProjectSelector({
   const [showMemberDropdown, setShowMemberDropdown] = useState(false);
 
   const memberInputRef = useRef<HTMLInputElement>(null);
+  // Anchors the non-blocking popover + powers click-outside dismissal.
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Mine-only filter — persisted per module so it survives reloads.
   const [mineOnly, setMineOnly] = useState(false);
@@ -394,6 +396,26 @@ export default function ProjectSelector({
     setShowModal(false);
   }, []);
 
+  // Non-blocking dismissal: click anywhere outside the popover, or press Escape,
+  // closes it (honouring the dirty-discard guard). Replaces the old modal backdrop.
+  useEffect(() => {
+    if (!showModal) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        attemptCloseModal();
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') attemptCloseModal();
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [showModal, attemptCloseModal]);
+
   const handleSelectProject = () => {
     if (!selectedInModal) {
       toast.error('Please select a project');
@@ -466,68 +488,71 @@ export default function ProjectSelector({
   // selector button when they want to switch between existing projects.
 
   return (
-    <>
-      {/* Compact Selector Button */}
-      <div className={cn('relative', className)}>
-        <motion.button
-          whileHover={{ y: -1 }}
-          whileTap={{ scale: 0.98 }}
-          transition={{ duration: 0.15 }}
+    <div className={cn('relative', className)} ref={containerRef}>
+      {/* Compact Selector Button — visually a dropdown trigger (ChevronDown). */}
+      <motion.button
+        whileHover={{ y: -1 }}
+        whileTap={{ scale: 0.98 }}
+        transition={{ duration: 0.15 }}
+        aria-haspopup="dialog"
+        aria-expanded={showModal}
+        className={cn(
+          'group flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm shadow-sm transition-all',
+          'bg-white dark:bg-slate-800 dark:border-slate-700',
+          'hover:border-slate-300 hover:shadow-md dark:hover:border-slate-600',
+          'min-w-[180px] max-w-[280px]',
+          !selectedProjectId && 'border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20',
+        )}
+        onClick={() => (showModal ? attemptCloseModal() : setShowModal(true))}
+      >
+        <FolderOpen
           className={cn(
-            'group flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm shadow-sm transition-all',
-            'bg-white dark:bg-slate-800 dark:border-slate-700',
-            'hover:border-slate-300 hover:shadow-md dark:hover:border-slate-600',
-            'min-w-[180px] max-w-[280px]',
-            !selectedProjectId && 'border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20',
+            'h-4 w-4 flex-shrink-0',
+            selectedProjectId ? 'text-blue-500' : 'text-amber-500',
           )}
-          onClick={() => setShowModal(true)}
-        >
-          <FolderOpen
+        />
+        <span className="flex-1 text-left truncate">
+          {loading ? (
+            <span className="text-slate-400 flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading...
+            </span>
+          ) : selectedProject ? (
+            selectedProject.name
+          ) : (
+            <span className="text-amber-600 dark:text-amber-400 font-medium">
+              Select Project
+            </span>
+          )}
+        </span>
+        {isStale ? (
+          <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />
+        ) : (
+          <ChevronDown
             className={cn(
-              'h-4 w-4 flex-shrink-0',
-              selectedProjectId ? 'text-blue-500' : 'text-amber-500',
+              'h-3.5 w-3.5 text-slate-400 transition-transform',
+              showModal ? 'rotate-180' : 'group-hover:translate-y-0.5',
             )}
           />
-          <span className="flex-1 text-left truncate">
-            {loading ? (
-              <span className="text-slate-400 flex items-center gap-1">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Loading...
-              </span>
-            ) : selectedProject ? (
-              selectedProject.name
-            ) : (
-              <span className="text-amber-600 dark:text-amber-400 font-medium">
-                Select Project
-              </span>
-            )}
-          </span>
-          {isStale ? (
-            <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-slate-400 transition-transform group-hover:translate-y-0.5" />
-          )}
-        </motion.button>
-      </div>
+        )}
+      </motion.button>
 
-      {/* Project Management Modal */}
-      <Modal
-        isOpen={showModal}
-        onClose={() => {
-          // If the user has unsaved input in the create form, confirm the
-          // discard. Otherwise let the modal close silently — the page's
-          // inline empty-state wizard already prompts them to pick or
-          // create a project, so we don't need a toast that spams 3 times
-          // on rapid backdrop clicks.
-          if (!selectedProjectId && isDirty) {
-            setShowDiscardConfirm(true);
-            return;
-          }
-          attemptCloseModal();
-        }}
-        customSize="640px"
-      >
-        <div className="relative flex flex-col overflow-hidden">
+      {/* Anchored, non-blocking project switcher popover.
+          Replaces the old centered backdrop Modal (per "no popup project
+          selectors"): drops directly under its trigger, dismisses on
+          click-outside / Escape, never traps the page behind a backdrop. */}
+      <AnimatePresence>
+        {showModal && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            transition={{ duration: 0.16, ease: 'easeOut' }}
+            role="dialog"
+            aria-label="Switch project"
+            className="absolute left-0 top-full z-[100] mt-2 w-[640px] max-w-[92vw] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/10 dark:border-slate-700 dark:bg-slate-900"
+          >
+            <div className="relative flex flex-col overflow-hidden">
           {/* Decorative gradient orb behind the header — adds depth without
               compromising legibility. Lives in the modal background only. */}
           <div className="pointer-events-none absolute -left-20 -top-20 h-56 w-56 rounded-full bg-gradient-to-br from-blue-400/20 to-indigo-500/20 blur-3xl dark:from-blue-500/15 dark:to-indigo-600/15" />
@@ -1275,51 +1300,48 @@ export default function ProjectSelector({
               </motion.div>
             </AnimatePresence>
           </div>
-        </div>
-      </Modal>
 
-      {/* Discard-changes confirmation */}
-      <Modal
-        isOpen={showDiscardConfirm}
-        onClose={() => setShowDiscardConfirm(false)}
-        size="sm"
-      >
-        <div
-          role="alertdialog"
-          aria-labelledby="discard-changes-title"
-          aria-describedby="discard-changes-desc"
-          className="p-6"
-        >
-          <h3
-            id="discard-changes-title"
-            className="text-base font-semibold text-slate-900 dark:text-white"
-          >
-            Discard changes?
-          </h3>
-          <p
-            id="discard-changes-desc"
-            className="mt-2 text-sm text-slate-600 dark:text-slate-400"
-          >
-            Your project name and description will be lost.
-          </p>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowDiscardConfirm(false)}
+          {/* Discard-changes confirmation — inline overlay scoped to the
+              popover (not a second page-blocking modal). */}
+          {showDiscardConfirm && (
+            <div
+              role="alertdialog"
+              aria-labelledby="discard-changes-title"
+              aria-describedby="discard-changes-desc"
+              className="absolute inset-0 z-10 flex items-center justify-center bg-white/95 p-6 backdrop-blur-sm dark:bg-slate-900/95"
             >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              color="danger"
-              onClick={confirmDiscard}
-            >
-              Discard
-            </Button>
+              <div className="text-center">
+                <h3
+                  id="discard-changes-title"
+                  className="text-base font-semibold text-slate-900 dark:text-white"
+                >
+                  Discard changes?
+                </h3>
+                <p
+                  id="discard-changes-desc"
+                  className="mt-2 text-sm text-slate-600 dark:text-slate-400"
+                >
+                  Your project name and description will be lost.
+                </p>
+                <div className="mt-5 flex justify-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowDiscardConfirm(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button size="sm" color="danger" onClick={confirmDiscard}>
+                    Discard
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
           </div>
-        </div>
-      </Modal>
-    </>
+        </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
