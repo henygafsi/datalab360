@@ -2,11 +2,12 @@
 
 import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Modal, Button, Badge } from 'rizzui';
+import { Button, Badge } from 'rizzui';
 import {
   AlertTriangle, Users, GitBranch, Check, X, ArrowRight,
   Merge, User, Clock,
 } from 'lucide-react';
+import DesignDockPanel from './DesignDockPanel';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -62,27 +63,34 @@ const ConflictResolutionModal: React.FC<ConflictResolutionModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="700px">
-      <div className="p-6">
-        {/* Header */}
-        <div className="flex items-start gap-4 mb-5">
-          <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-            <AlertTriangle className="h-6 w-6 text-amber-500" />
-          </div>
-          <div className="flex-1">
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-              Conflict Detected
-            </h2>
-            <p className="text-sm text-slate-500 mt-0.5">
-              <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">{conflict.objectName}</code>
-              {' '}was modified by another user while you were editing.
-            </p>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded">
-            <X className="h-4 w-4 text-slate-400" />
-          </button>
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Conflict Detected"
+      subtitle={`${conflict.objectName} was modified by another user while you were editing.`}
+      widthClass="max-w-2xl"
+      icon={
+        <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
+          <AlertTriangle className="h-5 w-5 text-amber-500" />
         </div>
-
+      }
+      footer={
+        <div className="flex items-center gap-3">
+          <Button variant="outline" onClick={onClose} className="flex-1">
+            Cancel
+          </Button>
+          <Button
+            className="flex-1 gap-2"
+            onClick={handleResolve}
+            disabled={!selectedResolution}
+          >
+            <Check className="h-4 w-4" />
+            Resolve Conflict
+          </Button>
+        </div>
+      }
+    >
+      <div>
         {/* Users */}
         <div className="flex items-center gap-4 mb-5">
           <div className="flex-1 flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
@@ -230,22 +238,8 @@ const ConflictResolutionModal: React.FC<ConflictResolutionModalProps> = ({
           })}
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={onClose} className="flex-1">
-            Cancel
-          </Button>
-          <Button
-            className="flex-1 gap-2"
-            onClick={handleResolve}
-            disabled={!selectedResolution}
-          >
-            <Check className="h-4 w-4" />
-            Resolve Conflict
-          </Button>
-        </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 };
 

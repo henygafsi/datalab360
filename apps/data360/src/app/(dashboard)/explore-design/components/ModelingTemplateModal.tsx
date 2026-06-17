@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Modal, Button, Badge } from 'rizzui';
+import { Button, Badge } from 'rizzui';
 import {
   Database, Layers, Sparkles, ArrowRight, Box, Grid3X3,
   Table2, GitBranch, Workflow,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import DesignDockPanel from './DesignDockPanel';
 
 export type ModelingChoice = 'dwh_template' | 'scratch';
 
@@ -31,25 +32,10 @@ const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
     onSelect(selected);
   };
 
-  const content = (
-      <div className="p-6">
-        {/* Header */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/25 mb-4">
-            <Workflow className="h-7 w-7 text-white" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-            Start Modeling
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {projectName ? (
-              <>Choose how to begin modeling for <span className="font-medium text-slate-700 dark:text-slate-300">{projectName}</span></>
-            ) : (
-              'Choose a starting point for your data model'
-            )}
-          </p>
-        </div>
-
+  // Shared body (options grid + confirm CTA) — header is rendered separately
+  // by the inline panel or by DesignDockPanel's own header in the docked branch.
+  const body = (
+      <div>
         {/* Options */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           {/* DWH Template */}
@@ -247,16 +233,48 @@ const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center p-6 pointer-events-none">
         <div className="w-full max-w-[680px] rounded-2xl border border-slate-200 bg-white/95 shadow-xl backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/95 pointer-events-auto">
-          {content}
+          <div className="p-6">
+            {/* Header */}
+            <div className="text-center mb-6">
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/25 mb-4">
+                <Workflow className="h-7 w-7 text-white" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                Start Modeling
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                {projectName ? (
+                  <>Choose how to begin modeling for <span className="font-medium text-slate-700 dark:text-slate-300">{projectName}</span></>
+                ) : (
+                  'Choose a starting point for your data model'
+                )}
+              </p>
+            </div>
+            {body}
+          </div>
         </div>
       </div>
     );
   }
 
+  // Docked branch — non-dismissible forced choice (onClose is intentionally a
+  // no-op, matching the original `onClose={() => {}}`; the shell's X / Escape
+  // therefore do nothing by design).
   return (
-    <Modal isOpen={isOpen} onClose={() => {}} customSize="680px">
-      {content}
-    </Modal>
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={() => {}}
+      title="Start Modeling"
+      subtitle={projectName ? `Choose how to begin modeling for ${projectName}` : 'Choose a starting point for your data model'}
+      widthClass="max-w-2xl"
+      icon={
+        <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/25">
+          <Workflow className="h-5 w-5 text-white" />
+        </div>
+      }
+    >
+      {body}
+    </DesignDockPanel>
   );
 };
 

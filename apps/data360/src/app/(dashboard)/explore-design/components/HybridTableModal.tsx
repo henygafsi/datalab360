@@ -1,9 +1,10 @@
 'use client';
 import { useState } from 'react';
-import { Modal, Input, Button, Switch } from 'rizzui';
+import { Input, Button, Switch } from 'rizzui';
 import toast from 'react-hot-toast';
 import apiClient from '@/lib/api-client';
 import { Layers, Plus, Trash2 } from 'lucide-react';
+import DesignDockPanel from './DesignDockPanel';
 
 interface ColumnDef {
   name: string;
@@ -49,17 +50,25 @@ export default function HybridTableModal({ isOpen, onClose, context }: Props) {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="xl">
-      <div className="p-6 space-y-4">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
-            <Layers className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold dark:text-white">Create Hybrid Table</h3>
-            <p className="text-sm text-slate-500">OLTP table with primary key enforcement</p>
-          </div>
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Create Hybrid Table"
+      subtitle="OLTP table with primary key enforcement"
+      icon={
+        <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
+          <Layers className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
         </div>
+      }
+      widthClass="max-w-xl"
+      footer={
+        <div className="flex justify-end gap-3">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button isLoading={loading} onClick={handleCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white">Create</Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
         <Input label="Table Name" placeholder="my_hybrid_table" value={name} onChange={(e) => setName(e.target.value)} />
         <div>
           <div className="flex items-center justify-between mb-2">
@@ -85,11 +94,7 @@ export default function HybridTableModal({ isOpen, onClose, context }: Props) {
             ))}
           </div>
         </div>
-        <div className="flex justify-end gap-3 pt-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button isLoading={loading} onClick={handleCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white">Create</Button>
-        </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 }

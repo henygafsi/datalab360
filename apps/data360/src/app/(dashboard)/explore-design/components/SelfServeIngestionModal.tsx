@@ -2,15 +2,16 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { Button, Badge, Modal, Input, Tooltip } from 'rizzui';
+import { Button, Badge, Input, Tooltip } from 'rizzui';
 import {
-  ArrowRight, ArrowLeft, Check, X, Database, Table2, Columns3,
+  ArrowRight, ArrowLeft, Check, Database, Table2, Columns3,
   Settings, Rocket, Loader2, Search, Plus, Trash2, Link2,
   AlertTriangle, ChevronDown, ChevronRight, RefreshCw, Zap,
   Wand2, Eye, Info,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore, EventType } from '../stores/event-store';
+import DesignDockPanel from './DesignDockPanel';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -426,30 +427,57 @@ const SelfServeIngestionModal: React.FC<SelfServeIngestionModalProps> = ({
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="860px">
-      <div className="flex flex-col max-h-[85vh]">
-        {/* Header */}
-        <div className="px-6 py-4 border-b dark:border-slate-700 bg-gradient-to-r from-emerald-600 to-teal-600 text-white">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                <Columns3 className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold">Self-Serve Ingestion</h2>
-                <p className="text-sm text-emerald-100">
-                  Configure source → target column mappings & ingestion mode
-                </p>
-              </div>
-            </div>
-            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg">
-              <X className="h-4 w-4" />
-            </button>
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Self-Serve Ingestion"
+      subtitle="Configure source → target column mappings & ingestion mode"
+      widthClass="max-w-2xl"
+      icon={
+        <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+          <Columns3 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+        </div>
+      }
+      footer={
+        <div className="flex items-center justify-between">
+          <div>
+            {stepIdx > 0 && (
+              <Button variant="outline" onClick={goBack} className="gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            {step !== 'review' ? (
+              <Button onClick={goNext} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
+                Next
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+              >
+                {isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Rocket className="h-4 w-4" />
+                )}
+                Create Ingestion ({mappings.length} mappings)
+              </Button>
+            )}
           </div>
         </div>
-
+      }
+    >
+      <div className="flex flex-col">
         {/* Step Progress */}
-        <div className="px-6 py-3 border-b dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+        <div className="px-1 py-3 mb-2 border-b dark:border-slate-700">
           <div className="flex items-center justify-between">
             {STEPS.map((s, idx) => (
               <React.Fragment key={s.key}>
@@ -482,7 +510,7 @@ const SelfServeIngestionModal: React.FC<SelfServeIngestionModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto p-6">
+        <div className="pt-4">
           {/* Step 1: Source Table */}
           {step === 'source' && renderTablePicker(
             filteredSourceTables, sourceTable,
@@ -802,44 +830,8 @@ const SelfServeIngestionModal: React.FC<SelfServeIngestionModalProps> = ({
             </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="px-6 py-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between">
-          <div>
-            {stepIdx > 0 && (
-              <Button variant="outline" onClick={goBack} className="gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            {step !== 'review' ? (
-              <Button onClick={goNext} className="gap-2 bg-emerald-600 hover:bg-emerald-700">
-                Next
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            ) : (
-              <Button
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-                className="gap-2 bg-emerald-600 hover:bg-emerald-700"
-              >
-                {isSubmitting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Rocket className="h-4 w-4" />
-                )}
-                Create Ingestion ({mappings.length} mappings)
-              </Button>
-            )}
-          </div>
-        </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 };
 

@@ -2,14 +2,15 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { Button, Badge, Input, Tooltip, Modal } from 'rizzui';
+import { Button, Badge, Input, Tooltip } from 'rizzui';
 import {
   BookTemplate, Plus, Search, Download, Upload, Trash2,
   Check, ChevronDown, ChevronRight, Clock, Users, Star,
   Copy, Edit2, Layers, History, Key, Shield, Tag,
-  Table2, Database, Loader2, X, Save,
+  Table2, Database, Loader2, Save,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import DesignDockPanel from './DesignDockPanel';
 import { useEventStore, DesignEvent, EventType } from '../stores/event-store';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
@@ -602,30 +603,22 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="720px">
-      <div className="flex flex-col max-h-[80vh]">
-        {/* Header */}
-        <div className="px-6 py-4 border-b dark:border-slate-700">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/25">
-                <BookTemplate className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Event Templates
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Save & reuse common event patterns across projects
-                </p>
-              </div>
-            </div>
-            <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg">
-              <X className="h-4 w-4 text-slate-400" />
-            </button>
-          </div>
-
-          {/* Tabs */}
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Event Templates"
+      subtitle="Save & reuse common event patterns across projects"
+      widthClass="max-w-3xl"
+      bodyClassName="!px-0 !py-0"
+      icon={
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/25">
+          <BookTemplate className="h-5 w-5 text-white" />
+        </div>
+      }
+    >
+      <div className="flex flex-col">
+        {/* Tabs (relocated from header) */}
+        <div className="px-6 py-3 border-b dark:border-slate-700">
           <div className="flex gap-1">
             <button
               onClick={() => setActiveTab('browse')}
@@ -660,7 +653,7 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-auto">
+        <div>
           {activeTab === 'browse' && (
             <div>
               {/* Search + Filter */}
@@ -1110,7 +1103,7 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
           )}
         </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 };
 
