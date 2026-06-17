@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Modal } from 'rizzui';
 import {
   FolderOpen, Plus, Search, Loader2, Clock, User, Lock,
   Sparkles, Wrench, LayoutTemplate, GitBranch, Rocket,
@@ -27,7 +26,7 @@ import {
 } from '@/components/project-onboarding/project-listing-utils';
 
 interface WorkflowProjectGateProps {
-  /** When true, the modal is rendered and blocks the canvas. */
+  /** When true, the inline gate is rendered in the page flow. */
   isOpen: boolean;
   /** Called when the user selects an existing workflow. */
   onSelect: (workflowId: string, workflowName: string) => void;
@@ -37,7 +36,7 @@ interface WorkflowProjectGateProps {
    * wizard / apply a template / land on a blank canvas).
    */
   onCreated: (result: UnifiedProjectWizardResult) => void;
-  /** Optional className for the modal wrapper. */
+  /** Optional className for the inline gate wrapper. */
   className?: string;
 }
 
@@ -140,10 +139,13 @@ function BuildModeBadge({ tags }: { tags: string[] | null }) {
 /**
  * Project gate for the Workflow module.
  *
- * A workflow IS a project (project_type='workflow'), so this modal blocks the
- * canvas until the user either selects an existing workflow or creates a new one.
- * Mirrors the UX of Explore & Design's ProjectSelector without lifting the
- * full ProjectSelector component (it's tied to explore_design endpoints).
+ * A workflow IS a project (project_type='workflow'), so this gate fills the
+ * canvas — as an inline, non-blocking empty-state (no portal, no
+ * `fixed inset-0` backdrop) — until the user either selects an existing
+ * workflow or creates a new one. It is mandatory: there is no dismiss/close
+ * affordance, so it does not handle Escape. Mirrors the UX of Explore &
+ * Design's ProjectSelector without lifting the full ProjectSelector component
+ * (it's tied to explore_design endpoints).
  */
 export default function WorkflowProjectGate({
   isOpen,
@@ -265,19 +267,30 @@ export default function WorkflowProjectGate({
     onCreated(result);
   };
 
+  // Gate is mandatory — render nothing when closed. Placed after all hooks so
+  // React's rules-of-hooks hold. The parent also conditionally mounts this, so
+  // this is belt-and-suspenders while keeping the `isOpen` prop honest.
+  if (!isOpen) return null;
+
   return (
     <>
-    <Modal
-      isOpen={isOpen}
-      onClose={() => { /* gate is mandatory — closing without selection is not allowed */ }}
-      size="lg"
-      containerClassName={className}
+    {/* Inline, non-blocking gate — fills the canvas as a centred empty-state
+        card in normal document flow (no portal, no `fixed inset-0` backdrop).
+        Labelled region (not a dialog): mandatory gate, so no dismiss/Escape. */}
+    <section
+      role="region"
+      aria-labelledby="workflow-project-gate-heading"
+      className={cn('flex-1 overflow-auto flex items-start justify-center p-6', className)}
     >
+      <div className="w-full max-w-2xl mt-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm">
       <div className="p-5">
         {/* Header */}
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <h2
+              id="workflow-project-gate-heading"
+              className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2"
+            >
               <FolderOpen className="h-5 w-5 text-indigo-500" />
               Choose a workflow project
             </h2>
@@ -493,7 +506,8 @@ export default function WorkflowProjectGate({
             </div>
           </div>
       </div>
-    </Modal>
+      </div>
+    </section>
 
     {/* Unified creation flow — explicit manual / AI / template fork. */}
     <UnifiedProjectWizard

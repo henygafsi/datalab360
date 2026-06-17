@@ -4,10 +4,10 @@
  * AccountCreationWizard
  * =====================
  *
- * 3-step right-side panel for provisioning a new Snowflake client account.
- * Non-blocking: the accounts table stays visible behind a dimmed backdrop
- * (mirrors the explore-design ContextRightBar pattern) rather than a
- * centered modal.
+ * 3-step right-docked side panel for provisioning a new Snowflake client
+ * account. Non-blocking: NO backdrop scrim — the accounts table behind stays
+ * fully interactive (mirrors the command-center ApprovalDetailModal pattern)
+ * rather than a centered modal.
  *
  * Persona served
  * --------------
@@ -406,18 +406,14 @@ export default function AccountCreationWizard({
 
   return (
     <>
-      {/* Right-side panel — non-blocking, the accounts table stays visible
-          behind a dimmed backdrop. Outside-click runs the discard flow. */}
+      {/* Right-docked side panel — NO click-blocking backdrop, the accounts
+          table behind stays interactive. Closes via the X / Cancel buttons or
+          Escape (which runs the dirty-discard flow). */}
       <div
-        className="fixed inset-0 z-40 bg-black/40 transition-opacity"
-        aria-hidden="true"
-        onClick={handleClose}
-      />
-      <div
-        role="dialog"
+        role="region"
         aria-modal="false"
         aria-labelledby="account-wizard-title"
-        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col overflow-hidden bg-white shadow-xl dark:bg-slate-900"
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
       >
         <div className="flex flex-1 flex-col overflow-y-auto p-6">
           <div className="flex items-start justify-between gap-3">
