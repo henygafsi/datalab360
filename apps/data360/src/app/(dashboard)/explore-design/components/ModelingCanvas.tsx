@@ -1964,6 +1964,30 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           isNullable: c.isNullable,
         }))}
         onCreateMapping={handleColumnMapping}
+        onCreateTargetColumns={(cols) => {
+          // Empty target inherits columns from the source so it can be fed.
+          if (!mappingTargetTable || !onColumnsMapUpdate) return;
+          const targetId = mappingTargetTable.id;
+          onColumnsMapUpdate((prev) => {
+            const existing = prev.get(targetId) || [];
+            const existingNames = new Set(existing.map((c) => c.name.toLowerCase()));
+            const added = cols
+              .filter((c) => !existingNames.has(c.name.toLowerCase()))
+              .map((c) => ({
+                name: c.name,
+                dataType: c.dataType,
+                isNullable: true,
+                isPrimaryKey: false,
+              } as ColumnInfo));
+            if (added.length === 0) return prev;
+            const updated = new Map(prev);
+            updated.set(targetId, [...existing, ...added]);
+            return updated;
+          });
+          toast.success(
+            `Added ${cols.length} column${cols.length === 1 ? '' : 's'} from ${mappingSourceTable?.table ?? 'source'} — now map or transform them`,
+          );
+        }}
         existingMappings={
           // Only show user-created ETL mappings, not FK relationships
           // FK relationships are database constraints, not ETL mappings

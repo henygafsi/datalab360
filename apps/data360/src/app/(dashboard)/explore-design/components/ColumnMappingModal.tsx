@@ -120,6 +120,13 @@ interface ColumnMappingModalProps {
   onCreateMapping: (sourceColumns: string[], targetColumn: string, transformation?: ColumnTransformation) => void;
   existingMappings?: ColumnMapping[];
   onRemoveMapping?: (mappingId: string) => void;
+  /**
+   * Empty-target support: when the target table has no columns yet (e.g. an
+   * "Empty table" added from the canvas), this lets the user inherit columns
+   * from the source so the table can actually be fed. Each returned column
+   * becomes a new target column; the caller also wires the 1:1 mapping.
+   */
+  onCreateTargetColumns?: (cols: { name: string; dataType: string }[]) => void;
 }
 
 const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
@@ -132,6 +139,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
   onCreateMapping,
   existingMappings = [],
   onRemoveMapping,
+  onCreateTargetColumns,
 }) => {
   const [selectedSourceColumns, setSelectedSourceColumns] = useState<string[]>([]);
   const [selectedTargetColumn, setSelectedTargetColumn] = useState<string | null>(null);
@@ -194,6 +202,22 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
 
     return { hasWarnings: warnings.length > 0, hasErrors, warnings };
   }, [selectedSourceColumns, selectedTargetColumn, sourceColumns, targetColumns]);
+
+  // Empty-target: inherit columns from the source. Uses the user's current
+  // source selection if any, otherwise all source columns.
+  const handleInheritFromSource = () => {
+    if (!onCreateTargetColumns) return;
+    const chosen = selectedSourceColumns.length > 0
+      ? selectedSourceColumns
+      : sourceColumns.map((c) => c.name);
+    const cols = chosen.map((name) => {
+      const sc = sourceColumns.find((c) => c.name === name);
+      return { name, dataType: sc?.dataType || 'VARCHAR' };
+    });
+    if (cols.length === 0) return;
+    onCreateTargetColumns(cols);
+    setSelectedSourceColumns([]);
+  };
 
   const handleSourceColumnToggle = (columnName: string) => {
     setSelectedSourceColumns(prev => {
@@ -287,6 +311,28 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
             <Text className="text-xs text-slate-400">{targetTable.database}.{targetTable.schema}</Text>
           </div>
         </div>
+
+        {/* Empty-target: inherit schema from source so the table can be fed */}
+        {targetColumns.length === 0 && onCreateTargetColumns && (
+          <div className="mb-6 rounded-lg border border-teal-200 bg-teal-50 p-3 dark:border-teal-900/40 dark:bg-teal-900/20">
+            <Text className="text-sm font-semibold text-teal-800 dark:text-teal-200">
+              This target table is empty
+            </Text>
+            <Text className="mt-0.5 text-xs text-teal-600 dark:text-teal-300">
+              Add columns from <span className="font-medium">{sourceTable.table}</span> to start — select source
+              columns below (or none for all), then add them. You can map &amp; transform afterwards.
+            </Text>
+            <Button
+              size="sm"
+              className="mt-2 gap-1 bg-teal-600 text-white hover:bg-teal-700"
+              onClick={handleInheritFromSource}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add {selectedSourceColumns.length > 0 ? selectedSourceColumns.length : sourceColumns.length} column
+              {(selectedSourceColumns.length > 0 ? selectedSourceColumns.length : sourceColumns.length) === 1 ? '' : 's'} from source
+            </Button>
+          </div>
+        )}
 
         {/* Existing & Local Mappings List */}
         {allMappings.length > 0 && (
