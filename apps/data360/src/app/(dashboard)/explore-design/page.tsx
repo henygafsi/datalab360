@@ -1159,6 +1159,27 @@ export default function ExploreDesignPage() {
     localStorage.setItem('explore-design-view-mode', viewMode);
   }, [viewMode]);
 
+  // Restore the active view from the deep-link (?view) on first load so a
+  // shared link reopens where the user was (catalog vs modeling).
+  useEffect(() => {
+    const v = searchParams.get('view');
+    if (v === 'modeling' || v === 'catalog') setViewMode(v);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep ?project_id + ?view in the URL so the page is shareable/bookmarkable
+  // and restores the selected project + view. router.replace (not push) avoids
+  // polluting history on every switch. Only writes once a project is selected,
+  // so an incoming ?project_id deep-link survives until it auto-selects.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !selectedProjectId) return;
+    const params = new URLSearchParams(Array.from(searchParams.entries()));
+    params.set('project_id', selectedProjectId);
+    params.set('view', viewMode);
+    router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectId, viewMode]);
+
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
   const [showEventTemplatePicker, setShowEventTemplatePicker] = useState(false);
