@@ -632,15 +632,16 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [showSidebar, setShowSidebar] = useState(false);
   // Source-selection focus state (G2). Lazy-init from versioned localStorage so
   // the read happens once at mount, not on every render (rerender-lazy-state-init).
-  // Defaults to 'expanded' on first visit — the picker fills the page so the
-  // user starts by choosing a source, then clicks the canvas to collapse it.
+  // Defaults to 'collapsed' (slim rail) so the CENTRAL canvas is the hero on
+  // load — the always-on WorkflowSmartPanel right rail means an expanded picker
+  // would bury the canvas. The user expands the palette (capped) to browse.
   const [sourcePanel, setSourcePanel] = useState<SourcePanelState>(() => {
     try {
-      return window.localStorage.getItem(SOURCE_PANEL_KEY) === 'collapsed'
-        ? 'collapsed'
-        : 'expanded';
+      return window.localStorage.getItem(SOURCE_PANEL_KEY) === 'expanded'
+        ? 'expanded'
+        : 'collapsed';
     } catch {
-      return 'expanded';
+      return 'collapsed';
     }
   });
   // Persist the focus preference whenever it changes.
@@ -3538,7 +3539,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               !showPalette
                 ? 'w-0'
                 : sourcePanel === 'expanded'
-                  ? 'w-[72vw] max-w-[1100px]'
+                  // Capped: the WorkflowSmartPanel right rail (~428px) is ALWAYS
+                  // visible, so a 72vw palette crushed the central canvas and its
+                  // empty-state overflowed onto the right panel. Keep an expanded
+                  // browse width that still leaves the canvas usable.
+                  ? 'w-[42vw] max-w-[560px]'
                   : 'w-72'
             )}
           >
