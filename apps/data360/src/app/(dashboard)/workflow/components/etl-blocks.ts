@@ -103,7 +103,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'source',
     type: 'source',
     label: 'Source',
-    description: 'Read data from Snowflake table',
+    description: 'Read data from warehouse table',
     icon: Database,
     category: 'source',
     color: 'text-green-600',
@@ -113,7 +113,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 0,
-    tooltip: 'Read data from a Snowflake table',
+    tooltip: 'Read data from a warehouse table',
   },
 
   // CDC Merge — consumes a Snowflake Stream and applies MERGE INTO target table
@@ -121,7 +121,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'cdc_merge',
     type: 'cdc_merge',
     label: 'CDC Merge',
-    description: 'Process Snowflake Stream with MERGE INTO pattern',
+    description: 'Process change stream with MERGE INTO pattern',
     icon: GitMerge,
     category: 'source',
     color: 'text-emerald-600',
@@ -131,7 +131,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Consume a Snowflake Stream and apply MERGE INTO on the target table (CDC pattern)',
+    tooltip: 'Consume a change stream and apply MERGE INTO on the target table (CDC pattern)',
   },
 
   // ============================================
@@ -321,7 +321,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'recommendation',
     type: 'recommendation',
     label: 'Recommendation',
-    description: 'Score or rank items (Cortex LLM or custom model)',
+    description: 'Score or rank items (AI model or custom model)',
     icon: Sparkles,
     category: 'transform',
     color: 'text-fuchsia-600',
@@ -331,7 +331,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Add recommendation scores using Cortex or custom model; output scored/ranked data',
+    tooltip: 'Add recommendation scores using AI or custom model; output scored/ranked data',
   },
   {
     id: 'segmentation',
@@ -353,7 +353,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'clustering',
     type: 'clustering',
     label: 'Clustering',
-    description: 'Assign clusters (Cortex ML or k-means)',
+    description: 'Assign clusters (AI ML or k-means)',
     icon: CircleDot,
     category: 'transform',
     color: 'text-amber-600',
@@ -363,7 +363,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Cluster data using Cortex ML or SQL k-means; add cluster_id column',
+    tooltip: 'Cluster data using AI ML or SQL k-means; add cluster_id column',
   },
 
   // ============================================
@@ -373,7 +373,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'destination',
     type: 'destination',
     label: 'Destination',
-    description: 'Write to Snowflake table',
+    description: 'Write to warehouse table',
     icon: MapPin,
     category: 'destination',
     color: 'text-emerald-600',
@@ -383,7 +383,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: false,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Write data to a target Snowflake table (overwrite, append, or merge)',
+    tooltip: 'Write data to a target warehouse table (overwrite, append, or merge)',
   },
   {
     id: 'export_file',
@@ -419,7 +419,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 0,
-    tooltip: 'Create a Snowflake Stream on a table or view to capture change data (CDC). The stream tracks INSERT, UPDATE, DELETE changes.',
+    tooltip: 'Create a change stream on a table or view to capture change data (CDC). The stream tracks INSERT, UPDATE, DELETE changes.',
   },
 
   // ============================================
@@ -461,7 +461,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'notebook_run',
     type: 'notebook_run',
     label: 'Run Notebook',
-    description: 'Execute Snowflake notebook',
+    description: 'Execute notebook',
     icon: BookOpen,
     category: 'transform',
     color: 'text-orange-600',
@@ -471,7 +471,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 1,
-    tooltip: 'Execute a Snowflake Notebook and capture output',
+    tooltip: 'Execute a notebook and capture output',
   },
 
   // ============================================
@@ -491,7 +491,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: false,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Create a Snowflake Dynamic Table that auto-refreshes based on TARGET_LAG. Requires a warehouse and a SELECT query as the table definition.',
+    tooltip: 'Create a dynamic table that auto-refreshes based on TARGET_LAG. Requires a warehouse and a SELECT query as the table definition.',
   },
 
 
@@ -884,7 +884,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 0,
-    tooltip: 'Read data from a PostgreSQL table replicated via Snowflake native connector',
+    tooltip: 'Read data from a PostgreSQL table replicated via native connector',
   },
   {
     id: 'mysql_source',
@@ -900,7 +900,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 0,
-    tooltip: 'Read data from a MySQL table replicated via Snowflake native connector',
+    tooltip: 'Read data from a MySQL table replicated via native connector',
   },
   {
     id: 'external_table_source',
@@ -916,7 +916,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 0,
-    tooltip: 'Read data from a Snowflake external table (backed by S3/Azure/GCS)',
+    tooltip: 'Read data from an external table (backed by S3/Azure/GCS)',
   },
   {
     id: 'dynamic_table_source',
@@ -932,7 +932,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 0,
-    tooltip: 'Read data from a Snowflake dynamic table (auto-refreshing materialized view)',
+    tooltip: 'Read data from a dynamic table (auto-refreshing materialized view)',
   },
   {
     id: 'shared_data_source',
@@ -948,7 +948,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 0,
-    tooltip: 'Read data from a Snowflake shared database (Data Sharing / Marketplace)',
+    tooltip: 'Read data from a shared database (Data Sharing / Marketplace)',
   },
 
   // ============================================
@@ -1084,7 +1084,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 0,
-    tooltip: 'Create a Python/SQL/Java User-Defined Function (UDF) in Snowflake',
+    tooltip: 'Create a Python/SQL/Java User-Defined Function (UDF) in the warehouse',
   },
   {
     id: 'create_procedure',
@@ -1126,7 +1126,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'finetune_model',
     type: 'finetune',
     label: 'Fine-Tune LLM',
-    description: 'Fine-tune a Cortex LLM with training data',
+    description: 'Fine-tune an AI model with training data',
     icon: Brain,
     category: 'ml_training',
     color: 'text-purple-600',
@@ -1136,7 +1136,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Fine-tune a Snowflake Cortex LLM (mistral, llama) with your training data table',
+    tooltip: 'Fine-tune an AI model (mistral, llama) with your training data table',
   },
   {
     id: 'train_classifier',
@@ -1152,7 +1152,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Train a SNOWFLAKE.ML.CLASSIFICATION model on labeled data for predictions',
+    tooltip: 'Train a classification model on labeled data for predictions',
   },
   {
     id: 'anomaly_detection',
@@ -1168,7 +1168,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Train a SNOWFLAKE.ML.ANOMALY_DETECTION model on time-series data',
+    tooltip: 'Train an anomaly-detection model on time-series data',
   },
   {
     id: 'forecast',
@@ -1184,7 +1184,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Train a SNOWFLAKE.ML.FORECAST model for time-series predictions',
+    tooltip: 'Train a forecasting model for time-series predictions',
   },
   {
     id: 'document_ai',
@@ -1218,7 +1218,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Classify text columns into custom categories using Cortex AI_CLASSIFY SQL function',
+    tooltip: 'Classify text columns into custom categories using the AI_CLASSIFY SQL function',
   },
   {
     id: 'ai_sentiment',
@@ -1282,7 +1282,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Generate text using AI_COMPLETE with a Cortex LLM model',
+    tooltip: 'Generate text using AI_COMPLETE with an AI model',
   },
   {
     id: 'ai_filter',
@@ -1298,7 +1298,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Filter rows using natural language conditions with Cortex AI_FILTER',
+    tooltip: 'Filter rows using natural language conditions with AI_FILTER',
   },
   {
     id: 'ai_agg',
@@ -1314,7 +1314,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Aggregate text data semantically using Cortex AI_AGG — summarize grouped text with AI',
+    tooltip: 'Aggregate text data semantically using AI_AGG — summarize grouped text with AI',
   },
 
   // ============================================
@@ -1402,7 +1402,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 0,
-    tooltip: 'Read data from an Apache Iceberg table registered in Snowflake (external or managed)',
+    tooltip: 'Read data from an Apache Iceberg table registered in the warehouse (external or managed)',
   },
 
   // ============================================
@@ -1528,7 +1528,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'task_dag',
     type: 'task_dag',
     label: 'Task DAG',
-    description: 'Orchestrate downstream steps as a Snowflake Task graph',
+    description: 'Orchestrate downstream steps as a task graph',
     icon: GitBranch,
     category: 'transform_advanced',
     color: 'text-sky-600',
@@ -1538,7 +1538,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Define a Snowflake Task DAG (root + dependent tasks) with a warehouse and schedule',
+    tooltip: 'Define a task DAG (root + dependent tasks) with a warehouse and schedule',
   },
 
   // ============================================
@@ -1548,7 +1548,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'copy_into',
     type: 'copy_into',
     label: 'COPY INTO',
-    description: 'Bulk-load files into a Snowflake table',
+    description: 'Bulk-load files into a warehouse table',
     icon: Download,
     category: 'destination',
     color: 'text-emerald-600',
@@ -1558,7 +1558,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: false,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Bulk-load staged files into a target Snowflake table using COPY INTO with configurable file format and write mode',
+    tooltip: 'Bulk-load staged files into a target warehouse table using COPY INTO with configurable file format and write mode',
   },
 
   // ============================================
@@ -1604,7 +1604,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'ml_forecast',
     type: 'ml_forecast',
     label: 'ML Forecast',
-    description: 'Train and apply a Snowflake ML forecasting model',
+    description: 'Train and apply an ML forecasting model',
     icon: TrendingUp,
     category: 'ml_training',
     color: 'text-blue-600',
@@ -1614,13 +1614,13 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Train a Snowflake ML forecasting model on a time series and produce horizon-step predictions',
+    tooltip: 'Train an ML forecasting model on a time series and produce horizon-step predictions',
   },
   {
     id: 'ml_anomaly',
     type: 'ml_anomaly',
     label: 'ML Anomaly',
-    description: 'Detect anomalies with a Snowflake ML model',
+    description: 'Detect anomalies with an ML model',
     icon: AlertTriangle,
     category: 'ml_training',
     color: 'text-red-600',
@@ -1630,7 +1630,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Score each row for anomalies using a Snowflake ML anomaly-detection model with a configurable threshold',
+    tooltip: 'Score each row for anomalies using an ML anomaly-detection model with a configurable threshold',
   },
 
   // ============================================
@@ -1650,7 +1650,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Compute vector embeddings for a text column using Cortex EMBED_TEXT (e.g. snowflake-arctic-embed-m)',
+    tooltip: 'Compute vector embeddings for a text column using an AI embedding model (EMBED_TEXT)',
   },
   {
     id: 'ai_redact',
@@ -1666,7 +1666,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Detect and redact sensitive entities (PII, PHI, FINANCIAL, …) in a text column using Cortex',
+    tooltip: 'Detect and redact sensitive entities (PII, PHI, FINANCIAL, …) in a text column using AI',
   },
   {
     id: 'ai_count_tokens',
@@ -1682,7 +1682,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Compute the token count of a text column for a given Cortex model — useful for cost/budget control',
+    tooltip: 'Compute the token count of a text column for a given AI model — useful for cost/budget control',
   },
   {
     id: 'ai_parse_document',
@@ -1698,7 +1698,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Parse staged document files (PDF, images) using Cortex PARSE_DOCUMENT in OCR or LAYOUT mode',
+    tooltip: 'Parse staged document files (PDF, images) using AI PARSE_DOCUMENT in OCR or LAYOUT mode',
   },
   {
     id: 'ai_transcribe',
@@ -1714,7 +1714,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Transcribe audio files referenced by URL/stage into text using Cortex AI_TRANSCRIBE with optional language hint',
+    tooltip: 'Transcribe audio files referenced by URL/stage into text using AI_TRANSCRIBE with optional language hint',
   },
 ];
 

@@ -33,14 +33,14 @@
     "transform_advanced": "Advanced Transforms — window, JSON, pivot, cleaning",
     "destination": "Destinations — terminal nodes; no output port",
     "python": "Python / UDF — code blocks",
-    "ml_training": "ML Training — Cortex ML model training",
-    "ai_functions": "AI Functions — Cortex inline SQL AI calls",
+    "ml_training": "ML Training — AI ML model training",
+    "ai_functions": "AI Functions — inline SQL AI calls",
     "templates": "Templates — prebuilt mini-pipelines"
   },
   "samples": [
     {
       "title": "Sample 1 — Daily KPI roll-up",
-      "summary": "Read orders from Snowflake, filter last 24h, group by store, write back to a KPI table.",
+      "summary": "Read orders from the warehouse, filter last 24h, group by store, write back to a KPI table.",
       "nodes": [
         {
           "id": "n1",
@@ -107,7 +107,7 @@
     },
     {
       "title": "Sample 2 — Sentiment scoring",
-      "summary": "Read reviews, score sentiment with Cortex, write enriched table.",
+      "summary": "Read reviews, score sentiment with AI, write enriched table.",
       "nodes": [
         {
           "id": "s1",
@@ -250,7 +250,7 @@
       "type": "source",
       "label": "Source",
       "category": "source",
-      "description": "Read data from Snowflake table",
+      "description": "Read data from warehouse table",
       "ports": {
         "hasInput": false,
         "hasOutput": true,
@@ -282,14 +282,14 @@
       "outputs": {
         "schema": "all columns of <database>.<schema>.<table>"
       },
-      "usage": "Entry point that reads a Snowflake table into the pipeline. Use first when input is a structured Snowflake table."
+      "usage": "Entry point that reads a warehouse table into the pipeline. Use first when input is a structured warehouse table."
     },
     {
       "id": "cdc_merge",
       "type": "cdc_merge",
       "label": "CDC Merge",
       "category": "source",
-      "description": "Process Snowflake Stream with MERGE INTO pattern",
+      "description": "Process change stream with MERGE INTO pattern",
       "ports": {
         "hasInput": true,
         "hasOutput": true,
@@ -316,7 +316,7 @@
       "outputs": {
         "schema": "rows after MERGE: METADATA$ACTION, METADATA$ISUPDATE + target columns"
       },
-      "usage": "Consume a Snowflake STREAM and MERGE changes into a target table. Use for CDC pipelines downstream of `stream_consume`."
+      "usage": "Consume a change STREAM and MERGE changes into a target table. Use for CDC pipelines downstream of `stream_consume`."
     },
     {
       "id": "stream_consume",
@@ -361,7 +361,7 @@
       "outputs": {
         "schema": "source columns + METADATA$ACTION, METADATA$ISUPDATE, METADATA$ROW_ID"
       },
-      "usage": "Create a Snowflake Stream to capture INSERT/UPDATE/DELETE. Pair with `cdc_merge` for CDC."
+      "usage": "Create a change stream to capture INSERT/UPDATE/DELETE. Pair with `cdc_merge` for CDC."
     },
     {
       "id": "s3_source",
@@ -400,7 +400,7 @@
       "outputs": {
         "schema": "inferred from file format"
       },
-      "usage": "Read files staged in S3 (CSV/JSON/Parquet) through a Snowflake external stage."
+      "usage": "Read files staged in S3 (CSV/JSON/Parquet) through an external stage."
     },
     {
       "id": "azure_source",
@@ -517,7 +517,7 @@
       "outputs": {
         "schema": "columns of the replicated table"
       },
-      "usage": "Ingest a PostgreSQL table via the Snowflake native connector."
+      "usage": "Ingest a PostgreSQL table via the native connector."
     },
     {
       "id": "mysql_source",
@@ -556,7 +556,7 @@
       "outputs": {
         "schema": "columns of the replicated table"
       },
-      "usage": "Ingest a MySQL table via the Snowflake native connector."
+      "usage": "Ingest a MySQL table via the native connector."
     },
     {
       "id": "external_table_source",
@@ -590,7 +590,7 @@
       "outputs": {
         "schema": "columns of the external table"
       },
-      "usage": "Read from a Snowflake external table (backed by S3/Azure/GCS)."
+      "usage": "Read from an external table (backed by S3/Azure/GCS)."
     },
     {
       "id": "dynamic_table_source",
@@ -658,7 +658,7 @@
       "outputs": {
         "schema": "columns of the shared table"
       },
-      "usage": "Read from a Snowflake shared database (Data Sharing / Marketplace)."
+      "usage": "Read from a shared database (Data Sharing / Marketplace)."
     },
     {
       "id": "salesforce_source",
@@ -688,7 +688,7 @@
       "outputs": {
         "schema": "fields of the Salesforce object"
       },
-      "usage": "Ingest a Salesforce SObject via the Snowflake connector."
+      "usage": "Ingest a Salesforce SObject via the native connector."
     },
     {
       "id": "sap_source",
@@ -1221,7 +1221,7 @@
       "type": "recommendation",
       "label": "Recommendation",
       "category": "transform",
-      "description": "Score or rank items (Cortex LLM or custom model)",
+      "description": "Score or rank items (AI model or custom model)",
       "ports": {
         "hasInput": true,
         "hasOutput": true,
@@ -1248,7 +1248,7 @@
       "outputs": {
         "schema": "input + score_column (FLOAT)"
       },
-      "usage": "Append a recommendation/relevance score using Cortex or a custom model."
+      "usage": "Append a recommendation/relevance score using AI or a custom model."
     },
     {
       "id": "segmentation",
@@ -1289,7 +1289,7 @@
       "type": "clustering",
       "label": "Clustering",
       "category": "transform",
-      "description": "Assign clusters (Cortex ML or k-means)",
+      "description": "Assign clusters (AI ML or k-means)",
       "ports": {
         "hasInput": true,
         "hasOutput": true,
@@ -1317,7 +1317,7 @@
       "outputs": {
         "schema": "input + cluster_column (INTEGER)"
       },
-      "usage": "Add a cluster id column using k-means (Cortex ML or SQL)."
+      "usage": "Add a cluster id column using k-means (AI ML or SQL)."
     },
     {
       "id": "sql_script",
@@ -1398,7 +1398,7 @@
       "type": "notebook_run",
       "label": "Run Notebook",
       "category": "transform",
-      "description": "Execute Snowflake notebook",
+      "description": "Execute notebook",
       "ports": {
         "hasInput": true,
         "hasOutput": true,
@@ -1425,7 +1425,7 @@
       "outputs": {
         "schema": "result table emitted by the notebook"
       },
-      "usage": "Execute a Snowflake Notebook and capture its final result table."
+      "usage": "Execute a notebook and capture its final result table."
     },
     {
       "id": "window_rank",
@@ -2246,7 +2246,7 @@
       "type": "destination",
       "label": "Destination",
       "category": "destination",
-      "description": "Write to Snowflake table",
+      "description": "Write to warehouse table",
       "ports": {
         "hasInput": true,
         "hasOutput": false,
@@ -2289,7 +2289,7 @@
       "outputs": {
         "schema": "—"
       },
-      "usage": "Terminal node — write upstream rows to a Snowflake table (overwrite / append / merge)."
+      "usage": "Terminal node — write upstream rows to a warehouse table (overwrite / append / merge)."
     },
     {
       "id": "export_file",
@@ -2370,7 +2370,7 @@
       "outputs": {
         "schema": "—"
       },
-      "usage": "Materialize upstream logic as a Dynamic Table that Snowflake refreshes automatically."
+      "usage": "Materialize upstream logic as a Dynamic Table that the warehouse refreshes automatically."
     },
     {
       "id": "create_udf",
@@ -2516,7 +2516,7 @@
       "type": "finetune",
       "label": "Fine-Tune LLM",
       "category": "ml_training",
-      "description": "Fine-tune a Cortex LLM with training data",
+      "description": "Fine-tune an AI model with training data",
       "ports": {
         "hasInput": true,
         "hasOutput": true,
@@ -2554,7 +2554,7 @@
       "outputs": {
         "schema": "JOB_ID, MODEL_NAME, STATUS"
       },
-      "usage": "Launch a Cortex fine-tuning job. Returns the trained model id."
+      "usage": "Launch an AI fine-tuning job. Returns the trained model id."
     },
     {
       "id": "train_classifier",
@@ -2588,7 +2588,7 @@
       "outputs": {
         "schema": "MODEL_NAME, METRICS"
       },
-      "usage": "Train SNOWFLAKE.ML.CLASSIFICATION on labeled data."
+      "usage": "Train a classification model on labeled data."
     },
     {
       "id": "anomaly_detection",
@@ -2627,7 +2627,7 @@
       "outputs": {
         "schema": "MODEL_NAME, METRICS"
       },
-      "usage": "Train SNOWFLAKE.ML.ANOMALY_DETECTION on a time series."
+      "usage": "Train an anomaly-detection model on a time series."
     },
     {
       "id": "forecast",
@@ -2672,7 +2672,7 @@
       "outputs": {
         "schema": "TS, FORECAST, LOWER_BOUND, UPPER_BOUND"
       },
-      "usage": "Train SNOWFLAKE.ML.FORECAST and emit future predictions."
+      "usage": "Train a forecasting model and emit future predictions."
     },
     {
       "id": "document_ai",
@@ -2743,7 +2743,7 @@
       "outputs": {
         "schema": "input + output_column (VARCHAR)"
       },
-      "usage": "Tag each row with one of the provided categories using Cortex AI_CLASSIFY."
+      "usage": "Tag each row with one of the provided categories using AI_CLASSIFY."
     },
     {
       "id": "ai_sentiment",
@@ -2882,7 +2882,7 @@
       "outputs": {
         "schema": "input + output_column (VARCHAR)"
       },
-      "usage": "Generate text per row using a prompt template and a Cortex LLM."
+      "usage": "Generate text per row using a prompt template and an AI model."
     },
     {
       "id": "ai_filter",
@@ -3215,7 +3215,7 @@
       "type": "task_dag",
       "label": "Task DAG",
       "category": "transform_advanced",
-      "description": "Orchestrate downstream steps as a Snowflake Task graph",
+      "description": "Orchestrate downstream steps as a task graph",
       "ports": {
         "hasInput": true,
         "hasOutput": true,
@@ -3249,7 +3249,7 @@
       "outputs": {
         "schema": "task DAG metadata (root + dependents)"
       },
-      "usage": "Define a Snowflake Task DAG: a root task on a schedule plus dependent tasks chained via AFTER. Mirrors the Task discovery / import flow."
+      "usage": "Define a task DAG: a root task on a schedule plus dependent tasks chained via AFTER. Mirrors the task discovery / import flow."
     }
   ]
 }
