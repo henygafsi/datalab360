@@ -42,6 +42,19 @@ export const STATUS_TINT = (s: number) =>
 
 // ── KPI Card (same shape as ServerMetricsPanel.Card + optional help) ─────────
 
+/**
+ * Provenance hint for a KPI value. The KPI band can draw a single number from
+ * either the HTTP request-trail (USER_REQUESTS) or usage-history (ACCOUNT_USAGE)
+ * source, so a tiny honest badge records which one a card is showing. `null`
+ * (no data / "—") renders nothing.
+ */
+export type KpiSource = 'request-trail' | 'usage-history' | null;
+
+const SOURCE_LABEL: Record<NonNullable<KpiSource>, { tag: string; title: string }> = {
+  'request-trail': { tag: 'trail', title: 'Source: HTTP request trail' },
+  'usage-history': { tag: 'usage', title: 'Source: usage history (fallback)' },
+};
+
 export function KpiCard({
   label,
   value,
@@ -49,6 +62,7 @@ export function KpiCard({
   icon: Icon,
   tint = 'text-slate-800 dark:text-slate-100',
   help,
+  source = null,
 }: {
   label: string;
   value: string;
@@ -56,7 +70,10 @@ export function KpiCard({
   icon: ElementType;
   tint?: string;
   help?: { definition: string; source?: string; goodRange?: string };
+  /** Provenance of the displayed value — renders a subtle source chip when set. */
+  source?: KpiSource;
 }) {
+  const src = source ? SOURCE_LABEL[source] : null;
   return (
     <GlassPanel depth={1} radius="xl" className="flex flex-col gap-1 p-3.5">
       <div className="flex items-center justify-between">
@@ -67,7 +84,17 @@ export function KpiCard({
         <Icon className="h-4 w-4 text-slate-400" />
       </div>
       <span className={cn('text-2xl font-semibold', tint)}>{value}</span>
-      {sub && <span className="text-[11px] text-slate-400">{sub}</span>}
+      <div className="flex items-center gap-1.5">
+        {sub && <span className="text-[11px] text-slate-400">{sub}</span>}
+        {src && (
+          <span
+            title={src.title}
+            className="ml-auto rounded-full bg-slate-100 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-slate-400 dark:bg-slate-800 dark:text-slate-500"
+          >
+            {src.tag}
+          </span>
+        )}
+      </div>
     </GlassPanel>
   );
 }

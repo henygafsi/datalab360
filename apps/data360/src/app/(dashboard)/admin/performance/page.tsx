@@ -35,6 +35,7 @@ import { GlassPanel } from '@/app/shared/glass';
 import EmptyState from '@/components/ui/EmptyState';
 import { getAccounts } from '@/app/services/org-accounts/hooks';
 import { getPerfOverview, type CacheAxis } from '@/app/services/admin-performance';
+import { getPlatformHealth } from '@/app/services/admin-platform-health';
 import {
   KpiCard,
   FilterChips,
@@ -47,6 +48,7 @@ import {
   type ChipOption,
   type PerfFocus,
   type AiState,
+  type KpiSource,
 } from './components/shared';
 import { usePerfFetch } from './components/usePerfFetch';
 import {
@@ -231,11 +233,86 @@ export default function PerformancePage() {
     account ? liveMs : null,
     !!account, // don't fetch /performance/<account>/overview until an account is selected (was firing with null → 403)
   );
+
+  // ACCOUNT_USAGE-backed fallback for the KPI band. Reads QUERY/ACCESS/LOGIN
+  // history on the CALLER'S own connection, so it populates locally (no SVC).
+  // `getPlatformHealth` ignores `account` (caller-connection-scoped) but we keep
+  // the same deps/gate as `overview` so the two stay in lock-step on refresh/live.
+  const health = usePerfFetch(
+    () => getPlatformHealth({ hours }),
+    [account, hours],
+    account ? liveMs : null,
+    !!account,
+  );
+
   useEffect(() => {
     if (overview.state === 'done') setUpdatedAt(new Date().toLocaleTimeString());
   }, [overview.state, overview.data]);
 
-  const k = overview.data?.kpis;
+  const ov = overview.data?.kpis;
+  const hk = health.data?.kpis;
+
+  /**
+   * Merged KPI band. Each scalar prefers the request-trail (`overview`) value
+   * when present, and falls back to usage-history (`health`) only for the KPIs
+   * that have an ACCOUNT_USAGE equivalent: total calls, error rate, latency
+   * percentiles and distinct users. Request-trail-only KPIs (requests/min,
+   * cache-hit, deny-rate, distinct paths, per-5min) stay overview-only → "—".
+   * `src.*` records provenance per card so the band is honest about its source.
+   */
+  const merged = useMemo(() => {
+    const pick = (a: number | null | undefined, b: number | null | undefined): { value: number | null; source: KpiSource } => {
+      if (a != null && !Number.isNaN(a)) return { value: a, source: 'request-trail' };
+      if (b != null && !Number.isNaN(b)) return { value: b, source: 'usage-history' };
+      return { value: null, source: null };
+    };
+    const calls = pick(ov?.requests, hk?.calls);
+    const errorRate = pick(ov?.error_rate, hk?.error_rate);
+    const distinctUsers = pick(ov?.distinct_users, hk?.distinct_users);
+
+    // Latency percentiles are sourced as a BLOCK (never field-blended), to avoid
+    // mixing provenance or mislabeling: overview exposes p50/p90/p99; health
+    // exposes p50/p95/p99 (no p90), so we pick the whole percentile line from one
+    // source and label it correctly. `avg_ms` exists only on the request-trail.
+    const ovHasLatency = ov && (ov.p50_ms != null || ov.p90_ms != null || ov.p99_ms != null || ov.avg_ms != null);
+    const hkHasLatency = hk && (hk.p50 != null || hk.p95 != null || hk.p99 != null);
+    const latency: { value: number | null; sub: string; source: KpiSource } = ovHasLatency
+      ? {
+          value: ov!.avg_ms,
+          sub: `p50 ${fmtMs(ov!.p50_ms)} · p90 ${fmtMs(ov!.p90_ms)} · p99 ${fmtMs(ov!.p99_ms)}`,
+          source: 'request-trail',
+        }
+      : hkHasLatency
+        ? {
+            value: null, // no mean on the usage-history source
+            sub: `p50 ${fmtMs(hk!.p50)} · p95 ${fmtMs(hk!.p95)} · p99 ${fmtMs(hk!.p99)}`,
+            source: 'usage-history',
+          }
+        : { value: null, sub: 'p50 — · p90 — · p99 —', source: null };
+
+    return { calls, errorRate, distinctUsers, latency };
+  }, [ov, hk]);
+
+  // Show the band when ANY merged value is present. The local no-SVC failure is
+  // `overview.state==='done'` with all-null kpis (reachable but empty) — so we
+  // can't gate on overview.state; we gate on whether the merge has any value.
+  const hasAnyKpi =
+    merged.calls.value != null ||
+    merged.errorRate.value != null ||
+    merged.distinctUsers.value != null ||
+    merged.latency.value != null ||
+    merged.latency.source != null ||
+    ov?.requests_per_min != null ||
+    ov?.requests_per_5min != null ||
+    ov?.cache_hit_rate != null ||
+    ov?.deny_rate != null ||
+    ov?.distinct_paths != null;
+
+  // Both sources empty/not-deployed → keep the honest empty-state.
+  const bothUnavailable =
+    !hasAnyKpi &&
+    (overview.state === 'not-deployed' || overview.state === 'done' || overview.state === 'error') &&
+    (health.state === 'not-deployed' || health.state === 'done' || health.state === 'error');
 
   const axisPanel = useMemo(() => {
     if (!account) return null;
@@ -304,7 +381,10 @@ export default function PerformancePage() {
           </button>
           <button
             type="button"
-            onClick={() => overview.reload()}
+            onClick={() => {
+              overview.reload();
+              health.reload();
+            }}
             className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-white/50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-white/10"
           >
             <RefreshCw className="h-3 w-3" />
@@ -318,12 +398,14 @@ export default function PerformancePage() {
         <EmptyState icon={Database} compact title="No account selected" description="Pick an account to view its performance." />
       ) : (
         <>
-          {/* KPI row — 8 cards, per selected account */}
-          {overview.state === 'not-deployed' ? (
+          {/* KPI row — 8 cards, per selected account. Values prefer the HTTP
+              request-trail (overview) and fall back to usage-history (health)
+              for the KPIs that have an ACCOUNT_USAGE equivalent. */}
+          {bothUnavailable ? (
             <GlassPanel depth={1} radius="xl" className="px-3 py-6 text-[11px] text-slate-400">
               <span className="inline-flex items-center gap-2">
                 <Activity className="h-3.5 w-3.5" />
-                Performance metrics are not deployed yet for this account — the backend route is coming online.
+                No performance metrics yet for this account — neither the request trail nor usage history has data for this window.
               </span>
             </GlassPanel>
           ) : (
@@ -331,55 +413,63 @@ export default function PerformancePage() {
               <KpiCard
                 label="Requests / min"
                 icon={Activity}
-                value={fmtInt(k?.requests_per_min)}
-                sub={`${fmtInt(k?.requests)} total`}
-                help={{ definition: 'Average requests per minute over the selected window.', goodRange: 'depends on tier' }}
+                value={fmtInt(ov?.requests_per_min)}
+                sub={`${fmtInt(merged.calls.value)} total`}
+                source={merged.calls.source}
+                help={{ definition: 'Average requests per minute over the selected window. Per-minute rate is request-trail only; total may come from usage history.', goodRange: 'depends on tier' }}
               />
               <KpiCard
                 label="Avg response"
                 icon={Timer}
-                value={fmtMs(k?.avg_ms)}
-                sub={`p50 ${fmtMs(k?.p50_ms)} · p90 ${fmtMs(k?.p90_ms)} · p99 ${fmtMs(k?.p99_ms)}`}
-                help={{ definition: 'Mean server response time; sub-line shows latency percentiles.', goodRange: '< 500 ms p90' }}
+                value={fmtMs(merged.latency.value)}
+                sub={merged.latency.sub}
+                source={merged.latency.source}
+                help={{ definition: 'Mean server response time; sub-line shows latency percentiles. Mean is request-trail only; percentiles may come from usage history.', goodRange: '< 500 ms p90' }}
               />
               <KpiCard
                 label="Error rate"
                 icon={AlertTriangle}
-                tint={(k?.error_rate ?? 0) > 5 ? 'text-red-600 dark:text-red-400' : undefined}
-                value={fmtPct(k?.error_rate, 2)}
-                sub={`${fmtInt(k?.error_count)} errors`}
-                help={{ definition: 'Share of requests returning 4xx/5xx.', goodRange: '< 1%' }}
+                tint={(merged.errorRate.value ?? 0) > 5 ? 'text-red-600 dark:text-red-400' : undefined}
+                value={fmtPct(merged.errorRate.value, 2)}
+                sub={ov?.error_count != null ? `${fmtInt(ov.error_count)} errors` : undefined}
+                source={merged.errorRate.source}
+                help={{ definition: 'Share of requests returning 4xx/5xx (request trail) or queries that errored (usage history).', goodRange: '< 1%' }}
               />
               <KpiCard
                 label="Cache hit rate"
                 icon={Database}
-                value={fmtPct(k?.cache_hit_rate, 1)}
-                help={{ definition: 'Share of requests served from cache vs. recomputed.', goodRange: '> 80%' }}
+                value={fmtPct(ov?.cache_hit_rate, 1)}
+                source={ov?.cache_hit_rate != null ? 'request-trail' : null}
+                help={{ definition: 'Share of requests served from cache vs. recomputed. Request-trail only.', goodRange: '> 80%' }}
               />
               <KpiCard
                 label="Requests / 5min"
                 icon={BarChart3}
-                value={fmtInt(k?.requests_per_5min)}
-                help={{ definition: 'Average requests per 5-minute bucket.' }}
+                value={fmtInt(ov?.requests_per_5min)}
+                source={ov?.requests_per_5min != null ? 'request-trail' : null}
+                help={{ definition: 'Average requests per 5-minute bucket. Request-trail only.' }}
               />
               <KpiCard
                 label="Deny rate"
                 icon={ShieldX}
-                tint={(k?.deny_rate ?? 0) > 5 ? 'text-amber-600 dark:text-amber-400' : undefined}
-                value={fmtPct(k?.deny_rate, 2)}
-                help={{ definition: 'Share of requests denied by access control.', goodRange: 'low & expected' }}
+                tint={(ov?.deny_rate ?? 0) > 5 ? 'text-amber-600 dark:text-amber-400' : undefined}
+                value={fmtPct(ov?.deny_rate, 2)}
+                source={ov?.deny_rate != null ? 'request-trail' : null}
+                help={{ definition: 'Share of requests denied by access control. Request-trail only.', goodRange: 'low & expected' }}
               />
               <KpiCard
                 label="Distinct users"
                 icon={Users}
-                value={fmtInt(k?.distinct_users)}
+                value={fmtInt(merged.distinctUsers.value)}
+                source={merged.distinctUsers.source}
                 help={{ definition: 'Unique users active in the window.' }}
               />
               <KpiCard
                 label="Distinct paths"
                 icon={Layers}
-                value={fmtInt(k?.distinct_paths)}
-                help={{ definition: 'Unique endpoint paths called in the window.' }}
+                value={fmtInt(ov?.distinct_paths)}
+                source={ov?.distinct_paths != null ? 'request-trail' : null}
+                help={{ definition: 'Unique endpoint paths called in the window. Request-trail only.' }}
               />
             </div>
           )}
