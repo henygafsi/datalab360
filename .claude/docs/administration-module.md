@@ -49,18 +49,21 @@ should expose, the parts that are still unclear, and the governance to-dos.
 - **Table-row → CTA:** Role row → view holders / grants / **revoke** (RBAC-gated); User row → effective permissions / their grants; Object row (access history) → who-accessed / lineage / **apply policy or tag** (→ Governance); Grant row → revoke (non-revocable string rows disabled w/ tooltip).
 - **UNCLEAR:** the `/access-center` tabbed page's empty-on-load is a deliberate "select a role" prompt (not a bug). ACCESS_HISTORY is **object-grain only** — the feed has no per-user "who" (needs a USER_NAME join for true who-accessed-what).
 
-## 4 · Entitlements & Feature Governance  (`tab=entitlements` → `/administration/feature-governance`)
-- **Endpoints (🟢 config):** `administration/entitlements`, `entitlements/{module}/{feature_key}`, `governance-posture`. Module × feature enablement matrix.
-- **CTA TODO:** per-cell toggle (enable/disable feature per account) with audit; filter by module/account; "governance posture" KPIs → drill to gaps. **Not yet given the filter/AI deep-dive treatment.**
+## 4 · Entitlements & Feature Governance  (`tab=entitlements` → `/administration/feature-governance`) ✅ ENHANCED
+- **Component:** `feature-governance/FeatureGovernanceMatrix.tsx`. **Endpoints (🟢 config):** `GET /api/administration/entitlements` + `/governance-posture` (parallel; gate `.permissions.can_govern`); toggle `PUT /api/administration/entitlements/{module}/{feature_key}`.
+- **Done:** per-cell toggle RBAC-gated (`can_govern` OR `useCanPerform('gouvernance','grant')`, fail-open safe) + optimistic with rollback (fixed a false admin-override badge on failed toggle) + toast · debounced search + module chips + "Gaps only" + "X of Y" · governance-posture KPI strip (Coverage% · Gaps→drill · Bound policies · Your access; `dash()` not fake-0) · skeleton/empty states.
 
-## 5 · API Health  (`tab=api-health` → `/admin/api-health`)
-- Endpoint prober (🟢 local). **CTA TODO:** "re-probe", filter by status, drill failing endpoint → its route/handler. Not yet enhanced.
+## 5 · API Health  (`tab=api-health` → `/admin/api-health`) ✅ ENHANCED
+- Endpoint prober (🟢 local) — probes ~600 service fns with `__test_health_check__` IDs, classifies success/warn(4xx=live)/error(5xx). Components: `api-health/components/{KpiStrip,DrillPanel,types}.tsx`.
+- **Done:** KPI strip (total/healthy/failing/slow/avg-latency, "—" pre-run) · debounced search + Slow filter (derived, `SLOW_THRESHOLD_MS=1500`) · per-row + per-module + global Re-probe · non-blocking drill panel (status/latency/HTTP/route from axios config, "—" when unknown) · honest not-run/no-match states. (page is `@ts-nocheck` by design — runtime probe IS the audit.)
 
-## 6 · Server Metrics  (`tab=server` → `admin/ServerMetricsPanel.tsx` → `/admin/server-metrics`)
-- Backend **process/host** metrics (🟢 local, **in-memory — RESETS on backend restart**). CTA TODO: thresholds/alerts. Not yet enhanced.
+## 6 · Server Metrics  (`tab=server` → `admin/ServerMetricsPanel.tsx` → `/admin/server-metrics`) ✅ ENHANCED
+- Backend **process/host** metrics (🟢 local, **in-memory — RESETS on restart**, per-worker).
+- **Done + REAL FIXES:** `error_rate` was a ratio 0–1 rendered as `${v}%` (0.05 → "0.05%"); now `*100` with thresholds amber≥5% / red≥10% · no-fake-0 on null `memory_rss_mb`/`cpu_load` (was "NaN MB", now "—") · KPI thresholds (CPU vs `cpu_count`, latency) · honest "resets on restart" banner · top-endpoints search · refresh + live-poll (5/10/30/60s) · 404/501 → "unavailable" degrade.
 
-## 7 · Config & Settings  (`tab=config` → `/admin/data360-config` + `/admin/platform-settings`)
-- Metadata/tables/date-columns/cache config (🟢 config). Already functional; CTA TODO: same filter/honest-empty polish.
+## 7 · Config & Settings  (`tab=config` → `/admin/data360-config` + `/admin/platform-settings`) ✅ ENHANCED
+- Metadata/tables/date-columns/cache config (🟢 config).
+- **Done + REAL FIX:** the Save / Reset / New / Create mutating buttons were **open to anyone** → now `useCanPerform('gouvernance','apply')`-gated · inline reset confirm (no blocking `window.confirm`) · debounced search + category/module filter chips + "X of Y" on tables + cache · fake-0 fixes ("— keys" pre-load). (`ActionRbacTab.tsx` is dead code — left untouched.)
 
 ---
 
@@ -72,12 +75,16 @@ should expose, the parts that are still unclear, and the governance to-dos.
 - [ ] **Confirm grant shape** (object vs string) on backend deploy (normalizer handles both meanwhile).
 - [ ] **RBAC gating** — every mutating CTA (revoke, toggle entitlement) must stay `useCanPerform`-gated (currently preserved).
 
+## NEXT — planned enhancements (cross-cutting)
+- [ ] **Re-point Performance KPI band → `platform-health`** (ACCOUNT_USAGE) so Performance isn't empty locally (USER_REQUESTS stays the per-axis trail, prod-only).
+- [ ] **Cross-tab CTAs** — make KPI/table rows navigate: Platform-Health by-user → Access Control · Top-objects → governance (tags/policies) · by-warehouse → FinOps · Performance error-row → request detail.
+- [ ] **Backend data enrichment** — research in progress → `vault/.../ADMIN_BACKEND_ENRICHMENT_2026-06-19.md`: richer granularity (time-series/trends, by-status/error-type/method, p50/p90/p99), ACCESS_HISTORY user-grain (who-accessed-what), grant lineage (granted_by/at), policy coverage per object, per-user/module cost via QUERY_TAG.
+- [ ] **Governance** — grant lineage · policy coverage viz · Role-Matrix cell→grants drill · who-accessed-what user-grain · keep every mutating CTA `useCanPerform`-gated.
+
 ## Open / unclear (flag before relying)
 - 🟠 **Backend `/administration/platform-health` not deployed** (local `26fbfe36`) — needs a go. Until then the Platform Health tab shows "not deployed yet" (graceful).
-- **Performance KPI band still USER_REQUESTS-sourced** → empty locally; re-point to platform-health (TODO above).
-- **`error_rate` units** (fraction vs percent) — confirm.
-- **Live verification pending** — all build-verified (tsc) only; the one-by-one endpoint test harness `e2e/ux-audit/_admin-endpoints-test.mjs` (17 endpoints) needs a fresh login: `E2E_TEST_USER=… E2E_TEST_PASS='…' E2E_TEST_ACCOUNT=… node e2e/ux-audit/_admin-endpoints-test.mjs`.
-- **Remaining tabs (4·5·6·7)** not yet given the filter/drill/AI deep-dive.
+- **`platform-health` `error_rate` units** — FE `fmtPct` treats as already-percent; confirm vs `platform_health_reads.py` (the Server-Metrics one was a real ratio→percent bug, now fixed — check platform-health doesn't have the same).
+- **Live verification pending** — all build-verified (tsc) only; run the one-by-one harness `e2e/ux-audit/_admin-endpoints-test.mjs` (17 endpoints) with a fresh login: `E2E_TEST_USER=… E2E_TEST_PASS='…' E2E_TEST_ACCOUNT=… node e2e/ux-audit/_admin-endpoints-test.mjs`.
 
 ## Commits (this refactor, on `feat/backlog-v1`)
-`702fad2` perf deep-dive · `7737133` hub + nav · `555ba53` Platform Health + Access Control · backend `26fbfe36` (LOCAL, undeployed).
+`702fad2` perf deep-dive · `7737133` hub + nav · `555ba53` Platform Health + Access Control · `cc3b25f` this doc · `45f4ff8` tabs 4·5·6·7 (entitlements/api-health/server-metrics/config) + real fixes · backend `26fbfe36` (LOCAL, undeployed).
