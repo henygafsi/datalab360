@@ -16,11 +16,15 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import toast from 'react-hot-toast';
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   CheckCircle2,
+  ChevronsUpDown,
   Gauge,
   Hammer,
   Loader2,
   Lock,
+  Minus,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -49,6 +53,10 @@ import {
 } from '@/app/services/administration/entitlements';
 
 type Phase = 'loading' | 'ready' | 'error' | 'not-deployed';
+
+/** Sortable columns of the entitlement table. */
+type SortKey = 'module' | 'feature' | 'status';
+type SortDir = 'asc' | 'desc';
 
 const CAP_TINT: Record<Capability, string> = {
   create: 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-500/30',
@@ -121,6 +129,23 @@ export default function FeatureGovernanceMatrix() {
   // Per-cell pending + optimistic enabled overlay, keyed by `${module}:${key}`.
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [rowError, setRowError] = useState<Record<string, string>>({});
+  // Per-module bulk action in flight, keyed by module slug.
+  const [bulkPending, setBulkPending] = useState<Record<string, boolean>>({});
+
+  // ── Sort ─────────────────────────────────────────────────────────────────────
+  const [sortKey, setSortKey] = useState<SortKey>('module');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const toggleSort = useCallback((key: SortKey) => {
+    setSortKey((prevKey) => {
+      if (prevKey === key) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return prevKey;
+      }
+      // Status defaults to "enabled-first" feel via desc; others asc.
+      setSortDir(key === 'status' ? 'desc' : 'asc');
+      return key;
+    });
+  }, []);
 
   // ── Filters ────────────────────────────────────────────────────────────────
   const [searchInput, setSearchInput] = useState('');
@@ -221,6 +246,71 @@ export default function FeatureGovernanceMatrix() {
           const { [ck]: _drop, ...rest } = p;
           return rest;
         });
+      }
+    },
+    [canEdit, patchRow],
+  );
+
+  /**
+   * Bulk enable/disable a set of feature rows (one module group). No bulk
+   * endpoint exists, so we fan out per-feature PUTs — but only for rows that
+   * actually change state (no re-asserting the current value). Each row is
+   * applied optimistically and rolled back INDIVIDUALLY on its own failure, so a
+   * partial failure leaves the succeeded rows toggled. One summary toast.
+   */
+  const handleBulk = useCallback(
+    async (module: string, feats: EntitlementFeature[], next: boolean) => {
+      if (!canEdit) return;
+      const targets = feats.filter((f) => f.enabled !== next);
+      if (targets.length === 0) {
+        toast(`All shown ${module.replace(/_/g, ' ')} features already ${next ? 'enabled' : 'disabled'}`);
+        return;
+      }
+      setBulkPending((b) => ({ ...b, [module]: true }));
+      setPending((p) => {
+        const nextP = { ...p };
+        targets.forEach((f) => {
+          nextP[`${f.module}:${f.feature_key}`] = true;
+        });
+        return nextP;
+      });
+      // Optimistic: flip every target now.
+      targets.forEach((f) => patchRow(f.module, f.feature_key, next, 'override'));
+
+      const results = await Promise.allSettled(
+        targets.map(async (f) => {
+          try {
+            await setEntitlement(f.module, f.feature_key, { enabled: next });
+          } catch (e) {
+            // Roll back THIS row only, restoring its original state + source.
+            patchRow(f.module, f.feature_key, f.enabled, f.source);
+            setRowError((r) => ({ ...r, [`${f.module}:${f.feature_key}`]: getApiErrorMessage(e) }));
+            throw e;
+          }
+        }),
+      );
+
+      setPending((p) => {
+        const nextP = { ...p };
+        targets.forEach((f) => {
+          delete nextP[`${f.module}:${f.feature_key}`];
+        });
+        return nextP;
+      });
+      setBulkPending((b) => {
+        const { [module]: _drop, ...rest } = b;
+        return rest;
+      });
+
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      const ok = targets.length - failed;
+      const verb = next ? 'enabled' : 'disabled';
+      if (failed === 0) {
+        toast.success(`${ok} ${module.replace(/_/g, ' ')} feature${ok === 1 ? '' : 's'} ${verb}`);
+      } else if (ok === 0) {
+        toast.error(`Could not ${next ? 'enable' : 'disable'} ${failed} feature${failed === 1 ? '' : 's'}`);
+      } else {
+        toast.error(`${ok} ${verb}, ${failed} failed`);
       }
     },
     [canEdit, patchRow],
@@ -340,7 +430,29 @@ export default function FeatureGovernanceMatrix() {
       shownCount += kept.length;
     }
   }
-  const filteredSlugs = Object.keys(filteredModules).sort();
+  // ── Sort pipeline ───────────────────────────────────────────────────────────
+  // Sorting NEVER breaks grouping: feature/status sorts reorder rows WITHIN each
+  // module group; module sort reorders the groups themselves. Default asc/desc.
+  const dirMul = sortDir === 'asc' ? 1 : -1;
+  const filteredSlugs = Object.keys(filteredModules).sort((a, b) => {
+    if (sortKey === 'module') return a.localeCompare(b) * dirMul;
+    return a.localeCompare(b); // stable group order for feature/status sorts
+  });
+  for (const slug of filteredSlugs) {
+    const rows = filteredModules[slug];
+    if (!rows) continue;
+    if (sortKey === 'feature') {
+      rows.sort((a, b) => a.label.localeCompare(b.label) * dirMul);
+    } else if (sortKey === 'status') {
+      // enabled vs disabled, then label as the stable tiebreak.
+      rows.sort(
+        (a, b) =>
+          (Number(a.enabled) - Number(b.enabled)) * dirMul || a.label.localeCompare(b.label),
+      );
+    } else {
+      rows.sort((a, b) => a.label.localeCompare(b.label));
+    }
+  }
   const filtersActive = Boolean(search || moduleFilter || gapsOnly);
   const clearFilters = () => {
     setSearchInput('');
@@ -471,9 +583,10 @@ export default function FeatureGovernanceMatrix() {
       )}
 
       <p className="px-0.5 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-        Each row is a governable feature, tagged with the capability it gates (Create · Run · Deploy ·
-        Manage · Govern, derived from its backend access gate). Enablement is per account; the
-        granted roles, usage and bound-policy posture come from{' '}
+        One row per governable feature, grouped by module and sortable by feature or status. Each is
+        tagged with the capability it gates (Create · Run · Deploy · Manage · Govern, derived from its
+        backend access gate). Enablement is per account; the granted roles, usage and bound-policy
+        posture in each module header come from{' '}
         <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">governance-posture</code>.
       </p>
 
@@ -502,111 +615,308 @@ export default function FeatureGovernanceMatrix() {
         </GlassPanel>
       )}
 
-      {/* Module × feature matrix */}
-      <div className="space-y-3">
-        {filteredSlugs.map((slug) => {
-          const feats = filteredModules[slug] ?? [];
-          const p = postureByModule.get(slug);
-          return (
-            <GlassPanel key={slug} depth={1} radius="xl" className="overflow-hidden">
-              {/* Module header with posture rollup */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-[13px] font-semibold capitalize text-slate-800 dark:text-slate-100">
-                    {slug.replace(/_/g, ' ')}
-                  </h3>
-                  <span className="text-[11px] text-slate-400">
-                    {p ? `${p.features_enabled}/${p.features_total} enabled` : `${feats.length} features`}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {p?.granted_roles?.length ? (
-                    p.granted_roles.map((role) => (
-                      <span
-                        key={role}
-                        className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+      {/* Module × feature entitlement TABLE — grouped by module, sortable. */}
+      {filteredSlugs.length > 0 && (
+        <GlassPanel depth={1} radius="xl" className="overflow-hidden">
+          <div className="max-h-[68vh] overflow-auto">
+            <table className="w-full border-collapse text-left">
+              <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur dark:bg-slate-900/95">
+                <tr className="border-b border-slate-200 dark:border-slate-700">
+                  <SortHeader
+                    label="Module / Feature"
+                    col="feature"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    className="min-w-[260px]"
+                  />
+                  <th
+                    scope="col"
+                    className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                  >
+                    Surface / scope
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                  >
+                    Governance signal
+                  </th>
+                  <SortHeader
+                    label="Status"
+                    col="status"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={toggleSort}
+                    align="right"
+                    className="w-[120px]"
+                  />
+                </tr>
+              </thead>
+              {filteredSlugs.map((slug) => {
+                const feats = filteredModules[slug] ?? [];
+                const p = postureByModule.get(slug);
+                // Coverage meter: prefer posture's account-wide count, else the
+                // group's currently-shown rows. Honest "—" when nothing to measure.
+                const grpEnabled = p ? p.features_enabled : feats.filter((f) => f.enabled).length;
+                const grpTotal = p ? p.features_total : feats.length;
+                const grpPct = grpTotal > 0 ? Math.round((grpEnabled / grpTotal) * 100) : null;
+                const allOn = feats.every((f) => f.enabled);
+                const allOff = feats.every((f) => !f.enabled);
+                const busy = Boolean(bulkPending[slug]);
+                return (
+                  <tbody
+                    key={slug}
+                    className="divide-y divide-slate-100/70 dark:divide-slate-800/60"
+                  >
+                    {/* Module group header row */}
+                    <tr className="border-t border-slate-200 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-800/40">
+                      <th
+                        scope="colgroup"
+                        colSpan={4}
+                        className="px-3 py-2 text-left font-normal"
                       >
-                        {role}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-[10px] italic text-slate-400">no role grants</span>
-                  )}
-                  {p?.usage ? (
-                    <span
-                      className={cn(
-                        'rounded px-1.5 py-0.5 text-[10px] font-medium',
-                        p.usage.error_rate > 0.05
-                          ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'
-                          : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
-                      )}
-                      title={`${p.usage.requests} requests · ${p.usage.distinct_users} users`}
-                    >
-                      {p.usage.requests} req · {(p.usage.error_rate * 100).toFixed(1)}% err
-                    </span>
-                  ) : null}
-                  {typeof p?.bound_policies === 'number' && (
-                    <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
-                      {p.bound_policies} policies bound
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Feature rows */}
-              <ul className="divide-y divide-slate-50 dark:divide-slate-800/60">
-                {feats.map((feat) => {
-                  const ck = `${feat.module}:${feat.feature_key}`;
-                  const cap = capabilityOf(feat.module, feat.feature_key);
-                  return (
-                    <li key={ck} className="flex items-start gap-3 px-3 py-2.5">
-                      <div className="mt-0.5">
-                        <Toggle
-                          enabled={feat.enabled}
-                          pending={Boolean(pending[ck])}
-                          disabled={!canEdit}
-                          onToggle={() => void handleToggle(feat)}
-                          label={`${feat.enabled ? 'Disable' : 'Enable'} ${feat.label}`}
-                        />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[12px] font-medium text-slate-800 dark:text-slate-100">
-                            {feat.label}
-                          </span>
-                          <CapBadge cap={cap} />
-                          {feat.source === 'override' && (
-                            <span className="text-[10px] text-slate-400" title={feat.updated_by ?? undefined}>
-                              admin override
+                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[13px] font-semibold capitalize text-slate-800 dark:text-slate-100">
+                              {slug.replace(/_/g, ' ')}
                             </span>
+                            {/* Inline coverage meter */}
+                            <span className="inline-flex items-center gap-1.5">
+                              <span
+                                className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+                                role="img"
+                                aria-label={
+                                  grpPct != null
+                                    ? `${grpEnabled} of ${grpTotal} enabled`
+                                    : 'no coverage data'
+                                }
+                              >
+                                <span
+                                  className={cn(
+                                    'block h-full rounded-full transition-all',
+                                    grpPct === 100
+                                      ? 'bg-emerald-500'
+                                      : grpPct === 0
+                                        ? 'bg-slate-300 dark:bg-slate-600'
+                                        : 'bg-emerald-400',
+                                  )}
+                                  style={{ width: `${grpPct ?? 0}%` }}
+                                />
+                              </span>
+                              <span className="text-[10px] tabular-nums text-slate-500 dark:text-slate-400">
+                                {grpPct != null ? `${grpEnabled}/${grpTotal}` : '—'}
+                              </span>
+                            </span>
+                            {p?.granted_roles?.length ? (
+                              p.granted_roles.map((role) => (
+                                <span
+                                  key={role}
+                                  className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                                >
+                                  {role}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-[10px] italic text-slate-400">no role grants</span>
+                            )}
+                            {p?.usage ? (
+                              <span
+                                className={cn(
+                                  'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                                  p.usage.error_rate > 0.05
+                                    ? 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300'
+                                    : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400',
+                                )}
+                                title={`${p.usage.requests} requests · ${p.usage.distinct_users} users`}
+                              >
+                                {p.usage.requests} req · {(p.usage.error_rate * 100).toFixed(1)}% err
+                              </span>
+                            ) : null}
+                            {typeof p?.bound_policies === 'number' && (
+                              <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 dark:bg-rose-500/10 dark:text-rose-300">
+                                {p.bound_policies} policies bound
+                              </span>
+                            )}
+                          </div>
+                          {/* Per-module bulk actions — RBAC-gated, operate on shown rows. */}
+                          {canEdit && (
+                            <div className="flex items-center gap-1.5">
+                              {busy && (
+                                <Loader2
+                                  className="h-3 w-3 animate-spin text-slate-400"
+                                  aria-hidden
+                                />
+                              )}
+                              <button
+                                type="button"
+                                disabled={busy || allOn}
+                                onClick={() => void handleBulk(slug, feats, true)}
+                                className="inline-flex items-center gap-1 rounded-md border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-emerald-500/30 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
+                              >
+                                <CheckCircle2 className="h-3 w-3" /> Enable all
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy || allOff}
+                                onClick={() => void handleBulk(slug, feats, false)}
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                              >
+                                <Minus className="h-3 w-3" /> Disable all
+                              </button>
+                            </div>
                           )}
                         </div>
-                        <p className="mt-0.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-                          {feat.description}
-                        </p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
-                          {feat.surface && (
-                            <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">
-                              {feat.surface}
-                            </code>
-                          )}
-                          {feat.governed_by && <span>gate: {feat.governed_by}</span>}
-                        </div>
-                        {rowError[ck] && (
-                          <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-red-600 dark:text-red-400">
-                            <AlertTriangle className="h-3 w-3" /> {rowError[ck]}
-                          </p>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </GlassPanel>
-          );
-        })}
-      </div>
+                      </th>
+                    </tr>
+
+                    {/* Feature rows */}
+                    {feats.map((feat) => {
+                      const ck = `${feat.module}:${feat.feature_key}`;
+                      const cap = capabilityOf(feat.module, feat.feature_key);
+                      return (
+                        <tr
+                          key={ck}
+                          className="group transition-colors hover:bg-slate-50/60 dark:hover:bg-slate-800/30"
+                        >
+                          {/* Module/Feature — label + capability + description tooltip */}
+                          <td className="px-3 py-2 align-top" title={feat.description || undefined}>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[12px] font-medium text-slate-800 dark:text-slate-100">
+                                {feat.label}
+                              </span>
+                              <CapBadge cap={cap} />
+                              {feat.source === 'override' && (
+                                <span
+                                  className="text-[10px] text-slate-400"
+                                  title={feat.updated_by ?? undefined}
+                                >
+                                  admin override
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-0.5 line-clamp-2 max-w-prose text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+                              {dash(feat.description)}
+                            </p>
+                            {rowError[ck] && (
+                              <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-red-600 dark:text-red-400">
+                                <AlertTriangle className="h-3 w-3" /> {rowError[ck]}
+                              </p>
+                            )}
+                          </td>
+
+                          {/* Surface / scope */}
+                          <td className="px-3 py-2 align-top">
+                            {feat.surface ? (
+                              <code className="rounded bg-slate-100 px-1 text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                {feat.surface}
+                              </code>
+                            ) : (
+                              <span className="text-[11px] text-slate-300 dark:text-slate-600">—</span>
+                            )}
+                          </td>
+
+                          {/* Governance signal — feature-level gate (module rollup is in the header). */}
+                          <td className="px-3 py-2 align-top text-[10px] text-slate-500 dark:text-slate-400">
+                            {feat.governed_by ? (
+                              <span className="inline-flex items-center gap-1">
+                                <ShieldCheck className="h-3 w-3 text-slate-400" />
+                                <span className="truncate">{feat.governed_by}</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 dark:text-slate-600">—</span>
+                            )}
+                          </td>
+
+                          {/* Status — the enable/disable toggle + scannable label. */}
+                          <td className="px-3 py-2 align-top">
+                            <div className="flex items-center justify-end gap-2">
+                              <span
+                                className={cn(
+                                  'inline-flex items-center gap-1 text-[10px] font-medium',
+                                  feat.enabled
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-slate-400 dark:text-slate-500',
+                                )}
+                              >
+                                {feat.enabled ? (
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                ) : (
+                                  <Minus className="h-3.5 w-3.5" />
+                                )}
+                                {feat.enabled ? 'Enabled' : 'Disabled'}
+                              </span>
+                              <Toggle
+                                enabled={feat.enabled}
+                                pending={Boolean(pending[ck])}
+                                disabled={!canEdit}
+                                onToggle={() => void handleToggle(feat)}
+                                label={`${feat.enabled ? 'Disable' : 'Enable'} ${feat.label}`}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                );
+              })}
+            </table>
+          </div>
+        </GlassPanel>
+      )}
     </div>
+  );
+}
+
+/** A sortable column header cell. Shows direction arrows on the active column. */
+function SortHeader({
+  label,
+  col,
+  activeKey,
+  dir,
+  onSort,
+  align = 'left',
+  className,
+}: {
+  label: string;
+  col: SortKey;
+  activeKey: SortKey;
+  dir: SortDir;
+  onSort: (key: SortKey) => void;
+  align?: 'left' | 'right';
+  className?: string;
+}) {
+  const active = activeKey === col;
+  return (
+    <th
+      scope="col"
+      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={cn('px-3 py-2', className)}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(col)}
+        className={cn(
+          'inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide transition-colors',
+          align === 'right' && 'flex-row-reverse',
+          active
+            ? 'text-slate-700 dark:text-slate-200'
+            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200',
+        )}
+      >
+        {label}
+        {active ? (
+          dir === 'asc' ? (
+            <ArrowUp className="h-3 w-3" />
+          ) : (
+            <ArrowDown className="h-3 w-3" />
+          )
+        ) : (
+          <ChevronsUpDown className="h-3 w-3 opacity-50" />
+        )}
+      </button>
+    </th>
   );
 }
 
