@@ -35,6 +35,8 @@ import { isUnavailable } from '@/lib/http-status';
 import { safeLocale, safeToFixed } from '@/lib/format-number';
 import EmptyState from '@/components/ui/EmptyState';
 import Pager, { usePagination } from '@/components/ui/Pager';
+import ExportButton from '@/components/ui/ExportButton';
+import { type ReportInput } from '@/lib/export-report';
 import { GlassPanel } from '@/app/shared/glass';
 import { getServerMetrics, type ServerMetrics } from '@/app/services/admin-visibility';
 
@@ -219,6 +221,50 @@ export default function ServerMetricsPanel() {
   }
   if (!m) return <EmptyState icon={BarChart3} compact title="No metrics" />;
 
+  // Snapshot the CURRENT view to CSV: filtered top endpoints (full set, not just
+  // the page) + active users. `m` is narrowed non-null by the guards above.
+  const metrics = m;
+  const buildReport = (): ReportInput => ({
+    title: 'Server Metrics',
+    meta: [
+      { label: 'Generated at', value: new Date().toISOString() },
+      { label: 'Endpoint filter', value: query.trim() || null },
+      { label: 'Endpoints shown', value: `${filteredEndpoints.length} of ${metrics.top_endpoints.length}` },
+      { label: 'Updated at', value: updatedAt || null },
+      { label: 'Note', value: 'In-memory, per-worker counters; reset on backend restart' },
+    ],
+    kpis: [
+      { label: 'Requests / min', value: metrics.requests_per_min },
+      { label: 'Total requests', value: metrics.total_requests },
+      { label: 'Error rate %', value: safeToFixed(metrics.error_rate * 100, 2) },
+      { label: 'Errors', value: metrics.error_count },
+      { label: 'Avg latency ms', value: Math.round(metrics.latency.avg_ms) },
+      { label: 'p99 latency ms', value: Math.round(metrics.latency.p99_ms) },
+      { label: 'Uptime', value: fmtUptime(metrics.uptime_seconds) },
+      { label: 'Memory RSS MB', value: numOr(metrics.memory_rss_mb, (v) => String(Math.round(v))) },
+      { label: 'CPU load (1m)', value: numOr(metrics.cpu_load, (v) => safeToFixed(v, 2)) },
+    ],
+    sections: [
+      {
+        name: 'Top endpoints',
+        columns: ['Method', 'Path', 'Requests', 'Errors', 'Avg ms', 'Max ms'],
+        rows: filteredEndpoints.map((e) => [
+          e.method,
+          e.path,
+          e.requests,
+          e.errors,
+          Math.round(e.avg_ms),
+          Math.round(e.max_ms),
+        ]),
+      },
+      {
+        name: 'Most active users',
+        columns: ['User', 'Requests'],
+        rows: metrics.active_users.map((u) => [u.username || null, u.requests]),
+      },
+    ],
+  });
+
   return (
     <div className="space-y-3">
       {/* Honest framing banner: these are ephemeral, per-worker counters. */}
@@ -266,6 +312,7 @@ export default function ServerMetricsPanel() {
             <RefreshCw className="h-3 w-3" />
             Refresh
           </button>
+          <ExportButton buildReport={buildReport} />
         </div>
       </div>
 

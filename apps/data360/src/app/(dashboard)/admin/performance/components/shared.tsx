@@ -225,6 +225,37 @@ export function matchSearch(haystack: string, search: string): boolean {
   return haystack.toLowerCase().includes(q);
 }
 
+/**
+ * Highlight — wraps the matched (case-insensitive) substring of `text` in a
+ * subtle marker so the user can see WHY a row matched the active search. No
+ * match / empty search → renders the text unchanged.
+ */
+export function Highlight({ text, search }: { text: string | null | undefined; search: string }) {
+  const value = text ?? '';
+  const q = search.trim();
+  if (!q || !value) return <>{value || '—'}</>;
+  const lower = value.toLowerCase();
+  const ql = q.toLowerCase();
+  const out: React.ReactNode[] = [];
+  let i = 0;
+  let n = 0;
+  while (i < value.length) {
+    const hit = lower.indexOf(ql, i);
+    if (hit === -1) {
+      out.push(value.slice(i));
+      break;
+    }
+    if (hit > i) out.push(value.slice(i, hit));
+    out.push(
+      <mark key={n++} className="rounded bg-amber-100 px-0.5 text-amber-900 dark:bg-amber-500/30 dark:text-amber-200">
+        {value.slice(hit, hit + q.length)}
+      </mark>,
+    );
+    i = hit + q.length;
+  }
+  return <>{out}</>;
+}
+
 /** True when a status code matches a 4xx / 5xx class filter ('' = no filter). */
 export function matchStatusClass(status: number | null | undefined, cls: string): boolean {
   if (!cls) return true;

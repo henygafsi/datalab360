@@ -20,6 +20,8 @@ import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import Pager, { usePagination } from '@/components/ui/Pager';
+import ExportButton from '@/components/ui/ExportButton';
+import { type ReportInput } from '@/lib/export-report';
 import { GlassPanel } from '@/app/shared/glass';
 import {
   getUsersWithRolesAndModules,
@@ -116,6 +118,41 @@ export default function RealAccessPanel() {
   // Page the filtered users (no scroll). Clamps to range on filter change.
   const pager = usePagination(filtered, 12);
 
+  // Snapshot the CURRENT filtered view (full set, not just the page) to CSV. One
+  // row per user×role so per-role grant lineage (granted_by/at) is preserved.
+  const buildReport = (): ReportInput => {
+    const rows: (string | number | null)[][] = [];
+    for (const u of filtered) {
+      const lineageByRole = new Map<string, RoleGrantLineage>();
+      for (const g of u.roleGrants) lineageByRole.set(String(g.role).toUpperCase(), g);
+      if (u.roles.length === 0) {
+        rows.push([u.username, u.email || null, '—', u.status, null, null]);
+      } else {
+        for (const r of u.roles) {
+          const g = lineageByRole.get(String(r).toUpperCase());
+          rows.push([u.username, u.email || null, r, u.status, g?.granted_by ?? null, g?.granted_at ?? null]);
+        }
+      }
+    }
+    return {
+      title: 'Access — Users & Roles',
+      meta: [
+        { label: 'Generated at', value: new Date().toISOString() },
+        { label: 'Search', value: search.trim() || null },
+        { label: 'Role filter', value: roleFilter || null },
+        { label: 'Status filter', value: statusFilter },
+        { label: 'Users shown', value: `${filtered.length} of ${users.length}` },
+      ],
+      sections: [
+        {
+          name: 'Users × roles (real account RBAC)',
+          columns: ['User', 'Email', 'Role', 'Status', 'Granted by', 'Granted at'],
+          rows,
+        },
+      ],
+    };
+  };
+
   return (
     <div className="space-y-3">
       <GlassPanel depth={1} radius="xl" className="overflow-hidden">
@@ -128,6 +165,9 @@ export default function RealAccessPanel() {
               Users × the roles they hold (live) · hover a role for grant lineage · {users.length} users
             </p>
           </div>
+          {state === 'done' && users.length > 0 && (
+            <ExportButton buildReport={buildReport} disabled={filtered.length === 0} />
+          )}
         </div>
 
         {state === 'running' || state === 'idle' ? (

@@ -17,6 +17,8 @@ import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import Pager, { usePagination } from '@/components/ui/Pager';
+import ExportButton from '@/components/ui/ExportButton';
+import { type ReportInput } from '@/lib/export-report';
 import { GlassPanel } from '@/app/shared/glass';
 import { getRoles } from '@/app/services/governance/fetch_roles';
 import {
@@ -101,6 +103,30 @@ export default function RoleGrantsPanel() {
   // Page the filtered grants (no scroll). Clamps to range on filter/role change.
   const pager = usePagination(filteredGrants, 12);
 
+  // Snapshot the CURRENT filtered grant set (full set, not just the page) to CSV.
+  const buildReport = (): ReportInput => ({
+    title: 'Role Grants',
+    meta: [
+      { label: 'Generated at', value: new Date().toISOString() },
+      { label: 'Role', value: role || null },
+      { label: 'Holders', value: roleUsers.length || null },
+      { label: 'Search', value: search.trim() || null },
+      { label: 'Grants shown', value: `${filteredGrants.length} of ${grants.length}` },
+    ],
+    sections: [
+      {
+        name: `Object grants — ${role || '—'}`,
+        columns: ['Privilege', 'Granted on', 'Object', 'Revocable'],
+        rows: filteredGrants.map((g) => [
+          g.privilege || null,
+          g.granted_on || null,
+          g.name || null,
+          g.revocable ? 'yes' : 'no',
+        ]),
+      },
+    ],
+  });
+
   const revoke = async (grant: RoleGrant, rowKey: string) => {
     if (!grant.revocable) {
       toast({ title: 'Cannot revoke: incomplete grant info' });
@@ -127,6 +153,9 @@ export default function RoleGrantsPanel() {
           <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Role grants — Snowflake RBAC</p>
           <p className="text-[10px] text-slate-400">Object-level privileges per role · grant/revoke live</p>
         </div>
+        {state === 'done' && grants.length > 0 && (
+          <ExportButton buildReport={buildReport} disabled={filteredGrants.length === 0} />
+        )}
         <select
           value={role}
           onChange={(e) => setRole(e.target.value)}

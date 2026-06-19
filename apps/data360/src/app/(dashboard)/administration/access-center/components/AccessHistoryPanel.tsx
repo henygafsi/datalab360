@@ -17,6 +17,8 @@ import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import Pager, { usePagination } from '@/components/ui/Pager';
+import ExportButton from '@/components/ui/ExportButton';
+import { type ReportInput } from '@/lib/export-report';
 import { GlassPanel } from '@/app/shared/glass';
 import { getAccessPatterns } from '@/app/services/observability';
 import type { AccessPattern } from '@/app/services/observability/types';
@@ -79,6 +81,50 @@ export default function AccessHistoryPanel({ days = 7 }: { days?: number }) {
 
   const retry = useCallback(() => setReloadKey((k) => k + 1), []);
 
+  // Snapshot the CURRENT filtered objects (full set, not just the page) to CSV,
+  // plus the per-user (by_user) breakdown when the backend supplies that grain.
+  const buildReport = (): ReportInput => {
+    const objectRows = filtered.map((r) => [
+      [r.database, r.schema, r.table].filter(Boolean).join('.') || (r.table || '—'),
+      r.access_type || null,
+      r.access_count ?? null,
+      r.unique_users ?? null,
+      r.last_accessed ?? null,
+    ]);
+    const byUserRows: (string | number | null)[][] = [];
+    for (const r of filtered) {
+      const obj = [r.database, r.schema, r.table].filter(Boolean).join('.') || (r.table || '—');
+      for (const w of Array.isArray(r.by_user) ? r.by_user : []) {
+        byUserRows.push([obj, w.user || null, w.access_count ?? null, w.last_accessed ?? null]);
+      }
+    }
+    return {
+      title: 'Object Access History',
+      meta: [
+        { label: 'Generated at', value: new Date().toISOString() },
+        { label: 'Window (days)', value: days },
+        { label: 'Search', value: search.trim() || null },
+        { label: 'Objects shown', value: `${filtered.length} of ${rows.length}` },
+      ],
+      sections: [
+        {
+          name: `Objects accessed (last ${days}d)`,
+          columns: ['Object', 'Access type', 'Accesses', 'Distinct users', 'Last accessed'],
+          rows: objectRows,
+        },
+        ...(byUserRows.length
+          ? [
+              {
+                name: 'Who accessed what (by user)',
+                columns: ['Object', 'User', 'Accesses', 'Last accessed'],
+                rows: byUserRows,
+              },
+            ]
+          : []),
+      ],
+    };
+  };
+
   return (
     <GlassPanel depth={1} radius="xl" className="overflow-hidden">
       <div className="flex items-center justify-between gap-2 border-b border-white/30 px-3 py-2 dark:border-white/10">
@@ -90,6 +136,9 @@ export default function AccessHistoryPanel({ days = 7 }: { days?: number }) {
             Most-accessed objects · access count · distinct users · expand for who
           </p>
         </div>
+        {phase === 'done' && rows.length > 0 && (
+          <ExportButton buildReport={buildReport} disabled={filtered.length === 0} />
+        )}
       </div>
 
       {phase === 'done' && rows.length > 0 && (

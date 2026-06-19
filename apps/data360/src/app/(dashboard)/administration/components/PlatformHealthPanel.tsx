@@ -19,6 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
+import { useSession } from 'next-auth/react';
 import {
   Activity,
   AlertTriangle,
@@ -50,6 +51,8 @@ import { cn } from '@/lib/utils';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import Pager, { usePagination } from '@/components/ui/Pager';
+import ExportButton from '@/components/ui/ExportButton';
+import { type ReportInput } from '@/lib/export-report';
 import { GlassPanel } from '@/app/shared/glass';
 import {
   KpiCard,
@@ -187,6 +190,11 @@ export interface TableView {
   total: number;
   /** Top filtered rows as compact one-liners, for the AI prompt. */
   lines: string[];
+  /** Column labels of the active table — for the CSV export. */
+  columns: string[];
+  /** The FULL filtered/sorted row set (not just the page) as raw cell values,
+   * column-aligned with `columns`, for the CSV export. */
+  exportRows: (string | number | null)[][];
 }
 
 function cmp(a: number | string | null, b: number | string | null, dir: 'asc' | 'desc'): number {
@@ -271,12 +279,17 @@ function SortableTable<T>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colKeys]);
 
-  // Publish the filtered/sorted view (count + top lines) for the toolbar + AI.
+  // Publish the filtered/sorted view (count + top lines + full export rows) for
+  // the toolbar, the AI prompt and the CSV export. `exportRows` carries the FULL
+  // filtered/sorted set (not just the displayed page) as raw cell values, reusing
+  // each column's `sortValue` accessor (already number | string | null).
   useEffect(() => {
     onView({
       shown: visible.length,
       total: rows.length,
       lines: visible.slice(0, 15).map(rowLine),
+      columns: columns.map((c) => c.label),
+      exportRows: visible.map((r) => columns.map((c) => c.sortValue(r))),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, rows.length]);
@@ -604,6 +617,8 @@ function isGenuinelyEmpty(d: PlatformHealth): boolean {
 // ── Panel ────────────────────────────────────────────────────────────────────
 
 export default function PlatformHealthPanel() {
+  const { data: session } = useSession();
+  const accountName = (session?.user as { account_name?: string } | undefined)?.account_name ?? null;
   const [hours, setHours] = useState(24);
   const [userInput, setUserInput] = useState(''); // raw user-filter text box
   const [userFilter, setUserFilter] = useState(''); // debounced → server param
@@ -611,8 +626,8 @@ export default function PlatformHealthPanel() {
   const [search, setSearch] = useState(''); // raw search box
   const [debouncedSearch, setDebouncedSearch] = useState(''); // client-side row filter
 
-  // Lifted view of the active table (row count + AI top-lines).
-  const [tableView, setTableView] = useState<TableView>({ shown: 0, total: 0, lines: [] });
+  // Lifted view of the active table (row count + AI top-lines + export rows).
+  const [tableView, setTableView] = useState<TableView>({ shown: 0, total: 0, lines: [], columns: [], exportRows: [] });
   const tableViewRef = useRef(tableView);
   tableViewRef.current = tableView;
 
@@ -637,7 +652,7 @@ export default function PlatformHealthPanel() {
   useEffect(() => {
     setSearch('');
     setDebouncedSearch('');
-    setTableView({ shown: 0, total: 0, lines: [] });
+    setTableView({ shown: 0, total: 0, lines: [], columns: [], exportRows: [] });
   }, [view]);
 
   // PRIMARY source — live in-process server metrics. Always populated locally and
@@ -905,6 +920,68 @@ export default function PlatformHealthPanel() {
   const filtered = debouncedSearch.trim() !== '';
   const isSmView = view === 'sm_endpoints' || view === 'sm_users' || view === 'sm_errors';
 
+  // ── Export report — snapshot the CURRENT view (KPI band branch + active table's
+  // FULL filtered set) at click time, matching what's on screen. Defined inline
+  // so it always reads the latest state (no stale closure).
+  const buildReport = (): ReportInput => {
+    const winLabel = hours === 1 ? '1h' : hours === 168 ? '7d' : `${hours}h`;
+    const viewLabel = VIEWS.find((x) => x.id === view)?.label ?? view;
+    // KPI band — snapshot whichever band is actually showing (live → usage
+    // fallback), using the same fmt as on screen. Null values are left blank.
+    const kpis: ReportInput['kpis'] = [];
+    if (metrics) {
+      kpis.push(
+        { label: 'Requests / min', value: fmtInt(metrics.requests_per_min) },
+        { label: 'Avg response', value: `${fmtMs(metrics.latency.avg_ms)} (p50 ${fmtMs(metrics.latency.p50_ms)} · p90 ${fmtMs(metrics.latency.p90_ms)} · p99 ${fmtMs(metrics.latency.p99_ms)})` },
+        { label: 'Error rate', value: fmtPct(metrics.error_rate_pct, 2) },
+        { label: 'Distinct users', value: fmtInt(metrics.active_users.length) },
+        { label: 'Total requests', value: fmtInt(metrics.total_requests) },
+        { label: 'Error count', value: fmtInt(metrics.error_count) },
+        { label: 'Uptime', value: fmtUptime(metrics.uptime_seconds) },
+        { label: 'Memory', value: metrics.memory_rss_mb != null ? fmtBytes(metrics.memory_rss_mb * 1024 * 1024) : null },
+        { label: 'CPU load', value: metrics.cpu_load != null ? metrics.cpu_load.toFixed(2) : null },
+      );
+    } else if (k) {
+      kpis.push(
+        { label: 'Calls', value: fmtInt(k.calls) },
+        { label: 'Error rate', value: fmtPct(k.error_rate, 2) },
+        { label: 'Latency (p95)', value: `${fmtMs(k.p95)} (p50 ${fmtMs(k.p50)} · p95 ${fmtMs(k.p95)} · p99 ${fmtMs(k.p99)})` },
+        { label: 'Distinct users', value: fmtInt(k.distinct_users) },
+        { label: 'Distinct objects', value: fmtInt(k.distinct_objects) },
+        { label: 'Logins', value: fmtInt(k.logins) },
+      );
+    }
+    // Native-metadata band — shown alongside the band when usage history is ready.
+    if (usageReady) {
+      kpis.push(
+        { label: 'Compute credits', value: fmtCredits(k?.total_credits) },
+        { label: 'Storage', value: fmtBytes(data?.storage?.total_bytes) },
+        { label: 'Masking policies', value: fmtInt(data?.policy_coverage?.masking_policies) },
+        { label: 'Row-access policies', value: fmtInt(data?.policy_coverage?.row_access_policies) },
+        { label: 'Tagged objects', value: fmtInt(data?.policy_coverage?.tagged_objects) },
+      );
+    }
+    return {
+      title: 'Platform Health',
+      meta: [
+        { label: 'Account', value: accountName },
+        { label: 'Window', value: winLabel },
+        { label: 'Active view', value: viewLabel },
+        { label: 'Search', value: debouncedSearch || '(none)' },
+        { label: 'User filter', value: userFilter || '(none)' },
+        { label: 'Generated at', value: new Date().toISOString() },
+      ],
+      kpis,
+      sections: [
+        {
+          name: `${viewLabel} — ${tableView.shown} of ${tableView.total} rows`,
+          columns: tableView.columns,
+          rows: tableView.exportRows,
+        },
+      ],
+    };
+  };
+
   return (
     <div className="space-y-3">
       {/* Header: title + window + user filter + refresh + AI */}
@@ -949,6 +1026,9 @@ export default function PlatformHealthPanel() {
             <RefreshCw className="h-3 w-3" />
             Refresh
           </button>
+          {(metrics || data) && (
+            <ExportButton buildReport={buildReport} label="Export report" className="px-2 py-1 text-[11px]" />
+          )}
           {(metrics || usageReady) && <AnalyzeAiButton onClick={runAiAnalysis} state={aiState} />}
         </div>
       </div>

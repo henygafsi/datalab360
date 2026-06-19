@@ -33,6 +33,8 @@ import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { GlassPanel } from '@/app/shared/glass';
 import EmptyState from '@/components/ui/EmptyState';
+import ExportButton from '@/components/ui/ExportButton';
+import { type ReportInput } from '@/lib/export-report';
 import { getAccounts } from '@/app/services/org-accounts/hooks';
 import { getPerfOverview, type CacheAxis } from '@/app/services/admin-performance';
 import { getPlatformHealth, getServerMetricsView } from '@/app/services/admin-platform-health';
@@ -101,7 +103,7 @@ export default function PerformancePage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [focus, setFocus] = useState<PerfFocus>(null);
   // Filtered-rows view lifted from the active axis panel (for count + AI payload).
-  const [rowsView, setRowsView] = useState<PerfRowsView>({ shown: 0, total: 0, lines: [] });
+  const [rowsView, setRowsView] = useState<PerfRowsView>({ shown: 0, total: 0, lines: [], columns: [], exportRows: [] });
   const onRows = useCallback((v: PerfRowsView) => setRowsView(v), []);
 
   // AI narrative analysis (dismissible docked panel).
@@ -155,7 +157,7 @@ export default function PerformancePage() {
   // reset the lifted rows-view so the "X of Y" count doesn't flash the prior axis.
   useEffect(() => {
     if (axis !== 'errors' && axis !== 'endpoints') setStatusFilter('');
-    setRowsView({ shown: 0, total: 0, lines: [] });
+    setRowsView({ shown: 0, total: 0, lines: [], columns: [], exportRows: [] });
   }, [axis]);
 
   /**
@@ -374,6 +376,45 @@ export default function PerformancePage() {
     }
   }, [account, hours, liveMs, axis, cacheAxis, selection, debouncedSearch, statusFilter, onRows, onFocus]);
 
+  // ── Export report — snapshot the CURRENT view (merged KPI band + active axis's
+  // FULL filtered set) at click time. Defined inline so it always reads the latest
+  // state (no stale closure). KPIs use the on-screen fmt; section rows are raw.
+  const buildReport = (): ReportInput => {
+    const winLabel = hours === 1 ? '1h' : hours === 168 ? '7d' : `${hours}h`;
+    const filters = [
+      debouncedSearch ? `search "${debouncedSearch}"` : null,
+      statusFilter ? `status/method ${statusFilter}` : null,
+      focus ? `focus ${focus.kind}:${focus.value}` : null,
+    ].filter(Boolean).join(', ') || '(none)';
+    return {
+      title: 'Performance',
+      meta: [
+        { label: 'Account', value: account },
+        { label: 'Window', value: winLabel },
+        { label: 'Axis', value: axis },
+        { label: 'Active filters', value: filters },
+        { label: 'Generated at', value: new Date().toISOString() },
+      ],
+      kpis: [
+        { label: 'Requests / min', value: fmtInt(merged.reqPerMin.value) },
+        { label: 'Avg response', value: `${fmtMs(merged.latency.value)} (${merged.latency.sub})` },
+        { label: 'Error rate', value: fmtPct(merged.errorRate.value, 2) },
+        { label: 'Cache hit rate', value: fmtPct(ov?.cache_hit_rate, 1) },
+        { label: 'Requests / 5min', value: fmtInt(merged.reqPer5min.value) },
+        { label: 'Deny rate', value: fmtPct(ov?.deny_rate, 2) },
+        { label: 'Distinct users', value: fmtInt(merged.distinctUsers.value) },
+        { label: 'Distinct paths', value: fmtInt(merged.distinctPaths.value) },
+      ],
+      sections: [
+        {
+          name: `${axis} — ${rowsView.shown} of ${rowsView.total} rows`,
+          columns: rowsView.columns,
+          rows: rowsView.exportRows,
+        },
+      ],
+    };
+  };
+
   return (
     <div className="space-y-3 p-4">
       {/* Header: account selector + window + live controls */}
@@ -429,6 +470,9 @@ export default function PerformancePage() {
             <RefreshCw className="h-3 w-3" />
             Refresh
           </button>
+          {account && (
+            <ExportButton buildReport={buildReport} label="Export report" className="px-2 py-1 text-[11px]" />
+          )}
           {account && <AnalyzeAiButton onClick={runAiAnalysis} state={aiState} />}
         </div>
       </div>

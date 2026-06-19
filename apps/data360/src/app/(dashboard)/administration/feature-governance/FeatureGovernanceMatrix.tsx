@@ -37,6 +37,8 @@ import { GlassPanel } from '@/app/shared/glass';
 import { dash } from '@/app/shared/ui/format';
 import EmptyState from '@/components/ui/EmptyState';
 import Pager, { usePagination } from '@/components/ui/Pager';
+import ExportButton from '@/components/ui/ExportButton';
+import { type ReportInput } from '@/lib/export-report';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import {
@@ -477,6 +479,50 @@ export default function FeatureGovernanceMatrix() {
     setGapsOnly(false);
   };
 
+  // Snapshot the CURRENT filtered matrix (full filtered set across ALL module
+  // groups, not just the paginated page) to CSV.
+  const buildReport = (): ReportInput => {
+    const rows: (string | number | null)[][] = [];
+    for (const slug of filteredSlugs) {
+      for (const f of filteredModules[slug] ?? []) {
+        rows.push([
+          f.module,
+          f.label,
+          f.enabled ? 'enabled' : 'disabled',
+          f.governed_by || null,
+          f.surface || null,
+        ]);
+      }
+    }
+    return {
+      title: 'Feature Governance',
+      meta: [
+        { label: 'Generated at', value: new Date().toISOString() },
+        { label: 'Search', value: search || null },
+        { label: 'Module filter', value: moduleFilter || null },
+        { label: 'Gaps only', value: gapsOnly ? 'yes' : null },
+        { label: 'Your access', value: canEdit ? 'Govern' : 'Read-only' },
+        { label: 'Features shown', value: `${shownCount} of ${totalFeatures}` },
+      ],
+      kpis: [
+        { label: 'Coverage', value: coveragePct != null ? `${coveragePct}%` : null },
+        { label: 'Enabled', value: `${enabledCount} / ${totalFeatures}` },
+        { label: 'Gaps (disabled)', value: gapsCount },
+        {
+          label: 'Bound policies',
+          value: posture?.policy_bindings?.total_active ?? null,
+        },
+      ],
+      sections: [
+        {
+          name: 'Module · feature entitlements',
+          columns: ['Module', 'Feature', 'Status', 'Governed by', 'Surface'],
+          rows,
+        },
+      ],
+    };
+  };
+
   return (
     <div className="space-y-3">
       {/* Governance-posture KPI strip */}
@@ -557,6 +603,7 @@ export default function FeatureGovernanceMatrix() {
           <span className="whitespace-nowrap text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
             {shownCount} of {totalFeatures}
           </span>
+          <ExportButton buildReport={buildReport} disabled={shownCount === 0} />
           {filtersActive && (
             <button
               type="button"
