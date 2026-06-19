@@ -1,17 +1,19 @@
 'use client';
 
 /**
- * AccessHistoryPanel — compact "recent object access" surface (who-hit-what at
- * the OBJECT grain). Backed by GET /observability/lineage/access-patterns, which
- * reads ACCESS_HISTORY on the caller's own connection (works locally + prod).
+ * AccessHistoryPanel — "who accessed what" surface. Backed by GET
+ * /observability/lineage/access-patterns, which reads ACCESS_HISTORY on the
+ * caller's own connection (works locally + prod).
  *
- * Honesty: ACCESS_HISTORY is aggregated per object — we surface most-accessed
- * objects with their access count, DISTINCT-user count and last-accessed time.
- * We deliberately do NOT claim WHICH individual user read an object (that grain
- * is not in this feed). Absent / not-deployed → a quiet honest empty state.
+ * Each row is an object with its total access count, DISTINCT-user count and
+ * last-accessed time. When the backend supplies per-object `by_user` lineage,
+ * the row expands to reveal the top users who accessed it (with their own
+ * access_count + last_accessed). When that grain is absent we stay honest:
+ * "—"/no expand affordance. Absent / not-deployed → a quiet empty state.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, History, Search, Users } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, ChevronDown, ChevronRight, History, Search, Users } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import { GlassPanel } from '@/app/shared/glass';
@@ -20,7 +22,7 @@ import type { AccessPattern } from '@/app/services/observability/types';
 
 type Phase = 'idle' | 'running' | 'done' | 'error';
 
-function fmtWhen(iso: string): string {
+function fmtWhen(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -35,6 +37,7 @@ export default function AccessHistoryPanel({ days = 7 }: { days?: number }) {
 
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim().toLowerCase()), 200);
     return () => clearTimeout(t);
@@ -77,10 +80,10 @@ export default function AccessHistoryPanel({ days = 7 }: { days?: number }) {
       <div className="flex items-center justify-between gap-2 border-b border-white/30 px-3 py-2 dark:border-white/10">
         <div>
           <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
-            <History className="h-3.5 w-3.5" /> Recent object access (last {days}d)
+            <History className="h-3.5 w-3.5" /> Who accessed what (last {days}d)
           </p>
           <p className="text-[10px] text-slate-400">
-            Most-accessed objects · access count · distinct users · last seen
+            Most-accessed objects · access count · distinct users · expand for who
           </p>
         </div>
       </div>
@@ -135,27 +138,76 @@ export default function AccessHistoryPanel({ days = 7 }: { days?: number }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r, i) => (
-                <tr key={`${r.database}.${r.schema}.${r.table}:${i}`} className="border-b border-slate-100 dark:border-slate-800">
-                  <td className="px-3 py-1.5 align-top">
-                    <p className="break-all font-mono font-medium text-slate-800 dark:text-slate-100">{r.table || '—'}</p>
-                    <p className="break-all text-[10px] text-slate-400">
-                      {[r.database, r.schema].filter(Boolean).join('.') || '—'}
-                      {r.access_type ? ` · ${r.access_type}` : ''}
-                    </p>
-                  </td>
-                  <td className="px-2 py-1.5 text-right align-top font-medium text-slate-700 dark:text-slate-200">
-                    {r.access_count ?? '—'}
-                  </td>
-                  <td className="px-2 py-1.5 text-right align-top text-slate-600 dark:text-slate-300">
-                    <span className="inline-flex items-center gap-0.5">
-                      <Users className="h-3 w-3 text-slate-400" />
-                      {r.unique_users ?? '—'}
-                    </span>
-                  </td>
-                  <td className="px-2 py-1.5 align-top text-slate-500 dark:text-slate-400">{fmtWhen(r.last_accessed)}</td>
-                </tr>
-              ))}
+              {filtered.map((r, i) => {
+                const rowKey = `${r.database}.${r.schema}.${r.table}:${i}`;
+                const byUser = Array.isArray(r.by_user) ? r.by_user : [];
+                const hasWho = byUser.length > 0;
+                const expanded = hasWho && expandedKey === rowKey;
+                return (
+                  <Fragment key={rowKey}>
+                    <tr
+                      onClick={hasWho ? () => setExpandedKey(expanded ? null : rowKey) : undefined}
+                      className={cn(
+                        'border-b border-slate-100 dark:border-slate-800',
+                        hasWho && 'cursor-pointer hover:bg-slate-50/60 dark:hover:bg-slate-800/40',
+                      )}
+                    >
+                      <td className="px-3 py-1.5 align-top">
+                        <div className="flex items-start gap-1">
+                          {hasWho ? (
+                            expanded ? (
+                              <ChevronDown className="mt-0.5 h-3 w-3 shrink-0 text-slate-400" />
+                            ) : (
+                              <ChevronRight className="mt-0.5 h-3 w-3 shrink-0 text-slate-400" />
+                            )
+                          ) : (
+                            <span className="w-3 shrink-0" aria-hidden />
+                          )}
+                          <div className="min-w-0">
+                            <p className="break-all font-mono font-medium text-slate-800 dark:text-slate-100">{r.table || '—'}</p>
+                            <p className="break-all text-[10px] text-slate-400">
+                              {[r.database, r.schema].filter(Boolean).join('.') || '—'}
+                              {r.access_type ? ` · ${r.access_type}` : ''}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-2 py-1.5 text-right align-top font-medium text-slate-700 dark:text-slate-200">
+                        {r.access_count ?? '—'}
+                      </td>
+                      <td className="px-2 py-1.5 text-right align-top text-slate-600 dark:text-slate-300">
+                        <span className="inline-flex items-center gap-0.5">
+                          <Users className="h-3 w-3 text-slate-400" />
+                          {r.unique_users ?? '—'}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 align-top text-slate-500 dark:text-slate-400">{fmtWhen(r.last_accessed)}</td>
+                    </tr>
+                    {expanded && (
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        <td colSpan={4} className="bg-slate-50/70 px-3 py-2 dark:bg-slate-800/30">
+                          <p className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                            <Users className="h-3 w-3" /> Who accessed this object
+                          </p>
+                          <ul className="space-y-0.5">
+                            {byUser.map((w, j) => (
+                              <li
+                                key={`${w.user}:${j}`}
+                                className="flex items-center justify-between gap-2 text-[10px] text-slate-600 dark:text-slate-300"
+                              >
+                                <span className="break-all font-medium text-slate-700 dark:text-slate-200">{w.user || '—'}</span>
+                                <span className="shrink-0 text-slate-500 dark:text-slate-400">
+                                  {w.access_count ?? '—'} accesses · {fmtWhen(w.last_accessed)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

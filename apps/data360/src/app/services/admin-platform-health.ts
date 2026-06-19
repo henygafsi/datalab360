@@ -38,6 +38,36 @@ export interface TopQueryRow {
   error_count: number | null;
   avg_latency: number | null;
   p95_latency: number | null;
+  // Additive efficiency signals — flag expensive/inefficient query classes.
+  bytes_scanned: number | null;
+  avg_bytes_scanned: number | null;
+  partitions_scanned: number | null;
+  avg_partitions_scanned: number | null;
+  spill_to_local: number | null;
+  queued_overload_ms: number | null;
+  avg_queued_overload_ms: number | null;
+}
+
+/**
+ * One brute-force / credential-stuffing signal: a (user, IP, error) tuple seen
+ * failing to authenticate, with an attempt count. `attempts` is always present.
+ */
+export interface FailedLoginDetailRow {
+  user_name: string;
+  client_ip: string;
+  error_message: string;
+  reported_client_type: string;
+  attempts: number;
+  last_seen: string;
+}
+
+/** User-grain access record — which user touched which object, how often. */
+export interface AccessByUserRow {
+  object_name: string;
+  object_type: string;
+  user_name: string;
+  access_count: number | null;
+  last_seen: string;
 }
 
 export interface ByUserRow {
@@ -73,6 +103,8 @@ export interface PlatformHealth {
   by_user: ByUserRow[];
   by_warehouse: ByWarehouseRow[];
   top_objects: TopObjectRow[];
+  failed_login_detail: FailedLoginDetailRow[];
+  access_by_user: AccessByUserRow[];
 }
 
 export interface PlatformHealthOpts {

@@ -31,7 +31,9 @@ import {
   RefreshCw,
   Search,
   Server,
+  ShieldAlert,
   Timer,
+  UserSearch,
   Users,
   X,
 } from 'lucide-react';
@@ -61,6 +63,8 @@ import {
   type ByUserRow,
   type ByWarehouseRow,
   type TopObjectRow,
+  type FailedLoginDetailRow,
+  type AccessByUserRow,
 } from '@/app/services/admin-platform-health';
 
 // ── Window + sub-view options ────────────────────────────────────────────────
@@ -71,14 +75,35 @@ const HOURS_OPTIONS: ChipOption<string>[] = [
   { id: '168', label: '7d' },
 ];
 
-type View = 'queries' | 'users' | 'warehouses' | 'objects';
+type View = 'queries' | 'users' | 'warehouses' | 'objects' | 'access' | 'logins';
 
 const VIEWS: ChipOption<View>[] = [
   { id: 'queries', label: 'Top query types', icon: Database },
   { id: 'users', label: 'By user', icon: Users },
   { id: 'warehouses', label: 'By warehouse', icon: Server },
   { id: 'objects', label: 'Top objects accessed', icon: Boxes },
+  { id: 'access', label: 'Who accessed what', icon: UserSearch },
+  { id: 'logins', label: 'Failed logins', icon: ShieldAlert },
 ];
+
+// ── Local formatters (null → "—") ────────────────────────────────────────────
+
+/** Human-readable bytes (KB/MB/GB/TB), null → "—". Never a fabricated 0. */
+function fmtBytes(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(n)) return '—';
+  if (n === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(Math.abs(n)) / Math.log(1024)));
+  const v = n / Math.pow(1024, i);
+  return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+}
+
+/** Date + time (the window can span days, so a time-only stamp is ambiguous). */
+function fmtDateTime(ts: string | null | undefined): string {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+}
 
 // ── Generic sortable table ───────────────────────────────────────────────────
 
@@ -119,6 +144,7 @@ function SortableTable<T>({
   emptyLabel,
   rowLine,
   onView,
+  initialSortKey,
 }: {
   columns: ColumnDef<T>[];
   rows: T[];
@@ -129,15 +155,18 @@ function SortableTable<T>({
   /** One-line summary of a row for the AI payload. */
   rowLine: (row: T) => string;
   onView: (v: TableView) => void;
+  /** Column to sort by on first render / view-switch (default: first column). */
+  initialSortKey?: string;
 }) {
-  const [sortKey, setSortKey] = useState<string>(columns[0]?.key ?? '');
+  const defaultKey = initialSortKey ?? columns[0]?.key ?? '';
+  const [sortKey, setSortKey] = useState<string>(defaultKey);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
-  // Reset the sort to the first column whenever the column set changes (i.e. the
-  // active sub-view switched) so a stale key from another view never lingers.
+  // Reset the sort to the default column whenever the column set changes (i.e.
+  // the active sub-view switched) so a stale key from another view never lingers.
   const colKeys = columns.map((c) => c.key).join('|');
   useEffect(() => {
-    setSortKey(columns[0]?.key ?? '');
+    setSortKey(defaultKey);
     setSortDir('desc');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colKeys]);
@@ -255,6 +284,26 @@ const QUERY_COLS: ColumnDef<TopQueryRow>[] = [
   { key: 'error_count', label: 'Errors', align: 'right', render: (r) => fmtInt(r.error_count), sortValue: (r) => r.error_count },
   { key: 'avg_latency', label: 'Avg', align: 'right', render: (r) => fmtMs(r.avg_latency), sortValue: (r) => r.avg_latency },
   { key: 'p95_latency', label: 'p95', align: 'right', render: (r) => fmtMs(r.p95_latency), sortValue: (r) => r.p95_latency },
+  // Efficiency signals — large scans / queueing / spill flag expensive classes.
+  { key: 'bytes_scanned', label: 'Bytes scanned', align: 'right', render: (r) => fmtBytes(r.bytes_scanned), sortValue: (r) => r.bytes_scanned },
+  {
+    key: 'queued_overload_ms',
+    label: 'Queued',
+    align: 'right',
+    render: (r) => (
+      <span className={cn((r.queued_overload_ms ?? 0) > 0 && 'text-amber-600 dark:text-amber-400')}>{fmtMs(r.queued_overload_ms)}</span>
+    ),
+    sortValue: (r) => r.queued_overload_ms,
+  },
+  {
+    key: 'spill_to_local',
+    label: 'Spill',
+    align: 'right',
+    render: (r) => (
+      <span className={cn((r.spill_to_local ?? 0) > 0 && 'text-amber-600 dark:text-amber-400')}>{fmtBytes(r.spill_to_local)}</span>
+    ),
+    sortValue: (r) => r.spill_to_local,
+  },
 ];
 
 const USER_COLS: ColumnDef<ByUserRow>[] = [
@@ -298,15 +347,57 @@ const OBJECT_COLS: ColumnDef<TopObjectRow>[] = [
   { key: 'distinct_users', label: 'Users', align: 'right', render: (r) => fmtInt(r.distinct_users), sortValue: (r) => r.distinct_users },
 ];
 
+// "Who accessed what" — user-grain access records (complements Top objects).
+const ACCESS_COLS: ColumnDef<AccessByUserRow>[] = [
+  { key: 'object_name', label: 'Object', render: (r) => r.object_name || '—', sortValue: (r) => r.object_name ?? null },
+  { key: 'object_type', label: 'Type', render: (r) => r.object_type || '—', sortValue: (r) => r.object_type ?? null },
+  { key: 'user_name', label: 'User', render: (r) => r.user_name || '—', sortValue: (r) => r.user_name ?? null },
+  { key: 'access_count', label: 'Accesses', align: 'right', render: (r) => fmtInt(r.access_count), sortValue: (r) => r.access_count },
+  { key: 'last_seen', label: 'Last seen', align: 'right', render: (r) => fmtDateTime(r.last_seen), sortValue: (r) => r.last_seen ?? null },
+];
+
+// "Failed logins" — brute-force / credential-stuffing feed, ordered by attempts.
+const FAILED_LOGIN_COLS: ColumnDef<FailedLoginDetailRow>[] = [
+  { key: 'user_name', label: 'User', render: (r) => r.user_name || '—', sortValue: (r) => r.user_name ?? null },
+  { key: 'client_ip', label: 'IP', render: (r) => r.client_ip || '—', sortValue: (r) => r.client_ip ?? null },
+  { key: 'reported_client_type', label: 'Client', render: (r) => r.reported_client_type || '—', sortValue: (r) => r.reported_client_type ?? null },
+  { key: 'error_message', label: 'Error', render: (r) => r.error_message || '—', sortValue: (r) => r.error_message ?? null },
+  {
+    key: 'attempts',
+    label: 'Attempts',
+    align: 'right',
+    render: (r) => {
+      const high = (r.attempts ?? 0) >= 5;
+      return (
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 tabular-nums',
+            high && 'font-semibold text-red-600 dark:text-red-400',
+          )}
+        >
+          {high && <ShieldAlert className="h-3 w-3" aria-label="High attempt count" />}
+          {fmtInt(r.attempts)}
+        </span>
+      );
+    },
+    sortValue: (r) => r.attempts,
+  },
+  { key: 'last_seen', label: 'Last seen', align: 'right', render: (r) => fmtDateTime(r.last_seen), sortValue: (r) => r.last_seen ?? null },
+];
+
 // Row-line builders for the AI payload (one compact line per row).
 const queryLine = (r: TopQueryRow) =>
-  `${r.query_type}: ${fmtInt(r.calls)} calls, ${fmtInt(r.error_count)} errors, avg ${fmtMs(r.avg_latency)}, p95 ${fmtMs(r.p95_latency)}`;
+  `${r.query_type}: ${fmtInt(r.calls)} calls, ${fmtInt(r.error_count)} errors, avg ${fmtMs(r.avg_latency)}, p95 ${fmtMs(r.p95_latency)}, scanned ${fmtBytes(r.bytes_scanned)}, queued ${fmtMs(r.queued_overload_ms)}, spill ${fmtBytes(r.spill_to_local)}`;
 const userLine = (r: ByUserRow) =>
   `${r.user_name}: ${fmtInt(r.calls)} calls, err ${fmtPct(r.error_rate, 2)} (${fmtInt(r.error_count)}), avg ${fmtMs(r.avg_latency)}, p95 ${fmtMs(r.p95_latency)}`;
 const warehouseLine = (r: ByWarehouseRow) =>
   `${r.warehouse_name}: ${fmtInt(r.calls)} calls, err ${fmtPct(r.error_rate, 2)} (${fmtInt(r.error_count)}), avg ${fmtMs(r.avg_latency)}, p95 ${fmtMs(r.p95_latency)}`;
 const objectLine = (r: TopObjectRow) =>
   `${r.object_name} (${r.object_type}): ${fmtInt(r.access_count)} accesses, ${fmtInt(r.distinct_users)} users`;
+const accessLine = (r: AccessByUserRow) =>
+  `${r.user_name} → ${r.object_name} (${r.object_type}): ${fmtInt(r.access_count)} accesses, last ${fmtDateTime(r.last_seen)}`;
+const failedLoginLine = (r: FailedLoginDetailRow) =>
+  `${r.user_name} from ${r.client_ip} (${r.reported_client_type}): ${fmtInt(r.attempts)} failed attempts — "${r.error_message}", last ${fmtDateTime(r.last_seen)}`;
 
 // ── Emptiness check (no-fake-0 crux) ─────────────────────────────────────────
 
@@ -329,7 +420,11 @@ function isGenuinelyEmpty(d: PlatformHealth): boolean {
     (d.top_queries?.length ?? 0) === 0 &&
     (d.by_user?.length ?? 0) === 0 &&
     (d.by_warehouse?.length ?? 0) === 0 &&
-    (d.top_objects?.length ?? 0) === 0;
+    (d.top_objects?.length ?? 0) === 0 &&
+    (d.access_by_user?.length ?? 0) === 0 &&
+    // A window with ONLY failed logins is exactly the brute-force signal we want
+    // to surface — it must not be classified empty and hidden.
+    (d.failed_login_detail?.length ?? 0) === 0;
   return allKpisBlank && allTablesEmpty;
 }
 
@@ -492,6 +587,32 @@ export default function PlatformHealthPanel() {
             searchText={(r) => `${r.object_name ?? ''} ${r.object_type ?? ''}`}
             rowLine={objectLine}
             emptyLabel="No object access in this window."
+            onView={onView}
+          />
+        );
+      case 'access':
+        return (
+          <SortableTable
+            columns={ACCESS_COLS}
+            rows={data.access_by_user ?? []}
+            search={debouncedSearch}
+            searchText={(r) => `${r.user_name ?? ''} ${r.object_name ?? ''} ${r.object_type ?? ''}`}
+            rowLine={accessLine}
+            initialSortKey="access_count"
+            emptyLabel="No user-grain access in this window."
+            onView={onView}
+          />
+        );
+      case 'logins':
+        return (
+          <SortableTable
+            columns={FAILED_LOGIN_COLS}
+            rows={data.failed_login_detail ?? []}
+            search={debouncedSearch}
+            searchText={(r) => `${r.user_name ?? ''} ${r.client_ip ?? ''} ${r.reported_client_type ?? ''} ${r.error_message ?? ''}`}
+            rowLine={failedLoginLine}
+            initialSortKey="attempts"
+            emptyLabel="No failed logins in this window."
             onView={onView}
           />
         );

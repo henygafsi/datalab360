@@ -22,11 +22,38 @@ import EmptyState from '@/components/ui/EmptyState';
 import { GlassPanel } from '@/app/shared/glass';
 import {
   getUsersWithRolesAndModules,
+  type RoleGrantLineage,
   type UserGrantTableData,
 } from '@/app/services/governance/user_roles';
 import AccessHistoryPanel from '@/app/(dashboard)/administration/access-center/components/AccessHistoryPanel';
 
 type StatusFilter = 'all' | 'Active' | 'Disabled';
+
+/** Compact relative-time for grant lineage; honest "—" when null/unparseable. */
+function relativeTime(iso: string | null): string {
+  if (!iso) return '—';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return iso;
+  const sec = Math.floor((Date.now() - t) / 1000);
+  if (sec < 60) return 'just now';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  const mo = Math.floor(day / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  return `${Math.floor(mo / 12)}y ago`;
+}
+
+/** "granted by X · 3d ago" tooltip text for a role chip; honest "—" on absent lineage. */
+function lineageTooltip(g: RoleGrantLineage | undefined): string {
+  if (!g) return 'Grant lineage unavailable';
+  const by = g.granted_by ? `granted by ${g.granted_by}` : 'granter —';
+  const when = g.granted_at ? relativeTime(g.granted_at) : '—';
+  return `${by} · ${when}`;
+}
 
 export default function RealAccessPanel() {
   const [users, setUsers] = useState<UserGrantTableData[]>([]);
@@ -94,7 +121,7 @@ export default function RealAccessPanel() {
               <Users className="h-3.5 w-3.5" /> Who has access — real account RBAC
             </p>
             <p className="text-[10px] text-slate-400">
-              Users × the Snowflake roles they hold (live) · {users.length} users
+              Users × the roles they hold (live) · hover a role for grant lineage · {users.length} users
             </p>
           </div>
         </div>
@@ -204,7 +231,11 @@ export default function RealAccessPanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((u) => (
+                    {filtered.map((u) => {
+                      // Per-user role→lineage map (who granted the role + when).
+                      const lineageByRole = new Map<string, RoleGrantLineage>();
+                      for (const g of u.roleGrants) lineageByRole.set(String(g.role).toUpperCase(), g);
+                      return (
                       <tr key={u.username} className="border-b border-slate-100 dark:border-slate-800">
                         <td className="px-3 py-1.5 align-top">
                           <p className="font-medium text-slate-800 dark:text-slate-100">{u.username}</p>
@@ -217,11 +248,13 @@ export default function RealAccessPanel() {
                             ) : (
                               u.roles.map((r) => {
                                 const active = roleFilter?.toUpperCase() === String(r).toUpperCase();
+                                const lineage = lineageByRole.get(String(r).toUpperCase());
                                 return (
                                   <button
                                     key={r}
                                     type="button"
                                     onClick={() => setRoleFilter(active ? null : r)}
+                                    title={lineageTooltip(lineage)}
                                     className={cn(
                                       'rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors',
                                       active
@@ -230,6 +263,11 @@ export default function RealAccessPanel() {
                                     )}
                                   >
                                     {r}
+                                    {lineage?.granted_by && (
+                                      <span className="ml-1 font-normal text-slate-400 dark:text-slate-500">
+                                        · {lineage.granted_by}
+                                      </span>
+                                    )}
                                   </button>
                                 );
                               })
@@ -249,7 +287,8 @@ export default function RealAccessPanel() {
                           </span>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )}

@@ -129,6 +129,17 @@ export interface LineageResponse {
   count: number;
 }
 
+/**
+ * Per-user access detail for an object (who accessed it, how often, when last).
+ * Additive `by_user` field — access_count/last_accessed may be null when the
+ * ACCESS_HISTORY grain is coarse or the views are absent.
+ */
+export interface AccessPatternUser {
+  user: string;
+  access_count: number | null;
+  last_accessed: string | null;
+}
+
 export interface AccessPattern {
   database: string;
   schema: string;
@@ -137,6 +148,8 @@ export interface AccessPattern {
   unique_users: number;
   last_accessed: string;
   access_type: string;
+  /** Additive: top users who accessed this object. Empty/absent on coarse feeds. */
+  by_user?: AccessPatternUser[];
 }
 
 export interface AccessPatternsResponse {
