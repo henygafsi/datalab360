@@ -35,7 +35,7 @@ import { GlassPanel } from '@/app/shared/glass';
 import EmptyState from '@/components/ui/EmptyState';
 import { getAccounts } from '@/app/services/org-accounts/hooks';
 import { getPerfOverview, type CacheAxis } from '@/app/services/admin-performance';
-import { getPlatformHealth } from '@/app/services/admin-platform-health';
+import { getPlatformHealth, getServerMetricsView } from '@/app/services/admin-platform-health';
 import {
   KpiCard,
   FilterChips,
@@ -245,12 +245,24 @@ export default function PerformancePage() {
     !!account,
   );
 
+  // Live in-process server metrics — the ALWAYS-populated in-memory counter.
+  // Account/window-independent (cumulative since process start) but works both
+  // locally and in prod, so it is the last-resort band source that guarantees
+  // the KPI row is never empty. Same deps/gate so it refreshes in lock-step.
+  const serverMetrics = usePerfFetch(
+    () => getServerMetricsView(),
+    [account, hours],
+    account ? liveMs : null,
+    !!account,
+  );
+
   useEffect(() => {
     if (overview.state === 'done') setUpdatedAt(new Date().toLocaleTimeString());
   }, [overview.state, overview.data]);
 
   const ov = overview.data?.kpis;
   const hk = health.data?.kpis;
+  const sm = serverMetrics.data;
 
   /**
    * Merged KPI band. Each scalar prefers the request-trail (`overview`) value
@@ -261,21 +273,32 @@ export default function PerformancePage() {
    * `src.*` records provenance per card so the band is honest about its source.
    */
   const merged = useMemo(() => {
-    const pick = (a: number | null | undefined, b: number | null | undefined): { value: number | null; source: KpiSource } => {
+    // overview (request-trail) → health (usage-history) → server-metrics (live).
+    // Server-metrics is the last-resort source so the band is never empty: the
+    // in-memory counter is always populated even when the account-scoped trail
+    // and usage history are empty locally.
+    const pick = (
+      a: number | null | undefined,
+      b: number | null | undefined,
+      c?: number | null | undefined,
+    ): { value: number | null; source: KpiSource } => {
       if (a != null && !Number.isNaN(a)) return { value: a, source: 'request-trail' };
       if (b != null && !Number.isNaN(b)) return { value: b, source: 'usage-history' };
+      if (c != null && !Number.isNaN(c)) return { value: c, source: 'live' };
       return { value: null, source: null };
     };
-    const calls = pick(ov?.requests, hk?.calls);
-    const errorRate = pick(ov?.error_rate, hk?.error_rate);
-    const distinctUsers = pick(ov?.distinct_users, hk?.distinct_users);
+    const calls = pick(ov?.requests, hk?.calls, sm?.total_requests);
+    // sm.error_rate_pct is already a percent (converted at the service).
+    const errorRate = pick(ov?.error_rate, hk?.error_rate, sm?.error_rate_pct);
+    const distinctUsers = pick(ov?.distinct_users, hk?.distinct_users, sm?.active_users.length);
 
     // Latency percentiles are sourced as a BLOCK (never field-blended), to avoid
     // mixing provenance or mislabeling: overview exposes p50/p90/p99; health
-    // exposes p50/p95/p99 (no p90), so we pick the whole percentile line from one
-    // source and label it correctly. `avg_ms` exists only on the request-trail.
+    // exposes p50/p95/p99 (no p90); server-metrics exposes avg+p50/p90/p99. We
+    // pick the whole percentile line from one source and label it correctly.
     const ovHasLatency = ov && (ov.p50_ms != null || ov.p90_ms != null || ov.p99_ms != null || ov.avg_ms != null);
     const hkHasLatency = hk && (hk.p50 != null || hk.p95 != null || hk.p99 != null);
+    const smHasLatency = sm && (sm.latency.p50_ms != null || sm.latency.p90_ms != null || sm.latency.p99_ms != null || sm.latency.avg_ms != null);
     const latency: { value: number | null; sub: string; source: KpiSource } = ovHasLatency
       ? {
           value: ov!.avg_ms,
@@ -288,10 +311,22 @@ export default function PerformancePage() {
             sub: `p50 ${fmtMs(hk!.p50)} · p95 ${fmtMs(hk!.p95)} · p99 ${fmtMs(hk!.p99)}`,
             source: 'usage-history',
           }
-        : { value: null, sub: 'p50 — · p90 — · p99 —', source: null };
+        : smHasLatency
+          ? {
+              value: sm!.latency.avg_ms,
+              sub: `p50 ${fmtMs(sm!.latency.p50_ms)} · p90 ${fmtMs(sm!.latency.p90_ms)} · p99 ${fmtMs(sm!.latency.p99_ms)}`,
+              source: 'live',
+            }
+          : { value: null, sub: 'p50 — · p90 — · p99 —', source: null };
 
-    return { calls, errorRate, distinctUsers, latency };
-  }, [ov, hk]);
+    // Per-minute / per-5min rate: request-trail first, else live in-proc counter.
+    const reqPerMin = pick(ov?.requests_per_min, undefined, sm?.requests_per_min);
+    const reqPer5min = pick(ov?.requests_per_5min, undefined, sm?.requests_per_5min);
+    // Distinct paths: request-trail first, else count of live top_endpoints.
+    const distinctPaths = pick(ov?.distinct_paths, undefined, sm?.top_endpoints.length);
+
+    return { calls, errorRate, distinctUsers, latency, reqPerMin, reqPer5min, distinctPaths };
+  }, [ov, hk, sm]);
 
   // Show the band when ANY merged value is present. The local no-SVC failure is
   // `overview.state==='done'` with all-null kpis (reachable but empty) — so we
@@ -302,17 +337,20 @@ export default function PerformancePage() {
     merged.distinctUsers.value != null ||
     merged.latency.value != null ||
     merged.latency.source != null ||
-    ov?.requests_per_min != null ||
-    ov?.requests_per_5min != null ||
+    merged.reqPerMin.value != null ||
+    merged.reqPer5min.value != null ||
+    merged.distinctPaths.value != null ||
     ov?.cache_hit_rate != null ||
-    ov?.deny_rate != null ||
-    ov?.distinct_paths != null;
+    ov?.deny_rate != null;
 
-  // Both sources empty/not-deployed → keep the honest empty-state.
+  // All three sources empty/settled → keep the honest empty-state. Server-metrics
+  // is the always-populated counter, so in practice this only stays true when the
+  // in-process metrics route itself is unavailable AND the trail/usage are empty.
   const bothUnavailable =
     !hasAnyKpi &&
     (overview.state === 'not-deployed' || overview.state === 'done' || overview.state === 'error') &&
-    (health.state === 'not-deployed' || health.state === 'done' || health.state === 'error');
+    (health.state === 'not-deployed' || health.state === 'done' || health.state === 'error') &&
+    (serverMetrics.state === 'not-deployed' || serverMetrics.state === 'done' || serverMetrics.state === 'error');
 
   const axisPanel = useMemo(() => {
     if (!account) return null;
@@ -384,6 +422,7 @@ export default function PerformancePage() {
             onClick={() => {
               overview.reload();
               health.reload();
+              serverMetrics.reload();
             }}
             className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-white/50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-white/10"
           >
@@ -413,10 +452,10 @@ export default function PerformancePage() {
               <KpiCard
                 label="Requests / min"
                 icon={Activity}
-                value={fmtInt(ov?.requests_per_min)}
+                value={fmtInt(merged.reqPerMin.value)}
                 sub={`${fmtInt(merged.calls.value)} total`}
-                source={merged.calls.source}
-                help={{ definition: 'Average requests per minute over the selected window. Per-minute rate is request-trail only; total may come from usage history.', goodRange: 'depends on tier' }}
+                source={merged.reqPerMin.source}
+                help={{ definition: 'Average requests per minute. From the per-account request trail when available, otherwise the live in-process server counter. Total may come from usage history.', goodRange: 'depends on tier' }}
               />
               <KpiCard
                 label="Avg response"
@@ -431,7 +470,13 @@ export default function PerformancePage() {
                 icon={AlertTriangle}
                 tint={(merged.errorRate.value ?? 0) > 5 ? 'text-red-600 dark:text-red-400' : undefined}
                 value={fmtPct(merged.errorRate.value, 2)}
-                sub={ov?.error_count != null ? `${fmtInt(ov.error_count)} errors` : undefined}
+                sub={
+                  ov?.error_count != null
+                    ? `${fmtInt(ov.error_count)} errors`
+                    : sm?.error_count != null
+                      ? `${fmtInt(sm.error_count)} errors`
+                      : undefined
+                }
                 source={merged.errorRate.source}
                 help={{ definition: 'Share of requests returning 4xx/5xx (request trail) or queries that errored (usage history).', goodRange: '< 1%' }}
               />
@@ -445,9 +490,9 @@ export default function PerformancePage() {
               <KpiCard
                 label="Requests / 5min"
                 icon={BarChart3}
-                value={fmtInt(ov?.requests_per_5min)}
-                source={ov?.requests_per_5min != null ? 'request-trail' : null}
-                help={{ definition: 'Average requests per 5-minute bucket. Request-trail only.' }}
+                value={fmtInt(merged.reqPer5min.value)}
+                source={merged.reqPer5min.source}
+                help={{ definition: 'Average requests per 5-minute bucket. From the per-account request trail when available, otherwise the live in-process server counter.' }}
               />
               <KpiCard
                 label="Deny rate"
@@ -467,9 +512,9 @@ export default function PerformancePage() {
               <KpiCard
                 label="Distinct paths"
                 icon={Layers}
-                value={fmtInt(ov?.distinct_paths)}
-                source={ov?.distinct_paths != null ? 'request-trail' : null}
-                help={{ definition: 'Unique endpoint paths called in the window. Request-trail only.' }}
+                value={fmtInt(merged.distinctPaths.value)}
+                source={merged.distinctPaths.source}
+                help={{ definition: 'Unique endpoint paths called. From the per-account request trail when available, otherwise the count of live top endpoints.' }}
               />
             </div>
           )}

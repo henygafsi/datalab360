@@ -16,6 +16,7 @@ import axios from 'axios';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { NotDeployedError } from '@/app/services/admin-performance';
+import { getServerMetrics, type ServerMetrics } from '@/app/services/admin-visibility';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -129,6 +130,40 @@ export async function getPlatformHealth(opts?: PlatformHealthOpts): Promise<Plat
   try {
     const { data } = await apiClient.get<PlatformHealth>(API.administration.platformHealth(opts));
     return data;
+  } catch (e) {
+    if (isNotDeployed(e)) throw new NotDeployedError();
+    throw e;
+  }
+}
+
+// ── Live in-process server metrics (primary KPI source) ──────────────────────
+
+/**
+ * `error_rate` normalised to a PERCENT (0–100). The raw `/admin/server-metrics`
+ * payload returns it as a 0–1 ratio; every consumer here (`fmtPct`, the `> 5`
+ * threshold tints, the merged KPI band) expects an already-percent value, so we
+ * convert once at the source instead of in each call site.
+ */
+export interface ServerMetricsView extends Omit<ServerMetrics, 'error_rate'> {
+  /** Error rate as a percent (0–100), converted from the backend 0–1 ratio. */
+  error_rate_pct: number;
+}
+
+/**
+ * Live in-process server metrics, re-exported through the platform-health
+ * service so the panels can treat it as a first-class source.
+ *
+ * The underlying {@link getServerMetrics} (admin-visibility) returns raw data and
+ * does NOT raise {@link NotDeployedError}, so we add the same 404/501 → quiet
+ * "not deployed" degradation that {@link getPlatformHealth} uses, and normalise
+ * `error_rate` to a percent. This is the ALWAYS-populated in-memory counter, so
+ * it is the primary band source both locally and in production.
+ */
+export async function getServerMetricsView(): Promise<ServerMetricsView> {
+  try {
+    const m = await getServerMetrics();
+    const ratio = typeof m.error_rate === 'number' && !Number.isNaN(m.error_rate) ? m.error_rate : 0;
+    return { ...m, error_rate_pct: ratio * 100 };
   } catch (e) {
     if (isNotDeployed(e)) throw new NotDeployedError();
     throw e;

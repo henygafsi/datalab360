@@ -48,11 +48,12 @@ export const STATUS_TINT = (s: number) =>
  * source, so a tiny honest badge records which one a card is showing. `null`
  * (no data / "—") renders nothing.
  */
-export type KpiSource = 'request-trail' | 'usage-history' | null;
+export type KpiSource = 'request-trail' | 'usage-history' | 'live' | null;
 
 const SOURCE_LABEL: Record<NonNullable<KpiSource>, { tag: string; title: string }> = {
   'request-trail': { tag: 'trail', title: 'Source: HTTP request trail' },
   'usage-history': { tag: 'usage', title: 'Source: usage history (fallback)' },
+  live: { tag: 'live', title: 'Source: live in-process server metrics' },
 };
 
 export function KpiCard({

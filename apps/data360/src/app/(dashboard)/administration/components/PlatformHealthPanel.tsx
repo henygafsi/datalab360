@@ -24,10 +24,15 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  BarChart3,
   Boxes,
+  Clock,
+  Cpu,
   Database,
+  Gauge,
   HeartPulse,
   KeyRound,
+  MemoryStick,
   RefreshCw,
   Search,
   Server,
@@ -36,6 +41,7 @@ import {
   UserSearch,
   Users,
   X,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
@@ -58,7 +64,9 @@ import {
 import { usePerfFetch } from '../../admin/performance/components/usePerfFetch';
 import {
   getPlatformHealth,
+  getServerMetricsView,
   type PlatformHealth,
+  type ServerMetricsView,
   type TopQueryRow,
   type ByUserRow,
   type ByWarehouseRow,
@@ -66,6 +74,7 @@ import {
   type FailedLoginDetailRow,
   type AccessByUserRow,
 } from '@/app/services/admin-platform-health';
+import type { ServerEndpoint, ServerRecentError } from '@/app/services/admin-visibility';
 
 // ── Window + sub-view options ────────────────────────────────────────────────
 
@@ -75,9 +84,19 @@ const HOURS_OPTIONS: ChipOption<string>[] = [
   { id: '168', label: '7d' },
 ];
 
-type View = 'queries' | 'users' | 'warehouses' | 'objects' | 'access' | 'logins';
+// Server-metrics (live in-process counter) sub-views — always populated.
+type SmView = 'sm_endpoints' | 'sm_users' | 'sm_errors';
+// ACCOUNT_USAGE enrichment sub-views — supplementary, may be unavailable (404).
+type UsageView = 'queries' | 'users' | 'warehouses' | 'objects' | 'access' | 'logins';
+type View = SmView | UsageView;
 
-const VIEWS: ChipOption<View>[] = [
+const SM_VIEWS: ChipOption<SmView>[] = [
+  { id: 'sm_endpoints', label: 'Top endpoints', icon: BarChart3 },
+  { id: 'sm_users', label: 'Active users', icon: Users },
+  { id: 'sm_errors', label: 'Recent errors', icon: AlertTriangle },
+];
+
+const USAGE_VIEWS: ChipOption<UsageView>[] = [
   { id: 'queries', label: 'Top query types', icon: Database },
   { id: 'users', label: 'By user', icon: Users },
   { id: 'warehouses', label: 'By warehouse', icon: Server },
@@ -85,6 +104,9 @@ const VIEWS: ChipOption<View>[] = [
   { id: 'access', label: 'Who accessed what', icon: UserSearch },
   { id: 'logins', label: 'Failed logins', icon: ShieldAlert },
 ];
+
+// Combined label lookup for the AI payload / active-view title.
+const VIEWS: ChipOption<View>[] = [...SM_VIEWS, ...USAGE_VIEWS];
 
 // ── Local formatters (null → "—") ────────────────────────────────────────────
 
@@ -103,6 +125,19 @@ function fmtDateTime(ts: string | null | undefined): string {
   if (!ts) return '—';
   const d = new Date(ts);
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+}
+
+/** Compact uptime (d/h/m), null → "—". Never a fabricated 0. */
+function fmtUptime(s: number | null | undefined): string {
+  if (s == null || Number.isNaN(s)) return '—';
+  const sec = Math.max(0, Math.floor(s));
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${sec}s`;
 }
 
 // ── Generic sortable table ───────────────────────────────────────────────────
@@ -385,6 +420,62 @@ const FAILED_LOGIN_COLS: ColumnDef<FailedLoginDetailRow>[] = [
   { key: 'last_seen', label: 'Last seen', align: 'right', render: (r) => fmtDateTime(r.last_seen), sortValue: (r) => r.last_seen ?? null },
 ];
 
+// ── Server-metrics tables (live in-process counter — primary source) ─────────
+
+interface ActiveUserRow {
+  username: string;
+  requests: number;
+}
+
+const SM_ENDPOINT_COLS: ColumnDef<ServerEndpoint>[] = [
+  { key: 'method', label: 'Method', render: (r) => r.method || '—', sortValue: (r) => r.method ?? null },
+  { key: 'path', label: 'Path', render: (r) => r.path || '—', sortValue: (r) => r.path ?? null },
+  { key: 'requests', label: 'Requests', align: 'right', render: (r) => fmtInt(r.requests), sortValue: (r) => r.requests },
+  {
+    key: 'errors',
+    label: 'Errors',
+    align: 'right',
+    render: (r) => <span className={cn((r.errors ?? 0) > 0 && 'text-red-600 dark:text-red-400')}>{fmtInt(r.errors)}</span>,
+    sortValue: (r) => r.errors,
+  },
+  { key: 'avg_ms', label: 'Avg', align: 'right', render: (r) => fmtMs(r.avg_ms), sortValue: (r) => r.avg_ms },
+  { key: 'max_ms', label: 'Max', align: 'right', render: (r) => fmtMs(r.max_ms), sortValue: (r) => r.max_ms },
+  { key: 'distinct_users', label: 'Users', align: 'right', render: (r) => fmtInt(r.distinct_users), sortValue: (r) => r.distinct_users },
+];
+
+const SM_ACTIVE_USER_COLS: ColumnDef<ActiveUserRow>[] = [
+  { key: 'username', label: 'User', render: (r) => r.username || '—', sortValue: (r) => r.username ?? null },
+  { key: 'requests', label: 'Requests', align: 'right', render: (r) => fmtInt(r.requests), sortValue: (r) => r.requests },
+];
+
+const SM_RECENT_ERROR_COLS: ColumnDef<ServerRecentError>[] = [
+  {
+    key: 'status',
+    label: 'Status',
+    align: 'right',
+    render: (r) => {
+      const s = r.status ?? 0;
+      return (
+        <span className={cn('tabular-nums font-medium', s >= 500 ? 'text-red-600 dark:text-red-400' : s >= 400 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300')}>
+          {r.status ?? '—'}
+        </span>
+      );
+    },
+    sortValue: (r) => r.status,
+  },
+  { key: 'method', label: 'Method', render: (r) => r.method || '—', sortValue: (r) => r.method ?? null },
+  { key: 'path', label: 'Path', render: (r) => r.path || '—', sortValue: (r) => r.path ?? null },
+  { key: 'username', label: 'User', render: (r) => r.username || '—', sortValue: (r) => r.username ?? null },
+  { key: 'ms', label: 'Duration', align: 'right', render: (r) => fmtMs(r.ms), sortValue: (r) => r.ms },
+  { key: 'ts', label: 'When', align: 'right', render: (r) => fmtDateTime(r.ts), sortValue: (r) => r.ts ?? null },
+];
+
+const smEndpointLine = (r: ServerEndpoint) =>
+  `${r.method} ${r.path}: ${fmtInt(r.requests)} reqs, ${fmtInt(r.errors)} errors, avg ${fmtMs(r.avg_ms)}, max ${fmtMs(r.max_ms)}, ${fmtInt(r.distinct_users)} users`;
+const smActiveUserLine = (r: ActiveUserRow) => `${r.username}: ${fmtInt(r.requests)} requests`;
+const smRecentErrorLine = (r: ServerRecentError) =>
+  `${r.status} ${r.method} ${r.path} by ${r.username} — ${fmtMs(r.ms)}, ${fmtDateTime(r.ts)}`;
+
 // Row-line builders for the AI payload (one compact line per row).
 const queryLine = (r: TopQueryRow) =>
   `${r.query_type}: ${fmtInt(r.calls)} calls, ${fmtInt(r.error_count)} errors, avg ${fmtMs(r.avg_latency)}, p95 ${fmtMs(r.p95_latency)}, scanned ${fmtBytes(r.bytes_scanned)}, queued ${fmtMs(r.queued_overload_ms)}, spill ${fmtBytes(r.spill_to_local)}`;
@@ -434,7 +525,7 @@ export default function PlatformHealthPanel() {
   const [hours, setHours] = useState(24);
   const [userInput, setUserInput] = useState(''); // raw user-filter text box
   const [userFilter, setUserFilter] = useState(''); // debounced → server param
-  const [view, setView] = useState<View>('queries');
+  const [view, setView] = useState<View>('sm_endpoints');
   const [search, setSearch] = useState(''); // raw search box
   const [debouncedSearch, setDebouncedSearch] = useState(''); // client-side row filter
 
@@ -467,20 +558,44 @@ export default function PlatformHealthPanel() {
     setTableView({ shown: 0, total: 0, lines: [] });
   }, [view]);
 
+  // PRIMARY source — live in-process server metrics. Always populated locally and
+  // in prod (uptime-cumulative, window-independent), so the band + the three
+  // server-metrics tables never blank out.
+  const sm = usePerfFetch<ServerMetricsView>(() => getServerMetricsView(), []);
+
+  // SUPPLEMENTARY enrichment — ACCOUNT_USAGE history (query types, objects,
+  // logins, who-accessed, failed-login feed). A 404 (route not deployed) must NOT
+  // blank the page; it only hides the usage-history sub-views.
   const health = usePerfFetch<PlatformHealth>(
     () => getPlatformHealth({ hours, user: userFilter || undefined }),
     [hours, userFilter],
   );
 
+  const metrics = sm.data;
   const data = health.data;
   const k = data?.kpis;
-  const empty = useMemo(() => (data ? isGenuinelyEmpty(data) : false), [data]);
+  const usageEmpty = useMemo(() => (data ? isGenuinelyEmpty(data) : false), [data]);
+  // The usage-history enrichment is pending whenever its route is down (404) or
+  // returns a genuinely-empty window — surfaced as a small inline note, never the
+  // whole-page state.
+  const usagePending = health.state === 'not-deployed' || health.state === 'error' || usageEmpty;
+  const usageReady = health.state === 'done' && !usageEmpty;
+  const smUnavailable = sm.state === 'not-deployed' || sm.state === 'error';
+
+  // When the live server-metrics route is unavailable but usage history is, switch
+  // the default sub-view off the (empty) live views onto a usage view so the table
+  // shows real rows instead of an empty live table.
+  useEffect(() => {
+    if (smUnavailable && (view === 'sm_endpoints' || view === 'sm_users' || view === 'sm_errors')) {
+      setView('queries');
+    }
+  }, [smUnavailable, view]);
 
   const onView = useCallback((v: TableView) => setTableView(v), []);
 
   // ── Analyze with AI — same primitive as the Performance page.
   const runAiAnalysis = useCallback(async () => {
-    if (!data) return;
+    if (!metrics && !data) return;
     setAiState('loading');
     setAiError(null);
     setAiText('');
@@ -493,16 +608,27 @@ export default function PlatformHealthPanel() {
     ]
       .filter(Boolean)
       .join(', ') || 'none';
-    const kpiLines = k
+    // PRIMARY KPIs come from the live server-metrics counter (always populated);
+    // the usage-history KPIs are appended as supplementary enrichment when present.
+    const liveLines = metrics
       ? [
-          `Calls: ${fmtInt(k.calls)}`,
-          `Error rate: ${fmtPct(k.error_rate, 2)}`,
-          `Latency p50/p95/p99: ${fmtMs(k.p50)} / ${fmtMs(k.p95)} / ${fmtMs(k.p99)}`,
-          `Distinct users: ${fmtInt(k.distinct_users)}`,
+          `Requests/min: ${fmtInt(metrics.requests_per_min)} (total ${fmtInt(metrics.total_requests)})`,
+          `Error rate: ${fmtPct(metrics.error_rate_pct, 2)} (${fmtInt(metrics.error_count)} errors)`,
+          `Latency avg/p50/p90/p99: ${fmtMs(metrics.latency.avg_ms)} / ${fmtMs(metrics.latency.p50_ms)} / ${fmtMs(metrics.latency.p90_ms)} / ${fmtMs(metrics.latency.p99_ms)}`,
+          `Distinct active users: ${fmtInt(metrics.active_users.length)}`,
+          `Uptime: ${fmtUptime(metrics.uptime_seconds)} · Memory: ${fmtBytes(metrics.memory_rss_mb * 1024 * 1024)} · CPU load: ${metrics.cpu_load?.toFixed?.(2) ?? '—'}/${fmtInt(metrics.cpu_count)}`,
+        ]
+      : [];
+    const usageLines = k
+      ? [
+          `Usage calls: ${fmtInt(k.calls)}`,
+          `Usage error rate: ${fmtPct(k.error_rate, 2)}`,
+          `Usage latency p50/p95/p99: ${fmtMs(k.p50)} / ${fmtMs(k.p95)} / ${fmtMs(k.p99)}`,
           `Distinct objects: ${fmtInt(k.distinct_objects)}`,
           `Logins: ${fmtInt(k.logins)} (failed ${fmtInt(k.failed_logins)})`,
         ]
-      : ['(no KPIs)'];
+      : ['(usage-history enrichment unavailable)'];
+    const kpiLines = [...liveLines, ...usageLines];
     const prompt = [
       'You are a platform health analyst. Write a concise, plain-language analysis (3–5 short bullet points) of the platform-health telemetry below.',
       'Call out latency, error-rate, failed-login and access outliers, likely causes, and one concrete next step. Do not mention internal vendor or product names.',
@@ -536,10 +662,54 @@ export default function PlatformHealthPanel() {
         setAiState('error');
       }
     }
-  }, [data, k, hours, view, userFilter, debouncedSearch]);
+  }, [metrics, data, k, hours, view, userFilter, debouncedSearch]);
 
   // ── Active table render (typed per view) ──────────────────────────────────
   const activeTable = useMemo(() => {
+    // Server-metrics sub-views render from the live counter (no usage dependency).
+    if (view === 'sm_endpoints' || view === 'sm_users' || view === 'sm_errors') {
+      switch (view) {
+        case 'sm_endpoints':
+          return (
+            <SortableTable
+              columns={SM_ENDPOINT_COLS}
+              rows={metrics?.top_endpoints ?? []}
+              search={debouncedSearch}
+              searchText={(r) => `${r.method} ${r.path}`}
+              rowLine={smEndpointLine}
+              initialSortKey="requests"
+              emptyLabel="No endpoint activity recorded yet."
+              onView={onView}
+            />
+          );
+        case 'sm_users':
+          return (
+            <SortableTable
+              columns={SM_ACTIVE_USER_COLS}
+              rows={metrics?.active_users ?? []}
+              search={debouncedSearch}
+              searchText={(r) => r.username}
+              rowLine={smActiveUserLine}
+              initialSortKey="requests"
+              emptyLabel="No active users recorded yet."
+              onView={onView}
+            />
+          );
+        case 'sm_errors':
+          return (
+            <SortableTable
+              columns={SM_RECENT_ERROR_COLS}
+              rows={metrics?.recent_errors ?? []}
+              search={debouncedSearch}
+              searchText={(r) => `${r.status} ${r.method} ${r.path} ${r.username}`}
+              rowLine={smRecentErrorLine}
+              initialSortKey="ts"
+              emptyLabel="No recent errors — nothing to show."
+              onView={onView}
+            />
+          );
+      }
+    }
     if (!data) return null;
     switch (view) {
       case 'queries':
@@ -619,9 +789,10 @@ export default function PlatformHealthPanel() {
       default:
         return null;
     }
-  }, [data, view, debouncedSearch, onView]);
+  }, [metrics, data, view, debouncedSearch, onView]);
 
   const filtered = debouncedSearch.trim() !== '';
+  const isSmView = view === 'sm_endpoints' || view === 'sm_users' || view === 'sm_errors';
 
   return (
     <div className="space-y-3">
@@ -658,125 +829,260 @@ export default function PlatformHealthPanel() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => health.reload()}
+            onClick={() => {
+              sm.reload();
+              health.reload();
+            }}
             className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-white/50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-white/10"
           >
             <RefreshCw className="h-3 w-3" />
             Refresh
           </button>
-          {health.state === 'done' && !empty && <AnalyzeAiButton onClick={runAiAnalysis} state={aiState} />}
+          {(metrics || usageReady) && <AnalyzeAiButton onClick={runAiAnalysis} state={aiState} />}
         </div>
       </div>
 
-      {/* States */}
-      {health.state === 'not-deployed' ? (
-        <GlassPanel depth={1} radius="xl" className="overflow-hidden">
-          <NotDeployedBanner what="The Platform Health endpoint" />
-        </GlassPanel>
-      ) : health.state === 'error' ? (
-        <GlassPanel depth={1} radius="xl" className="overflow-hidden">
-          <ErrorRetry message={health.error ?? 'Failed to load platform health.'} onRetry={() => health.reload()} />
-        </GlassPanel>
-      ) : !data ? (
-        <KpiSkeleton />
-      ) : empty ? (
-        <GlassPanel depth={1} radius="xl" className="px-3 py-8 text-center">
-          <Activity className="mx-auto mb-2 h-5 w-5 text-slate-300 dark:text-slate-600" />
-          <p className="text-xs font-medium text-slate-600 dark:text-slate-300">No usage activity in this window</p>
-          <p className="mt-0.5 text-[11px] text-slate-400">Try a wider time window or clear the user filter.</p>
-        </GlassPanel>
+      {/*
+        States — the live server-metrics counter is the PRIMARY source and is
+        always populated, so the page never blanks on the platform-health 404.
+        Skeleton shows only while BOTH fetches are still pending; once metrics
+        arrive the band + tables render. We fall back to a settled empty/error
+        state only when server-metrics itself is unavailable AND usage has no data.
+      */}
+      {!metrics && !data ? (
+        sm.state === 'error' && health.state === 'error' ? (
+          <GlassPanel depth={1} radius="xl" className="overflow-hidden">
+            <ErrorRetry
+              message={sm.error ?? health.error ?? 'Failed to load platform health.'}
+              onRetry={() => {
+                sm.reload();
+                health.reload();
+              }}
+            />
+          </GlassPanel>
+        ) : sm.state === 'not-deployed' && (health.state === 'not-deployed' || health.state === 'error') ? (
+          <GlassPanel depth={1} radius="xl" className="overflow-hidden">
+            <NotDeployedBanner what="The Platform Health endpoints" />
+          </GlassPanel>
+        ) : (sm.state === 'done' || sm.state === 'not-deployed' || sm.state === 'error') &&
+          (health.state === 'done' || health.state === 'not-deployed' || health.state === 'error') ? (
+          <GlassPanel depth={1} radius="xl" className="px-3 py-8 text-center">
+            <Activity className="mx-auto mb-2 h-5 w-5 text-slate-300 dark:text-slate-600" />
+            <p className="text-xs font-medium text-slate-600 dark:text-slate-300">No platform telemetry available</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">Neither live server metrics nor usage history returned data.</p>
+          </GlassPanel>
+        ) : (
+          <KpiSkeleton />
+        )
       ) : (
         <>
-          {/* KPI band — real value or "—", never a fabricated 0 */}
-          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
-            <KpiCard
-              label="Calls"
-              icon={Activity}
-              value={fmtInt(k?.calls)}
-              help={{ definition: 'Total requests recorded in the selected window.' }}
-            />
-            <KpiCard
-              label="Error rate"
-              icon={AlertTriangle}
-              tint={(k?.error_rate ?? 0) > 5 ? 'text-red-600 dark:text-red-400' : undefined}
-              value={fmtPct(k?.error_rate, 2)}
-              help={{ definition: 'Share of requests that failed.', goodRange: '< 1%' }}
-            />
-            <KpiCard
-              label="Latency"
-              icon={Timer}
-              value={fmtMs(k?.p95)}
-              sub={`p50 ${fmtMs(k?.p50)} · p95 ${fmtMs(k?.p95)} · p99 ${fmtMs(k?.p99)}`}
-              help={{ definition: 'Headline value is p95; sub-line shows the full percentile spread.', goodRange: '< 500 ms p95' }}
-            />
-            <KpiCard
-              label="Distinct users"
-              icon={Users}
-              value={fmtInt(k?.distinct_users)}
-              help={{ definition: 'Unique users active in the window.' }}
-            />
-            <KpiCard
-              label="Distinct objects"
-              icon={Boxes}
-              value={fmtInt(k?.distinct_objects)}
-              help={{ definition: 'Unique data objects accessed in the window.' }}
-            />
-            <KpiCard
-              label="Logins"
-              icon={KeyRound}
-              tint={(k?.failed_logins ?? 0) > 0 ? 'text-amber-600 dark:text-amber-400' : undefined}
-              value={fmtInt(k?.logins)}
-              sub={`${fmtInt(k?.failed_logins)} failed`}
-              help={{ definition: 'Successful sign-ins; sub-line shows failed attempts.', goodRange: 'few failures' }}
-            />
-          </div>
+          {/* PRIMARY KPI band — live in-process server metrics. Always populated;
+              real value or "—", never a fabricated 0. If the live counter route is
+              itself unavailable (server-metrics 404) but usage history has data, we
+              fall back to the usage-history KPI band so the band is still never
+              empty (requirement 3 / no-empty-KPI goal). */}
+          {metrics ? (
+            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 lg:grid-cols-5">
+              <KpiCard
+                label="Requests / min"
+                icon={Activity}
+                value={fmtInt(metrics.requests_per_min)}
+                source="live"
+                help={{ definition: 'Live request rate from the in-process server counter (a rate, not filtered by the selected window).' }}
+              />
+              <KpiCard
+                label="Avg response"
+                icon={Timer}
+                value={fmtMs(metrics.latency.avg_ms)}
+                sub={`p50 ${fmtMs(metrics.latency.p50_ms)} · p90 ${fmtMs(metrics.latency.p90_ms)} · p99 ${fmtMs(metrics.latency.p99_ms)}`}
+                source="live"
+                help={{ definition: 'Mean server response time; sub-line shows the percentile spread.', goodRange: '< 500 ms p90' }}
+              />
+              <KpiCard
+                label="Error rate"
+                icon={AlertTriangle}
+                tint={(metrics.error_rate_pct ?? 0) > 5 ? 'text-red-600 dark:text-red-400' : undefined}
+                value={fmtPct(metrics.error_rate_pct, 2)}
+                sub={metrics.error_count != null ? `${fmtInt(metrics.error_count)} errors` : undefined}
+                source="live"
+                help={{ definition: 'Share of requests that returned an error.', goodRange: '< 1%' }}
+              />
+              <KpiCard
+                label="Distinct users"
+                icon={Users}
+                value={fmtInt(metrics.active_users.length)}
+                source="live"
+                help={{ definition: 'Number of users seen in the live request counter.' }}
+              />
+              <KpiCard
+                label="Total requests"
+                icon={Zap}
+                value={fmtInt(metrics.total_requests)}
+                source="live"
+                help={{ definition: 'Total requests served since the server process started.' }}
+              />
+              <KpiCard
+                label="Error count"
+                icon={ShieldAlert}
+                tint={(metrics.error_count ?? 0) > 0 ? 'text-amber-600 dark:text-amber-400' : undefined}
+                value={fmtInt(metrics.error_count)}
+                source="live"
+                help={{ definition: 'Total errored requests since the server process started.' }}
+              />
+              <KpiCard
+                label="Uptime"
+                icon={Clock}
+                value={fmtUptime(metrics.uptime_seconds)}
+                source="live"
+                help={{ definition: 'Time elapsed since the server process started.' }}
+              />
+              <KpiCard
+                label="Memory"
+                icon={MemoryStick}
+                value={metrics.memory_rss_mb != null ? fmtBytes(metrics.memory_rss_mb * 1024 * 1024) : '—'}
+                source="live"
+                help={{ definition: 'Resident set size of the server process.' }}
+              />
+              <KpiCard
+                label="CPU load"
+                icon={Cpu}
+                tint={
+                  metrics.cpu_count > 0 && metrics.cpu_load / metrics.cpu_count >= 1
+                    ? 'text-red-600 dark:text-red-400'
+                    : undefined
+                }
+                value={metrics.cpu_load != null ? metrics.cpu_load.toFixed(2) : '—'}
+                sub={metrics.cpu_count != null ? `${fmtInt(metrics.cpu_count)} cores` : undefined}
+                source="live"
+                help={{ definition: '1-minute load average; sub-line shows core count.', goodRange: '< core count' }}
+              />
+            </div>
+          ) : (
+            /* Fallback band — usage-history KPIs when the live counter is unavailable. */
+            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+              <KpiCard
+                label="Calls"
+                icon={Activity}
+                value={fmtInt(k?.calls)}
+                source="usage-history"
+                help={{ definition: 'Total requests recorded in the selected window.' }}
+              />
+              <KpiCard
+                label="Error rate"
+                icon={AlertTriangle}
+                tint={(k?.error_rate ?? 0) > 5 ? 'text-red-600 dark:text-red-400' : undefined}
+                value={fmtPct(k?.error_rate, 2)}
+                source="usage-history"
+                help={{ definition: 'Share of requests that failed.', goodRange: '< 1%' }}
+              />
+              <KpiCard
+                label="Latency"
+                icon={Timer}
+                value={fmtMs(k?.p95)}
+                sub={`p50 ${fmtMs(k?.p50)} · p95 ${fmtMs(k?.p95)} · p99 ${fmtMs(k?.p99)}`}
+                source="usage-history"
+                help={{ definition: 'Headline value is p95; sub-line shows the full percentile spread.', goodRange: '< 500 ms p95' }}
+              />
+              <KpiCard
+                label="Distinct users"
+                icon={Users}
+                value={fmtInt(k?.distinct_users)}
+                source="usage-history"
+                help={{ definition: 'Unique users active in the window.' }}
+              />
+              <KpiCard
+                label="Distinct objects"
+                icon={Boxes}
+                value={fmtInt(k?.distinct_objects)}
+                source="usage-history"
+                help={{ definition: 'Unique data objects accessed in the window.' }}
+              />
+              <KpiCard
+                label="Logins"
+                icon={KeyRound}
+                tint={(k?.failed_logins ?? 0) > 0 ? 'text-amber-600 dark:text-amber-400' : undefined}
+                value={fmtInt(k?.logins)}
+                sub={`${fmtInt(k?.failed_logins)} failed`}
+                source="usage-history"
+                help={{ definition: 'Successful sign-ins; sub-line shows failed attempts.', goodRange: 'few failures' }}
+              />
+            </div>
+          )}
 
-          {/* Sub-view switcher */}
-          <FilterChips options={VIEWS} value={view} onChange={setView} />
+          {/* Sub-view switcher — live server-metrics views first (always available),
+              then the usage-history enrichment views. */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+              <Gauge className="h-3 w-3" /> Live
+            </span>
+            <FilterChips options={SM_VIEWS} value={view} onChange={setView} />
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+              <Database className="h-3 w-3" /> Usage history
+            </span>
+            <FilterChips options={USAGE_VIEWS} value={view} onChange={setView} />
+          </div>
 
           {/* AI narrative — dismissible docked panel */}
           <AiAnalysisPanel state={aiState} text={aiText} error={aiError} onClose={() => setAiState('idle')} />
 
-          {/* Active sub-view table + client-side search toolbar */}
-          <GlassPanel depth={1} radius="xl" className="overflow-hidden">
-            <div className="flex flex-wrap items-center gap-2 border-b border-white/30 px-3 py-2 dark:border-white/10">
-              <div className="relative min-w-[160px] flex-1">
-                <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search rows…"
-                  aria-label="Search rows"
-                  className="w-full rounded-md border border-slate-200 bg-white/70 py-1 pl-7 pr-7 text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    onClick={() => setSearch('')}
-                    aria-label="Clear search"
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-              <span
-                className={cn(
-                  'ml-auto shrink-0 text-[10px] tabular-nums',
-                  filtered ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400',
-                )}
-              >
-                {filtered
-                  ? `${fmtInt(tableView.shown)} of ${fmtInt(tableView.total)}`
-                  : `${fmtInt(tableView.total)} rows`}
+          {/* Inline note when the usage-history enrichment route isn't live yet —
+              non-blocking: the live band + tables above still show real data. */}
+          {!isSmView && usagePending && (
+            <GlassPanel depth={1} radius="xl" className="px-3 py-2.5 text-[11px] text-slate-500 dark:text-slate-400">
+              <span className="inline-flex items-center gap-2">
+                <Activity className="h-3.5 w-3.5 shrink-0" />
+                {health.state === 'not-deployed' || health.state === 'error'
+                  ? 'Usage-history enrichment (query types, objects, logins) is pending — the live server metrics above are unaffected.'
+                  : 'No usage-history activity in this window — try a wider window or clear the user filter. Live server metrics above are unaffected.'}
               </span>
-            </div>
-            {activeTable}
-          </GlassPanel>
+            </GlassPanel>
+          )}
+
+          {/* Active sub-view table + client-side search toolbar.
+              Usage-history views with no data fall back to their own empty label. */}
+          {(isSmView || usageReady) && (
+            <GlassPanel depth={1} radius="xl" className="overflow-hidden">
+              <div className="flex flex-wrap items-center gap-2 border-b border-white/30 px-3 py-2 dark:border-white/10">
+                <div className="relative min-w-[160px] flex-1">
+                  <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search rows…"
+                    aria-label="Search rows"
+                    className="w-full rounded-md border border-slate-200 bg-white/70 py-1 pl-7 pr-7 text-[11px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch('')}
+                      aria-label="Clear search"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+                <span
+                  className={cn(
+                    'ml-auto shrink-0 text-[10px] tabular-nums',
+                    filtered ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400',
+                  )}
+                >
+                  {filtered
+                    ? `${fmtInt(tableView.shown)} of ${fmtInt(tableView.total)}`
+                    : `${fmtInt(tableView.total)} rows`}
+                </span>
+              </div>
+              {activeTable}
+            </GlassPanel>
+          )}
 
           <p className="px-1 text-[10px] text-slate-400">
-            Audit-backed health — figures reflect recorded platform usage on your own connection.
+            {isSmView
+              ? 'Live server metrics — figures are cumulative since the server process started and are not filtered by the selected time window.'
+              : 'Usage history — audit-backed figures over the selected window, recorded on your own connection.'}
           </p>
         </>
       )}
@@ -788,8 +1094,8 @@ export default function PlatformHealthPanel() {
 
 function KpiSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
-      {Array.from({ length: 6 }).map((_, i) => (
+    <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 lg:grid-cols-5">
+      {Array.from({ length: 9 }).map((_, i) => (
         <GlassPanel key={i} depth={1} radius="xl" className="flex flex-col gap-2 p-3.5">
           <div className="h-3 w-20 animate-pulse rounded bg-slate-200/70 dark:bg-slate-700/50" />
           <div className="h-6 w-16 animate-pulse rounded bg-slate-200/70 dark:bg-slate-700/50" />
