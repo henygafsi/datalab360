@@ -931,6 +931,13 @@ export const API = {
       userDetail: (account: string, username: string, hours?: number) =>
         `/administration/performance/${enc(account)}/user/${enc(username)}${qs({ hours })}`,
     },
+    /**
+     * GET /administration/platform-health?hours=&user=&module=&limit= — audit-backed
+     * platform health (reads usage telemetry on the caller's own connection, so it
+     * works locally and in prod with no service account). KPIs + granular tables.
+     */
+    platformHealth: (opts?: { hours?: number; user?: string; module?: string; limit?: number }) =>
+      `/administration/platform-health${qs({ hours: opts?.hours, user: opts?.user, module: opts?.module, limit: opts?.limit })}`,
   },
 } as const;
 

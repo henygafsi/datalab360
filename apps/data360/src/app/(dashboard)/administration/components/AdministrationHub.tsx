@@ -44,6 +44,7 @@ import { useTrackEvent } from '@/hooks/useTrackEvent';
 import ServerMetricsPanel from '../../admin/ServerMetricsPanel';
 import RealAccessPanel from '../../admin/RealAccessPanel';
 import RoleGrantsPanel from '../../admin/RoleGrantsPanel';
+import PlatformHealthPanel from './PlatformHealthPanel';
 
 type TabId =
   | 'health'
@@ -197,25 +198,8 @@ export default function AdministrationHub() {
         })}
       </div>
 
-      {/* 1. Platform Health — placeholder until the dedicated endpoint lands */}
-      {tab === 'health' && (
-        <SectionCard
-          icon={HeartPulse}
-          title="Platform Health"
-          description="Top-line health KPIs — calls, error rate, latency, cache-hit ratio, active users and tracked objects — in one glance."
-          note="Health KPIs (audit-backed) are coming. The dedicated /administration/platform-health endpoint is being provisioned; no figures are shown here yet to avoid placeholder numbers. Meanwhile, the Performance surface has the per-account drill-downs."
-        >
-          {/* TODO(platform-health): wire the overview KPI strip to
-              GET /administration/platform-health once that endpoint is live
-              (another agent is adding it). Do NOT fabricate values until then. */}
-          <OpenLink
-            href={routes.adminPerformance.view}
-            onClick={() => trackFeatureClick('open_performance', { from: 'health' })}
-          >
-            Open Performance
-          </OpenLink>
-        </SectionCard>
-      )}
+      {/* 1. Platform Health — audit-backed KPIs + granular tables + AI */}
+      {tab === 'health' && <PlatformHealthPanel />}
 
       {/* 2. Performance — existing full page */}
       {tab === 'performance' && (

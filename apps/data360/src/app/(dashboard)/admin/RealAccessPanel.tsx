@@ -7,9 +7,15 @@
  * shows the REAL Snowflake RBAC picture: every user × the roles they actually
  * hold (live `SHOW USERS` + role memberships) — pair with RoleGrantsPanel to
  * drill a role into its object grants.
+ *
+ * Filters: a debounced search over user/email/role, a clickable role chip (the
+ * role tally drills the table down to that role's holders) and an active/disabled
+ * status filter — all client-side with an honest "X of Y" count. Below, a compact
+ * recent-object-access panel (ACCESS_HISTORY) surfaces who-hit-what at the object
+ * grain.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ShieldCheck, Users } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, Users, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
@@ -18,12 +24,25 @@ import {
   getUsersWithRolesAndModules,
   type UserGrantTableData,
 } from '@/app/services/governance/user_roles';
+import AccessHistoryPanel from '@/app/(dashboard)/administration/access-center/components/AccessHistoryPanel';
+
+type StatusFilter = 'all' | 'Active' | 'Disabled';
 
 export default function RealAccessPanel() {
   const [users, setUsers] = useState<UserGrantTableData[]>([]);
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+
+  // ── Filters ──
+  const [search, setSearch] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search.trim().toLowerCase()), 200);
+    return () => clearTimeout(t);
+  }, [search]);
 
   useEffect(() => {
     let alive = true;
@@ -51,102 +70,196 @@ export default function RealAccessPanel() {
     return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
   }, [users]);
 
-  return (
-    <GlassPanel depth={1} radius="xl" className="overflow-hidden">
-      <div className="flex items-center justify-between gap-2 border-b border-white/30 px-3 py-2 dark:border-white/10">
-        <div>
-          <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
-            <Users className="h-3.5 w-3.5" /> Who has access — real account RBAC
-          </p>
-          <p className="text-[10px] text-slate-400">
-            Users × the Snowflake roles they hold (live) · {users.length} users
-          </p>
-        </div>
-      </div>
+  const filtered = useMemo(() => {
+    return users.filter((u) => {
+      if (statusFilter !== 'all' && u.status !== statusFilter) return false;
+      if (roleFilter && !u.roles.some((r) => String(r).toUpperCase() === roleFilter.toUpperCase()))
+        return false;
+      if (debounced) {
+        const hay = `${u.username} ${u.email} ${u.roles.join(' ')}`.toLowerCase();
+        if (!hay.includes(debounced)) return false;
+      }
+      return true;
+    });
+  }, [users, statusFilter, roleFilter, debounced]);
 
-      {state === 'running' || state === 'idle' ? (
-        <div className="space-y-1.5 p-3" aria-hidden>
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-8 animate-pulse rounded bg-slate-100 dark:bg-slate-800/60" />
-          ))}
-        </div>
-      ) : state === 'error' ? (
-        <div className="flex items-start gap-1.5 p-3 text-[11px] text-red-600 dark:text-red-400">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span className="flex-1 break-words">
-            {error}{' '}
-            <button type="button" className="underline" onClick={() => setReloadKey((k) => k + 1)}>
-              Retry
-            </button>
-          </span>
-        </div>
-      ) : users.length === 0 ? (
-        <EmptyState icon={ShieldCheck} compact title="No users found" />
-      ) : (
-        <>
-          {roleTally.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
-              {roleTally.map(([role, n]) => (
-                <span
-                  key={role}
-                  className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
-                >
-                  {role} · {n}
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="scrollbar-thin max-h-[420px] overflow-auto">
-            <table className="w-full border-collapse text-[11px]">
-              <thead className="sticky top-0">
-                <tr className="text-[10px] uppercase tracking-wide text-slate-400">
-                  <th className="glass-2 px-3 py-1.5 text-left font-semibold">User</th>
-                  <th className="glass-2 px-2 py-1.5 text-left font-semibold">Roles (access)</th>
-                  <th className="glass-2 px-2 py-1.5 text-left font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.username} className="border-b border-slate-100 dark:border-slate-800">
-                    <td className="px-3 py-1.5 align-top">
-                      <p className="font-medium text-slate-800 dark:text-slate-100">{u.username}</p>
-                      {u.email && <p className="text-[10px] text-slate-400">{u.email}</p>}
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <div className="flex flex-wrap gap-1">
-                        {u.roles.length === 0 ? (
-                          <span className="text-slate-300 dark:text-slate-600">—</span>
-                        ) : (
-                          u.roles.map((r) => (
-                            <span
-                              key={r}
-                              className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300"
-                            >
-                              {r}
-                            </span>
-                          ))
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-2 py-1.5 align-top">
-                      <span
-                        className={cn(
-                          'rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase',
-                          u.status === 'Active'
-                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                            : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
-                        )}
-                      >
-                        {u.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+  const hasFilters = Boolean(debounced) || Boolean(roleFilter) || statusFilter !== 'all';
+
+  return (
+    <div className="space-y-3">
+      <GlassPanel depth={1} radius="xl" className="overflow-hidden">
+        <div className="flex items-center justify-between gap-2 border-b border-white/30 px-3 py-2 dark:border-white/10">
+          <div>
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+              <Users className="h-3.5 w-3.5" /> Who has access — real account RBAC
+            </p>
+            <p className="text-[10px] text-slate-400">
+              Users × the Snowflake roles they hold (live) · {users.length} users
+            </p>
           </div>
-        </>
-      )}
-    </GlassPanel>
+        </div>
+
+        {state === 'running' || state === 'idle' ? (
+          <div className="space-y-1.5 p-3" aria-hidden>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-8 animate-pulse rounded bg-slate-100 dark:bg-slate-800/60" />
+            ))}
+          </div>
+        ) : state === 'error' ? (
+          <div className="flex items-start gap-1.5 p-3 text-[11px] text-red-600 dark:text-red-400">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1 break-words">
+              {error}{' '}
+              <button type="button" className="underline" onClick={() => setReloadKey((k) => k + 1)}>
+                Retry
+              </button>
+            </span>
+          </div>
+        ) : users.length === 0 ? (
+          <EmptyState icon={ShieldCheck} compact title="No users found" />
+        ) : (
+          <>
+            {/* Search + status filter */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
+              <div className="relative min-w-[160px] flex-1">
+                <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search user / email / role…"
+                  className="w-full rounded border border-slate-200 bg-transparent py-1 pl-7 pr-2 text-[11px] outline-none focus:border-[hsl(var(--primary))] dark:border-slate-700"
+                />
+              </div>
+              <div className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+                {(['all', 'Active', 'Disabled'] as StatusFilter[]).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setStatusFilter(s)}
+                    className={cn(
+                      'rounded-md px-2 py-0.5 text-[10px] font-semibold capitalize transition-colors',
+                      statusFilter === s
+                        ? 'bg-white text-slate-800 shadow-sm dark:bg-slate-700 dark:text-white'
+                        : 'text-slate-500',
+                    )}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              <span className="shrink-0 text-[10px] text-slate-400">
+                {filtered.length} of {users.length}
+              </span>
+            </div>
+
+            {/* Role tally chips — click to drill down to that role's holders */}
+            {roleTally.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
+                {roleTally.map(([role, n]) => {
+                  const active = roleFilter?.toUpperCase() === role.toUpperCase();
+                  return (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => setRoleFilter(active ? null : role)}
+                      aria-pressed={active}
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors',
+                        active
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/40',
+                      )}
+                    >
+                      {role} · {n}
+                    </button>
+                  );
+                })}
+                {hasFilters && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch('');
+                      setRoleFilter(null);
+                      setStatusFilter('all');
+                    }}
+                    className="inline-flex items-center gap-0.5 rounded-full border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                  >
+                    <X className="h-3 w-3" /> Clear
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="scrollbar-thin max-h-[420px] overflow-auto">
+              {filtered.length === 0 ? (
+                <EmptyState icon={Search} compact title="No users match the current filters" />
+              ) : (
+                <table className="w-full border-collapse text-[11px]">
+                  <thead className="sticky top-0">
+                    <tr className="text-[10px] uppercase tracking-wide text-slate-400">
+                      <th className="glass-2 px-3 py-1.5 text-left font-semibold">User</th>
+                      <th className="glass-2 px-2 py-1.5 text-left font-semibold">Roles (access)</th>
+                      <th className="glass-2 px-2 py-1.5 text-left font-semibold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((u) => (
+                      <tr key={u.username} className="border-b border-slate-100 dark:border-slate-800">
+                        <td className="px-3 py-1.5 align-top">
+                          <p className="font-medium text-slate-800 dark:text-slate-100">{u.username}</p>
+                          {u.email && <p className="text-[10px] text-slate-400">{u.email}</p>}
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <div className="flex flex-wrap gap-1">
+                            {u.roles.length === 0 ? (
+                              <span className="text-slate-300 dark:text-slate-600">—</span>
+                            ) : (
+                              u.roles.map((r) => {
+                                const active = roleFilter?.toUpperCase() === String(r).toUpperCase();
+                                return (
+                                  <button
+                                    key={r}
+                                    type="button"
+                                    onClick={() => setRoleFilter(active ? null : r)}
+                                    className={cn(
+                                      'rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                                      active
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600',
+                                    )}
+                                  >
+                                    {r}
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-2 py-1.5 align-top">
+                          <span
+                            className={cn(
+                              'rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase',
+                              u.status === 'Active'
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+                            )}
+                          >
+                            {u.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
+        )}
+      </GlassPanel>
+
+      {/* Recent object access (ACCESS_HISTORY) — who-hit-what at the object grain. */}
+      <AccessHistoryPanel days={7} />
+    </div>
   );
 }
