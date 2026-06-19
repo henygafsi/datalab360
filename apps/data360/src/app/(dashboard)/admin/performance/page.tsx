@@ -11,7 +11,8 @@
  * A backend that is not deployed yet (404/501) degrades to a quiet
  * "not deployed yet" state. All fetches go through apiClient. null → "—".
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import axios from 'axios';
 import { useSession } from 'next-auth/react';
 import {
   Activity,
@@ -28,6 +29,8 @@ import {
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import { GlassPanel } from '@/app/shared/glass';
 import EmptyState from '@/components/ui/EmptyState';
 import { getAccounts } from '@/app/services/org-accounts/hooks';
@@ -35,10 +38,15 @@ import { getPerfOverview, type CacheAxis } from '@/app/services/admin-performanc
 import {
   KpiCard,
   FilterChips,
+  DeepDiveToolbar,
+  AnalyzeAiButton,
+  AiAnalysisPanel,
   fmtInt,
   fmtMs,
   fmtPct,
   type ChipOption,
+  type PerfFocus,
+  type AiState,
 } from './components/shared';
 import { usePerfFetch } from './components/usePerfFetch';
 import {
@@ -49,6 +57,7 @@ import {
   ProjectsPanel,
   ErrorsPanel,
   type PerfSelection,
+  type PerfRowsView,
 } from './components/AxisPanels';
 import DetailPanel from './components/DetailPanel';
 
@@ -84,6 +93,28 @@ export default function PerformancePage() {
   const [live, setLive] = useState(false);
   const [updatedAt, setUpdatedAt] = useState('');
 
+  // Deep-dive toolbar state (client-side filtering over already-loaded rows).
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [focus, setFocus] = useState<PerfFocus>(null);
+  // Filtered-rows view lifted from the active axis panel (for count + AI payload).
+  const [rowsView, setRowsView] = useState<PerfRowsView>({ shown: 0, total: 0, lines: [] });
+  const onRows = useCallback((v: PerfRowsView) => setRowsView(v), []);
+
+  // AI narrative analysis (dismissible docked panel).
+  const [aiState, setAiState] = useState<AiState>('idle');
+  const [aiText, setAiText] = useState('');
+  const [aiError, setAiError] = useState<string | null>(null);
+  const rowsViewRef = useRef(rowsView);
+  rowsViewRef.current = rowsView;
+
+  // Debounce the search box (250ms) — filtering is client-side, no new fetch.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
   // Account selector — GET /org-accounts/accounts, fall back to session account.
   useEffect(() => {
     let cancelled = false;
@@ -110,10 +141,87 @@ export default function PerformancePage() {
     };
   }, [sessionAccount]);
 
-  // Reset selection when the account or window changes.
+  // Reset selection + deep-dive state when the account or window changes.
   useEffect(() => {
     setSelection(null);
+    setSearch('');
+    setStatusFilter('');
+    setFocus(null);
   }, [account, hours]);
+
+  // Clear the static status sub-filter when the axis no longer supports it, and
+  // reset the lifted rows-view so the "X of Y" count doesn't flash the prior axis.
+  useEffect(() => {
+    if (axis !== 'errors' && axis !== 'endpoints') setStatusFilter('');
+    setRowsView({ shown: 0, total: 0, lines: [] });
+  }, [axis]);
+
+  /**
+   * Cross-axis drill: focus an entity, switch axis, and pre-fill the search so
+   * the new axis lands on that entity. Endpoint→Errors genuinely filters (error
+   * rows carry a path); Endpoint→Users only carries context (user rows have no
+   * path), so it is surfaced as a visible focus chip, never an implied filter.
+   */
+  const drillToAxis = useCallback((next: Axis, f: PerfFocus) => {
+    setFocus(f);
+    setStatusFilter('');
+    // Only seed the search when the target axis can genuinely match the focus
+    // value. Endpoint→Errors filters (error rows carry method+path); Endpoint→
+    // Users cannot (user rows have no path), so leave search empty there and let
+    // the focus chip carry the context honestly.
+    const canMatch = !!f && !(f.kind === 'endpoint' && next === 'users');
+    setSearch(canMatch && f ? f.value : '');
+    setAxis(next);
+  }, []);
+
+  const onFocus = useCallback((f: PerfFocus) => {
+    setFocus(f);
+    if (f) setSearch(f.value);
+  }, []);
+
+  // ── Analyze with AI — wires to the existing POST /cortex/complete primitive.
+  const runAiAnalysis = useCallback(async () => {
+    if (!account) return;
+    setAiState('loading');
+    setAiError(null);
+    setAiText('');
+    const view = rowsViewRef.current;
+    const winLabel = hours === 1 ? '1 hour' : hours === 168 ? '7 days' : `${hours} hours`;
+    const filters = [
+      debouncedSearch ? `search "${debouncedSearch}"` : null,
+      statusFilter ? `status/method ${statusFilter}` : null,
+      focus ? `focus ${focus.kind}:${focus.value}` : null,
+    ].filter(Boolean).join(', ') || 'none';
+    const prompt = [
+      'You are a platform performance analyst. Write a concise, plain-language analysis (3–5 short bullet points) of the request-telemetry view below.',
+      'Call out latency, error-rate and cache-hit outliers, likely causes, and one concrete next step. Do not mention internal vendor or product names.',
+      '',
+      `Account: ${account}`,
+      `Window: ${winLabel}`,
+      `Axis: ${axis}`,
+      `Active filters: ${filters}`,
+      `Rows shown: ${view.shown} of ${view.total}`,
+      '',
+      'Top rows:',
+      ...(view.lines.length ? view.lines.map((l, i) => `${i + 1}. ${l}`) : ['(no rows in this view)']),
+    ].join('\n');
+
+    try {
+      const { data } = await apiClient.post(API.cortex.complete(), { prompt, model: 'mistral-large2' });
+      const inner = data?.data ?? data;
+      const text: string = inner?.response ?? inner?.completion ?? '';
+      setAiText(text);
+      setAiState('done');
+    } catch (e) {
+      const status = axios.isAxiosError(e) ? e.response?.status : undefined;
+      if (status === 404 || status === 501) {
+        setAiState('unavailable');
+      } else {
+        setAiError(getApiErrorMessage(e));
+        setAiState('error');
+      }
+    }
+  }, [account, hours, axis, debouncedSearch, statusFilter, focus]);
 
   const liveMs = live ? LIVE_MS : null;
 
@@ -132,23 +240,24 @@ export default function PerformancePage() {
   const axisPanel = useMemo(() => {
     if (!account) return null;
     const base = { account, hours, liveMs };
+    const deep = { search: debouncedSearch, statusFilter, onRows };
     switch (axis) {
       case 'endpoints':
-        return <EndpointsPanel {...base} selected={selection} onSelect={setSelection} />;
+        return <EndpointsPanel {...base} {...deep} selected={selection} onSelect={setSelection} onFocus={onFocus} />;
       case 'users':
-        return <UsersPanel {...base} selected={selection} onSelect={setSelection} />;
+        return <UsersPanel {...base} {...deep} selected={selection} onSelect={setSelection} onFocus={onFocus} />;
       case 'cache':
-        return <CachePanel {...base} axis={cacheAxis} onAxisChange={setCacheAxis} />;
+        return <CachePanel {...base} {...deep} axis={cacheAxis} onAxisChange={setCacheAxis} />;
       case 'modules':
-        return <ModulesPanel {...base} />;
+        return <ModulesPanel {...base} {...deep} />;
       case 'projects':
-        return <ProjectsPanel {...base} />;
+        return <ProjectsPanel {...base} {...deep} />;
       case 'errors':
-        return <ErrorsPanel {...base} />;
+        return <ErrorsPanel {...base} {...deep} />;
       default:
         return null;
     }
-  }, [account, hours, liveMs, axis, cacheAxis, selection]);
+  }, [account, hours, liveMs, axis, cacheAxis, selection, debouncedSearch, statusFilter, onRows, onFocus]);
 
   return (
     <div className="space-y-3 p-4">
@@ -201,6 +310,7 @@ export default function PerformancePage() {
             <RefreshCw className="h-3 w-3" />
             Refresh
           </button>
+          {account && <AnalyzeAiButton onClick={runAiAnalysis} state={aiState} />}
         </div>
       </div>
 
@@ -277,9 +387,47 @@ export default function PerformancePage() {
           {/* Axis switcher */}
           <FilterChips options={AXES} value={axis} onChange={setAxis} />
 
+          {/* AI narrative — dismissible docked panel (never a blocking modal) */}
+          <AiAnalysisPanel state={aiState} text={aiText} error={aiError} onClose={() => setAiState('idle')} />
+
           {/* Axis table + always-visible right detail panel */}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
             <GlassPanel depth={1} radius="xl" className="overflow-hidden lg:col-span-2">
+              {/* Deep-dive filter/search toolbar — client-side over loaded rows */}
+              <DeepDiveToolbar
+                axis={axis}
+                search={search}
+                onSearchChange={setSearch}
+                statusFilter={statusFilter}
+                onStatusFilterChange={setStatusFilter}
+                shown={rowsView.shown}
+                total={rowsView.total}
+                focus={focus}
+                onClearFocus={() => {
+                  setFocus(null);
+                  setSearch('');
+                }}
+              />
+              {/* Cross-axis drill quick chips when an endpoint is focused */}
+              {focus?.kind === 'endpoint' && (
+                <div className="flex flex-wrap items-center gap-1.5 border-b border-white/30 px-3 py-1.5 text-[10px] dark:border-white/10">
+                  <span className="text-slate-400">Cross-axis:</span>
+                  <button
+                    type="button"
+                    onClick={() => drillToAxis('errors', focus)}
+                    className="rounded-full border border-slate-200 px-2 py-0.5 font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-blue-900/30"
+                  >
+                    Errors on this endpoint
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => drillToAxis('users', focus)}
+                    className="rounded-full border border-slate-200 px-2 py-0.5 font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-blue-900/30"
+                  >
+                    Users (context)
+                  </button>
+                </div>
+              )}
               {axisPanel}
             </GlassPanel>
             <div className="lg:col-span-1">
