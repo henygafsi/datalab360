@@ -27,9 +27,11 @@ import {
   BarChart3,
   Boxes,
   Clock,
+  Coins,
   Cpu,
   Database,
   Gauge,
+  HardDrive,
   HeartPulse,
   KeyRound,
   MemoryStick,
@@ -37,6 +39,7 @@ import {
   Search,
   Server,
   ShieldAlert,
+  ShieldCheck,
   Timer,
   UserSearch,
   Users,
@@ -73,6 +76,8 @@ import {
   type TopObjectRow,
   type FailedLoginDetailRow,
   type AccessByUserRow,
+  type StorageByDatabaseRow,
+  type TopPolicyRow,
 } from '@/app/services/admin-platform-health';
 import type { ServerEndpoint, ServerRecentError } from '@/app/services/admin-visibility';
 
@@ -87,7 +92,7 @@ const HOURS_OPTIONS: ChipOption<string>[] = [
 // Server-metrics (live in-process counter) sub-views — always populated.
 type SmView = 'sm_endpoints' | 'sm_users' | 'sm_errors';
 // ACCOUNT_USAGE enrichment sub-views — supplementary, may be unavailable (404).
-type UsageView = 'queries' | 'users' | 'warehouses' | 'objects' | 'access' | 'logins';
+type UsageView = 'queries' | 'users' | 'warehouses' | 'objects' | 'access' | 'logins' | 'storage' | 'policies';
 type View = SmView | UsageView;
 
 const SM_VIEWS: ChipOption<SmView>[] = [
@@ -103,6 +108,8 @@ const USAGE_VIEWS: ChipOption<UsageView>[] = [
   { id: 'objects', label: 'Top objects accessed', icon: Boxes },
   { id: 'access', label: 'Who accessed what', icon: UserSearch },
   { id: 'logins', label: 'Failed logins', icon: ShieldAlert },
+  { id: 'storage', label: 'Storage by database', icon: HardDrive },
+  { id: 'policies', label: 'Policies', icon: ShieldCheck },
 ];
 
 // Combined label lookup for the AI payload / active-view title.
@@ -118,6 +125,12 @@ function fmtBytes(n: number | null | undefined): string {
   const i = Math.min(units.length - 1, Math.floor(Math.log(Math.abs(n)) / Math.log(1024)));
   const v = n / Math.pow(1024, i);
   return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+}
+
+/** Compute credits, ~2 decimals, null → "—". Never a fabricated 0. */
+function fmtCredits(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(n)) return '—';
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** Date + time (the window can span days, so a time-only stamp is ambiguous). */
@@ -373,6 +386,32 @@ const WAREHOUSE_COLS: ColumnDef<ByWarehouseRow>[] = [
   },
   { key: 'avg_latency', label: 'Avg', align: 'right', render: (r) => fmtMs(r.avg_latency), sortValue: (r) => r.avg_latency },
   { key: 'p95_latency', label: 'p95', align: 'right', render: (r) => fmtMs(r.p95_latency), sortValue: (r) => r.p95_latency },
+  // Cost-per-warehouse driver — total credits, with compute/cloud split on hover.
+  {
+    key: 'credits_used',
+    label: 'Credits',
+    align: 'right',
+    render: (r) => (
+      <span
+        title={`compute ${fmtCredits(r.credits_compute)} · cloud services ${fmtCredits(r.credits_cloud)}`}
+        className={cn((r.credits_used ?? 0) > 0 && 'font-medium text-slate-800 dark:text-slate-100')}
+      >
+        {fmtCredits(r.credits_used)}
+      </span>
+    ),
+    sortValue: (r) => r.credits_used,
+  },
+];
+
+const STORAGE_COLS: ColumnDef<StorageByDatabaseRow>[] = [
+  { key: 'database', label: 'Database', render: (r) => r.database || '—', sortValue: (r) => r.database ?? null },
+  { key: 'bytes', label: 'Storage', align: 'right', render: (r) => fmtBytes(r.bytes), sortValue: (r) => r.bytes },
+];
+
+const POLICY_COLS: ColumnDef<TopPolicyRow>[] = [
+  { key: 'policy_name', label: 'Policy', render: (r) => r.policy_name || '—', sortValue: (r) => r.policy_name ?? null },
+  { key: 'policy_kind', label: 'Kind', render: (r) => r.policy_kind || '—', sortValue: (r) => r.policy_kind ?? null },
+  { key: 'ref_count', label: 'References', align: 'right', render: (r) => fmtInt(r.ref_count), sortValue: (r) => r.ref_count },
 ];
 
 const OBJECT_COLS: ColumnDef<TopObjectRow>[] = [
@@ -482,7 +521,10 @@ const queryLine = (r: TopQueryRow) =>
 const userLine = (r: ByUserRow) =>
   `${r.user_name}: ${fmtInt(r.calls)} calls, err ${fmtPct(r.error_rate, 2)} (${fmtInt(r.error_count)}), avg ${fmtMs(r.avg_latency)}, p95 ${fmtMs(r.p95_latency)}`;
 const warehouseLine = (r: ByWarehouseRow) =>
-  `${r.warehouse_name}: ${fmtInt(r.calls)} calls, err ${fmtPct(r.error_rate, 2)} (${fmtInt(r.error_count)}), avg ${fmtMs(r.avg_latency)}, p95 ${fmtMs(r.p95_latency)}`;
+  `${r.warehouse_name}: ${fmtInt(r.calls)} calls, err ${fmtPct(r.error_rate, 2)} (${fmtInt(r.error_count)}), avg ${fmtMs(r.avg_latency)}, p95 ${fmtMs(r.p95_latency)}, credits ${fmtCredits(r.credits_used)} (compute ${fmtCredits(r.credits_compute)}, cloud ${fmtCredits(r.credits_cloud)})`;
+const storageLine = (r: StorageByDatabaseRow) => `${r.database}: ${fmtBytes(r.bytes)}`;
+const policyLine = (r: TopPolicyRow) =>
+  `${r.policy_name} (${r.policy_kind}): ${fmtInt(r.ref_count)} references`;
 const objectLine = (r: TopObjectRow) =>
   `${r.object_name} (${r.object_type}): ${fmtInt(r.access_count)} accesses, ${fmtInt(r.distinct_users)} users`;
 const accessLine = (r: AccessByUserRow) =>
@@ -506,7 +548,15 @@ function isGenuinelyEmpty(d: PlatformHealth): boolean {
     k.logins,
     k.failed_logins,
   ];
-  const allKpisBlank = numericFields.every((v) => v == null || v === 0);
+  const allKpisBlank =
+    numericFields.every((v) => v == null || v === 0) &&
+    // Native-metadata KPIs (credits / storage / policy counts) are current-state,
+    // not window-scoped — a response carrying only these must still count as data.
+    (k.total_credits == null || k.total_credits === 0) &&
+    (d.storage?.total_bytes == null || d.storage.total_bytes === 0) &&
+    (d.policy_coverage?.masking_policies == null || d.policy_coverage.masking_policies === 0) &&
+    (d.policy_coverage?.row_access_policies == null || d.policy_coverage.row_access_policies === 0) &&
+    (d.policy_coverage?.tagged_objects == null || d.policy_coverage.tagged_objects === 0);
   const allTablesEmpty =
     (d.top_queries?.length ?? 0) === 0 &&
     (d.by_user?.length ?? 0) === 0 &&
@@ -515,7 +565,9 @@ function isGenuinelyEmpty(d: PlatformHealth): boolean {
     (d.access_by_user?.length ?? 0) === 0 &&
     // A window with ONLY failed logins is exactly the brute-force signal we want
     // to surface — it must not be classified empty and hidden.
-    (d.failed_login_detail?.length ?? 0) === 0;
+    (d.failed_login_detail?.length ?? 0) === 0 &&
+    (d.storage?.by_database?.length ?? 0) === 0 &&
+    (d.policy_coverage?.top_policies?.length ?? 0) === 0;
   return allKpisBlank && allTablesEmpty;
 }
 
@@ -626,6 +678,9 @@ export default function PlatformHealthPanel() {
           `Usage latency p50/p95/p99: ${fmtMs(k.p50)} / ${fmtMs(k.p95)} / ${fmtMs(k.p99)}`,
           `Distinct objects: ${fmtInt(k.distinct_objects)}`,
           `Logins: ${fmtInt(k.logins)} (failed ${fmtInt(k.failed_logins)})`,
+          `Compute credits: ${fmtCredits(k.total_credits)}`,
+          `Storage total: ${fmtBytes(data?.storage?.total_bytes)} (active ${fmtBytes(data?.storage?.active_bytes)}, historical ${fmtBytes(data?.storage?.time_travel_bytes)}, reserve ${fmtBytes(data?.storage?.failsafe_bytes)})`,
+          `Policy coverage: ${fmtInt(data?.policy_coverage?.masking_policies)} masking, ${fmtInt(data?.policy_coverage?.row_access_policies)} row-access, ${fmtInt(data?.policy_coverage?.tagged_objects)} tagged objects`,
         ]
       : ['(usage-history enrichment unavailable)'];
     const kpiLines = [...liveLines, ...usageLines];
@@ -783,6 +838,32 @@ export default function PlatformHealthPanel() {
             rowLine={failedLoginLine}
             initialSortKey="attempts"
             emptyLabel="No failed logins in this window."
+            onView={onView}
+          />
+        );
+      case 'storage':
+        return (
+          <SortableTable
+            columns={STORAGE_COLS}
+            rows={data.storage?.by_database ?? []}
+            search={debouncedSearch}
+            searchText={(r) => r.database ?? ''}
+            rowLine={storageLine}
+            initialSortKey="bytes"
+            emptyLabel="No storage metadata available."
+            onView={onView}
+          />
+        );
+      case 'policies':
+        return (
+          <SortableTable
+            columns={POLICY_COLS}
+            rows={data.policy_coverage?.top_policies ?? []}
+            search={debouncedSearch}
+            searchText={(r) => `${r.policy_name ?? ''} ${r.policy_kind ?? ''}`}
+            rowLine={policyLine}
+            initialSortKey="ref_count"
+            emptyLabel="No governance policies found."
             onView={onView}
           />
         );
@@ -1005,6 +1086,55 @@ export default function PlatformHealthPanel() {
                 sub={`${fmtInt(k?.failed_logins)} failed`}
                 source="usage-history"
                 help={{ definition: 'Successful sign-ins; sub-line shows failed attempts.', goodRange: 'few failures' }}
+              />
+            </div>
+          )}
+
+          {/* Native-metadata band — cost (credits) · storage · governance. Renders
+              only when the usage-history enrichment returned (usageReady); each
+              value is a real figure or "—", never a fabricated 0. Sits alongside
+              the live band above, regardless of whether the live counter is up. */}
+          {usageReady && (
+            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 lg:grid-cols-5">
+              <KpiCard
+                label="Compute credits"
+                icon={Coins}
+                value={fmtCredits(k?.total_credits)}
+                source="usage-history"
+                help={{ definition: 'Total compute credits consumed across all warehouses in the selected window.' }}
+              />
+              <KpiCard
+                label="Storage"
+                icon={HardDrive}
+                value={fmtBytes(data?.storage?.total_bytes)}
+                sub={
+                  data?.storage
+                    ? `active ${fmtBytes(data.storage.active_bytes)} · historical ${fmtBytes(data.storage.time_travel_bytes)} · reserve ${fmtBytes(data.storage.failsafe_bytes)}`
+                    : undefined
+                }
+                source="usage-history"
+                help={{ definition: 'Total bytes stored across all databases; the sub-line splits live data from the historical and recovery reserve held for point-in-time restore and disaster recovery.' }}
+              />
+              <KpiCard
+                label="Masking policies"
+                icon={ShieldCheck}
+                value={fmtInt(data?.policy_coverage?.masking_policies)}
+                source="usage-history"
+                help={{ definition: 'Column-masking policies defined in the account (governance coverage).' }}
+              />
+              <KpiCard
+                label="Row-access policies"
+                icon={ShieldCheck}
+                value={fmtInt(data?.policy_coverage?.row_access_policies)}
+                source="usage-history"
+                help={{ definition: 'Row-access policies defined in the account (governance coverage).' }}
+              />
+              <KpiCard
+                label="Tagged objects"
+                icon={ShieldCheck}
+                value={fmtInt(data?.policy_coverage?.tagged_objects)}
+                source="usage-history"
+                help={{ definition: 'Objects carrying at least one governance tag.' }}
               />
             </div>
           )}

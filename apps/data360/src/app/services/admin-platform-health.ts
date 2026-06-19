@@ -31,6 +31,8 @@ export interface HealthKpis {
   distinct_objects: number | null;
   logins: number | null;
   failed_logins: number | null;
+  /** Total compute credits consumed in the window (FinOps). null when absent. */
+  total_credits: number | null;
 }
 
 export interface TopQueryRow {
@@ -87,6 +89,44 @@ export interface ByWarehouseRow {
   error_rate: number | null;
   avg_latency: number | null;
   p95_latency: number | null;
+  // Additive cost driver — compute credits consumed per warehouse (FinOps).
+  credits_used: number | null;
+  credits_compute: number | null;
+  credits_cloud: number | null;
+}
+
+/** Storage footprint for one database (native metadata). */
+export interface StorageByDatabaseRow {
+  database: string;
+  bytes: number | null;
+}
+
+/**
+ * Account storage footprint (native metadata, current-state — not window-scoped).
+ * `total_bytes` is the headline; the breakdown distinguishes live data from the
+ * historical / recovery reserve held for point-in-time and disaster recovery.
+ */
+export interface StorageInfo {
+  total_bytes: number | null;
+  active_bytes: number | null;
+  time_travel_bytes: number | null;
+  failsafe_bytes: number | null;
+  by_database: StorageByDatabaseRow[];
+}
+
+/** One governance policy with how many objects reference it. */
+export interface TopPolicyRow {
+  policy_name: string;
+  policy_kind: string;
+  ref_count: number | null;
+}
+
+/** Governance / policy coverage summary (native metadata). */
+export interface PolicyCoverage {
+  masking_policies: number | null;
+  row_access_policies: number | null;
+  tagged_objects: number | null;
+  top_policies: TopPolicyRow[];
 }
 
 export interface TopObjectRow {
@@ -106,6 +146,9 @@ export interface PlatformHealth {
   top_objects: TopObjectRow[];
   failed_login_detail: FailedLoginDetailRow[];
   access_by_user: AccessByUserRow[];
+  // Native-metadata enrichment — optional (may be absent on older backends).
+  storage?: StorageInfo;
+  policy_coverage?: PolicyCoverage;
 }
 
 export interface PlatformHealthOpts {
