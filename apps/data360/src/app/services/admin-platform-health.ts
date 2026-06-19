@@ -136,6 +136,41 @@ export interface TopObjectRow {
   distinct_users: number | null;
 }
 
+/**
+ * Warehouse load — per-warehouse average execution-state breakdown. The crux
+ * signal is `avg_queued_load`: any value > 0 means queries spent time queued
+ * waiting for compute, i.e. the warehouse is under-provisioned and a candidate
+ * for resize / multi-cluster. Ordered by `avg_queued_load` desc by the backend.
+ */
+export interface WarehouseLoadRow {
+  warehouse_name: string;
+  avg_running: number | null;
+  avg_queued_load: number | null;
+  avg_queued_provisioning: number | null;
+  avg_blocked: number | null;
+}
+
+/**
+ * Warehouse lifecycle event (resume / suspend / resize). `event_name` is the
+ * raw verb; the UI renders it in plain language. Most-recent first.
+ */
+export interface WarehouseEventRow {
+  ts: string;
+  warehouse_name: string;
+  event_name: string;
+  event_reason: string | null;
+  size: string | null;
+}
+
+/** One hourly bucket of the request time-series, ascending — drives sparklines. */
+export interface SeriesPoint {
+  hour: string;
+  calls: number | null;
+  errors: number;
+  avg_latency: number | null;
+  p95_latency: number | null;
+}
+
 export interface PlatformHealth {
   hours: number;
   source: string;
@@ -149,6 +184,10 @@ export interface PlatformHealth {
   // Native-metadata enrichment — optional (may be absent on older backends).
   storage?: StorageInfo;
   policy_coverage?: PolicyCoverage;
+  // Scalability / warehouse enrichment — optional (graceful when backend older).
+  warehouse_load?: WarehouseLoadRow[];
+  warehouse_events?: WarehouseEventRow[];
+  series?: SeriesPoint[];
 }
 
 export interface PlatformHealthOpts {

@@ -42,8 +42,10 @@ import {
   ShieldAlert,
   ShieldCheck,
   Timer,
+  TrendingUp,
   UserSearch,
   Users,
+  Waves,
   X,
   Zap,
 } from 'lucide-react';
@@ -82,6 +84,9 @@ import {
   type AccessByUserRow,
   type StorageByDatabaseRow,
   type TopPolicyRow,
+  type WarehouseLoadRow,
+  type WarehouseEventRow,
+  type SeriesPoint,
 } from '@/app/services/admin-platform-health';
 import type { ServerEndpoint, ServerRecentError } from '@/app/services/admin-visibility';
 
@@ -96,7 +101,17 @@ const HOURS_OPTIONS: ChipOption<string>[] = [
 // Server-metrics (live in-process counter) sub-views — always populated.
 type SmView = 'sm_endpoints' | 'sm_users' | 'sm_errors';
 // ACCOUNT_USAGE enrichment sub-views — supplementary, may be unavailable (404).
-type UsageView = 'queries' | 'users' | 'warehouses' | 'objects' | 'access' | 'logins' | 'storage' | 'policies';
+type UsageView =
+  | 'queries'
+  | 'users'
+  | 'warehouses'
+  | 'objects'
+  | 'access'
+  | 'logins'
+  | 'storage'
+  | 'policies'
+  | 'wh_load'
+  | 'wh_events';
 type View = SmView | UsageView;
 
 const SM_VIEWS: ChipOption<SmView>[] = [
@@ -116,8 +131,16 @@ const USAGE_VIEWS: ChipOption<UsageView>[] = [
   { id: 'policies', label: 'Policies', icon: ShieldCheck },
 ];
 
+// Scalability / warehouse enrichment sub-views — surfaced only when the backend
+// returns the data (built conditionally in the panel; static defs here for the
+// label lookup + AI payload title).
+const SCALE_VIEWS: ChipOption<UsageView>[] = [
+  { id: 'wh_load', label: 'Warehouse load', icon: Waves },
+  { id: 'wh_events', label: 'Events', icon: TrendingUp },
+];
+
 // Combined label lookup for the AI payload / active-view title.
-const VIEWS: ChipOption<View>[] = [...SM_VIEWS, ...USAGE_VIEWS];
+const VIEWS: ChipOption<View>[] = [...SM_VIEWS, ...USAGE_VIEWS, ...SCALE_VIEWS];
 
 // ── Local formatters (null → "—") ────────────────────────────────────────────
 
@@ -142,6 +165,52 @@ function fmtDateTime(ts: string | null | undefined): string {
   if (!ts) return '—';
   const d = new Date(ts);
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+}
+
+/** Average concurrency load (2–3 decimals), null → "—". Never a fabricated 0. */
+function fmtLoad(n: number | null | undefined): string {
+  if (n == null || Number.isNaN(n)) return '—';
+  // Keep small fractions readable (a queued-load of 0.0042 still matters) without
+  // a wall of zeros for whole numbers.
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+}
+
+/** Relative "Xm ago" / "Xh ago" / "Xd ago"; full timestamp via tooltip. null → "—". */
+function fmtRelTime(ts: string | null | undefined): string {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '—';
+  const diff = Date.now() - d.getTime();
+  if (diff < 0) return 'just now';
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}
+
+/**
+ * Render a raw warehouse event verb (RESUME_WAREHOUSE / SUSPEND / RESIZE_…) in
+ * plain customer-facing language — no vendor jargon, no raw enum tokens.
+ */
+function readableEvent(name: string | null | undefined): string {
+  const v = (name || '').toUpperCase();
+  if (!v) return '—';
+  if (v.includes('RESUME')) return 'Resumed';
+  if (v.includes('SUSPEND')) return 'Suspended';
+  if (v.includes('RESIZE')) return 'Resized';
+  if (v.includes('CREATE')) return 'Created';
+  if (v.includes('DROP') || v.includes('DELETE')) return 'Removed';
+  if (v.includes('ALTER')) return 'Reconfigured';
+  // Fallback: title-case the raw token, stripping any "_WAREHOUSE" suffix noise.
+  return v
+    .replace(/_WAREHOUSE\b/g, '')
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** Compact uptime (d/h/m), null → "—". Never a fabricated 0. */
@@ -169,6 +238,83 @@ function Truncate({ text, max = 'max-w-[220px]' }: { text: string | null | undef
     <span className={cn('block truncate', max)} title={v}>
       {v}
     </span>
+  );
+}
+
+// ── Sparkline (tiny inline-SVG trend, no chart lib) ──────────────────────────
+
+/**
+ * Sparkline — a ~40×16 inline-SVG trend line drawn from a hourly numeric series.
+ *
+ * No charting library: it normalises the values to the box and emits one
+ * polyline. Honest about gaps — null points break the line into segments rather
+ * than inventing a 0. Renders NOTHING (returns null) when the series is empty or
+ * entirely null, so an absent backend field never draws a fake flat line.
+ */
+function Sparkline({
+  values,
+  width = 40,
+  height = 16,
+  className,
+  title,
+}: {
+  values: (number | null | undefined)[];
+  width?: number;
+  height?: number;
+  className?: string;
+  title?: string;
+}) {
+  const pts = values ?? [];
+  const present = pts.filter((v): v is number => v != null && !Number.isNaN(v));
+  if (pts.length < 2 || present.length === 0) return null;
+
+  const min = Math.min(...present);
+  const max = Math.max(...present);
+  const span = max - min || 1; // flat series → centre line, never divide by 0
+  const pad = 1;
+  const innerW = width - pad * 2;
+  const innerH = height - pad * 2;
+  const stepX = pts.length > 1 ? innerW / (pts.length - 1) : 0;
+
+  // Build segments, breaking the path on null gaps (no invented points).
+  const segments: string[] = [];
+  let cur: string[] = [];
+  pts.forEach((v, i) => {
+    if (v == null || Number.isNaN(v)) {
+      if (cur.length) segments.push(cur.join(' '));
+      cur = [];
+      return;
+    }
+    const x = pad + i * stepX;
+    const y = pad + innerH - ((v - min) / span) * innerH;
+    cur.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+  });
+  if (cur.length) segments.push(cur.join(' '));
+  if (!segments.length) return null;
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+      height={height}
+      className={cn('overflow-visible', className)}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      {title && <title>{title}</title>}
+      {segments.map((seg, i) => (
+        <polyline
+          key={i}
+          points={seg}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </svg>
   );
 }
 
@@ -217,6 +363,7 @@ function SortableTable<T>({
   rowLine,
   onView,
   initialSortKey,
+  pageSize = 10,
 }: {
   columns: ColumnDef<T>[];
   rows: T[];
@@ -229,6 +376,8 @@ function SortableTable<T>({
   onView: (v: TableView) => void;
   /** Column to sort by on first render / view-switch (default: first column). */
   initialSortKey?: string;
+  /** Rows per page (default 10). */
+  pageSize?: number;
 }) {
   const defaultKey = initialSortKey ?? columns[0]?.key ?? '';
   const [sortKey, setSortKey] = useState<string>(defaultKey);
@@ -270,7 +419,7 @@ function SortableTable<T>({
 
   // Paginate the rendered rows — NO scroll. The AI publish below still uses the
   // full sorted `visible` set (top ~15), independent of the displayed page.
-  const { slice, page, setPage, pageCount, total, from, to } = usePagination(visible, 10);
+  const { slice, page, setPage, pageCount, total, from, to } = usePagination(visible, pageSize);
 
   // Reset to the first page whenever the column set changes (sub-view switch),
   // mirroring the sort reset so a stale page never lingers across views.
@@ -502,6 +651,54 @@ const FAILED_LOGIN_COLS: ColumnDef<FailedLoginDetailRow>[] = [
   { key: 'last_seen', label: 'Last seen', align: 'right', render: (r) => fmtDateTime(r.last_seen), sortValue: (r) => r.last_seen ?? null },
 ];
 
+// "Warehouse load" — per-warehouse average execution-state breakdown. A non-zero
+// queued (load) is the under-provisioned / scaling signal, tinted amber + flagged.
+const WAREHOUSE_LOAD_COLS: ColumnDef<WarehouseLoadRow>[] = [
+  { key: 'warehouse_name', label: 'Warehouse', render: (r) => <Truncate text={r.warehouse_name} />, sortValue: (r) => r.warehouse_name ?? null },
+  { key: 'avg_running', label: 'Running', align: 'right', render: (r) => fmtLoad(r.avg_running), sortValue: (r) => r.avg_running },
+  {
+    key: 'avg_queued_load',
+    label: 'Queued (load)',
+    align: 'right',
+    render: (r) => {
+      const hot = (r.avg_queued_load ?? 0) > 0;
+      return (
+        <span className={cn('inline-flex items-center justify-end gap-1 tabular-nums', hot && 'font-medium text-amber-600 dark:text-amber-400')}>
+          {hot && <AlertTriangle className="h-3 w-3" aria-label="Warehouse is queueing" />}
+          {fmtLoad(r.avg_queued_load)}
+        </span>
+      );
+    },
+    sortValue: (r) => r.avg_queued_load,
+  },
+  { key: 'avg_queued_provisioning', label: 'Queued (provisioning)', align: 'right', render: (r) => fmtLoad(r.avg_queued_provisioning), sortValue: (r) => r.avg_queued_provisioning },
+  {
+    key: 'avg_blocked',
+    label: 'Blocked',
+    align: 'right',
+    render: (r) => <span className={cn((r.avg_blocked ?? 0) > 0 && 'text-amber-600 dark:text-amber-400')}>{fmtLoad(r.avg_blocked)}</span>,
+    sortValue: (r) => r.avg_blocked,
+  },
+];
+
+// "Warehouse events" — lifecycle timeline (resume / suspend / resize), recent first.
+const WAREHOUSE_EVENT_COLS: ColumnDef<WarehouseEventRow>[] = [
+  { key: 'ts', label: 'When', render: (r) => <span title={fmtDateTime(r.ts)}>{fmtRelTime(r.ts)}</span>, sortValue: (r) => r.ts ?? null },
+  { key: 'warehouse_name', label: 'Warehouse', render: (r) => <Truncate text={r.warehouse_name} />, sortValue: (r) => r.warehouse_name ?? null },
+  {
+    key: 'event_name',
+    label: 'Event',
+    render: (r) => {
+      const label = readableEvent(r.event_name);
+      const resized = label === 'Resized';
+      return <span className={cn(resized && 'font-medium text-amber-600 dark:text-amber-400')}>{label}</span>;
+    },
+    sortValue: (r) => readableEvent(r.event_name),
+  },
+  { key: 'event_reason', label: 'Reason', render: (r) => <Truncate text={r.event_reason} max="max-w-[220px]" />, sortValue: (r) => r.event_reason ?? null },
+  { key: 'size', label: 'Size', align: 'right', render: (r) => r.size || '—', sortValue: (r) => r.size ?? null },
+];
+
 // ── Server-metrics tables (live in-process counter — primary source) ─────────
 
 interface ActiveUserRow {
@@ -574,6 +771,10 @@ const accessLine = (r: AccessByUserRow) =>
   `${r.user_name} → ${r.object_name} (${r.object_type}): ${fmtInt(r.access_count)} accesses, last ${fmtDateTime(r.last_seen)}`;
 const failedLoginLine = (r: FailedLoginDetailRow) =>
   `${r.user_name} from ${r.client_ip} (${r.reported_client_type}): ${fmtInt(r.attempts)} failed attempts — "${r.error_message}", last ${fmtDateTime(r.last_seen)}`;
+const warehouseLoadLine = (r: WarehouseLoadRow) =>
+  `${r.warehouse_name}: running ${fmtLoad(r.avg_running)}, queued-load ${fmtLoad(r.avg_queued_load)}${(r.avg_queued_load ?? 0) > 0 ? ' (queueing — under-provisioned)' : ''}, queued-provisioning ${fmtLoad(r.avg_queued_provisioning)}, blocked ${fmtLoad(r.avg_blocked)}`;
+const warehouseEventLine = (r: WarehouseEventRow) =>
+  `${fmtRelTime(r.ts)} — ${r.warehouse_name}: ${readableEvent(r.event_name)}${r.size ? ` (size ${r.size})` : ''}${r.event_reason ? ` — ${r.event_reason}` : ''}`;
 
 // ── Emptiness check (no-fake-0 crux) ─────────────────────────────────────────
 
@@ -610,8 +811,44 @@ function isGenuinelyEmpty(d: PlatformHealth): boolean {
     // to surface — it must not be classified empty and hidden.
     (d.failed_login_detail?.length ?? 0) === 0 &&
     (d.storage?.by_database?.length ?? 0) === 0 &&
-    (d.policy_coverage?.top_policies?.length ?? 0) === 0;
+    (d.policy_coverage?.top_policies?.length ?? 0) === 0 &&
+    // Scalability enrichment — a window carrying only warehouse load / events is
+    // still real data and must not be classified empty and hidden.
+    (d.warehouse_load?.length ?? 0) === 0 &&
+    (d.warehouse_events?.length ?? 0) === 0;
   return allKpisBlank && allTablesEmpty;
+}
+
+/**
+ * SparkCard — a KpiCard with a subtle inline trend sparkline overlaid in the
+ * lower-right of the card, drawn from the hourly `series`. The wrapper is
+ * `relative` and the sparkline is absolutely positioned so it never reflows the
+ * card or collides with the value; it sits below the source chip / sub-line.
+ * Renders no sparkline (the bare KpiCard) when the series is empty/all-null.
+ */
+function SparkCard({
+  values,
+  sparkTint = 'text-slate-300 dark:text-slate-600',
+  sparkTitle,
+  ...card
+}: React.ComponentProps<typeof KpiCard> & {
+  values: (number | null | undefined)[];
+  /** Sparkline stroke colour (defaults to a quiet slate). Distinct from the
+   * KpiCard `tint`, which colours the headline value. */
+  sparkTint?: string;
+  sparkTitle?: string;
+}) {
+  // Tuck the sparkline into the upper-right, just below the card icon (top row)
+  // and above the bottom band — clear of BOTH the top-right icon and the
+  // bottom-right source chip / sub-line, where KpiCard already renders text.
+  return (
+    <div className="relative">
+      <KpiCard {...card} />
+      <div className={cn('pointer-events-none absolute right-3 top-8', sparkTint)}>
+        <Sparkline values={values} width={44} height={14} title={sparkTitle} />
+      </div>
+    </div>
+  );
 }
 
 // ── Panel ────────────────────────────────────────────────────────────────────
@@ -690,6 +927,23 @@ export default function PlatformHealthPanel() {
 
   const onView = useCallback((v: TableView) => setTableView(v), []);
 
+  // Scalability enrichment chips appear only when the backend returns the data
+  // (built here rather than appended to a static const — sections appear only
+  // when present). Empty arrays → no chips, and the switcher row omits the band.
+  const scaleViews = useMemo<ChipOption<UsageView>[]>(() => {
+    const out: ChipOption<UsageView>[] = [];
+    if ((data?.warehouse_load?.length ?? 0) > 0) out.push(SCALE_VIEWS[0]);
+    if ((data?.warehouse_events?.length ?? 0) > 0) out.push(SCALE_VIEWS[1]);
+    return out;
+  }, [data?.warehouse_load?.length, data?.warehouse_events?.length]);
+
+  // Hourly series for the sparklines (ascending). Derived once; each KPI card
+  // pulls the column it needs. Empty/absent → sparklines render nothing.
+  const series: SeriesPoint[] = data?.series ?? [];
+  const callsSeries = useMemo(() => series.map((p) => p.calls), [series]);
+  const errorSeries = useMemo(() => series.map((p) => p.errors), [series]);
+  const latencySeries = useMemo(() => series.map((p) => p.p95_latency), [series]);
+
   // ── Analyze with AI — same primitive as the Performance page.
   const runAiAnalysis = useCallback(async () => {
     if (!metrics && !data) return;
@@ -728,7 +982,23 @@ export default function PlatformHealthPanel() {
           `Policy coverage: ${fmtInt(data?.policy_coverage?.masking_policies)} masking, ${fmtInt(data?.policy_coverage?.row_access_policies)} row-access, ${fmtInt(data?.policy_coverage?.tagged_objects)} tagged objects`,
         ]
       : ['(usage-history enrichment unavailable)'];
-    const kpiLines = [...liveLines, ...usageLines];
+    // Scalability context — call out any warehouses queueing (under-provisioned)
+    // and the most recent lifecycle events, so the AI can reason about scaling.
+    const queueing = (data?.warehouse_load ?? []).filter((w) => (w.avg_queued_load ?? 0) > 0);
+    const scaleLines: string[] = [];
+    if ((data?.warehouse_load?.length ?? 0) > 0) {
+      scaleLines.push(
+        queueing.length
+          ? `Warehouses queueing (under-provisioned): ${queueing.map((w) => `${w.warehouse_name} (queued-load ${fmtLoad(w.avg_queued_load)})`).join(', ')}`
+          : 'No warehouses are queueing — compute is keeping up with demand.',
+      );
+    }
+    if ((data?.warehouse_events?.length ?? 0) > 0) {
+      scaleLines.push(
+        `Recent warehouse events: ${(data?.warehouse_events ?? []).slice(0, 5).map((e) => `${readableEvent(e.event_name)} ${e.warehouse_name}${e.size ? ` → ${e.size}` : ''} (${fmtRelTime(e.ts)})`).join('; ')}`,
+      );
+    }
+    const kpiLines = [...liveLines, ...usageLines, ...scaleLines];
     const prompt = [
       'You are a platform health analyst. Write a concise, plain-language analysis (3–5 short bullet points) of the platform-health telemetry below.',
       'Call out latency, error-rate, failed-login and access outliers, likely causes, and one concrete next step. Do not mention internal vendor or product names.',
@@ -912,6 +1182,34 @@ export default function PlatformHealthPanel() {
             onView={onView}
           />
         );
+      case 'wh_load':
+        return (
+          <SortableTable
+            columns={WAREHOUSE_LOAD_COLS}
+            rows={data.warehouse_load ?? []}
+            search={debouncedSearch}
+            searchText={(r) => r.warehouse_name ?? ''}
+            rowLine={warehouseLoadLine}
+            initialSortKey="avg_queued_load"
+            pageSize={12}
+            emptyLabel="No warehouse load data in this window."
+            onView={onView}
+          />
+        );
+      case 'wh_events':
+        return (
+          <SortableTable
+            columns={WAREHOUSE_EVENT_COLS}
+            rows={data.warehouse_events ?? []}
+            search={debouncedSearch}
+            searchText={(r) => `${r.warehouse_name ?? ''} ${readableEvent(r.event_name)} ${r.event_reason ?? ''} ${r.size ?? ''}`}
+            rowLine={warehouseEventLine}
+            initialSortKey="ts"
+            pageSize={12}
+            emptyLabel="No warehouse events in this window."
+            onView={onView}
+          />
+        );
       default:
         return null;
     }
@@ -1074,28 +1372,34 @@ export default function PlatformHealthPanel() {
               empty (requirement 3 / no-empty-KPI goal). */}
           {metrics ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-              <KpiCard
+              <SparkCard
                 label="Requests / min"
                 icon={Activity}
                 value={fmtInt(metrics.requests_per_min)}
                 source="live"
+                values={callsSeries}
+                sparkTitle="Hourly calls"
                 help={{ definition: 'Live request rate from the in-process server counter (a rate, not filtered by the selected window).' }}
               />
-              <KpiCard
+              <SparkCard
                 label="Avg response"
                 icon={Timer}
                 value={fmtMs(metrics.latency.avg_ms)}
                 sub={`p50 ${fmtMs(metrics.latency.p50_ms)} · p90 ${fmtMs(metrics.latency.p90_ms)} · p99 ${fmtMs(metrics.latency.p99_ms)}`}
                 source="live"
+                values={latencySeries}
+                sparkTitle="Hourly p95 latency"
                 help={{ definition: 'Mean server response time; sub-line shows the percentile spread.', goodRange: '< 500 ms p90' }}
               />
-              <KpiCard
+              <SparkCard
                 label="Error rate"
                 icon={AlertTriangle}
                 tint={(metrics.error_rate_pct ?? 0) > 5 ? 'text-red-600 dark:text-red-400' : undefined}
                 value={fmtPct(metrics.error_rate_pct, 2)}
                 sub={metrics.error_count != null ? `${fmtInt(metrics.error_count)} errors` : undefined}
                 source="live"
+                values={errorSeries}
+                sparkTitle="Hourly errors"
                 help={{ definition: 'Share of requests that returned an error.', goodRange: '< 1%' }}
               />
               <KpiCard
@@ -1151,24 +1455,30 @@ export default function PlatformHealthPanel() {
           ) : (
             /* Fallback band — usage-history KPIs when the live counter is unavailable. */
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              <KpiCard
+              <SparkCard
                 label="Calls"
                 icon={Activity}
                 value={fmtInt(k?.calls)}
                 source="usage-history"
+                values={callsSeries}
+                sparkTitle="Hourly calls"
                 help={{ definition: 'Total requests recorded in the selected window.' }}
               />
-              <KpiCard
+              <SparkCard
                 label="Error rate"
                 icon={AlertTriangle}
                 tint={(k?.error_rate ?? 0) > 5 ? 'text-red-600 dark:text-red-400' : undefined}
                 value={fmtPct(k?.error_rate, 2)}
                 source="usage-history"
+                values={errorSeries}
+                sparkTitle="Hourly errors"
                 help={{ definition: 'Share of requests that failed.', goodRange: '< 1%' }}
               />
-              <KpiCard
+              <SparkCard
                 label="Latency"
                 icon={Timer}
+                values={latencySeries}
+                sparkTitle="Hourly p95 latency"
                 value={fmtMs(k?.p95)}
                 sub={`p50 ${fmtMs(k?.p50)} · p95 ${fmtMs(k?.p95)} · p99 ${fmtMs(k?.p99)}`}
                 source="usage-history"
@@ -1260,6 +1570,15 @@ export default function PlatformHealthPanel() {
               <Database className="h-3 w-3" /> Usage history
             </span>
             <FilterChips options={USAGE_VIEWS} value={view} onChange={setView} />
+            {/* Scalability enrichment band — only when the backend returns the data. */}
+            {scaleViews.length > 0 && (
+              <>
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                  <Waves className="h-3 w-3" /> Scalability
+                </span>
+                <FilterChips options={scaleViews} value={view} onChange={setView} />
+              </>
+            )}
           </div>
 
           {/* AI narrative — dismissible docked panel */}
@@ -1315,6 +1634,13 @@ export default function PlatformHealthPanel() {
                     : `${fmtInt(tableView.total)} rows`}
                 </span>
               </div>
+              {/* Scaling legend — only on the Warehouse load view. */}
+              {view === 'wh_load' && (
+                <div className="flex items-center gap-1.5 border-b border-white/30 px-3 py-1.5 text-[10px] text-amber-600 dark:border-white/10 dark:text-amber-400">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  <span>queued (load) &gt; 0 → warehouse is queueing; consider resize / multi-cluster</span>
+                </div>
+              )}
               {activeTable}
             </GlassPanel>
           )}
