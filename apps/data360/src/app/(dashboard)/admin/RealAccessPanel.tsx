@@ -19,6 +19,7 @@ import { AlertTriangle, ShieldCheck, Users, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
+import Pager, { usePagination } from '@/components/ui/Pager';
 import { GlassPanel } from '@/app/shared/glass';
 import {
   getUsersWithRolesAndModules,
@@ -111,6 +112,9 @@ export default function RealAccessPanel() {
   }, [users, statusFilter, roleFilter, debounced]);
 
   const hasFilters = Boolean(debounced) || Boolean(roleFilter) || statusFilter !== 'all';
+
+  // Page the filtered users (no scroll). Clamps to range on filter change.
+  const pager = usePagination(filtered, 12);
 
   return (
     <div className="space-y-3">
@@ -218,12 +222,12 @@ export default function RealAccessPanel() {
               </div>
             )}
 
-            <div className="scrollbar-thin max-h-[420px] overflow-auto">
+            <div className="overflow-x-auto">
               {filtered.length === 0 ? (
                 <EmptyState icon={Search} compact title="No users match the current filters" />
               ) : (
                 <table className="w-full border-collapse text-[11px]">
-                  <thead className="sticky top-0">
+                  <thead>
                     <tr className="text-[10px] uppercase tracking-wide text-slate-400">
                       <th className="glass-2 px-3 py-1.5 text-left font-semibold">User</th>
                       <th className="glass-2 px-2 py-1.5 text-left font-semibold">Roles (access)</th>
@@ -231,15 +235,15 @@ export default function RealAccessPanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map((u) => {
+                    {pager.slice.map((u) => {
                       // Per-user role→lineage map (who granted the role + when).
                       const lineageByRole = new Map<string, RoleGrantLineage>();
                       for (const g of u.roleGrants) lineageByRole.set(String(g.role).toUpperCase(), g);
                       return (
                       <tr key={u.username} className="border-b border-slate-100 dark:border-slate-800">
-                        <td className="px-3 py-1.5 align-top">
-                          <p className="font-medium text-slate-800 dark:text-slate-100">{u.username}</p>
-                          {u.email && <p className="text-[10px] text-slate-400">{u.email}</p>}
+                        <td className="max-w-[220px] px-3 py-1.5 align-top">
+                          <p className="truncate font-medium text-slate-800 dark:text-slate-100" title={u.username}>{u.username}</p>
+                          {u.email && <p className="truncate text-[10px] text-slate-400" title={u.email}>{u.email}</p>}
                         </td>
                         <td className="px-2 py-1.5">
                           <div className="flex flex-wrap gap-1">
@@ -293,6 +297,19 @@ export default function RealAccessPanel() {
                 </table>
               )}
             </div>
+            {filtered.length > 0 && (
+              <div className="px-3 pb-2">
+                <Pager
+                  page={pager.page}
+                  pageCount={pager.pageCount}
+                  total={pager.total}
+                  from={pager.from}
+                  to={pager.to}
+                  onPage={pager.setPage}
+                  unit="users"
+                />
+              </div>
+            )}
           </>
         )}
       </GlassPanel>

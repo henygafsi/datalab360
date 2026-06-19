@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils';
 import { GlassPanel } from '@/app/shared/glass';
 import { dash } from '@/app/shared/ui/format';
 import EmptyState from '@/components/ui/EmptyState';
+import Pager, { usePagination } from '@/components/ui/Pager';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import {
@@ -199,6 +200,61 @@ export default function FeatureGovernanceMatrix() {
     (posture?.posture ?? []).forEach((p) => m.set(p.module, p));
     return m;
   }, [posture]);
+
+  // ── Filter + sort pipeline (memoized ABOVE the early returns so the
+  // pagination hook below is never called conditionally). Null-safe when the
+  // matrix hasn't loaded yet. `.filter()`/`.sort()` operate on fresh arrays, so
+  // this never mutates `matrix`.
+  const { filteredModules, filteredSlugs, shownCount } = useMemo(() => {
+    const mods = matrix?.modules ?? {};
+    const slugs = Object.keys(mods).sort();
+    const matches = (f: EntitlementFeature): boolean => {
+      if (gapsOnly && f.enabled) return false;
+      if (moduleFilter && f.module !== moduleFilter) return false;
+      if (search) {
+        const hay = `${f.module} ${f.feature_key} ${f.label} ${f.description ?? ''} ${
+          f.surface ?? ''
+        }`.toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+      return true;
+    };
+    const byModule: Record<string, EntitlementFeature[]> = {};
+    let shown = 0;
+    for (const slug of slugs) {
+      const kept = (mods[slug] ?? []).filter(matches);
+      if (kept.length) {
+        byModule[slug] = kept;
+        shown += kept.length;
+      }
+    }
+    // Sorting NEVER breaks grouping: feature/status sorts reorder rows WITHIN
+    // each module group; module sort reorders the groups themselves.
+    const dirMul = sortDir === 'asc' ? 1 : -1;
+    const orderedSlugs = Object.keys(byModule).sort((a, b) => {
+      if (sortKey === 'module') return a.localeCompare(b) * dirMul;
+      return a.localeCompare(b); // stable group order for feature/status sorts
+    });
+    for (const slug of orderedSlugs) {
+      const rows = byModule[slug];
+      if (!rows) continue;
+      if (sortKey === 'feature') {
+        rows.sort((a, b) => a.label.localeCompare(b.label) * dirMul);
+      } else if (sortKey === 'status') {
+        rows.sort(
+          (a, b) =>
+            (Number(a.enabled) - Number(b.enabled)) * dirMul || a.label.localeCompare(b.label),
+        );
+      } else {
+        rows.sort((a, b) => a.label.localeCompare(b.label));
+      }
+    }
+    return { filteredModules: byModule, filteredSlugs: orderedSlugs, shownCount: shown };
+  }, [matrix, search, moduleFilter, gapsOnly, sortKey, sortDir]);
+
+  // Paginate by MODULE GROUP so each module's coverage meter + bulk actions stay
+  // whole on a page. 6 modules per page → scroll-free.
+  const modulePager = usePagination(filteredSlugs, 6);
 
   /**
    * Apply an enabled-state (and source) to one feature row in the matrix,
@@ -409,50 +465,10 @@ export default function FeatureGovernanceMatrix() {
     );
   }
 
-  // ── Filter pipeline ─────────────────────────────────────────────────────────
-  const matches = (f: EntitlementFeature): boolean => {
-    if (gapsOnly && f.enabled) return false;
-    if (moduleFilter && f.module !== moduleFilter) return false;
-    if (search) {
-      const hay = `${f.module} ${f.feature_key} ${f.label} ${f.description ?? ''} ${
-        f.surface ?? ''
-      }`.toLowerCase();
-      if (!hay.includes(search)) return false;
-    }
-    return true;
-  };
-  const filteredModules: Record<string, EntitlementFeature[]> = {};
-  let shownCount = 0;
-  for (const slug of moduleSlugs) {
-    const kept = (modules[slug] ?? []).filter(matches);
-    if (kept.length) {
-      filteredModules[slug] = kept;
-      shownCount += kept.length;
-    }
-  }
-  // ── Sort pipeline ───────────────────────────────────────────────────────────
-  // Sorting NEVER breaks grouping: feature/status sorts reorder rows WITHIN each
-  // module group; module sort reorders the groups themselves. Default asc/desc.
-  const dirMul = sortDir === 'asc' ? 1 : -1;
-  const filteredSlugs = Object.keys(filteredModules).sort((a, b) => {
-    if (sortKey === 'module') return a.localeCompare(b) * dirMul;
-    return a.localeCompare(b); // stable group order for feature/status sorts
-  });
-  for (const slug of filteredSlugs) {
-    const rows = filteredModules[slug];
-    if (!rows) continue;
-    if (sortKey === 'feature') {
-      rows.sort((a, b) => a.label.localeCompare(b.label) * dirMul);
-    } else if (sortKey === 'status') {
-      // enabled vs disabled, then label as the stable tiebreak.
-      rows.sort(
-        (a, b) =>
-          (Number(a.enabled) - Number(b.enabled)) * dirMul || a.label.localeCompare(b.label),
-      );
-    } else {
-      rows.sort((a, b) => a.label.localeCompare(b.label));
-    }
-  }
+  // The filter + sort pipeline (incl. filteredModules / filteredSlugs / shownCount)
+  // is memoized above, before the early returns, so the pagination hook is never
+  // conditional. Page the module groups via `modulePager`.
+  const pagedSlugs = modulePager.slice;
   const filtersActive = Boolean(search || moduleFilter || gapsOnly);
   const clearFilters = () => {
     setSearchInput('');
@@ -615,10 +631,11 @@ export default function FeatureGovernanceMatrix() {
         </GlassPanel>
       )}
 
-      {/* Module × feature entitlement TABLE — grouped by module, sortable. */}
+      {/* Module × feature entitlement TABLE — grouped by module, sortable,
+          paginated by module group (no scroll). */}
       {filteredSlugs.length > 0 && (
         <GlassPanel depth={1} radius="xl" className="overflow-hidden">
-          <div className="max-h-[68vh] overflow-auto">
+          <div className="overflow-x-auto px-2 pb-1">
             <table className="w-full border-collapse text-left">
               <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur dark:bg-slate-900/95">
                 <tr className="border-b border-slate-200 dark:border-slate-700">
@@ -653,7 +670,7 @@ export default function FeatureGovernanceMatrix() {
                   />
                 </tr>
               </thead>
-              {filteredSlugs.map((slug) => {
+              {pagedSlugs.map((slug) => {
                 const feats = filteredModules[slug] ?? [];
                 const p = postureByModule.get(slug);
                 // Coverage meter: prefer posture's account-wide count, else the
@@ -862,6 +879,17 @@ export default function FeatureGovernanceMatrix() {
                 );
               })}
             </table>
+          </div>
+          <div className="px-3 pb-2">
+            <Pager
+              page={modulePager.page}
+              pageCount={modulePager.pageCount}
+              total={modulePager.total}
+              from={modulePager.from}
+              to={modulePager.to}
+              onPage={modulePager.setPage}
+              unit="modules"
+            />
           </div>
         </GlassPanel>
       )}

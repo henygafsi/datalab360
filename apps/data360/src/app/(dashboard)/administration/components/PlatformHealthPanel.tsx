@@ -49,6 +49,7 @@ import {
 import { cn } from '@/lib/utils';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
+import Pager, { usePagination } from '@/components/ui/Pager';
 import { GlassPanel } from '@/app/shared/glass';
 import {
   KpiCard,
@@ -153,6 +154,21 @@ function fmtUptime(s: number | null | undefined): string {
   return `${sec}s`;
 }
 
+/**
+ * Truncate — render a long text cell (paths, object names, error messages) on a
+ * single clipped line with the full value as a hover tooltip, so it never pushes
+ * the table wider than the panel. null → "—".
+ */
+function Truncate({ text, max = 'max-w-[220px]' }: { text: string | null | undefined; max?: string }) {
+  const v = text || '';
+  if (!v) return <>—</>;
+  return (
+    <span className={cn('block truncate', max)} title={v}>
+      {v}
+    </span>
+  );
+}
+
 // ── Generic sortable table ───────────────────────────────────────────────────
 
 interface ColumnDef<T> {
@@ -244,6 +260,17 @@ function SortableTable<T>({
     return sorted;
   }, [columns, rows, search, searchText, sortKey, sortDir]);
 
+  // Paginate the rendered rows — NO scroll. The AI publish below still uses the
+  // full sorted `visible` set (top ~15), independent of the displayed page.
+  const { slice, page, setPage, pageCount, total, from, to } = usePagination(visible, 10);
+
+  // Reset to the first page whenever the column set changes (sub-view switch),
+  // mirroring the sort reset so a stale page never lingers across views.
+  useEffect(() => {
+    setPage(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colKeys]);
+
   // Publish the filtered/sorted view (count + top lines) for the toolbar + AI.
   useEffect(() => {
     onView({
@@ -263,7 +290,7 @@ function SortableTable<T>({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <>
       <table className="w-full text-[11px]">
         <thead>
           <tr className="border-b border-white/30 text-slate-400 dark:border-white/10">
@@ -300,7 +327,7 @@ function SortableTable<T>({
           </tr>
         </thead>
         <tbody>
-          {visible.map((row, i) => (
+          {slice.map((row, i) => (
             <tr
               key={i}
               className="border-b border-white/10 last:border-0 hover:bg-white/40 dark:hover:bg-white/5"
@@ -320,7 +347,10 @@ function SortableTable<T>({
           ))}
         </tbody>
       </table>
-    </div>
+      <div className="px-3">
+        <Pager page={page} pageCount={pageCount} total={total} from={from} to={to} onPage={setPage} unit="rows" />
+      </div>
+    </>
   );
 }
 
@@ -404,18 +434,18 @@ const WAREHOUSE_COLS: ColumnDef<ByWarehouseRow>[] = [
 ];
 
 const STORAGE_COLS: ColumnDef<StorageByDatabaseRow>[] = [
-  { key: 'database', label: 'Database', render: (r) => r.database || '—', sortValue: (r) => r.database ?? null },
+  { key: 'database', label: 'Database', render: (r) => <Truncate text={r.database} />, sortValue: (r) => r.database ?? null },
   { key: 'bytes', label: 'Storage', align: 'right', render: (r) => fmtBytes(r.bytes), sortValue: (r) => r.bytes },
 ];
 
 const POLICY_COLS: ColumnDef<TopPolicyRow>[] = [
-  { key: 'policy_name', label: 'Policy', render: (r) => r.policy_name || '—', sortValue: (r) => r.policy_name ?? null },
+  { key: 'policy_name', label: 'Policy', render: (r) => <Truncate text={r.policy_name} />, sortValue: (r) => r.policy_name ?? null },
   { key: 'policy_kind', label: 'Kind', render: (r) => r.policy_kind || '—', sortValue: (r) => r.policy_kind ?? null },
   { key: 'ref_count', label: 'References', align: 'right', render: (r) => fmtInt(r.ref_count), sortValue: (r) => r.ref_count },
 ];
 
 const OBJECT_COLS: ColumnDef<TopObjectRow>[] = [
-  { key: 'object_name', label: 'Object', render: (r) => r.object_name || '—', sortValue: (r) => r.object_name ?? null },
+  { key: 'object_name', label: 'Object', render: (r) => <Truncate text={r.object_name} />, sortValue: (r) => r.object_name ?? null },
   { key: 'object_type', label: 'Type', render: (r) => r.object_type || '—', sortValue: (r) => r.object_type ?? null },
   { key: 'access_count', label: 'Accesses', align: 'right', render: (r) => fmtInt(r.access_count), sortValue: (r) => r.access_count },
   { key: 'distinct_users', label: 'Users', align: 'right', render: (r) => fmtInt(r.distinct_users), sortValue: (r) => r.distinct_users },
@@ -423,7 +453,7 @@ const OBJECT_COLS: ColumnDef<TopObjectRow>[] = [
 
 // "Who accessed what" — user-grain access records (complements Top objects).
 const ACCESS_COLS: ColumnDef<AccessByUserRow>[] = [
-  { key: 'object_name', label: 'Object', render: (r) => r.object_name || '—', sortValue: (r) => r.object_name ?? null },
+  { key: 'object_name', label: 'Object', render: (r) => <Truncate text={r.object_name} />, sortValue: (r) => r.object_name ?? null },
   { key: 'object_type', label: 'Type', render: (r) => r.object_type || '—', sortValue: (r) => r.object_type ?? null },
   { key: 'user_name', label: 'User', render: (r) => r.user_name || '—', sortValue: (r) => r.user_name ?? null },
   { key: 'access_count', label: 'Accesses', align: 'right', render: (r) => fmtInt(r.access_count), sortValue: (r) => r.access_count },
@@ -435,7 +465,7 @@ const FAILED_LOGIN_COLS: ColumnDef<FailedLoginDetailRow>[] = [
   { key: 'user_name', label: 'User', render: (r) => r.user_name || '—', sortValue: (r) => r.user_name ?? null },
   { key: 'client_ip', label: 'IP', render: (r) => r.client_ip || '—', sortValue: (r) => r.client_ip ?? null },
   { key: 'reported_client_type', label: 'Client', render: (r) => r.reported_client_type || '—', sortValue: (r) => r.reported_client_type ?? null },
-  { key: 'error_message', label: 'Error', render: (r) => r.error_message || '—', sortValue: (r) => r.error_message ?? null },
+  { key: 'error_message', label: 'Error', render: (r) => <Truncate text={r.error_message} max="max-w-[260px]" />, sortValue: (r) => r.error_message ?? null },
   {
     key: 'attempts',
     label: 'Attempts',
@@ -468,7 +498,7 @@ interface ActiveUserRow {
 
 const SM_ENDPOINT_COLS: ColumnDef<ServerEndpoint>[] = [
   { key: 'method', label: 'Method', render: (r) => r.method || '—', sortValue: (r) => r.method ?? null },
-  { key: 'path', label: 'Path', render: (r) => r.path || '—', sortValue: (r) => r.path ?? null },
+  { key: 'path', label: 'Path', render: (r) => <Truncate text={r.path} max="max-w-[260px]" />, sortValue: (r) => r.path ?? null },
   { key: 'requests', label: 'Requests', align: 'right', render: (r) => fmtInt(r.requests), sortValue: (r) => r.requests },
   {
     key: 'errors',
@@ -503,7 +533,7 @@ const SM_RECENT_ERROR_COLS: ColumnDef<ServerRecentError>[] = [
     sortValue: (r) => r.status,
   },
   { key: 'method', label: 'Method', render: (r) => r.method || '—', sortValue: (r) => r.method ?? null },
-  { key: 'path', label: 'Path', render: (r) => r.path || '—', sortValue: (r) => r.path ?? null },
+  { key: 'path', label: 'Path', render: (r) => <Truncate text={r.path} max="max-w-[260px]" />, sortValue: (r) => r.path ?? null },
   { key: 'username', label: 'User', render: (r) => r.username || '—', sortValue: (r) => r.username ?? null },
   { key: 'ms', label: 'Duration', align: 'right', render: (r) => fmtMs(r.ms), sortValue: (r) => r.ms },
   { key: 'ts', label: 'When', align: 'right', render: (r) => fmtDateTime(r.ts), sortValue: (r) => r.ts ?? null },
@@ -963,7 +993,7 @@ export default function PlatformHealthPanel() {
               fall back to the usage-history KPI band so the band is still never
               empty (requirement 3 / no-empty-KPI goal). */}
           {metrics ? (
-            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               <KpiCard
                 label="Requests / min"
                 icon={Activity}
@@ -1040,7 +1070,7 @@ export default function PlatformHealthPanel() {
             </div>
           ) : (
             /* Fallback band — usage-history KPIs when the live counter is unavailable. */
-            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               <KpiCard
                 label="Calls"
                 icon={Activity}
@@ -1095,7 +1125,7 @@ export default function PlatformHealthPanel() {
               value is a real figure or "—", never a fabricated 0. Sits alongside
               the live band above, regardless of whether the live counter is up. */}
           {usageReady && (
-            <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               <KpiCard
                 label="Compute credits"
                 icon={Coins}
@@ -1224,7 +1254,7 @@ export default function PlatformHealthPanel() {
 
 function KpiSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
       {Array.from({ length: 9 }).map((_, i) => (
         <GlassPanel key={i} depth={1} radius="xl" className="flex flex-col gap-2 p-3.5">
           <div className="h-3 w-20 animate-pulse rounded bg-slate-200/70 dark:bg-slate-700/50" />

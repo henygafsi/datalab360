@@ -16,6 +16,7 @@ import { AlertTriangle, Loader2, Search, ShieldCheck, Trash2, Users } from 'luci
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
+import Pager, { usePagination } from '@/components/ui/Pager';
 import { GlassPanel } from '@/app/shared/glass';
 import { getRoles } from '@/app/services/governance/fetch_roles';
 import {
@@ -36,7 +37,7 @@ export default function RoleGrantsPanel() {
   const [users, setUsers] = useState<UserGrantTableData[]>([]);
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [revoking, setRevoking] = useState<number | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
 
   // Debounced grant search (privilege / object-type / object-name).
   const [search, setSearch] = useState('');
@@ -97,13 +98,16 @@ export default function RoleGrantsPanel() {
     );
   }, [grants, debounced]);
 
-  const revoke = async (grant: RoleGrant, index: number) => {
+  // Page the filtered grants (no scroll). Clamps to range on filter/role change.
+  const pager = usePagination(filteredGrants, 12);
+
+  const revoke = async (grant: RoleGrant, rowKey: string) => {
     if (!grant.revocable) {
       toast({ title: 'Cannot revoke: incomplete grant info' });
       return;
     }
     if (!window.confirm(`Revoke ${grant.privilege} on ${grant.name} from ${role}?`)) return;
-    setRevoking(index);
+    setRevoking(rowKey);
     try {
       await revokePermission([grant.privilege], grant.granted_on, grant.name, role);
       toast({ title: `Revoked ${grant.privilege} on ${grant.name}` });
@@ -205,29 +209,47 @@ export default function RoleGrantsPanel() {
       ) : filteredGrants.length === 0 ? (
         <EmptyState icon={Search} compact title={`No grants match "${search}"`} />
       ) : (
-        <div className="scrollbar-thin max-h-[360px] divide-y divide-slate-100 overflow-auto dark:divide-slate-800">
-          {filteredGrants.map((g, i) => (
-            <div key={`${g.privilege}:${g.granted_on}:${g.name}:${i}`} className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px]">
-              <div className="min-w-0">
-                <span className="font-medium text-slate-800 dark:text-slate-100">{g.privilege || 'Grant'}</span>
-                <span className="text-slate-400"> on {g.granted_on || '—'} </span>
-                {g.name && <span className="break-all font-mono text-slate-500 dark:text-slate-400">{g.name}</span>}
-              </div>
-              <button
-                type="button"
-                disabled={revoking === i || !g.revocable}
-                title={g.revocable ? undefined : 'Grant is missing an object type/name — cannot revoke safely'}
-                onClick={() => void revoke(g, i)}
-                className={cn(
-                  'inline-flex shrink-0 items-center gap-1 rounded-md border border-red-200 px-2 py-0.5 text-[10px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20',
-                )}
-              >
-                {revoking === i ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                Revoke
-              </button>
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {pager.slice.map((g, i) => {
+              // Absolute index across pages → globally-stable key + revoke state.
+              const abs = pager.from - 1 + i;
+              const rowKey = `${g.privilege}:${g.granted_on}:${g.name}:${abs}`;
+              return (
+                <div key={rowKey} className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px]">
+                  <div className="min-w-0">
+                    <span className="font-medium text-slate-800 dark:text-slate-100">{g.privilege || 'Grant'}</span>
+                    <span className="text-slate-400"> on {g.granted_on || '—'} </span>
+                    {g.name && <span className="break-all font-mono text-slate-500 dark:text-slate-400">{g.name}</span>}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={revoking === rowKey || !g.revocable}
+                    title={g.revocable ? undefined : 'Grant is missing an object type/name — cannot revoke safely'}
+                    onClick={() => void revoke(g, rowKey)}
+                    className={cn(
+                      'inline-flex shrink-0 items-center gap-1 rounded-md border border-red-200 px-2 py-0.5 text-[10px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20',
+                    )}
+                  >
+                    {revoking === rowKey ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                    Revoke
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <div className="px-3 pb-2">
+            <Pager
+              page={pager.page}
+              pageCount={pager.pageCount}
+              total={pager.total}
+              from={pager.from}
+              to={pager.to}
+              onPage={pager.setPage}
+              unit="grants"
+            />
+          </div>
+        </>
       )}
     </GlassPanel>
   );

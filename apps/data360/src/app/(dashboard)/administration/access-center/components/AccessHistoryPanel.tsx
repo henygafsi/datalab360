@@ -16,6 +16,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, History, Search, Users } from
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
+import Pager, { usePagination } from '@/components/ui/Pager';
 import { GlassPanel } from '@/app/shared/glass';
 import { getAccessPatterns } from '@/app/services/observability';
 import type { AccessPattern } from '@/app/services/observability/types';
@@ -73,6 +74,9 @@ export default function AccessHistoryPanel({ days = 7 }: { days?: number }) {
     );
   }, [rows, debounced]);
 
+  // Page the filtered rows (no scroll). Clamps to range on filter change.
+  const pager = usePagination(filtered, 12);
+
   const retry = useCallback(() => setReloadKey((k) => k + 1), []);
 
   return (
@@ -127,9 +131,10 @@ export default function AccessHistoryPanel({ days = 7 }: { days?: number }) {
       ) : filtered.length === 0 ? (
         <EmptyState icon={Search} compact title={`No objects match "${search}"`} />
       ) : (
-        <div className="scrollbar-thin max-h-[340px] overflow-auto">
+        <>
+          <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[11px]">
-            <thead className="sticky top-0">
+            <thead>
               <tr className="text-[10px] uppercase tracking-wide text-slate-400">
                 <th className="glass-2 px-3 py-1.5 text-left font-semibold">Object</th>
                 <th className="glass-2 px-2 py-1.5 text-right font-semibold">Accesses</th>
@@ -138,8 +143,11 @@ export default function AccessHistoryPanel({ days = 7 }: { days?: number }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r, i) => {
-                const rowKey = `${r.database}.${r.schema}.${r.table}:${i}`;
+              {pager.slice.map((r, i) => {
+                // Absolute index across pages → globally-unique row key + stable
+                // expand state when paging.
+                const abs = pager.from - 1 + i;
+                const rowKey = `${r.database}.${r.schema}.${r.table}:${abs}`;
                 const byUser = Array.isArray(r.by_user) ? r.by_user : [];
                 const hasWho = byUser.length > 0;
                 const expanded = hasWho && expandedKey === rowKey;
@@ -210,7 +218,19 @@ export default function AccessHistoryPanel({ days = 7 }: { days?: number }) {
               })}
             </tbody>
           </table>
-        </div>
+          </div>
+          <div className="px-3 pb-2">
+            <Pager
+              page={pager.page}
+              pageCount={pager.pageCount}
+              total={pager.total}
+              from={pager.from}
+              to={pager.to}
+              onPage={pager.setPage}
+              unit="objects"
+            />
+          </div>
+        </>
       )}
     </GlassPanel>
   );

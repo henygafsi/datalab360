@@ -12,6 +12,7 @@ import { useEffect, useMemo } from 'react';
 import { BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import EmptyState from '@/components/ui/EmptyState';
+import Pager, { usePagination } from '@/components/ui/Pager';
 import {
   getPerfByEndpoint,
   getPerfByUser,
@@ -115,11 +116,7 @@ function Frame({
         />
       </div>
     );
-  return (
-    <div className="scrollbar-thin max-h-[520px] overflow-auto">
-      <table className="w-full border-collapse text-[11px]">{children}</table>
-    </div>
-  );
+  return <table className="w-full border-collapse text-[11px]">{children}</table>;
 }
 
 // ── Endpoints ────────────────────────────────────────────────────────────────
@@ -140,7 +137,9 @@ export function EndpointsPanel({ account, hours, liveMs, selected, onSelect, sea
     total: all.length,
     lines: rows.slice(0, 20).map((e) => `${e.method} ${e.path} — ${fmtInt(e.requests)} req, ${fmtPct(e.error_rate)} err, avg ${fmtMs(e.avg_ms)}, cache ${fmtPct(e.cache_hit_rate, 0)}`),
   });
+  const pg = usePagination(rows, 12);
   return (
+    <>
     <Frame state={state} error={error} empty={all.length === 0} reload={reload}>
       <thead className="sticky top-0">
         <tr className="text-[10px] uppercase tracking-wide text-slate-400">
@@ -156,7 +155,7 @@ export function EndpointsPanel({ account, hours, liveMs, selected, onSelect, sea
         </tr>
       </thead>
       <tbody>
-        {rows.map((e) => {
+        {pg.slice.map((e) => {
           const active = selected?.kind === 'endpoint' && selected.method === e.method && selected.path === e.path;
           return (
             <tr
@@ -189,6 +188,8 @@ export function EndpointsPanel({ account, hours, liveMs, selected, onSelect, sea
         })}
       </tbody>
     </Frame>
+    <Pager page={pg.page} pageCount={pg.pageCount} total={pg.total} from={pg.from} to={pg.to} onPage={pg.setPage} unit="endpoints" className="px-3 pb-2" />
+    </>
   );
 }
 
@@ -210,7 +211,9 @@ export function UsersPanel({ account, hours, liveMs, selected, onSelect, search,
     total: all.length,
     lines: rows.slice(0, 20).map((u) => `${u.username || '—'} (${u.role || '—'}) — ${fmtInt(u.requests)} req, ${fmtPct(u.error_rate)} err, cache ${fmtPct(u.cache_hit_rate, 0)}, avg ${fmtMs(u.avg_ms)}`),
   });
+  const pg = usePagination(rows, 12);
   return (
+    <>
     <Frame state={state} error={error} empty={all.length === 0} reload={reload}>
       <thead className="sticky top-0">
         <tr className="text-[10px] uppercase tracking-wide text-slate-400">
@@ -226,7 +229,7 @@ export function UsersPanel({ account, hours, liveMs, selected, onSelect, search,
         </tr>
       </thead>
       <tbody>
-        {rows.map((u) => {
+        {pg.slice.map((u) => {
           const active = selected?.kind === 'user' && selected.username === u.username;
           return (
             <tr
@@ -257,6 +260,8 @@ export function UsersPanel({ account, hours, liveMs, selected, onSelect, search,
         })}
       </tbody>
     </Frame>
+    <Pager page={pg.page} pageCount={pg.pageCount} total={pg.total} from={pg.from} to={pg.to} onPage={pg.setPage} unit="users" className="px-3 pb-2" />
+    </>
   );
 }
 
@@ -286,6 +291,7 @@ export function CachePanel({
     total: all.length,
     lines: rows.slice(0, 20).map((c) => `${c.key || '—'} — ${fmtInt(c.requests)} req, ${fmtInt(c.cache_hits)} hits / ${fmtInt(c.cache_misses)} misses, ${fmtPct(c.cache_hit_rate, 0)}`),
   });
+  const pg = usePagination(rows, 12);
   const subOptions = useMemo(
     () =>
       (['page', 'tab', 'module', 'project'] as CacheAxis[]).map((a) => ({
@@ -310,7 +316,7 @@ export function CachePanel({
           </tr>
         </thead>
         <tbody>
-          {rows.map((c) => (
+          {pg.slice.map((c) => (
             <tr key={c.key} className="border-b border-slate-100 dark:border-slate-800">
               <td className="max-w-[300px] truncate px-3 py-1 text-slate-700 dark:text-slate-200" title={c.key}>{c.key || '—'}</td>
               <td className="px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200">{fmtInt(c.requests)}</td>
@@ -321,6 +327,7 @@ export function CachePanel({
           ))}
         </tbody>
       </Frame>
+      <Pager page={pg.page} pageCount={pg.pageCount} total={pg.total} from={pg.from} to={pg.to} onPage={pg.setPage} unit="keys" className="px-3 pb-2" />
     </div>
   );
 }
@@ -340,7 +347,9 @@ export function ModulesPanel({ account, hours, liveMs, search, onRows }: Pick<Ba
     total: all.length,
     lines: rows.slice(0, 20).map((m) => `${m.module || '—'} — ${fmtInt(m.requests)} req, ${fmtPct(m.error_rate)} err, avg ${fmtMs(m.avg_ms)}, cache ${fmtPct(m.cache_hit_rate, 0)}, ${fmtInt(m.distinct_users)} users`),
   });
+  const pg = usePagination(rows, 12);
   return (
+    <>
     <Frame state={state} error={error} empty={all.length === 0} reload={reload}>
       <thead className="sticky top-0">
         <tr className="text-[10px] uppercase tracking-wide text-slate-400">
@@ -354,7 +363,7 @@ export function ModulesPanel({ account, hours, liveMs, search, onRows }: Pick<Ba
         </tr>
       </thead>
       <tbody>
-        {rows.map((mod) => (
+        {pg.slice.map((mod) => (
           <tr key={mod.module} className="border-b border-slate-100 dark:border-slate-800">
             <td className="max-w-[220px] truncate px-3 py-1 text-slate-700 dark:text-slate-200" title={mod.module}>{mod.module || '—'}</td>
             <td className="px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200">{fmtInt(mod.requests)}</td>
@@ -367,6 +376,8 @@ export function ModulesPanel({ account, hours, liveMs, search, onRows }: Pick<Ba
         ))}
       </tbody>
     </Frame>
+    <Pager page={pg.page} pageCount={pg.pageCount} total={pg.total} from={pg.from} to={pg.to} onPage={pg.setPage} unit="modules" className="px-3 pb-2" />
+    </>
   );
 }
 
@@ -385,7 +396,9 @@ export function ProjectsPanel({ account, hours, liveMs, search, onRows }: Pick<B
     total: all.length,
     lines: rows.slice(0, 20).map((c) => `${c.key || '—'} — ${fmtInt(c.requests)} req, ${fmtInt(c.cache_hits)} hits / ${fmtInt(c.cache_misses)} misses, ${fmtPct(c.cache_hit_rate, 0)}`),
   });
+  const pg = usePagination(rows, 12);
   return (
+    <>
     <Frame state={state} error={error} empty={all.length === 0} reload={reload}>
       <thead className="sticky top-0">
         <tr className="text-[10px] uppercase tracking-wide text-slate-400">
@@ -397,7 +410,7 @@ export function ProjectsPanel({ account, hours, liveMs, search, onRows }: Pick<B
         </tr>
       </thead>
       <tbody>
-        {rows.map((c) => (
+        {pg.slice.map((c) => (
           <tr key={c.key} className="border-b border-slate-100 dark:border-slate-800">
             <td className="max-w-[300px] truncate px-3 py-1 text-slate-700 dark:text-slate-200" title={c.key}>{c.key || '—'}</td>
             <td className="px-2 py-1 text-right font-semibold text-slate-700 dark:text-slate-200">{fmtInt(c.requests)}</td>
@@ -408,6 +421,8 @@ export function ProjectsPanel({ account, hours, liveMs, search, onRows }: Pick<B
         ))}
       </tbody>
     </Frame>
+    <Pager page={pg.page} pageCount={pg.pageCount} total={pg.total} from={pg.from} to={pg.to} onPage={pg.setPage} unit="projects" className="px-3 pb-2" />
+    </>
   );
 }
 
@@ -434,7 +449,9 @@ export function ErrorsPanel({ account, hours, liveMs, search, statusFilter, onRo
     total: all.length,
     lines: rows.slice(0, 20).map((e) => `${e.status} ${e.method} ${e.path} — ${e.username || '—'}${e.deny_reason ? ` · ${e.deny_reason}` : ''} (${fmtMs(e.duration_ms)})`),
   });
+  const pg = usePagination(rows, 12);
   return (
+    <>
     <Frame state={state} error={error} empty={all.length === 0} reload={reload}>
       <thead className="sticky top-0">
         <tr className="text-[10px] uppercase tracking-wide text-slate-400">
@@ -447,8 +464,8 @@ export function ErrorsPanel({ account, hours, liveMs, search, statusFilter, onRo
         </tr>
       </thead>
       <tbody>
-        {rows.map((e, i) => (
-          <tr key={`${e.ts}-${i}`} className="border-b border-slate-100 dark:border-slate-800">
+        {pg.slice.map((e, i) => (
+          <tr key={`${e.ts}-${pg.from - 1 + i}`} className="border-b border-slate-100 dark:border-slate-800">
             <td className="px-3 py-1">
               <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-semibold', STATUS_TINT(e.status))}>{e.status}</span>
             </td>
@@ -465,5 +482,7 @@ export function ErrorsPanel({ account, hours, liveMs, search, statusFilter, onRo
         ))}
       </tbody>
     </Frame>
+    <Pager page={pg.page} pageCount={pg.pageCount} total={pg.total} from={pg.from} to={pg.to} onPage={pg.setPage} unit="errors" className="px-3 pb-2" />
+    </>
   );
 }
