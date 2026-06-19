@@ -2,7 +2,7 @@
 
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useCallback } from 'react';
 import { routes } from '@/config/routes';
 
 interface SessionGuardProps {
@@ -45,12 +45,6 @@ function hasValidLocalToken(): boolean {
 export default function SessionGuard({ children, fallback }: SessionGuardProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [isReady, setIsReady] = useState(false);
-  // Optimistic: a valid local JWT lets us render now and verify in the background.
-  const [optimistic, setOptimistic] = useState(false);
-  useEffect(() => {
-    setOptimistic(hasValidLocalToken());
-  }, []);
 
   // Handle token expiration
   const handleTokenExpired = useCallback(async () => {
@@ -59,35 +53,26 @@ export default function SessionGuard({ children, fallback }: SessionGuardProps) 
     router.replace(routes.signIn);
   }, [router]);
 
+  // Verify in the BACKGROUND — never block the paint. Dashboard routes are
+  // already gated server-side by src/middleware.ts (unauthenticated requests
+  // never reach here — they're 302'd to /signin), so by render time the request
+  // is authenticated. We only react to a *definitive* client-side change:
+  // unauthenticated → redirect, or an expired-token flag → sign out.
   useEffect(() => {
-    if (status === 'loading') {
-      return;
-    }
-
     if (status === 'unauthenticated') {
       router.replace(routes.signIn);
       return;
     }
-
-    if (status === 'authenticated') {
-      // Check for token expiration flag from session callback
-      if (session?.tokenExpired || session?.error === 'TokenExpired') {
-        handleTokenExpired();
-        return;
-      }
-      setIsReady(true);
+    if (status === 'authenticated' && (session?.tokenExpired || session?.error === 'TokenExpired')) {
+      handleTokenExpired();
     }
   }, [status, session, router, handleTokenExpired]);
 
-  // If the background check DEFINITIVELY says signed-out, stop and redirect —
-  // even if we were rendering optimistically from a stale local token.
-  if (status === 'unauthenticated') {
-    return fallback || <SessionGuardLoadingFallback />;
-  }
-
-  // Render as soon as EITHER the session verified (isReady) OR a valid local
-  // token exists (optimistic). No more waiting on the network for every page.
-  if (!isReady && !optimistic) {
+  // Only the definitive signed-out state blocks (while we redirect). During
+  // 'loading' (and 'authenticated') we render the app shell immediately — no
+  // more full-screen "Verifying session..." on every navigation/refresh. A stale
+  // local token edge case is still caught by the background effect above.
+  if (status === 'unauthenticated' && !hasValidLocalToken()) {
     return fallback || <SessionGuardLoadingFallback />;
   }
 
