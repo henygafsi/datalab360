@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
 
 import { KpiStrip } from './components/KpiStrip';
 import { DrillPanel } from './components/DrillPanel';
-import { SLOW_THRESHOLD_MS, type ProbeDetail } from './components/types';
+import { SLOW_THRESHOLD_MS, isDefect, type ProbeDetail } from './components/types';
 
 // ── Command Center ──
 import {
@@ -976,6 +976,7 @@ type TestResult = {
   httpStatus?: number;
   method?: string;
   url?: string;
+  errorBody?: string;
 };
 
 const isSlowResult = (r?: TestResult) =>
@@ -986,7 +987,7 @@ type ResultsMap = Record<string, TestResult>;
 export default function ApiHealthPage() {
   const [results, setResults] = useState<ResultsMap>({});
   const [running, setRunning] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'error' | 'success' | 'warn' | 'slow'>('all');
+  const [filter, setFilter] = useState<'all' | 'error' | 'success' | 'warn' | 'slow' | 'defect'>('all');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -1004,11 +1005,18 @@ export default function ApiHealthPage() {
   const hasRun = Object.keys(results).length > 0;
   const successCount = Object.values(results).filter(r => r.status === 'success').length;
   const errorCount = Object.values(results).filter(r => r.status === 'error').length;
-  const warnCount = Object.values(results).filter(r => r.status === 'warn').length;
+  // Real defects: SQL_COMPILATION_ERROR / 405 / 408 / network — these otherwise
+  // hide inside the yellow 4xx bucket. Errors (5xx/network) are a subset.
+  const defectCount = Object.values(results).filter(r => isDefect(r)).length;
+  // Expected 4xx = a warn that is NOT a genuine defect (plain validation/not-found).
+  const expectedWarnCount = Object.values(results).filter(
+    r => r.status === 'warn' && !isDefect(r),
+  ).length;
   const runningCount = Object.values(results).filter(r => r.status === 'running').length;
   const slowCount = Object.values(results).filter(r => isSlowResult(r)).length;
-  // Healthy = reachable: a 4xx with fake IDs still proves the endpoint is live.
-  const healthyCount = successCount + warnCount;
+  // Healthy = reachable AND not a hidden defect: a 4xx with fake IDs still proves
+  // the endpoint is live, but a defective warn (e.g. SQL_COMPILATION_ERROR) is not.
+  const healthyCount = successCount + expectedWarnCount;
   // Avg latency over reachable probes only — error timeouts would skew this upward.
   const timed = Object.values(results).filter(
     r => r.ms != null && (r.status === 'success' || r.status === 'warn'),
@@ -1037,6 +1045,14 @@ export default function ApiHealthPage() {
         err?.message ??
         String(err);
       const message = typeof raw === 'string' ? raw : safeStringify(raw);
+      // Lossless capture of the full response body so the structured defect
+      // parser can read error_code / query_id / snowflake_code / hint even when
+      // the message-first extraction above kept only the human message string.
+      const data = err?.response?.data;
+      let errorBody: string | undefined;
+      if (data && typeof data === 'object') {
+        try { errorBody = JSON.stringify(data); } catch { errorBody = undefined; }
+      }
 
       // 400/404/422 with fake IDs = endpoint works, just validation
       const isValidationError = httpStatus && httpStatus >= 400 && httpStatus < 500;
@@ -1044,7 +1060,7 @@ export default function ApiHealthPage() {
         ...prev,
         [key]: {
           status: isValidationError ? 'warn' : 'error',
-          ms, error: message, httpStatus, method, url,
+          ms, error: message, httpStatus, method, url, errorBody,
         },
       }));
     }
@@ -1118,6 +1134,9 @@ export default function ApiHealthPage() {
     }
     if (filter === 'all') return true;
     if (filter === 'slow') return isSlowResult(r);
+    if (filter === 'defect') return isDefect(r);
+    // "warn" filter = EXPECTED 4xx only (genuine defects are carved out).
+    if (filter === 'warn') return r?.status === 'warn' && !isDefect(r);
     return r?.status === filter;
   }, [debouncedSearch, filter]);
 
@@ -1154,6 +1173,7 @@ export default function ApiHealthPage() {
       <KpiStrip
         total={totalTests}
         healthy={hasRun ? healthyCount : null}
+        defects={hasRun ? defectCount : null}
         failing={hasRun ? errorCount : null}
         slow={hasRun ? slowCount : null}
         avgLatencyMs={avgLatencyMs}
@@ -1201,20 +1221,27 @@ export default function ApiHealthPage() {
         </span>
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-          {(['all', 'success', 'warn', 'error', 'slow'] as const).map(f => (
-            <button key={f} onClick={() => setFilter(f)} style={{
-              padding: '4px 12px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
-              border: filter === f ? '2px solid #2563eb' : '1px solid #d1d5db',
-              background: filter === f ? '#eff6ff' : '#fff',
-              color: filter === f ? '#2563eb' : '#6b7280', fontWeight: filter === f ? 600 : 400,
-            }}>
-              {f === 'all' ? `All (${totalTests})`
-                : f === 'error' ? `Failing (${errorCount})`
-                : f === 'warn' ? `4xx (${warnCount})`
-                : f === 'slow' ? `Slow (${slowCount})`
-                : `OK (${successCount})`}
-            </button>
-          ))}
+          {(['all', 'success', 'warn', 'defect', 'error', 'slow'] as const).map(f => {
+            const active = filter === f;
+            // Defects get a distinct magenta accent so the "real bug" chip never
+            // reads as either expected-yellow or the legacy red error filter.
+            const accent = f === 'defect' ? '#a21caf' : '#2563eb';
+            return (
+              <button key={f} onClick={() => setFilter(f)} style={{
+                padding: '4px 12px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
+                border: active ? `2px solid ${accent}` : '1px solid #d1d5db',
+                background: active ? (f === 'defect' ? '#fdf4ff' : '#eff6ff') : '#fff',
+                color: active ? accent : '#6b7280', fontWeight: active ? 600 : 400,
+              }}>
+                {f === 'all' ? `All (${totalTests})`
+                  : f === 'error' ? `Failing (${errorCount})`
+                  : f === 'warn' ? `4xx expected (${expectedWarnCount})`
+                  : f === 'defect' ? `Defects (${defectCount})`
+                  : f === 'slow' ? `Slow (${slowCount})`
+                  : `OK (${successCount})`}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -1248,9 +1275,9 @@ export default function ApiHealthPage() {
             const filtered = modTests.filter(t => matchRow(mod.module, t.name, t.result));
             if (filtered.length === 0) return null;
 
-            const me = modTests.filter(t => t.result?.status === 'error').length;
+            const md = modTests.filter(t => isDefect(t.result)).length;
             const ms = modTests.filter(t => t.result?.status === 'success').length;
-            const mw = modTests.filter(t => t.result?.status === 'warn').length;
+            const mw = modTests.filter(t => t.result?.status === 'warn' && !isDefect(t.result)).length;
             const msl = modTests.filter(t => isSlowResult(t.result)).length;
             const isCollapsed = collapsed[mod.module];
 
@@ -1266,7 +1293,7 @@ export default function ApiHealthPage() {
                   {ms > 0 && <Badge text={`${ms} ok`} bg="#f0fdf4" color="#16a34a" />}
                   {mw > 0 && <Badge text={`${mw} 4xx`} bg="#fffbeb" color="#d97706" />}
                   {msl > 0 && <Badge text={`${msl} slow`} bg="#fff7ed" color="#c2410c" />}
-                  {me > 0 && <Badge text={`${me} err`} bg="#fef2f2" color="#dc2626" />}
+                  {md > 0 && <Badge text={`${md} defect`} bg="#fdf4ff" color="#a21caf" />}
                   <button onClick={(e) => { e.stopPropagation(); runModule(mod); }} disabled={running} style={{
                     marginLeft: 8, padding: '2px 10px', borderRadius: 4, border: '1px solid #d1d5db',
                     cursor: running ? 'not-allowed' : 'pointer', background: '#fff', fontSize: 12, color: '#374151',
@@ -1288,14 +1315,19 @@ export default function ApiHealthPage() {
                     <tbody>
                       {filtered.map(t => {
                         const slow = isSlowResult(t.result);
-                        const drillable = t.result?.status === 'error' || slow;
+                        const defect = isDefect(t.result);
+                        const drillable = t.result?.status === 'error' || slow || defect;
                         const selected = drillKey === t.key;
+                        // A defective 4xx (e.g. SQL_COMPILATION_ERROR) is visually
+                        // promoted to magenta so it never blends into expected-yellow.
+                        const defectWarn = defect && t.result?.status === 'warn';
                         return (
                           <tr key={t.key} style={{
                             borderBottom: '1px solid #f1f5f9',
                             cursor: drillable ? 'pointer' : 'default',
                             background: selected ? '#eef2ff'
                               : t.result?.status === 'error' ? '#fef2f2'
+                              : defectWarn ? '#fdf4ff'
                               : t.result?.status === 'warn' ? '#fffbeb'
                               : slow ? '#fff7ed' : 'transparent',
                           }}
@@ -1305,6 +1337,7 @@ export default function ApiHealthPage() {
                             <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12 }}>{t.name}</td>
                             <td style={{ padding: '5px 8px' }}>
                               <StatusBadge status={t.result?.status || 'idle'} />
+                              {defect && <span style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#fdf4ff', color: '#a21caf' }}>DEFECT</span>}
                               {slow && <span style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#fff7ed', color: '#c2410c' }}>SLOW</span>}
                             </td>
                             <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12 }}>{t.result?.ms != null ? `${t.result.ms}ms` : '-'}</td>

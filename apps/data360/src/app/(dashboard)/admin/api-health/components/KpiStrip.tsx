@@ -5,8 +5,10 @@ import { Text } from 'rizzui';
 type KpiStripProps = {
   /** Total endpoints is statically known — always a number. */
   total: number;
-  /** healthy / failing / avgLatency are null until at least one probe has run. */
+  /** healthy / defects / failing / slow / avgLatency are null until a probe has run. */
   healthy: number | null;
+  /** Genuine defects (SQL compilation / 405 / 408 / 5xx) — the trustworthy "real bug" count. */
+  defects: number | null;
   failing: number | null;
   slow: number | null;
   avgLatencyMs: number | null;
@@ -20,6 +22,7 @@ function fmt(value: number | null): string {
 const cards: { key: keyof Omit<KpiStripProps, never>; label: string; tone: string }[] = [
   { key: 'total', label: 'Total endpoints', tone: '#334155' },
   { key: 'healthy', label: 'Healthy', tone: '#16a34a' },
+  { key: 'defects', label: 'Defects', tone: '#a21caf' },
   { key: 'failing', label: 'Failing', tone: '#dc2626' },
   { key: 'slow', label: 'Slow', tone: '#d97706' },
   { key: 'avgLatencyMs', label: 'Avg latency', tone: '#2563eb' },
@@ -27,7 +30,7 @@ const cards: { key: keyof Omit<KpiStripProps, never>; label: string; tone: strin
 
 export function KpiStrip(props: KpiStripProps) {
   return (
-    <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+    <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
       {cards.map((c) => {
         const raw = props[c.key];
         const display =

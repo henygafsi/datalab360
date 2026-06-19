@@ -6,6 +6,7 @@
  * delegates to POST /cortex/complete (which exists in the backend).
  */
 import apiClient from '@/lib/api-client';
+import { toServiceError } from '../_errors';
 import type { DashboardErrorEvent } from '@/app/services/governance/types';
 
 export interface RecommendRequest {
@@ -69,8 +70,6 @@ export async function getCortexRecommend(request: RecommendRequest): Promise<Rec
     };
   } catch (error: any) {
     console.error('Cortex recommend (via /complete) error:', error);
-    const message =
-      error.response?.data?.detail ?? error.response?.data?.message ?? error.message ?? 'Failed to get recommendation';
-    throw new Error(`Cortex recommendation failed: ${message}`);
+    throw toServiceError(error, 'Failed to get recommendation');
   }
 }

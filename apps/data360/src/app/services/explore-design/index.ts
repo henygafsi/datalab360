@@ -1586,13 +1586,17 @@ export async function rollbackIngestionOperation(
 export async function deploySchema(
   request: SchemaDeploymentRequest
 ): Promise<SchemaDeploymentResponse> {
+  // NOTE: there is no backend route for this stub — real callers use deployWithVersion
+  // (or the deployment pipeline). Guard against a missing/undefined sql_queries so the
+  // health probe doesn't crash with "Cannot read properties of undefined (reading 'length')".
   console.warn('[deploySchema] no backend route — use deployWithVersion or deployment pipeline');
+  const queryCount = request.sql_queries?.length ?? 0;
   return {
     status: 'failed',
     version_name: request.version_name || 'Unknown',
     version_number: 0,
     executed_statements: 0,
-    failed_statements: request.sql_queries.length,
+    failed_statements: queryCount,
     changes_summary: {
       tables_created: 0,
       tables_modified: 0,

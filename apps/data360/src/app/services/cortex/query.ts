@@ -4,6 +4,7 @@
  */
 import apiClient from '@/lib/api-client';
 import axios from 'axios';
+import { toServiceError } from '../_errors';
 
 export interface CortexQueryRequest {
   prompt: string;
@@ -71,8 +72,7 @@ export async function queryCortex(request: CortexQueryRequest): Promise<CortexQu
   } catch (error) {
     console.error('Error in cortex query:', error);
     if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
-      throw new Error(`Cortex query failed: ${message}`);
+      throw toServiceError(error, 'Query failed');
     }
     throw error;
   }

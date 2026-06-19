@@ -1,4 +1,5 @@
 import apiClient from '@/lib/api-client';
+import { toServiceError } from '../_errors';
 
 // ============================================
 // TYPES
@@ -140,7 +141,7 @@ export async function generateCompletion(request: CompletionRequest): Promise<Co
     };
   } catch (error: any) {
     console.error('Completion error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to generate completion');
+    throw toServiceError(error, 'Failed to generate completion');
   }
 }
 
@@ -166,7 +167,7 @@ export async function analyzeSentiment(texts: string[]): Promise<SentimentResult
     }));
   } catch (error: any) {
     console.error('Sentiment analysis error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to analyze sentiment');
+    throw toServiceError(error, 'Failed to analyze sentiment');
   }
 }
 
@@ -200,7 +201,7 @@ export async function analyzeTableSentiment(
     }));
   } catch (error: any) {
     console.error('Table sentiment analysis error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to analyze table sentiment');
+    throw toServiceError(error, 'Failed to analyze table sentiment');
   }
 }
 
@@ -223,7 +224,7 @@ export async function translateText(request: TranslationRequest): Promise<Transl
     };
   } catch (error: any) {
     console.error('Translation error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to translate text');
+    throw toServiceError(error, 'Failed to translate text');
   }
 }
 
@@ -252,7 +253,7 @@ export async function summarizeText(request: SummarizeRequest): Promise<SummaryR
     };
   } catch (error: any) {
     console.error('Summarization error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to summarize text');
+    throw toServiceError(error, 'Failed to summarize text');
   }
 }
 
@@ -273,7 +274,7 @@ export async function generateEmbeddings(
     return data.embeddings || [];
   } catch (error: any) {
     console.error('Embeddings error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to generate embeddings');
+    throw toServiceError(error, 'Failed to generate embeddings');
   }
 }
 
@@ -288,7 +289,7 @@ export async function listDatabases(): Promise<DatabaseInfo[]> {
     return data.databases || data || [];
   } catch (error: any) {
     console.error('List databases error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to list databases');
+    throw toServiceError(error, 'Failed to list databases');
   }
 }
 
@@ -305,7 +306,7 @@ export async function listSchemas(database: string): Promise<SchemaInfo[]> {
     return data.schemas || data || [];
   } catch (error: any) {
     console.error('List schemas error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to list schemas');
+    throw toServiceError(error, 'Failed to list schemas');
   }
 }
 
@@ -323,7 +324,7 @@ export async function listTables(database: string, schema: string): Promise<Tabl
     return data.tables || data || [];
   } catch (error: any) {
     console.error('List tables error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to list tables');
+    throw toServiceError(error, 'Failed to list tables');
   }
 }
 

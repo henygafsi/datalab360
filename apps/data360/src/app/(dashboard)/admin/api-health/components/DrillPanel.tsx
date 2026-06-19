@@ -1,7 +1,7 @@
 'use client';
 
 import { Button, Text, Title } from 'rizzui';
-import type { ProbeDetail } from './types';
+import { isDefect, parseErrorBody, type ProbeDetail } from './types';
 
 type DrillPanelProps = {
   detail: ProbeDetail | null;
@@ -11,7 +11,11 @@ type DrillPanelProps = {
 };
 
 function statusLabel(detail: ProbeDetail): { text: string; color: string } {
-  const s = detail.result?.status;
+  const r = detail.result;
+  const s = r?.status;
+  // A defect is surfaced ahead of the plain status so a SQL_COMPILATION_ERROR
+  // riding on a 4xx never reads as "Reachable (4xx)".
+  if (isDefect(r)) return { text: 'Defect', color: '#a21caf' };
   if (s === 'error') return { text: 'Failing', color: '#dc2626' };
   if (detail.isSlow) return { text: 'Slow', color: '#d97706' };
   if (s === 'warn') return { text: 'Reachable (4xx)', color: '#d97706' };
@@ -38,10 +42,14 @@ export function DrillPanel({ detail, onClose, onReprobe, reprobing }: DrillPanel
   if (!detail) return null;
   const r = detail.result;
   const status = statusLabel(detail);
-  const route =
-    r?.method || r?.url
-      ? `${(r.method || 'GET').toUpperCase()} ${r.url || '—'}`
-      : '—';
+  const method = (r?.method || 'GET').toUpperCase();
+  const route = r?.method || r?.url ? `${method} ${r?.url || '—'}` : '—';
+
+  // Structured breakdown of the error body (lossless flat/nested shapes).
+  const parsed = parseErrorBody(r?.errorBody ?? r?.error);
+  const hasStructured =
+    !!parsed.code || !!parsed.queryId || !!parsed.snowflakeCode || !!parsed.hint;
+  const dash = (v: string | null) => (v && v.trim() ? v : '—');
 
   return (
     <aside className="sticky top-4 w-full rounded-lg border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-50 lg:w-[340px]">
@@ -70,10 +78,28 @@ export function DrillPanel({ detail, onClose, onReprobe, reprobing }: DrillPanel
             {status.text}
           </span>
         </div>
+        <Row label="Method" value={method} mono />
+        <Row label="Route" value={route} mono />
         <Row label="Latency" value={r?.ms != null ? `${r.ms} ms` : '—'} mono />
         <Row label="HTTP" value={r?.httpStatus != null ? String(r.httpStatus) : '—'} mono />
-        <Row label="Route" value={route} mono />
-        <Row label="Last error" value={r?.error || '—'} mono />
+
+        {hasStructured && (
+          <>
+            <div className="pt-2">
+              <Text className="text-[11px] font-semibold uppercase tracking-wide text-fuchsia-700">
+                Structured error
+              </Text>
+            </div>
+            <Row label="Error code" value={dash(parsed.code)} mono />
+            <Row label="Snowflake code" value={dash(parsed.snowflakeCode)} mono />
+            <Row label="Query ID" value={dash(parsed.queryId)} mono />
+            <Row label="Hint" value={dash(parsed.hint)} />
+            <Row label="Message" value={dash(parsed.message)} />
+          </>
+        )}
+
+        {/* Raw fallback — the full response body when present, else the message. */}
+        <Row label="Raw error" value={r?.errorBody || r?.error || '—'} mono />
       </div>
 
       <div className="border-t border-gray-100 px-4 py-3 dark:border-gray-200">
