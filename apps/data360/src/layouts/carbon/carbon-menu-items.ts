@@ -262,6 +262,12 @@ export const carbonMenuItems: MenuItemsType[] = [
     color: 'slate',
     menuItems: [
       {
+        name: 'Overview',
+        description: 'Unified hub — platform health, performance, access, entitlements, config',
+        href: routes.administrationHub,
+        icon: PiCubeDuotone,
+      },
+      {
         name: 'Config Data360',
         description: 'Metadata, tables, date columns, cache & refresh',
         href: routes.data360Config.view,
