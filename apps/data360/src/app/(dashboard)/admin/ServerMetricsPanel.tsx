@@ -5,10 +5,16 @@
  *
  * Top endpoints by NAME (method+path) with requests/errors/avg/max, slowest
  * endpoints, recent 4xx/5xx errors, most-active users, requests/min, latency
- * percentiles, memory, CPU, uptime. Backed by GET /admin/server-metrics (live,
- * in-memory — not Snowflake). Auto-refreshes every 5s.
+ * percentiles, memory, CPU, uptime. Backed by GET /admin/server-metrics.
+ *
+ * HONEST FRAMING: this counter set is *in-memory and per-worker* — it RESETS to
+ * zero every time the backend process restarts, and reflects only the worker
+ * that served this request. It is NOT a Snowflake-persisted history. We never
+ * paint a fake-0 dashboard: a value the backend cannot supply (e.g. memory/CPU
+ * when psutil is absent) renders as "—", and a 404/501 degrades to a clear
+ * "metrics unavailable" notice rather than an all-zero board.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -19,15 +25,30 @@ import {
   Pause,
   Play,
   RefreshCw,
+  Search,
   Timer,
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { isUnavailable } from '@/lib/http-status';
 import { safeLocale, safeToFixed } from '@/lib/format-number';
 import EmptyState from '@/components/ui/EmptyState';
 import { GlassPanel } from '@/app/shared/glass';
 import { getServerMetrics, type ServerMetrics } from '@/app/services/admin-visibility';
+
+/** Poll intervals offered by the live toggle (ms). */
+const POLL_OPTIONS = [
+  { label: '5s', ms: 5000 },
+  { label: '10s', ms: 10000 },
+  { label: '30s', ms: 30000 },
+  { label: '60s', ms: 60000 },
+] as const;
+
+const TINT_OK = 'text-emerald-600 dark:text-emerald-400';
+const TINT_WARN = 'text-amber-600 dark:text-amber-400';
+const TINT_BAD = 'text-red-600 dark:text-red-400';
+const TINT_NEUTRAL = 'text-slate-800 dark:text-slate-100';
 
 function fmtUptime(s: number): string {
   if (!s || s < 0) return '—';
@@ -37,12 +58,17 @@ function fmtUptime(s: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/** A nullable numeric → display string, never a fake 0. */
+function numOr(value: number | null | undefined, fmt: (n: number) => string): string {
+  return value == null || Number.isNaN(value) ? '—' : fmt(value);
+}
+
 function Card({
   label,
   value,
   sub,
   icon: Icon,
-  tint = 'text-slate-800 dark:text-slate-100',
+  tint = TINT_NEUTRAL,
 }: {
   label: string;
   value: string;
@@ -71,19 +97,29 @@ const STATUS_TINT = (s: number) =>
 
 export default function ServerMetricsPanel() {
   const [m, setM] = useState<ServerMetrics | null>(null);
-  const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [state, setState] = useState<'idle' | 'running' | 'done' | 'error' | 'unavailable'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState(true);
+  const [pollMs, setPollMs] = useState<number>(POLL_OPTIONS[0].ms);
   const [updatedAt, setUpdatedAt] = useState<string>('');
+  const [query, setQuery] = useState('');
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     try {
       const d = await getServerMetrics();
       setM(d);
+      setError(null);
       setState('done');
       setUpdatedAt(new Date().toLocaleTimeString());
     } catch (e) {
+      // A 404/501 means the route isn't live on this backend — degrade honestly
+      // rather than painting a fake-0 board. (Same contract as the insights layer.)
+      if (isUnavailable(e)) {
+        setState((s) => (s === 'done' ? 'done' : 'unavailable'));
+        setError('Server metrics endpoint is not available on this backend.');
+        return;
+      }
       setError(getApiErrorMessage(e));
       setState((s) => (s === 'done' ? 'done' : 'error'));
     }
@@ -99,12 +135,42 @@ export default function ServerMetricsPanel() {
 
   useEffect(() => {
     if (timer.current) clearInterval(timer.current);
-    if (live) timer.current = setInterval(() => void load(), 5000);
+    if (live && state !== 'unavailable') timer.current = setInterval(() => void load(), pollMs);
     return () => {
       if (timer.current) clearInterval(timer.current);
     };
-  }, [live, load]);
+  }, [live, pollMs, load, state]);
 
+  // ── Threshold tints ─────────────────────────────────────────────────────
+  // error_rate is a RATIO (0–1) from the backend, not a percentage — convert.
+  const errorPct = m ? m.error_rate * 100 : 0;
+  const errorTint = !m
+    ? TINT_NEUTRAL
+    : errorPct >= 10
+      ? TINT_BAD
+      : errorPct >= 5
+        ? TINT_WARN
+        : m.total_requests > 0
+          ? TINT_OK
+          : TINT_NEUTRAL;
+  // cpu_load is the 1-min loadavg; judge it relative to core count.
+  const cpuRatio = m && m.cpu_load != null && m.cpu_count > 0 ? m.cpu_load / m.cpu_count : null;
+  const cpuTint =
+    cpuRatio == null ? TINT_NEUTRAL : cpuRatio >= 1 ? TINT_BAD : cpuRatio >= 0.7 ? TINT_WARN : TINT_OK;
+  // p99 latency: green < 500ms, amber < 1500ms, red beyond.
+  const p99 = m?.latency.p99_ms ?? 0;
+  const latencyTint = !m ? TINT_NEUTRAL : p99 >= 1500 ? TINT_BAD : p99 >= 500 ? TINT_WARN : TINT_OK;
+
+  const filteredEndpoints = useMemo(() => {
+    if (!m) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return m.top_endpoints;
+    return m.top_endpoints.filter(
+      (e) => e.path.toLowerCase().includes(q) || e.method.toLowerCase().includes(q),
+    );
+  }, [m, query]);
+
+  // ── Loading skeleton ────────────────────────────────────────────────────
   if (state === 'running' && !m) {
     return (
       <div className="space-y-2" aria-hidden>
@@ -116,6 +182,20 @@ export default function ServerMetricsPanel() {
       </div>
     );
   }
+
+  // ── Endpoint unavailable (404/501) — degrade, don't fake-0 ───────────────
+  if (state === 'unavailable' && !m) {
+    return (
+      <EmptyState
+        icon={BarChart3}
+        compact
+        title="Server metrics unavailable"
+        description={error ?? 'This backend does not expose live server metrics.'}
+      />
+    );
+  }
+
+  // ── Hard error ──────────────────────────────────────────────────────────
   if (state === 'error' && !m) {
     return (
       <div className="flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50/70 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
@@ -133,12 +213,35 @@ export default function ServerMetricsPanel() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      {/* Honest framing banner: these are ephemeral, per-worker counters. */}
+      <div className="flex items-start gap-1.5 rounded-lg border border-slate-200/70 bg-slate-50/60 px-3 py-1.5 text-[11px] text-slate-500 dark:border-slate-700/60 dark:bg-slate-800/40 dark:text-slate-400">
+        <Activity className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+        <span>
+          In-memory, per-worker counters — these reset to zero on every backend restart and reflect a
+          single worker. Not a persisted history.
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
           <span className={cn('h-2 w-2 rounded-full', live ? 'animate-pulse bg-emerald-500' : 'bg-slate-400')} />
-          {live ? 'Live (5s)' : 'Paused'} · updated {updatedAt}
+          {live ? `Live (${POLL_OPTIONS.find((o) => o.ms === pollMs)?.label ?? `${pollMs / 1000}s`})` : 'Paused'}
+          {updatedAt ? ` · updated ${updatedAt}` : ''}
         </p>
         <div className="flex items-center gap-1">
+          <select
+            value={pollMs}
+            onChange={(e) => setPollMs(Number(e.target.value))}
+            disabled={!live}
+            aria-label="Auto-refresh interval"
+            className="rounded-md border border-slate-200 bg-white/50 px-1.5 py-1 text-[11px] font-medium text-slate-600 disabled:opacity-50 dark:border-slate-700 dark:bg-white/5 dark:text-slate-300"
+          >
+            {POLL_OPTIONS.map((o) => (
+              <option key={o.ms} value={o.ms}>
+                {o.label}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             onClick={() => setLive((v) => !v)}
@@ -160,11 +263,33 @@ export default function ServerMetricsPanel() {
 
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
         <Card label="Requests / min" icon={Activity} value={String(m.requests_per_min)} sub={`${safeLocale(m.total_requests)} total`} />
-        <Card label="Avg response" icon={Timer} value={`${Math.round(m.latency.avg_ms)} ms`} sub={`p90 ${Math.round(m.latency.p90_ms)}ms · p99 ${Math.round(m.latency.p99_ms)}ms`} />
-        <Card label="Error rate" icon={AlertTriangle} tint={m.error_rate > 5 ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-slate-100'} value={`${safeToFixed(m.error_rate, 2)}%`} sub={`${m.error_count} errors`} />
+        <Card
+          label="Avg response"
+          icon={Timer}
+          tint={latencyTint}
+          value={`${Math.round(m.latency.avg_ms)} ms`}
+          sub={`p90 ${Math.round(m.latency.p90_ms)}ms · p99 ${Math.round(m.latency.p99_ms)}ms`}
+        />
+        <Card
+          label="Error rate"
+          icon={AlertTriangle}
+          tint={errorTint}
+          value={`${safeToFixed(errorPct, 2)}%`}
+          sub={`${m.error_count} errors`}
+        />
         <Card label="Uptime" icon={Gauge} value={fmtUptime(m.uptime_seconds)} />
-        <Card label="Memory (RSS)" icon={HardDrive} value={`${Math.round(m.memory_rss_mb)} MB`} />
-        <Card label="CPU load" icon={Cpu} value={m.cpu_load != null ? safeToFixed(m.cpu_load, 2) : '—'} sub={`${m.cpu_count} cores`} />
+        <Card
+          label="Memory (RSS)"
+          icon={HardDrive}
+          value={numOr(m.memory_rss_mb, (v) => `${Math.round(v)} MB`)}
+        />
+        <Card
+          label="CPU load (1m)"
+          icon={Cpu}
+          tint={cpuTint}
+          value={numOr(m.cpu_load, (v) => safeToFixed(v, 2))}
+          sub={`${m.cpu_count} cores`}
+        />
         <Card label="Requests / 5min" icon={BarChart3} value={String(m.requests_per_5min)} />
         <Card label="p50 latency" icon={Gauge} value={`${Math.round(m.latency.p50_ms)} ms`} />
       </div>
@@ -172,12 +297,27 @@ export default function ServerMetricsPanel() {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {/* Top endpoints */}
         <GlassPanel depth={1} radius="xl" className="overflow-hidden lg:col-span-2">
-          <div className="border-b border-white/30 px-3 py-2 dark:border-white/10">
-            <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Top endpoints</p>
-            <p className="text-[10px] text-slate-400">Most-hit routes since restart</p>
+          <div className="flex items-center justify-between gap-2 border-b border-white/30 px-3 py-2 dark:border-white/10">
+            <div>
+              <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Top endpoints</p>
+              <p className="text-[10px] text-slate-400">Most-hit routes since restart</p>
+            </div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filter route…"
+                aria-label="Filter endpoints"
+                className="w-36 rounded-md border border-slate-200 bg-white/50 py-1 pl-6 pr-2 text-[11px] text-slate-600 placeholder:text-slate-400 focus:w-44 focus:outline-none dark:border-slate-700 dark:bg-white/5 dark:text-slate-200"
+              />
+            </div>
           </div>
           {m.top_endpoints.length === 0 ? (
             <EmptyState icon={BarChart3} compact title="No requests yet" />
+          ) : filteredEndpoints.length === 0 ? (
+            <EmptyState icon={Search} compact title="No matching routes" />
           ) : (
             <div className="scrollbar-thin max-h-[420px] overflow-auto">
               <table className="w-full border-collapse text-[11px]">
@@ -191,7 +331,7 @@ export default function ServerMetricsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {m.top_endpoints.map((e) => (
+                  {filteredEndpoints.map((e) => (
                     <tr key={`${e.method} ${e.path}`} className="border-b border-slate-100 dark:border-slate-800">
                       <td className="max-w-[300px] truncate px-3 py-1 font-mono text-slate-700 dark:text-slate-200" title={`${e.method} ${e.path}`}>
                         <span className="text-slate-400">{e.method}</span> {e.path}

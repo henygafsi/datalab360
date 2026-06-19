@@ -5,7 +5,12 @@
 // type mismatches are acceptable here.
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import toast from 'react-hot-toast';
+
+import { KpiStrip } from './components/KpiStrip';
+import { DrillPanel } from './components/DrillPanel';
+import { SLOW_THRESHOLD_MS, type ProbeDetail } from './components/types';
 
 // ── Command Center ──
 import {
@@ -969,22 +974,48 @@ type TestResult = {
   ms?: number;
   error?: string;
   httpStatus?: number;
+  method?: string;
+  url?: string;
 };
+
+const isSlowResult = (r?: TestResult) =>
+  !!r && (r.status === 'success' || r.status === 'warn') && r.ms != null && r.ms >= SLOW_THRESHOLD_MS;
 
 type ResultsMap = Record<string, TestResult>;
 
 export default function ApiHealthPage() {
   const [results, setResults] = useState<ResultsMap>({});
   const [running, setRunning] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'error' | 'success' | 'warn'>('all');
+  const [filter, setFilter] = useState<'all' | 'error' | 'success' | 'warn' | 'slow'>('all');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [drillKey, setDrillKey] = useState<string | null>(null);
+  const [reprobingKey, setReprobingKey] = useState<string | null>(null);
   const abortRef = useRef(false);
 
+  // Debounce the search input (300ms).
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
   const totalTests = TEST_MODULES.reduce((s, m) => s + m.tests.length, 0);
+  const hasRun = Object.keys(results).length > 0;
   const successCount = Object.values(results).filter(r => r.status === 'success').length;
   const errorCount = Object.values(results).filter(r => r.status === 'error').length;
   const warnCount = Object.values(results).filter(r => r.status === 'warn').length;
   const runningCount = Object.values(results).filter(r => r.status === 'running').length;
+  const slowCount = Object.values(results).filter(r => isSlowResult(r)).length;
+  // Healthy = reachable: a 4xx with fake IDs still proves the endpoint is live.
+  const healthyCount = successCount + warnCount;
+  // Avg latency over reachable probes only — error timeouts would skew this upward.
+  const timed = Object.values(results).filter(
+    r => r.ms != null && (r.status === 'success' || r.status === 'warn'),
+  ) as TestResult[];
+  const avgLatencyMs = timed.length
+    ? Math.round(timed.reduce((s, r) => s + (r.ms || 0), 0) / timed.length)
+    : null;
 
   const runTest = useCallback(async (module: string, test: TestDef) => {
     const key = `${module}::${test.name}`;
@@ -997,6 +1028,8 @@ export default function ApiHealthPage() {
     } catch (err: any) {
       const ms = Math.round(performance.now() - t0);
       const httpStatus = err?.response?.status || err?.status;
+      const method = err?.config?.method ? String(err.config.method).toUpperCase() : undefined;
+      const url = err?.config?.url || err?.request?.responseURL || undefined;
       const raw =
         err?.response?.data?.detail ??
         err?.response?.data?.message ??
@@ -1011,7 +1044,7 @@ export default function ApiHealthPage() {
         ...prev,
         [key]: {
           status: isValidationError ? 'warn' : 'error',
-          ms, error: message, httpStatus,
+          ms, error: message, httpStatus, method, url,
         },
       }));
     }
@@ -1037,9 +1070,25 @@ export default function ApiHealthPage() {
     });
     await Promise.all(workers);
     setRunning(false);
+    if (!abortRef.current) toast.success('Re-probe complete');
   }, [runModule]);
 
   const stopAll = useCallback(() => { abortRef.current = true; setRunning(false); }, []);
+
+  // Re-probe a single endpoint (per-row + drill panel).
+  const reprobeOne = useCallback(async (module: string, name: string) => {
+    const mod = TEST_MODULES.find(m => m.module === module);
+    const test = mod?.tests.find(t => t.name === name);
+    if (!test) return;
+    const key = `${module}::${name}`;
+    setReprobingKey(key);
+    try {
+      await runTest(module, test);
+    } finally {
+      setReprobingKey(null);
+    }
+    toast.success(`Re-probed ${name}`);
+  }, [runTest]);
 
   const exportCsv = useCallback(() => {
     const rows = ['Module,Function,Status,Time (ms),HTTP Status,Error'];
@@ -1061,6 +1110,38 @@ export default function ApiHealthPage() {
 
   const toggle = (mod: string) => setCollapsed(p => ({ ...p, [mod]: !p[mod] }));
 
+  // Combined status + search predicate, reused for rendering and "X of Y".
+  const matchRow = useCallback((modName: string, name: string, r?: TestResult) => {
+    if (debouncedSearch) {
+      const hay = `${modName} ${name} ${r?.url || ''}`.toLowerCase();
+      if (!hay.includes(debouncedSearch)) return false;
+    }
+    if (filter === 'all') return true;
+    if (filter === 'slow') return isSlowResult(r);
+    return r?.status === filter;
+  }, [debouncedSearch, filter]);
+
+  // "X of Y": X = rows passing the active filter+search, Y = all rows.
+  const visibleCount = useMemo(() => {
+    let n = 0;
+    for (const mod of TEST_MODULES) {
+      for (const t of mod.tests) {
+        if (matchRow(mod.module, t.name, results[`${mod.module}::${t.name}`])) n += 1;
+      }
+    }
+    return n;
+  }, [matchRow, results]);
+
+  // Resolve the drilled row into a typed presentational detail.
+  const drillDetail = useMemo<ProbeDetail | null>(() => {
+    if (!drillKey) return null;
+    const sep = drillKey.indexOf('::');
+    const module = drillKey.slice(0, sep);
+    const name = drillKey.slice(sep + 2);
+    const result = results[drillKey];
+    return { module, name, result, isSlow: isSlowResult(result) };
+  }, [drillKey, results]);
+
   return (
     <div style={{ padding: 24, fontFamily: 'system-ui, sans-serif', maxWidth: 1400, margin: '0 auto' }}>
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>API Service Health Check</h1>
@@ -1069,6 +1150,15 @@ export default function ApiHealthPage() {
         {' '}Green = success, Yellow = endpoint works but returned 4xx (expected with fake IDs), Red = 500/network error.
       </p>
 
+      {/* KPI strip — "—" until a probe has run, never fake-0 */}
+      <KpiStrip
+        total={totalTests}
+        healthy={hasRun ? healthyCount : null}
+        failing={hasRun ? errorCount : null}
+        slow={hasRun ? slowCount : null}
+        avgLatencyMs={avgLatencyMs}
+      />
+
       {/* Controls */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         <button onClick={runAll} disabled={running} style={{
@@ -1076,7 +1166,7 @@ export default function ApiHealthPage() {
           cursor: running ? 'not-allowed' : 'pointer',
           background: running ? '#94a3b8' : '#2563eb', color: '#fff', fontWeight: 600, fontSize: 14,
         }}>
-          {running ? `Running... (${runningCount} active)` : 'Test All'}
+          {running ? `Re-probing... (${runningCount} active)` : hasRun ? 'Re-probe all' : 'Test All'}
         </button>
         {running && (
           <button onClick={stopAll} style={{
@@ -1089,102 +1179,172 @@ export default function ApiHealthPage() {
           cursor: 'pointer', background: '#fff', color: '#374151', fontSize: 14,
         }}>Export CSV</button>
 
+        {/* Search over module / function / route */}
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search endpoint or path…"
+          style={{
+            padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db',
+            fontSize: 13, width: 220, color: '#374151',
+          }}
+        />
+        {search && (
+          <button onClick={() => setSearch('')} style={{
+            padding: '4px 8px', borderRadius: 4, border: '1px solid #d1d5db',
+            cursor: 'pointer', background: '#fff', color: '#6b7280', fontSize: 12,
+          }}>Clear</button>
+        )}
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+          {visibleCount} of {totalTests}
+        </span>
+
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-          {(['all', 'success', 'warn', 'error'] as const).map(f => (
+          {(['all', 'success', 'warn', 'error', 'slow'] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)} style={{
               padding: '4px 12px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
               border: filter === f ? '2px solid #2563eb' : '1px solid #d1d5db',
               background: filter === f ? '#eff6ff' : '#fff',
               color: filter === f ? '#2563eb' : '#6b7280', fontWeight: filter === f ? 600 : 400,
             }}>
-              {f === 'all' ? `All (${totalTests})` : f === 'error' ? `500s (${errorCount})` : f === 'warn' ? `4xx (${warnCount})` : `OK (${successCount})`}
+              {f === 'all' ? `All (${totalTests})`
+                : f === 'error' ? `Failing (${errorCount})`
+                : f === 'warn' ? `4xx (${warnCount})`
+                : f === 'slow' ? `Slow (${slowCount})`
+                : `OK (${successCount})`}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Summary */}
-      {Object.keys(results).length > 0 && (
-        <div style={{ display: 'flex', gap: 16, marginBottom: 20, padding: 12, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-          <Stat label="Total" value={totalTests} color="#334155" />
-          <Stat label="Success" value={successCount} color="#16a34a" />
-          <Stat label="4xx (OK)" value={warnCount} color="#d97706" />
-          <Stat label="500/Err" value={errorCount} color="#dc2626" />
-          <Stat label="Running" value={runningCount} color="#2563eb" />
-          <Stat label="Pending" value={totalTests - successCount - errorCount - warnCount - runningCount} color="#94a3b8" />
+      {/* Live progress (only while probing) */}
+      {running && (
+        <div style={{ marginBottom: 16, fontSize: 13, color: '#2563eb' }}>
+          Probing… {runningCount} active · {Object.keys(results).length} of {totalTests} done
         </div>
       )}
 
-      {/* Modules */}
-      {TEST_MODULES.map(mod => {
-        const modTests = mod.tests.map(t => ({
-          ...t,
-          key: `${mod.module}::${t.name}`,
-          result: results[`${mod.module}::${t.name}`],
-        }));
-        const filtered = modTests.filter(t => {
-          if (filter === 'all') return true;
-          return t.result?.status === filter;
-        });
-        if (filtered.length === 0 && filter !== 'all') return null;
-
-        const me = modTests.filter(t => t.result?.status === 'error').length;
-        const ms = modTests.filter(t => t.result?.status === 'success').length;
-        const mw = modTests.filter(t => t.result?.status === 'warn').length;
-        const isCollapsed = collapsed[mod.module];
-
-        return (
-          <div key={mod.module} style={{ marginBottom: 16 }}>
-            <div
-              style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, cursor: 'pointer', userSelect: 'none' }}
-              onClick={() => toggle(mod.module)}
-            >
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>{isCollapsed ? '\u25B6' : '\u25BC'}</span>
-              <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>{mod.module}</h2>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>({mod.tests.length})</span>
-              {ms > 0 && <Badge text={`${ms} ok`} bg="#f0fdf4" color="#16a34a" />}
-              {mw > 0 && <Badge text={`${mw} 4xx`} bg="#fffbeb" color="#d97706" />}
-              {me > 0 && <Badge text={`${me} err`} bg="#fef2f2" color="#dc2626" />}
-              <button onClick={(e) => { e.stopPropagation(); runModule(mod); }} disabled={running} style={{
-                marginLeft: 8, padding: '2px 10px', borderRadius: 4, border: '1px solid #d1d5db',
-                cursor: running ? 'not-allowed' : 'pointer', background: '#fff', fontSize: 12, color: '#374151',
-              }}>Test</button>
+      {/* Modules + docked drill panel */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {visibleCount === 0 ? (
+            <div style={{
+              padding: 32, textAlign: 'center', borderRadius: 8,
+              border: '1px dashed #cbd5e1', color: '#94a3b8', fontSize: 14,
+            }}>
+              {!hasRun
+                ? 'No probes run yet \u2014 click \u201CTest All\u201D to check endpoint health.'
+                : debouncedSearch
+                  ? `No endpoints match \u201C${debouncedSearch}\u201D.`
+                  : 'No endpoints match the current filter.'}
             </div>
+          ) : TEST_MODULES.map(mod => {
+            const modTests = mod.tests.map(t => ({
+              ...t,
+              key: `${mod.module}::${t.name}`,
+              result: results[`${mod.module}::${t.name}`],
+            }));
+            const filtered = modTests.filter(t => matchRow(mod.module, t.name, t.result));
+            if (filtered.length === 0) return null;
 
-            {!isCollapsed && (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                    <th style={{ padding: '6px 8px', width: 300 }}>Function</th>
-                    <th style={{ padding: '6px 8px', width: 70 }}>Status</th>
-                    <th style={{ padding: '6px 8px', width: 70 }}>Time</th>
-                    <th style={{ padding: '6px 8px', width: 50 }}>HTTP</th>
-                    <th style={{ padding: '6px 8px' }}>Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(t => (
-                    <tr key={t.key} style={{
-                      borderBottom: '1px solid #f1f5f9',
-                      background: t.result?.status === 'error' ? '#fef2f2' : t.result?.status === 'warn' ? '#fffbeb' : 'transparent',
-                    }}>
-                      <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12 }}>{t.name}</td>
-                      <td style={{ padding: '5px 8px' }}><StatusBadge status={t.result?.status || 'idle'} /></td>
-                      <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12 }}>{t.result?.ms != null ? `${t.result.ms}ms` : '-'}</td>
-                      <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12,
-                        color: t.result?.httpStatus && t.result.httpStatus >= 500 ? '#dc2626' : t.result?.httpStatus && t.result.httpStatus >= 400 ? '#d97706' : '#374151',
-                      }}>{t.result?.httpStatus || '-'}</td>
-                      <td style={{ padding: '5px 8px', fontSize: 12, color: t.result?.status === 'error' ? '#dc2626' : '#92400e',
-                        maxWidth: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }} title={t.result?.error}>{t.result?.error || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        );
-      })}
+            const me = modTests.filter(t => t.result?.status === 'error').length;
+            const ms = modTests.filter(t => t.result?.status === 'success').length;
+            const mw = modTests.filter(t => t.result?.status === 'warn').length;
+            const msl = modTests.filter(t => isSlowResult(t.result)).length;
+            const isCollapsed = collapsed[mod.module];
+
+            return (
+              <div key={mod.module} style={{ marginBottom: 16 }}>
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggle(mod.module)}
+                >
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>{isCollapsed ? '\u25B6' : '\u25BC'}</span>
+                  <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>{mod.module}</h2>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>({mod.tests.length})</span>
+                  {ms > 0 && <Badge text={`${ms} ok`} bg="#f0fdf4" color="#16a34a" />}
+                  {mw > 0 && <Badge text={`${mw} 4xx`} bg="#fffbeb" color="#d97706" />}
+                  {msl > 0 && <Badge text={`${msl} slow`} bg="#fff7ed" color="#c2410c" />}
+                  {me > 0 && <Badge text={`${me} err`} bg="#fef2f2" color="#dc2626" />}
+                  <button onClick={(e) => { e.stopPropagation(); runModule(mod); }} disabled={running} style={{
+                    marginLeft: 8, padding: '2px 10px', borderRadius: 4, border: '1px solid #d1d5db',
+                    cursor: running ? 'not-allowed' : 'pointer', background: '#fff', fontSize: 12, color: '#374151',
+                  }}>Re-probe</button>
+                </div>
+
+                {!isCollapsed && (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                        <th style={{ padding: '6px 8px', width: 280 }}>Function</th>
+                        <th style={{ padding: '6px 8px', width: 70 }}>Status</th>
+                        <th style={{ padding: '6px 8px', width: 70 }}>Time</th>
+                        <th style={{ padding: '6px 8px', width: 50 }}>HTTP</th>
+                        <th style={{ padding: '6px 8px' }}>Error</th>
+                        <th style={{ padding: '6px 8px', width: 80 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map(t => {
+                        const slow = isSlowResult(t.result);
+                        const drillable = t.result?.status === 'error' || slow;
+                        const selected = drillKey === t.key;
+                        return (
+                          <tr key={t.key} style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            cursor: drillable ? 'pointer' : 'default',
+                            background: selected ? '#eef2ff'
+                              : t.result?.status === 'error' ? '#fef2f2'
+                              : t.result?.status === 'warn' ? '#fffbeb'
+                              : slow ? '#fff7ed' : 'transparent',
+                          }}
+                            onClick={drillable ? () => setDrillKey(t.key) : undefined}
+                            title={drillable ? 'Click for detail' : undefined}
+                          >
+                            <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12 }}>{t.name}</td>
+                            <td style={{ padding: '5px 8px' }}>
+                              <StatusBadge status={t.result?.status || 'idle'} />
+                              {slow && <span style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#fff7ed', color: '#c2410c' }}>SLOW</span>}
+                            </td>
+                            <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12 }}>{t.result?.ms != null ? `${t.result.ms}ms` : '-'}</td>
+                            <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12,
+                              color: t.result?.httpStatus && t.result.httpStatus >= 500 ? '#dc2626' : t.result?.httpStatus && t.result.httpStatus >= 400 ? '#d97706' : '#374151',
+                            }}>{t.result?.httpStatus || '-'}</td>
+                            <td style={{ padding: '5px 8px', fontSize: 12, color: t.result?.status === 'error' ? '#dc2626' : '#92400e',
+                              maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }} title={t.result?.error}>{t.result?.error || '-'}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right' }}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); reprobeOne(mod.module, t.name); }}
+                                disabled={running || reprobingKey === t.key}
+                                style={{
+                                  padding: '2px 8px', borderRadius: 4, border: '1px solid #d1d5db',
+                                  cursor: running || reprobingKey === t.key ? 'not-allowed' : 'pointer',
+                                  background: '#fff', fontSize: 11, color: '#374151',
+                                }}
+                              >{reprobingKey === t.key ? '\u2026' : 'Re-probe'}</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {drillDetail && (
+          <DrillPanel
+            detail={drillDetail}
+            onClose={() => setDrillKey(null)}
+            onReprobe={(d) => reprobeOne(d.module, d.name)}
+            reprobing={reprobingKey === drillKey}
+          />
+        )}
+      </div>
     </div>
   );
 }

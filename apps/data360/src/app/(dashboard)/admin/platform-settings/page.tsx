@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Input, Loader } from 'rizzui';
 import toast from 'react-hot-toast';
 import {
@@ -8,6 +8,8 @@ import {
   PiArrowsClockwise,
   PiWarningCircleBold,
   PiPlusBold,
+  PiMagnifyingGlassBold,
+  PiXBold,
 } from 'react-icons/pi';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
@@ -77,7 +79,19 @@ export default function PlatformSettingsPage() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [resetting, setResetting] = useState(false);
-  const canReset = useCanPerform('gouvernance', 'apply');
+  const [confirmReset, setConfirmReset] = useState(false);
+  // Mutating-action gate (shared key used across this admin surface).
+  const canApply = useCanPerform('gouvernance', 'apply');
+  const writeBlocked = !canApply.allowed && !canApply.loading;
+
+  // Debounced search + category filter (over the loaded entries).
+  const [search, setSearch] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(search.trim().toLowerCase()), 200);
+    return () => clearTimeout(id);
+  }, [search]);
 
   // New-entry rail (inline create).
   const { isOpen, open, close } = useActionPanel<'create'>();
@@ -154,8 +168,8 @@ export default function PlatformSettingsPage() {
     }
   }, [newKey, newValue, newDescription, close, load]);
 
-  const onReset = useCallback(async () => {
-    if (!window.confirm('Reset all platform configuration entries to their defaults? This is destructive and cannot be undone.')) return;
+  const doReset = useCallback(async () => {
+    setConfirmReset(false);
     setResetting(true);
     try {
       await resetPlatformConfig();
@@ -167,6 +181,25 @@ export default function PlatformSettingsPage() {
       setResetting(false);
     }
   }, [load]);
+
+  // Distinct categories for the filter chips (only when more than one exists).
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) if (e.category) set.add(e.category);
+    return [...set].sort();
+  }, [entries]);
+
+  const filtered = useMemo(() => {
+    return entries.filter((e) => {
+      if (categoryFilter && e.category !== categoryFilter) return false;
+      if (!debounced) return true;
+      return (
+        e.key.toLowerCase().includes(debounced) ||
+        valueToString(e.value).toLowerCase().includes(debounced) ||
+        (e.description ?? '').toLowerCase().includes(debounced)
+      );
+    });
+  }, [entries, categoryFilter, debounced]);
 
   return (
     <div className="@container p-4">
@@ -183,14 +216,26 @@ export default function PlatformSettingsPage() {
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">Platform Settings</h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => open('create')} className="gap-1 bg-indigo-600 text-white hover:bg-indigo-700">
+          <Button
+            size="sm"
+            onClick={() => open('create')}
+            disabled={writeBlocked}
+            title={writeBlocked ? 'You do not have permission to create platform settings.' : undefined}
+            className="gap-1 bg-indigo-600 text-white hover:bg-indigo-700"
+          >
             <PiPlusBold className="h-3.5 w-3.5" /> New setting
           </Button>
           <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1">
             {loading ? <Loader variant="spinner" size="sm" /> : <PiArrowsClockwise className="h-3.5 w-3.5" />}
             Reload
           </Button>
-          <Button size="sm" variant="outline" onClick={onReset} disabled={resetting || loading || (!canReset.allowed && !canReset.loading)} title={(!canReset.allowed && !canReset.loading) ? 'You do not have permission to reset platform settings.' : undefined}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setConfirmReset(true)}
+            disabled={resetting || loading || writeBlocked}
+            title={writeBlocked ? 'You do not have permission to reset platform settings.' : undefined}
+          >
             {resetting ? 'Resetting…' : 'Reset to defaults'}
           </Button>
         </div>
@@ -200,6 +245,71 @@ export default function PlatformSettingsPage() {
         Edit platform configuration entries inline. Values are parsed as JSON when valid (numbers, booleans,
         objects), otherwise stored as plain text. Backed by <code>/api/data360/platform-config</code>.
       </p>
+
+      {/* Inline reset confirm (no blocking modal) */}
+      {confirmReset && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-900/20">
+          <p className="flex items-start gap-2 text-sm text-amber-800 dark:text-amber-200">
+            <PiWarningCircleBold className="mt-0.5 h-4 w-4 shrink-0" />
+            Reset all platform configuration entries to their defaults? This is destructive and cannot be undone.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setConfirmReset(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={doReset} disabled={resetting} className="bg-red-600 text-white hover:bg-red-700">
+              {resetting ? 'Resetting…' : 'Reset to defaults'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Search + category filter chips (only meaningful once there are entries) */}
+      {!loading && !notDeployed && !error && entries.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <PiMagnifyingGlassBold className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(ev) => setSearch(ev.target.value)}
+              placeholder="Search key, value or description…"
+              className="w-64 rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-7 text-xs text-gray-700 outline-none focus:border-indigo-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <PiXBold className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          {categories.length > 1 &&
+            categories.map((c) => {
+              const active = categoryFilter === c;
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCategoryFilter(active ? null : c)}
+                  className={
+                    active
+                      ? 'rounded-full bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white'
+                      : 'rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300'
+                  }
+                >
+                  {c}
+                </button>
+              );
+            })}
+          <span className="ml-auto text-[11px] font-medium text-gray-400">
+            {filtered.length} of {entries.length}
+          </span>
+        </div>
+      )}
 
       {loading ? (
         <TableSkeleton rows={6} columns={4} />
@@ -220,6 +330,12 @@ export default function PlatformSettingsPage() {
           title="No configuration entries"
           description='Use "New setting" to create the first platform configuration entry.'
         />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={PiMagnifyingGlassBold}
+          title="No entries match your filter"
+          description="Adjust the search term or clear the category filter to see more."
+        />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
           <table className="w-full text-sm">
@@ -233,7 +349,7 @@ export default function PlatformSettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {entries.map((e) => {
+              {filtered.map((e) => {
                 const draft = drafts[e.key] ?? valueToString(e.value);
                 const dirty = draft !== valueToString(e.value);
                 return (
@@ -264,7 +380,8 @@ export default function PlatformSettingsPage() {
                         size="sm"
                         variant={dirty ? 'solid' : 'outline'}
                         className={dirty ? 'bg-indigo-600 text-white hover:bg-indigo-700' : ''}
-                        disabled={!dirty || savingKey === e.key}
+                        disabled={!dirty || savingKey === e.key || writeBlocked}
+                        title={writeBlocked ? 'You do not have permission to edit platform settings.' : undefined}
                         onClick={() => saveRow(e)}
                       >
                         {savingKey === e.key ? '…' : 'Save'}
@@ -292,7 +409,8 @@ export default function PlatformSettingsPage() {
             <Button
               className="bg-indigo-600 text-white hover:bg-indigo-700"
               onClick={createEntry}
-              disabled={creating}
+              disabled={creating || writeBlocked}
+              title={writeBlocked ? 'You do not have permission to create platform settings.' : undefined}
             >
               {creating ? 'Creating…' : 'Create'}
             </Button>
