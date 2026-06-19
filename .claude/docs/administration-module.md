@@ -75,11 +75,21 @@ should expose, the parts that are still unclear, and the governance to-dos.
 - [ ] **Confirm grant shape** (object vs string) on backend deploy (normalizer handles both meanwhile).
 - [ ] **RBAC gating** — every mutating CTA (revoke, toggle entitlement) must stay `useCanPerform`-gated (currently preserved).
 
-## NEXT — planned enhancements (cross-cutting)
-- [ ] **Re-point Performance KPI band → `platform-health`** (ACCOUNT_USAGE) so Performance isn't empty locally (USER_REQUESTS stays the per-axis trail, prod-only).
-- [ ] **Cross-tab CTAs** — make KPI/table rows navigate: Platform-Health by-user → Access Control · Top-objects → governance (tags/policies) · by-warehouse → FinOps · Performance error-row → request detail.
-- [ ] **Backend data enrichment** — research in progress → `vault/.../ADMIN_BACKEND_ENRICHMENT_2026-06-19.md`: richer granularity (time-series/trends, by-status/error-type/method, p50/p90/p99), ACCESS_HISTORY user-grain (who-accessed-what), grant lineage (granted_by/at), policy coverage per object, per-user/module cost via QUERY_TAG.
-- [ ] **Governance** — grant lineage · policy coverage viz · Role-Matrix cell→grants drill · who-accessed-what user-grain · keep every mutating CTA `useCanPerform`-gated.
+## Enrichments — DONE (backend `661ca78b` local + FE `d4d0487`)
+Per `vault/.../ADMIN_BACKEND_ENRICHMENT_2026-06-19.md` (locally-verifiable quick wins):
+- [x] **Performance KPI band merges ACCOUNT_USAGE** (`8012fd0`) — populates w/o SVC.
+- [x] **Grant lineage** — `users-with-roles` N+1 killed → `GRANTS_TO_USERS` scan; `role_grants[{role,granted_by,granted_at}]` shown on role chips (RealAccessPanel). `d360-roles` N+1 killed too.
+- [x] **Who-accessed-what (user-grain)** — `platform-health.access_by_user[]` ("Who accessed what" sub-view) + observability `access-patterns.by_user[]` (per-object expand in AccessHistoryPanel).
+- [x] **Security feed** — `platform-health.failed_login_detail[]` (user·IP·error·attempts, alert ≥5) — brute-force signal.
+- [x] **Query efficiency** — `top_queries` += bytes_scanned/queued/spill columns.
+
+## NEXT — remaining (larger builds / SVC-gated, from the report top-10)
+- [ ] **Time-series / sparklines sweep** (item 8, M each) — `DATE_TRUNC('hour')` series on overview / query_kpis / server_metrics. Biggest cross-tab gap.
+- [ ] **Repoint `/admin/endpoint-usage` AUDIT_LOG → USER_REQUESTS** (item 9) — AUDIT_LOG is write-only so GET traffic is silently excluded (correctness fix; SVC).
+- [ ] **Per-module/per-endpoint cost via QUERY_TAG** (item 10, L, highest FinOps value) — needs general-path `set_query_tag_context(module=…)` instrumentation first, then `QUERY_HISTORY.QUERY_TAG ⋈ QUERY_ATTRIBUTION_HISTORY` rollup (per-project already wired in `project_rollup_batch`).
+- [ ] **IP/USER_AGENT on denial feed** (item 5, SVC) + **p50/p99 + by-status on `by_endpoint`** (item 6, SVC) — columns exist, empty locally.
+- [ ] **Cross-tab CTAs** — KPI/table rows navigate (by-user → Access Control · top-objects → governance · by-warehouse → FinOps).
+- [ ] **Policy coverage** per object (POLICY_REFERENCES) + Role-Matrix cell→grants drill.
 
 ## Open / unclear (flag before relying)
 - 🟠 **Backend `/administration/platform-health` not deployed** (local `26fbfe36`) — needs a go. Until then the Platform Health tab shows "not deployed yet" (graceful).
