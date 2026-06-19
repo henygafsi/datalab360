@@ -34,6 +34,7 @@ import { getApiErrorMessage } from '@/lib/api-client';
 import { isUnavailable } from '@/lib/http-status';
 import { safeLocale, safeToFixed } from '@/lib/format-number';
 import EmptyState from '@/components/ui/EmptyState';
+import Pager, { usePagination } from '@/components/ui/Pager';
 import { GlassPanel } from '@/app/shared/glass';
 import { getServerMetrics, type ServerMetrics } from '@/app/services/admin-visibility';
 
@@ -169,6 +170,13 @@ export default function ServerMetricsPanel() {
       (e) => e.path.toLowerCase().includes(q) || e.method.toLowerCase().includes(q),
     );
   }, [m, query]);
+
+  // ── Pagination (scroll-free) — declared BEFORE any early return so the hook
+  //    order is stable. Each pages its FILTERED rows; resets to page 0 on filter.
+  const epPage = usePagination(filteredEndpoints, 12);
+  const usersPage = usePagination(m?.active_users ?? [], 12);
+  const slowPage = usePagination(m?.slowest_endpoints ?? [], 12);
+  const errPage = usePagination(m?.recent_errors ?? [], 12);
 
   // ── Loading skeleton ────────────────────────────────────────────────────
   if (state === 'running' && !m) {
@@ -319,9 +327,9 @@ export default function ServerMetricsPanel() {
           ) : filteredEndpoints.length === 0 ? (
             <EmptyState icon={Search} compact title="No matching routes" />
           ) : (
-            <div className="scrollbar-thin max-h-[420px] overflow-auto">
+            <div className="px-1 pb-2">
               <table className="w-full border-collapse text-[11px]">
-                <thead className="sticky top-0">
+                <thead>
                   <tr className="text-[10px] uppercase tracking-wide text-slate-400">
                     <th className="glass-2 px-3 py-1.5 text-left font-semibold">Endpoint</th>
                     <th className="glass-2 px-2 py-1.5 text-right font-semibold">Req</th>
@@ -331,7 +339,7 @@ export default function ServerMetricsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEndpoints.map((e) => (
+                  {epPage.slice.map((e) => (
                     <tr key={`${e.method} ${e.path}`} className="border-b border-slate-100 dark:border-slate-800">
                       <td className="max-w-[300px] truncate px-3 py-1 font-mono text-slate-700 dark:text-slate-200" title={`${e.method} ${e.path}`}>
                         <span className="text-slate-400">{e.method}</span> {e.path}
@@ -344,6 +352,15 @@ export default function ServerMetricsPanel() {
                   ))}
                 </tbody>
               </table>
+              <Pager
+                page={epPage.page}
+                pageCount={epPage.pageCount}
+                total={epPage.total}
+                from={epPage.from}
+                to={epPage.to}
+                onPage={epPage.setPage}
+                unit="endpoints"
+              />
             </div>
           )}
         </GlassPanel>
@@ -356,14 +373,25 @@ export default function ServerMetricsPanel() {
           {m.active_users.length === 0 ? (
             <EmptyState icon={Users} compact title="—" />
           ) : (
-            <ul className="space-y-1">
-              {m.active_users.map((u, i) => (
-                <li key={u.username} className="flex items-center justify-between text-[11px]">
-                  <span className="truncate text-slate-600 dark:text-slate-300">{i + 1}. {u.username || '—'}</span>
-                  <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{u.requests}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="space-y-1">
+                {usersPage.slice.map((u, i) => (
+                  <li key={u.username} className="flex items-center justify-between text-[11px]">
+                    <span className="truncate text-slate-600 dark:text-slate-300">{usersPage.from + i}. {u.username || '—'}</span>
+                    <span className="rounded-full bg-slate-100 px-1.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">{u.requests}</span>
+                  </li>
+                ))}
+              </ul>
+              <Pager
+                page={usersPage.page}
+                pageCount={usersPage.pageCount}
+                total={usersPage.total}
+                from={usersPage.from}
+                to={usersPage.to}
+                onPage={usersPage.setPage}
+                unit="users"
+              />
+            </>
           )}
         </GlassPanel>
       </div>
@@ -378,18 +406,29 @@ export default function ServerMetricsPanel() {
           {m.slowest_endpoints.length === 0 ? (
             <EmptyState icon={Timer} compact title="—" />
           ) : (
-            <div className="scrollbar-thin max-h-[320px] divide-y divide-slate-100 overflow-auto dark:divide-slate-800">
-              {m.slowest_endpoints.map((e) => (
-                <div key={`${e.method} ${e.path}`} className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px]">
-                  <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={`${e.method} ${e.path}`}>
-                    <span className="text-slate-400">{e.method}</span> {e.path}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <span className="text-[10px] text-slate-400">{e.requests}×</span>
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{Math.round(e.avg_ms)} ms</span>
-                  </span>
-                </div>
-              ))}
+            <div className="px-3 pb-2">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {slowPage.slice.map((e) => (
+                  <div key={`${e.method} ${e.path}`} className="flex items-center justify-between gap-2 py-1.5 text-[11px]">
+                    <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={`${e.method} ${e.path}`}>
+                      <span className="text-slate-400">{e.method}</span> {e.path}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="text-[10px] text-slate-400">{e.requests}×</span>
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{Math.round(e.avg_ms)} ms</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <Pager
+                page={slowPage.page}
+                pageCount={slowPage.pageCount}
+                total={slowPage.total}
+                from={slowPage.from}
+                to={slowPage.to}
+                onPage={slowPage.setPage}
+                unit="endpoints"
+              />
             </div>
           )}
         </GlassPanel>
@@ -403,21 +442,32 @@ export default function ServerMetricsPanel() {
           {m.recent_errors.length === 0 ? (
             <EmptyState icon={AlertTriangle} compact title="No errors 🎉" />
           ) : (
-            <div className="scrollbar-thin max-h-[320px] divide-y divide-slate-100 overflow-auto dark:divide-slate-800">
-              {m.recent_errors.map((e, i) => (
-                <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 text-[11px]">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-semibold', STATUS_TINT(e.status))}>{e.status}</span>
-                    <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={`${e.method} ${e.path}`}>
-                      <span className="text-slate-400">{e.method}</span> {e.path}
+            <div className="px-3 pb-2">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {errPage.slice.map((e, i) => (
+                  <div key={errPage.from + i} className="flex items-center justify-between gap-2 py-1.5 text-[11px]">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className={cn('rounded-full px-1.5 py-0.5 text-[9px] font-semibold', STATUS_TINT(e.status))}>{e.status}</span>
+                      <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={`${e.method} ${e.path}`}>
+                        <span className="text-slate-400">{e.method}</span> {e.path}
+                      </span>
                     </span>
-                  </span>
-                  <span className="shrink-0 text-[10px] text-slate-400">
-                    {e.username && e.username !== 'anonymous' ? `${e.username} · ` : ''}
-                    {e.ts ? new Date(e.ts).toLocaleTimeString() : ''}
-                  </span>
-                </div>
-              ))}
+                    <span className="shrink-0 text-[10px] text-slate-400">
+                      {e.username && e.username !== 'anonymous' ? `${e.username} · ` : ''}
+                      {e.ts ? new Date(e.ts).toLocaleTimeString() : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <Pager
+                page={errPage.page}
+                pageCount={errPage.pageCount}
+                total={errPage.total}
+                from={errPage.from}
+                to={errPage.to}
+                onPage={errPage.setPage}
+                unit="errors"
+              />
             </div>
           )}
         </GlassPanel>

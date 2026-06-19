@@ -13,6 +13,7 @@ import {
 } from 'react-icons/pi';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
+import Pager, { usePagination } from '@/components/ui/Pager';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import {
@@ -200,6 +201,7 @@ export default function PlatformSettingsPage() {
       );
     });
   }, [entries, categoryFilter, debounced]);
+  const page = usePagination(filtered, 12);
 
   return (
     <div className="@container p-4">
@@ -337,7 +339,8 @@ export default function PlatformSettingsPage() {
           description="Adjust the search term or clear the category filter to see more."
         />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700">
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
@@ -349,7 +352,7 @@ export default function PlatformSettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((e) => {
+              {page.slice.map((e) => {
                 const draft = drafts[e.key] ?? valueToString(e.value);
                 const dirty = draft !== valueToString(e.value);
                 return (
@@ -392,6 +395,18 @@ export default function PlatformSettingsPage() {
               })}
             </tbody>
           </table>
+          </div>
+          <div className="px-3 pb-2">
+            <Pager
+              page={page.page}
+              pageCount={page.pageCount}
+              total={page.total}
+              from={page.from}
+              to={page.to}
+              onPage={page.setPage}
+              unit="settings"
+            />
+          </div>
         </div>
       )}
 

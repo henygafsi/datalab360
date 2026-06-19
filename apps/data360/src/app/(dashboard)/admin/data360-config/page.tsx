@@ -48,6 +48,7 @@ import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { safeLocale } from '@/lib/format-number';
 import EmptyState from '@/components/ui/EmptyState';
+import Pager, { usePagination } from '@/components/ui/Pager';
 import { GlassPanel } from '@/app/shared/glass';
 import {
   getCacheConfig,
@@ -337,6 +338,7 @@ function ConfigTab() {
       }),
     [allTables, dq, onlyDated],
   );
+  const tablesPage = usePagination(tables, 12);
 
   const confirmRefresh = useCallback(async () => {
     if (!pending) return;
@@ -453,9 +455,9 @@ function ConfigTab() {
         ) : tables.length === 0 ? (
           <EmptyState icon={Search} compact title="No tables match your filter" description="Adjust the search or clear the date-column filter." />
         ) : (
-          <div className="scrollbar-thin max-h-[480px] overflow-auto">
+          <div className="px-1 pb-2">
             <table className="w-full border-collapse text-[11px]">
-              <thead className="sticky top-0">
+              <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-slate-400">
                   <th className="glass-2 px-3 py-1.5 text-left font-semibold">Table</th>
                   <th className="glass-2 px-2 py-1.5 text-left font-semibold">Date column(s)</th>
@@ -464,7 +466,7 @@ function ConfigTab() {
                 </tr>
               </thead>
               <tbody>
-                {tables.map((t) => {
+                {tablesPage.slice.map((t) => {
                   const fqn = `${t.database}.${t.schema}.${t.table_name}`;
                   const busy = busyTable === t.table;
                   const justAt = refreshed[t.table];
@@ -523,6 +525,15 @@ function ConfigTab() {
                 })}
               </tbody>
             </table>
+            <Pager
+              page={tablesPage.page}
+              pageCount={tablesPage.pageCount}
+              total={tablesPage.total}
+              from={tablesPage.from}
+              to={tablesPage.to}
+              onPage={tablesPage.setPage}
+              unit="tables"
+            />
           </div>
         )}
       </GlassPanel>
@@ -594,6 +605,9 @@ function CacheTab() {
       }),
     [allCacheEntries, moduleFilter, dq],
   );
+  const entriesPage = usePagination(cacheEntries, 12);
+  const queriesPage = usePagination(cachedQueries, 12);
+  const invPage = usePagination(invEvents, 12);
 
   // TTL inline edit (platform-wide → confirm before PATCH).
   const [editKey, setEditKey] = useState<string | null>(null);
@@ -684,9 +698,9 @@ function CacheTab() {
         ) : cacheEntries.length === 0 ? (
           <EmptyState icon={Search} compact title="No cached entries match your filter" description="Adjust the search or clear the module filter." />
         ) : (
-          <div className="scrollbar-thin max-h-[320px] overflow-auto">
+          <div className="px-1 pb-2">
             <table className="w-full border-collapse text-[11px]">
-              <thead className="sticky top-0">
+              <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-slate-400">
                   <th className="glass-2 px-3 py-1.5 text-left font-semibold">Key</th>
                   <th className="glass-2 px-2 py-1.5 text-left font-semibold">Module</th>
@@ -696,8 +710,8 @@ function CacheTab() {
                 </tr>
               </thead>
               <tbody>
-                {cacheEntries.map((e, i) => (
-                  <tr key={`${e.key}-${i}`} className="border-b border-slate-100 dark:border-slate-800">
+                {entriesPage.slice.map((e, i) => (
+                  <tr key={`${e.key}-${entriesPage.from + i}`} className="border-b border-slate-100 dark:border-slate-800">
                     <td className="max-w-[280px] truncate px-3 py-1 font-mono text-slate-700 dark:text-slate-200" title={e.key}>
                       {e.key}
                     </td>
@@ -709,6 +723,15 @@ function CacheTab() {
                 ))}
               </tbody>
             </table>
+            <Pager
+              page={entriesPage.page}
+              pageCount={entriesPage.pageCount}
+              total={entriesPage.total}
+              from={entriesPage.from}
+              to={entriesPage.to}
+              onPage={entriesPage.setPage}
+              unit="entries"
+            />
           </div>
         )}
       </GlassPanel>
@@ -744,15 +767,26 @@ function CacheTab() {
             {cachedQueries.length === 0 ? (
               <EmptyState icon={Database} compact title="No cached queries right now" />
             ) : (
-              <div className="scrollbar-thin max-h-[280px] divide-y divide-slate-100 overflow-auto dark:divide-slate-800">
-                {cachedQueries.slice(0, 200).map((q, i) => (
-                  <div key={`${q.fqdn}-${i}`} className="flex items-center justify-between gap-2 px-3 py-1 text-[11px]">
-                    <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={q.fqdn}>
-                      {q.fqdn}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-slate-400">{q.db}</span>
-                  </div>
-                ))}
+              <div className="px-3 pb-2">
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {queriesPage.slice.map((q, i) => (
+                    <div key={`${q.fqdn}-${queriesPage.from + i}`} className="flex items-center justify-between gap-2 py-1 text-[11px]">
+                      <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={q.fqdn}>
+                        {q.fqdn}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-slate-400">{q.db}</span>
+                    </div>
+                  ))}
+                </div>
+                <Pager
+                  page={queriesPage.page}
+                  pageCount={queriesPage.pageCount}
+                  total={queriesPage.total}
+                  from={queriesPage.from}
+                  to={queriesPage.to}
+                  onPage={queriesPage.setPage}
+                  unit="queries"
+                />
               </div>
             )}
           </>
@@ -776,18 +810,29 @@ function CacheTab() {
         ) : invEvents.length === 0 ? (
           <EmptyState icon={Layers} compact title="No invalidations since restart" />
         ) : (
-          <div className="scrollbar-thin max-h-[240px] divide-y divide-slate-100 overflow-auto dark:divide-slate-800">
-            {invEvents.map((e, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 px-3 py-1 text-[11px]">
-                <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={e.table}>
-                  {e.table}
-                </span>
-                <span className="shrink-0 text-[10px] text-slate-400">
-                  {e.module ?? ''} {e.triggered_by ? `· ${e.triggered_by}` : ''}{' '}
-                  {e.ts ? new Date(e.ts).toLocaleTimeString() : ''}
-                </span>
-              </div>
-            ))}
+          <div className="px-3 pb-2">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {invPage.slice.map((e, i) => (
+                <div key={invPage.from + i} className="flex items-center justify-between gap-2 py-1 text-[11px]">
+                  <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={e.table}>
+                    {e.table}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-slate-400">
+                    {e.module ?? ''} {e.triggered_by ? `· ${e.triggered_by}` : ''}{' '}
+                    {e.ts ? new Date(e.ts).toLocaleTimeString() : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <Pager
+              page={invPage.page}
+              pageCount={invPage.pageCount}
+              total={invPage.total}
+              from={invPage.from}
+              to={invPage.to}
+              onPage={invPage.setPage}
+              unit="events"
+            />
           </div>
         )}
       </GlassPanel>
