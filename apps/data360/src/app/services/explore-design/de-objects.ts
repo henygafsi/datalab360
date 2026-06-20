@@ -236,9 +236,18 @@ export async function discoverRelationships(
   return data;
 }
 
-export async function getSchemaHealth(projectId: string): Promise<SchemaHealthResult> {
-  const { data } = await apiClient.get<SchemaHealthResult>(
+export async function getSchemaHealth(
+  projectId: string,
+  body: { database: string; schema: string },
+): Promise<SchemaHealthResult> {
+  // Backend only registers POST /{project_id}/ai/schema-health (AISchemaHealthRequest
+  // requires {database, schema}); a GET 405s. The score is computed by scanning
+  // {database}.{schema} via INFORMATION_SCHEMA (ai_services.py:calculate_schema_health),
+  // so the caller MUST pass the project's real db/schema — a governance-schema default
+  // would 200 with a score against the wrong tables (fake data).
+  const { data } = await apiClient.post<SchemaHealthResult>(
     `${PREFIX}/${projectId}/ai/schema-health`,
+    { database: body.database, schema: body.schema },
   );
   return data;
 }

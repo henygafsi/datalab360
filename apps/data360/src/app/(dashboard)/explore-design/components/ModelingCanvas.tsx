@@ -119,6 +119,13 @@ interface ModelingCanvasProps {
   onHybridTableCreate?: (table: TableItem) => void;
   onStreamCreate?: (table: TableItem) => void;
   onAlertCreate?: (table: TableItem) => void;
+  /**
+   * Add a brand-new table to the model from the canvas "+" button.
+   * 'manual' = define columns by hand (Power BI style); 'empty' = blank table
+   * to be fed/populated from source mappings. Lands the node in the model first,
+   * keeping the select -> add-to-modeling -> configure-ingestion flow intact.
+   */
+  onAddTable?: (mode: 'manual' | 'empty') => void;
   // Fullscreen & panel toggle props
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
@@ -292,6 +299,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   onHybridTableCreate,
   onStreamCreate,
   onAlertCreate,
+  onAddTable,
   isFullscreen = false,
   onToggleFullscreen,
   showSidebar,
@@ -706,6 +714,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   const [showMinimap, setShowMinimap] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
+  // Canvas "+ Add table" menu (manual / empty-fed-by-sources).
+  const [showAddTableMenu, setShowAddTableMenu] = useState(false);
   const [relationMode, setRelationMode] = useState(false);
   const [pendingConnection, setPendingConnection] = useState<{
     sourceNode: string;
@@ -1536,6 +1546,61 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
               </Button>
             </Tooltip>
           </div>
+
+          {/* + Add table — drops a new table straight onto the canvas:
+              define it by hand (Power BI style) or start empty to be fed by
+              sources. Hidden in read-only / when the host doesn't wire it. */}
+          {onAddTable && !isReadOnly && (
+            <div className="relative">
+              <Tooltip content="Add a table to the model">
+                <Button
+                  variant="text"
+                  size="sm"
+                  onClick={() => setShowAddTableMenu((v) => !v)}
+                  className={cn(
+                    'flex items-center gap-1 rounded-lg border bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-800',
+                    showAddTableMenu && 'text-blue-600 dark:text-blue-400',
+                  )}
+                >
+                  <Plus className="h-4 w-4" />
+                  <span className="text-xs font-medium">Add table</span>
+                </Button>
+              </Tooltip>
+              {showAddTableMenu && (
+                <>
+                  {/* click-away (transparent, non-blocking) */}
+                  <div
+                    className="fixed inset-0 z-[5]"
+                    onClick={() => setShowAddTableMenu(false)}
+                  />
+                  <div className="absolute left-0 top-full z-10 mt-1 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => { setShowAddTableMenu(false); onAddTable('manual'); }}
+                      className="flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/60"
+                    >
+                      <Table2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">Define manually</span>
+                        <span className="block text-[11px] text-slate-500 dark:text-slate-400">Add columns by hand, like Power BI</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowAddTableMenu(false); onAddTable('empty'); }}
+                      className="flex w-full items-start gap-2.5 border-t border-slate-100 px-3 py-2.5 text-left transition-colors hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/60"
+                    >
+                      <Database className="mt-0.5 h-4 w-4 shrink-0 text-teal-500" />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">Empty table</span>
+                        <span className="block text-[11px] text-slate-500 dark:text-slate-400">Start blank, feed it from sources</span>
+                      </span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </Panel>
 
         {/* Tools Panel */}
@@ -1899,6 +1964,30 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           isNullable: c.isNullable,
         }))}
         onCreateMapping={handleColumnMapping}
+        onCreateTargetColumns={(cols) => {
+          // Empty target inherits columns from the source so it can be fed.
+          if (!mappingTargetTable || !onColumnsMapUpdate) return;
+          const targetId = mappingTargetTable.id;
+          onColumnsMapUpdate((prev) => {
+            const existing = prev.get(targetId) || [];
+            const existingNames = new Set(existing.map((c) => c.name.toLowerCase()));
+            const added = cols
+              .filter((c) => !existingNames.has(c.name.toLowerCase()))
+              .map((c) => ({
+                name: c.name,
+                dataType: c.dataType,
+                isNullable: true,
+                isPrimaryKey: false,
+              } as ColumnInfo));
+            if (added.length === 0) return prev;
+            const updated = new Map(prev);
+            updated.set(targetId, [...existing, ...added]);
+            return updated;
+          });
+          toast.success(
+            `Added ${cols.length} column${cols.length === 1 ? '' : 's'} from ${mappingSourceTable?.table ?? 'source'} — now map or transform them`,
+          );
+        }}
         existingMappings={
           // Only show user-created ETL mappings, not FK relationships
           // FK relationships are database constraints, not ETL mappings

@@ -51,7 +51,11 @@ import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { isUnavailable } from '@/lib/http-status';
 import { fmtNum } from '@/app/shared/ui/format';
+import { safeLocale } from '@/lib/format-number';
 import { createSchemaClone } from '@/app/services/explore-design';
+// TODO verify endpoint: reuses the org-accounts warehouse usage rollup (the only
+// existing contract that lists warehouse names) to populate DE create modals.
+import { getWarehouses } from '@/app/services/org-accounts/hooks';
 import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
 import { useAuth } from '@/hooks/useAuth';
 import { useSession } from 'next-auth/react';
@@ -63,6 +67,7 @@ const ModelingCanvas = dynamic(() => import('./components/ModelingCanvas'), { ss
 const SourceMindMap = dynamic(() => import('./components/SourceMindMap'), { ssr: false });
 const ContextRightBar = dynamic(() => import('./components/ContextRightBar'), { ssr: false });
 import type { RightBarTab, FocusedAction } from './components/ContextRightBar';
+import { useIngestionTrace } from '@/hooks/useIngestionTrace';
 import EventTable from './components/EventTable';
 import DeploymentValidation from './components/DeploymentValidation';
 import AiGuidedModelButton from './components/ai-guided/AiGuidedModelButton';
@@ -1032,6 +1037,13 @@ export default function ExploreDesignPage() {
   const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set());
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
   const [selectedTable, setSelectedTable] = useState<TableItem | null>(null);
+  // ONE bulk, account-global ingestion trace (Snowpipe + COPY). Hydrated after
+  // first paint; exposes an O(1) `lookup` used by the source-table list rows and
+  // the right-bar — no per-row fetch (no N+1).
+  const { lookup: ingestionLookup } = useIngestionTrace(7);
+  const selectedIngestion = selectedTable
+    ? ingestionLookup(selectedTable.database, selectedTable.schema, selectedTable.table)
+    : null;
   const [tableColumns, setTableColumns] = useState<ColumnInfo[]>([]);
   const [tableColumnsMap, setTableColumnsMap] = useState<Map<string, ColumnInfo[]>>(new Map());
   const [tableConfig, setTableConfig] = useState<TableConfig | null>(null);
@@ -1102,6 +1114,11 @@ export default function ExploreDesignPage() {
   const [alertModal, setAlertModal] = useState(false);
   const [eventTableModal, setEventTableModal] = useState(false);
   const [hybridTableModal, setHybridTableModal] = useState(false);
+  // Account warehouses for the DE create modals (Dynamic Table / Alert). Fetched
+  // once, non-blocking; failures (e.g. non-admin → 403) degrade to [] and the
+  // modals fall back to their default warehouse. Sourced from the existing
+  // org-accounts usage rollup — the only contract that lists warehouse names.
+  const [accountWarehouses, setAccountWarehouses] = useState<string[]>([]);
 
   // AI column classification
   const [columnClassifications, setColumnClassifications] = useState<Map<string, Record<string, string>>>(new Map());
@@ -1150,6 +1167,27 @@ export default function ExploreDesignPage() {
   useEffect(() => {
     localStorage.setItem('explore-design-view-mode', viewMode);
   }, [viewMode]);
+
+  // Restore the active view from the deep-link (?view) on first load so a
+  // shared link reopens where the user was (catalog vs modeling).
+  useEffect(() => {
+    const v = searchParams.get('view');
+    if (v === 'modeling' || v === 'catalog') setViewMode(v);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep ?project_id + ?view in the URL so the page is shareable/bookmarkable
+  // and restores the selected project + view. router.replace (not push) avoids
+  // polluting history on every switch. Only writes once a project is selected,
+  // so an incoming ?project_id deep-link survives until it auto-selects.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !selectedProjectId) return;
+    const params = new URLSearchParams(Array.from(searchParams.entries()));
+    params.set('project_id', selectedProjectId);
+    params.set('view', viewMode);
+    router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectId, viewMode]);
 
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
@@ -1233,6 +1271,27 @@ export default function ExploreDesignPage() {
 
   // Refresh trigger for tables
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Load account warehouses once for the DE create modals — fail-soft so a
+  // 403 (non-admin) or slow query never blocks the page; modals fall back to
+  // their default warehouse when the list is empty.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getWarehouses();
+        if (cancelled) return;
+        setAccountWarehouses(
+          (res?.warehouses ?? [])
+            .map((w) => w.warehouse_name)
+            .filter((n): n is string => Boolean(n)),
+        );
+      } catch {
+        if (!cancelled) setAccountWarehouses([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Event store with project filtering
   const {
@@ -3181,6 +3240,105 @@ export default function ExploreDesignPage() {
     toast.success(`Removed ${table.table} from modeling`);
   }, [tables, selectedProjectId, addEvent]);
 
+  // Canvas "+ Add table" — 'manual' reuses the standard CreateTableModal flow
+  // (define columns by hand, Power BI style); 'empty' drops a blank draft table
+  // straight onto the canvas so it lands in the model first, then gets fed from
+  // sources. Both keep the select -> add-to-modeling -> configure-ingestion flow.
+  const handleAddTableFromCanvas = useCallback((mode: 'manual' | 'empty') => {
+    if (readOnlyGuard()) return;
+    if (!selectedProjectId) { toast.error('Select a project first'); return; }
+
+    // Both modes need somewhere for the table to live. If no DWH target is set
+    // (e.g. a "from scratch" model), open the location picker first instead of
+    // dead-ending on a toast — also keeps created tables out of an empty schema.
+    const db = dwhTargetDatabase || selectedDatabase || '';
+    const schema = dwhTargetSchema || '';
+    if (!db || !schema) {
+      toast('Pick where new tables should live first', { icon: '📍' });
+      setShowLocationPicker(true);
+      return;
+    }
+
+    if (mode === 'manual') {
+      setCreateTableType('standard');
+      setShowCreateTableModal(true);
+      return;
+    }
+
+    // 'empty' — blank table to be populated by source mappings.
+    let n = 1;
+    while (tables.some(t => t.id === `${db}.${schema}.NEW_TABLE_${n}`)) n += 1;
+    const tableName = `NEW_TABLE_${n}`;
+    const tableId = `${db}.${schema}.${tableName}`;
+    const newTable: TableItem = {
+      id: tableId,
+      database: db,
+      schema,
+      table: tableName,
+      columnCount: 0,
+      hasPrimaryKey: false,
+      status: 'pending',
+      sensitiveColumns: 0,
+    };
+    setTables(prev => (prev.some(t => t.id === tableId) ? prev : [...prev, newTable]));
+    setTargetTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
+    setModelingTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
+    setTableColumnsMap(prev => { const next = new Map(prev); next.set(tableId, []); return next; });
+    addEvent({
+      type: 'TABLE_CREATED',
+      projectId: selectedProjectId || undefined,
+      target: { database: db, schema, table: tableName },
+      payload: { tableId, tableName, mode: 'empty', columns: 0 },
+    });
+    setSelectedTable(newTable);
+    handleOpenContextBar(newTable);
+    toast.success(`Empty table "${tableName}" added — feed it from sources`);
+  }, [readOnlyGuard, selectedProjectId, dwhTargetDatabase, selectedDatabase, dwhTargetSchema, tables, addEvent, handleOpenContextBar]);
+
+  // A Data-Engineering create (dynamic / hybrid / event / stream) produces a
+  // LIVE object in the warehouse. Inject it into the modeling canvas with its
+  // REAL columns (so it can immediately be mapped / PK'd / ingested), select it,
+  // and switch to the modeling view so the user actually SEES the result.
+  const injectCreatedTable = useCallback(async (created: { database?: string; schema?: string; table: string }) => {
+    const db = created.database || dwhTargetDatabase || selectedDatabase || '';
+    const schema = created.schema || dwhTargetSchema || '';
+    if (!db || !schema || !created.table) {
+      // Location unknown — fall back to a source reload so it isn't lost.
+      setRefreshTrigger(prev => prev + 1);
+      return;
+    }
+    const tableId = `${db}.${schema}.${created.table}`;
+    const newTable: TableItem = {
+      id: tableId, database: db, schema, table: created.table,
+      columnCount: 0, hasPrimaryKey: false, status: 'configured', sensitiveColumns: 0,
+    };
+    setTables(prev => (prev.some(t => t.id === tableId) ? prev : [...prev, newTable]));
+    setTargetTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
+    setModelingTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
+    setViewMode('modeling');
+    setSelectedTable(newTable);
+    // Pull the live object's real columns so the node is immediately mappable.
+    try {
+      const columns = await getTableColumns(db, schema, created.table);
+      if (columns && columns.length > 0) {
+        const formatted: ColumnInfo[] = columns.map((col: any) => ({
+          name: col.name || col.COLUMN_NAME || col.column_name || 'unknown',
+          dataType: col.data_type || col.type || col.DATA_TYPE || 'VARCHAR',
+          isPrimaryKey: col.isPk === 'Y' || col.isPk === true || col.is_primary_key === true || col.IS_PRIMARY_KEY === 'Y',
+          isNullable: col.isNull === 'Y' || col.is_nullable === 'YES' || col.IS_NULLABLE === 'YES',
+          isSensitive: detectSensitiveColumn(col.name || col.COLUMN_NAME || col.column_name || ''),
+        }));
+        setTableColumnsMap(prev => { const next = new Map(prev); next.set(tableId, formatted); return next; });
+        setTables(prev => prev.map(t => t.id === tableId
+          ? { ...t, columnCount: formatted.length, hasPrimaryKey: formatted.some(f => f.isPrimaryKey) }
+          : t));
+      }
+    } catch {
+      // Columns lazy-load when the node is opened; non-fatal.
+    }
+    toast.success(`${created.table} added to the model`);
+  }, [dwhTargetDatabase, selectedDatabase, dwhTargetSchema]);
+
   // Add primary key to a table - saves event for later execution
   // AI Column Classification handler
   const handleAIClassify = useCallback(async () => {
@@ -3471,7 +3629,7 @@ export default function ExploreDesignPage() {
           action="deploy"
           projectId={selectedProjectId}
           title="Deployment restricted"
-          description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to Snowflake requires an administrator to grant deploy access."
+          description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to the data warehouse requires an administrator to grant deploy access."
         >
           <DeploymentValidation
             embedded
@@ -3812,48 +3970,55 @@ export default function ExploreDesignPage() {
       {showApproachFork && (
         <div
           role="dialog"
-          aria-modal="true"
           aria-label="Change approach"
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          className="fixed inset-y-0 right-0 z-[60] flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setShowApproachFork(false);
+          }}
         >
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={() => setShowApproachFork(false)}
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-          />
-          <div className="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-              Change how you build this data model
-            </h3>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Switch to AI to scaffold from a description, apply the DWH
-              template, or keep modeling manually.
-            </p>
-            <div className="mt-4">
-              <ManualAiTemplateFork
-                value={null}
-                ariaLabel="Change how you build this data model"
-                descriptions={{
-                  manual: 'Continue modeling on the canvas. Full control.',
-                  ai: 'Describe your data model, AI scaffolds the schema.',
-                  template: 'Apply the proven DWH starter scaffold.',
-                }}
-                onChange={(mode: BuildMode) => {
-                  setShowApproachFork(false);
-                  if (mode === 'ai') {
-                    setAiModelSeed('');
-                    setScanSeedTables([]);
-                    setShowAiGuidedWizard(true);
-                  } else if (mode === 'template') {
-                    setShowLocationPicker(true);
-                  } else {
-                    setModelingChoice('scratch');
-                    setViewMode('modeling');
-                  }
-                }}
-              />
+          <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-5 dark:border-slate-700">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+                Change how you build this data model
+              </h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Switch to AI to scaffold from a description, apply the DWH
+                template, or keep modeling manually.
+              </p>
             </div>
+            <button
+              type="button"
+              aria-label="Close"
+              autoFocus
+              onClick={() => setShowApproachFork(false)}
+              className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto p-5">
+            <ManualAiTemplateFork
+              value={null}
+              ariaLabel="Change how you build this data model"
+              descriptions={{
+                manual: 'Continue modeling on the canvas. Full control.',
+                ai: 'Describe your data model, AI scaffolds the schema.',
+                template: 'Apply the proven DWH starter scaffold.',
+              }}
+              onChange={(mode: BuildMode) => {
+                setShowApproachFork(false);
+                if (mode === 'ai') {
+                  setAiModelSeed('');
+                  setScanSeedTables([]);
+                  setShowAiGuidedWizard(true);
+                } else if (mode === 'template') {
+                  setShowLocationPicker(true);
+                } else {
+                  setModelingChoice('scratch');
+                  setViewMode('modeling');
+                }
+              }}
+            />
           </div>
         </div>
       )}
@@ -4089,6 +4254,7 @@ export default function ExploreDesignPage() {
                   expandedSchemas={expandedSchemas}
                   onSchemaToggle={handleSchemaExpand}
                   searchQuery={searchQuery}
+                  ingestionLookup={ingestionLookup}
                   className="h-full"
                 />
               ) : (
@@ -4138,7 +4304,7 @@ export default function ExploreDesignPage() {
               {/* Catalog Toolbar - Create Dropdown */}
               <div className="px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2">
                 <div className="relative">
-                  <Tooltip content={isReadOnly ? 'View-only access' : 'Create new Snowflake object'}>
+                  <Tooltip content={isReadOnly ? 'View-only access' : 'Create new object'}>
                     <Button
                       variant="outline"
                       size="sm"
@@ -4268,7 +4434,7 @@ export default function ExploreDesignPage() {
                         </span>
                         {inlineProfileData && (
                           <>
-                            <span className="text-xs text-slate-500">{inlineProfileData.row_count.toLocaleString()} rows</span>
+                            <span className="text-xs text-slate-500">{safeLocale(inlineProfileData.row_count)} rows</span>
                             <span className={cn('text-xs font-medium', inlineProfileData.aggregate_quality_score >= 80 ? 'text-green-600' : inlineProfileData.aggregate_quality_score >= 60 ? 'text-amber-600' : 'text-red-600')}>
                               Quality {inlineProfileData.aggregate_quality_score}%
                             </span>
@@ -4322,7 +4488,7 @@ export default function ExploreDesignPage() {
                             <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Data Preview</span>
                             {inlinePreviewData && (
                               <Badge className="bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400 text-[10px]">
-                                {inlinePreviewData.total_rows.toLocaleString()} rows
+                                {safeLocale(inlinePreviewData.total_rows)} rows
                               </Badge>
                             )}
                             <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[10px] gap-1">
@@ -4581,6 +4747,7 @@ export default function ExploreDesignPage() {
                 onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'catalog', pendingEvents: displayablePendingEvents.length }); setActiveRightTab('deploy'); setRightBarOpen(true); }}
                 onDeselectTable={() => { setSelectedTable(null); setRightBarOpen(false); }}
                 deployOverride={deployTabNode}
+                ingestionTrace={selectedIngestion}
               />
               </div>{/* end center+right row */}
             </>
@@ -4945,6 +5112,7 @@ export default function ExploreDesignPage() {
                   setSelectedTable(table);
                   setAlertModal(true);
                 }}
+                onAddTable={handleAddTableFromCanvas}
                 className={cn("h-full", isFullscreen && "pt-16")}
                 projectId={selectedProjectId}
                 defaultRelationships={defaultRelationships}
@@ -5000,6 +5168,7 @@ export default function ExploreDesignPage() {
                 onDeselectTable={() => { setSelectedTable(null); }}
                 onNodeAction={handleNodeContextAction}
                 deployOverride={deployTabNode}
+                ingestionTrace={selectedIngestion}
                 emptyOverride={
                   <ModelOverview
                     tableCount={modelingTableIds.size}
@@ -5494,28 +5663,33 @@ export default function ExploreDesignPage() {
         isOpen={dynamicTableModal}
         onClose={() => setDynamicTableModal(false)}
         sourceTable={selectedTable || undefined}
-        warehouses={[]}
+        warehouses={accountWarehouses}
+        onCreated={injectCreatedTable}
       />
       <StreamModal
         isOpen={streamModal}
         onClose={() => setStreamModal(false)}
         sourceTable={selectedTable || undefined}
+        onCreated={injectCreatedTable}
       />
       <AlertModal
         isOpen={alertModal}
         onClose={() => setAlertModal(false)}
         sourceTable={selectedTable || undefined}
-        warehouses={[]}
+        warehouses={accountWarehouses}
+        onCreated={() => setRefreshTrigger(prev => prev + 1)}
       />
       <EventTableModal
         isOpen={eventTableModal}
         onClose={() => setEventTableModal(false)}
         context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
+        onCreated={injectCreatedTable}
       />
       <HybridTableModal
         isOpen={hybridTableModal}
         onClose={() => setHybridTableModal(false)}
         context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
+        onCreated={injectCreatedTable}
       />
 
       {/* Catalog Policy + Ingestion panels moved to right rail — no modals */}

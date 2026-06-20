@@ -17,6 +17,7 @@ import { useId, useState } from 'react';
 import { Coins } from 'lucide-react';
 import cn from '@core/utils/class-names';
 import { useAiCostEstimate } from '@/hooks/useAiCostEstimate';
+import { safeToFixed } from '@/lib/format-number';
 
 export interface AiCostBadgeProps {
   /** Feature key matching `costs-reference.json` (e.g. 'cortex_complete'). */
@@ -103,7 +104,7 @@ export default function AiCostBadge({
           </dd>
           <dt className="text-slate-500">Model ×</dt>
           <dd className="text-right tabular-nums">
-            {estimate.breakdown.modelFactor.toFixed(2)}
+            {safeToFixed(estimate.breakdown.modelFactor, 2)}
           </dd>
         </dl>
         <div className="mt-1 border-t border-slate-200 pt-1 text-[9px] italic text-slate-500 dark:border-slate-700">

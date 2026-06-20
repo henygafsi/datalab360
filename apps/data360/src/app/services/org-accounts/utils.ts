@@ -1,38 +1,52 @@
 /**
- * Formatting utilities for Organization Accounts
+ * Formatting utilities for Organization Accounts.
+ *
+ * Backend sends numeric fields as strings ("1234.5") or null/undefined even
+ * though types declare `number`. Every formatter coerces + guards so it never
+ * crashes on a string/null input; a missing/non-numeric value renders "—"
+ * (no fake 0).
  */
+import { safeNum } from '@/lib/format-number';
 
-export function formatCredits(value: number): string {
-  if (value >= 1000000) {
-    return `${(value / 1000000).toFixed(2)}M`;
+type Numeric = number | string | null | undefined;
+
+export function formatCredits(value: Numeric): string {
+  const v = safeNum(value);
+  if (v == null) return '—';
+  if (v >= 1000000) {
+    return `${(v / 1000000).toFixed(2)}M`;
   }
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(1)}K`;
+  if (v >= 1000) {
+    return `${(v / 1000).toFixed(1)}K`;
   }
-  return value.toLocaleString('en-US', {
+  return v.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 }
 
-export function formatBytes(bytes: number): string {
+export function formatBytes(bytes: Numeric): string {
+  let v = safeNum(bytes);
+  if (v == null) return '—';
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) {
-    bytes /= 1024;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
     i++;
   }
-  return `${bytes.toFixed(2)} ${units[i]}`;
+  return `${v.toFixed(2)} ${units[i]}`;
 }
 
-export function formatStorage(tb: number): string {
-  if (tb >= 1000) {
-    return `${(tb / 1000).toFixed(2)} PB`;
+export function formatStorage(tb: Numeric): string {
+  const v = safeNum(tb);
+  if (v == null) return '—';
+  if (v >= 1000) {
+    return `${(v / 1000).toFixed(2)} PB`;
   }
-  if (tb < 0.01) {
-    return `${(tb * 1024).toFixed(2)} GB`;
+  if (v < 0.01) {
+    return `${(v * 1024).toFixed(2)} GB`;
   }
-  return `${tb.toFixed(2)} TB`;
+  return `${v.toFixed(2)} TB`;
 }
 
 export function formatDate(dateString: string): string {
@@ -43,30 +57,36 @@ export function formatDate(dateString: string): string {
   });
 }
 
-export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms.toFixed(0)}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
+export function formatDuration(ms: Numeric): string {
+  const v = safeNum(ms);
+  if (v == null) return '—';
+  if (v < 1000) return `${v.toFixed(0)}ms`;
+  return `${(v / 1000).toFixed(2)}s`;
 }
 
-export function formatNumber(value: number): string {
-  if (value >= 1000000) {
-    return `${(value / 1000000).toFixed(1)}M`;
+export function formatNumber(value: Numeric): string {
+  const v = safeNum(value);
+  if (v == null) return '—';
+  if (v >= 1000000) {
+    return `${(v / 1000000).toFixed(1)}M`;
   }
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(1)}K`;
+  if (v >= 1000) {
+    return `${(v / 1000).toFixed(1)}K`;
   }
-  return value.toLocaleString();
+  return v.toLocaleString();
 }
 
-export function getHealthColor(score: number): string {
-  if (score >= 80) return 'text-green-500';
-  if (score >= 60) return 'text-yellow-500';
+export function getHealthColor(score: Numeric): string {
+  const v = safeNum(score) ?? 0;
+  if (v >= 80) return 'text-green-500';
+  if (v >= 60) return 'text-yellow-500';
   return 'text-red-500';
 }
 
-export function getHealthBgColor(score: number): string {
-  if (score >= 80) return 'bg-green-500';
-  if (score >= 60) return 'bg-yellow-500';
+export function getHealthBgColor(score: Numeric): string {
+  const v = safeNum(score) ?? 0;
+  if (v >= 80) return 'bg-green-500';
+  if (v >= 60) return 'bg-yellow-500';
   return 'bg-red-500';
 }
 

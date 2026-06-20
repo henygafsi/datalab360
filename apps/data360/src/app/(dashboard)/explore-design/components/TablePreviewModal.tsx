@@ -17,6 +17,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'react-hot-toast';
 import { tablePreview } from '@/app/services/api/exploreDesignApi';
+import { safeLocale } from '@/lib/format-number';
 
 // Adapted shape for rendering (mapped from new API response)
 interface TablePreviewData {
@@ -138,7 +139,7 @@ const TablePreviewModal: React.FC<TablePreviewModalProps> = ({
           <div className="flex items-center gap-2">
             {previewData && (
               <Badge className="bg-white/20 text-white">
-                {previewData.total_rows.toLocaleString()} rows
+                {safeLocale(previewData.total_rows)} rows
               </Badge>
             )}
             <Button
@@ -163,7 +164,7 @@ const TablePreviewModal: React.FC<TablePreviewModalProps> = ({
             <div className="flex items-center gap-2">
               <Rows3 className="h-4 w-4 text-slate-400" />
               <span className="text-slate-500">Total Rows:</span>
-              <span className="font-medium">{previewData.total_rows.toLocaleString()}</span>
+              <span className="font-medium">{safeLocale(previewData.total_rows)}</span>
             </div>
             <div className="flex items-center gap-2">
               <Columns3 className="h-4 w-4 text-slate-400" />

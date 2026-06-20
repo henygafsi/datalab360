@@ -13,6 +13,7 @@ import {
 } from '@/app/services/api/exploreDesignApi';
 import { generateSnowflakeSQL } from '../deployment/deployment-utils';
 import { getCached, setCached, hashKey } from './ai-guided-cache';
+import { safeLocale } from '@/lib/format-number';
 import type { DesignEvent, EventType } from '../../stores/event-store';
 import type {
   TableProfile,
@@ -142,7 +143,7 @@ export function buildSchemaProposalPrompt(table: TableRef, profile: TableProfile
     .join('; ');
   return [
     `Propose a warehouse model for ${table.database}.${table.schema}.${table.table}`,
-    `(${profile.row_count.toLocaleString()} rows, ${profile.column_count} columns).`,
+    `(${safeLocale(profile.row_count)} rows, ${profile.column_count} columns).`,
     `Columns: ${cols}`,
     '',
     'Identify the likely primary key, candidate foreign keys, measures vs dimensions,',

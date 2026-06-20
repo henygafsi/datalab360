@@ -23,6 +23,7 @@ import {
 
 import * as workflowApi from '@/app/services/api/workflowApi';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { safeNum } from '@/lib/format-number';
 import type { WorkflowSchedule, WorkflowCronChoice } from '@/app/services/api/types';
 
 // ============================================
@@ -73,7 +74,9 @@ function cronToHuman(cron: string): string {
   return patterns[cron] || cron;
 }
 
-function formatDuration(seconds: number): string {
+function formatDuration(value: number | string | null | undefined): string {
+  const seconds = safeNum(value);
+  if (seconds == null) return '—';
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
   const hours = Math.floor(seconds / 3600);

@@ -11,6 +11,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { listIngestionRuns } from '@/app/services/api/exploreDesignApi';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { safeLocale } from '@/lib/format-number';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -52,8 +53,8 @@ function formatDuration(ms: number): string {
   return `${mins}m ${secs}s`;
 }
 
-function formatNumber(n: number): string {
-  return n.toLocaleString();
+function formatNumber(n: number | string | null | undefined): string {
+  return safeLocale(n);
 }
 
 function formatDateTime(iso: string): string {

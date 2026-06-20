@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Input } from 'rizzui';
+import { Button, Input } from 'rizzui';
 import {
   Database, MapPin, ArrowRight, Loader2, AlertTriangle,
   CheckCircle2, Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
+import DesignDockPanel from './DesignDockPanel';
 
 interface DwhLocationPickerModalProps {
   isOpen: boolean;
@@ -58,25 +59,45 @@ const DwhLocationPickerModal: React.FC<DwhLocationPickerModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="560px">
-      <div className="p-6">
-        {/* Header */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/25 mb-4">
-            <MapPin className="h-7 w-7 text-white" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-            Choose Deployment Location
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {projectName ? (
-              <>Select where the DWH tables will be created for <span className="font-medium text-slate-700 dark:text-slate-300">{projectName}</span></>
-            ) : (
-              'Select the database and schema name for your Data Warehouse'
-            )}
-          </p>
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Choose Deployment Location"
+      subtitle={projectName
+        ? `Select where the DWH tables will be created for ${projectName}`
+        : 'Select the database and schema name for your Data Warehouse'}
+      icon={
+        <div className="inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/25">
+          <MapPin className="h-5 w-5 text-white" />
         </div>
-
+      }
+      footer={
+        <div className="flex gap-3">
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
+          <Button
+            className={cn(
+              'flex-1 gap-2 text-white shadow-md',
+              canConfirm
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-indigo-500/20'
+                : 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed',
+            )}
+            onClick={handleConfirm}
+            disabled={!canConfirm}
+          >
+            <MapPin className="h-4 w-4" />
+            Set Location & Load Template
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+      }
+    >
+      <div>
         {/* Database Selection */}
         <div className="space-y-4 mb-6">
           <div>
@@ -211,33 +232,8 @@ const DwhLocationPickerModal: React.FC<DwhLocationPickerModalProps> = ({
             </div>
           </div>
         )}
-
-        {/* Actions */}
-        <div className="flex gap-3">
-          <Button
-            variant="outline"
-            className="flex-1"
-            onClick={onClose}
-          >
-            Cancel
-          </Button>
-          <Button
-            className={cn(
-              'flex-1 gap-2 text-white shadow-md',
-              canConfirm
-                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-indigo-500/20'
-                : 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed',
-            )}
-            onClick={handleConfirm}
-            disabled={!canConfirm}
-          >
-            <MapPin className="h-4 w-4" />
-            Set Location & Load Template
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 };
 

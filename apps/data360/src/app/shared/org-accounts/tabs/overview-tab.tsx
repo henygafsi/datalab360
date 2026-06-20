@@ -53,6 +53,7 @@ import {
   DataTransferChart,
   WarehouseUsageChart,
 } from '../charts';
+import { safeToFixed } from '@/lib/format-number';
 
 interface OverviewTabProps {
   refreshKey: number;
@@ -454,7 +455,7 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
                           color={pct >= 80 ? 'danger' : pct >= 50 ? 'warning' : 'success'}
                           size="sm"
                         >
-                          {pct.toFixed(1)}%
+                          {safeToFixed(pct, 1)}%
                         </Badge>
                       </div>
                     </div>

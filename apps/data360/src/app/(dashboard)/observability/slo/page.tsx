@@ -14,6 +14,7 @@ import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/rig
 import { getSloTracking, isRouteNotDeployed } from '@/app/services/observability';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { safeNum } from '@/lib/format-number';
 import type { SloRecord } from '@/app/services/observability/types';
 
 // ---------------------------------------------------------------------------
@@ -180,17 +181,20 @@ function statusLabel(status?: string): string {
   return status ?? '—';
 }
 
-function pct(v?: number | null): string {
-  return v == null ? '—' : `${v.toFixed(1)}%`;
+function pct(v?: number | string | null): string {
+  // Backend may send these as strings; safeNum coerces + guards so .toFixed never throws.
+  const n = safeNum(v);
+  return n == null ? '—' : `${n.toFixed(1)}%`;
 }
 
 /** Format an SLO target/actual using its declared unit ('%' default, or seconds). */
-function sloValue(v?: number | null, unit?: string): string {
-  if (v == null) return '—';
+function sloValue(v?: number | string | null, unit?: string): string {
+  const n = safeNum(v);
+  if (n == null) return '—';
   const u = (unit || '%').toLowerCase();
-  if (u === 'seconds' || u === 'sec' || u === 's') return `${v.toFixed(1)}s`;
-  if (u === 'ms') return `${v.toFixed(0)}ms`;
-  return `${v.toFixed(1)}%`;
+  if (u === 'seconds' || u === 'sec' || u === 's') return `${n.toFixed(1)}s`;
+  if (u === 'ms') return `${n.toFixed(0)}ms`;
+  return `${n.toFixed(1)}%`;
 }
 
 export default function SloPage() {

@@ -32,6 +32,7 @@ import {
   getObjectEnrichment,
 } from '@/app/services/command-center';
 import type { ObjectEnrichmentRow } from '@/app/services/command-center';
+import { safeToFixed } from '@/lib/format-number';
 import type { Row } from './AuditTable';
 
 // ── sub-tabs ──────────────────────────────────────────────────────────────────
@@ -496,7 +497,7 @@ function OverviewSub() {
               <Kv k="Impact" v={selected.cost} />
               <Kv k="Stockage (est.)" v={selected.storageUsd != null ? `$${selected.storageUsd.toLocaleString()}/mo` : '—'} />
               <Kv k="Compute attribué" v={selected.attributedUsd != null ? `$${selected.attributedUsd.toLocaleString()}` : '—'} tone={selected.attributedUsd != null ? 'amber' : undefined} />
-              <Kv k="Crédits attribués" v={selected.attributedCredits != null ? selected.attributedCredits.toFixed(2) : '—'} />
+              <Kv k="Crédits attribués" v={selected.attributedCredits != null ? safeToFixed(selected.attributedCredits, 2) : '—'} />
               <Kv k="Requêtes facturables" v={selected.billableQueries != null ? String(selected.billableQueries) : '—'} />
             </DetailBox>
             <DetailBox title="Performance"><Kv k="Perf risk" v={selected.perfRisk} /><Kv k="Storage" v={selected.storage} /></DetailBox>

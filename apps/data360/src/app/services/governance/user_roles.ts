@@ -5,6 +5,17 @@
 import apiClient from '@/lib/api-client';
 
 /**
+ * Grant lineage for a single role (who granted it + when), as exposed by the
+ * additive `role_grants` field on /gouvernance/users-with-roles. ACCOUNT_USAGE
+ * lineage may be absent on some accounts, so granted_by/granted_at are nullable.
+ */
+export interface RoleGrantLineage {
+  role: string;
+  granted_by: string | null;
+  granted_at: string | null;
+}
+
+/**
  * Raw user record from /gouvernance/users-with-roles.
  * Snowflake SHOW USERS returns snake_case string fields.
  */
@@ -15,6 +26,8 @@ interface RawSnowflakeUser {
   email: string;
   disabled: string; // "true" | "false" (Snowflake returns strings)
   roles: string[];
+  /** Additive grant-lineage field — may be absent on accounts without ACCOUNT_USAGE. */
+  role_grants?: RoleGrantLineage[];
   [key: string]: unknown;
 }
 
@@ -26,6 +39,8 @@ export interface UserGrantTableData {
   displayName: string;
   email: string;
   roles: string[];
+  /** Per-role grant lineage (who granted + when). Empty when the backend omits it. */
+  roleGrants: RoleGrantLineage[];
   modules: string[];
   status: string;
 }
@@ -47,6 +62,13 @@ export async function getUsersWithRolesAndModules(): Promise<UserGrantTableData[
     displayName: u.display_name || u.name || '',
     email: u.email || '',
     roles: Array.isArray(u.roles) ? u.roles : [],
+    roleGrants: Array.isArray(u.role_grants)
+      ? u.role_grants.map((g) => ({
+          role: String(g?.role ?? ''),
+          granted_by: g?.granted_by ?? null,
+          granted_at: g?.granted_at ?? null,
+        }))
+      : [],
     modules: [], // Computed later from roles + grants mapping
     status: u.disabled === 'true' ? 'Disabled' : 'Active',
   }));

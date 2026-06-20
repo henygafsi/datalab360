@@ -702,77 +702,96 @@ function ProjectsGovernancePageInner() {
             </Badge>
           </div>
           <div className="space-y-2">
-            {pendingDeploys.map((d: any, i: number) => (
-              <div key={d.deployment_id || i} className="flex items-center justify-between rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{d.project_name}</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
-                      {d.project_type?.replace(/_/g, ' ')}
-                    </span>
-                    <Badge size="sm" variant="flat" color="warning">{d.environment}</Badge>
+            {pendingDeploys.map((d: any, i: number) => {
+              const isRejecting = rejectModal?.deploymentId === d.deployment_id;
+              const closeReject = () => { setRejectModal(null); setRejectReason(''); };
+              return (
+              <div key={d.deployment_id || i} className="rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{d.project_name}</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+                        {d.project_type?.replace(/_/g, ' ')}
+                      </span>
+                      <Badge size="sm" variant="flat" color="warning">{d.environment}</Badge>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      <Clock className="h-3 w-3" />
+                      Requested by {d.requested_by}
+                      {d.requested_at && ` — ${formatDistanceToNow(new Date(d.requested_at), { addSuffix: true })}`}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    <Clock className="h-3 w-3" />
-                    Requested by {d.requested_by}
-                    {d.requested_at && ` — ${formatDistanceToNow(new Date(d.requested_at), { addSuffix: true })}`}
+                  <div className="flex items-center gap-2 ml-4">
+                    <button
+                      onClick={() => handleApproveDeploy(d.project_id, d.deployment_id, d.project_name)}
+                      disabled={deployActionLoading === d.deployment_id || (!canApprove.allowed && !canApprove.loading)}
+                      title={(!canApprove.allowed && !canApprove.loading) ? 'You do not have permission to approve deployments.' : undefined}
+                      className="rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      {deployActionLoading === d.deployment_id ? '...' : 'Approve'}
+                    </button>
+                    <button
+                      onClick={() => isRejecting ? closeReject() : setRejectModal({ projectId: d.project_id, deploymentId: d.deployment_id, projectName: d.project_name })}
+                      disabled={deployActionLoading === d.deployment_id}
+                      aria-expanded={isRejecting}
+                      className={cn(
+                        'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1',
+                        isRejecting
+                          ? 'bg-red-600 text-white hover:bg-red-700'
+                          : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50',
+                      )}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Reject
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 ml-4">
-                  <button
-                    onClick={() => handleApproveDeploy(d.project_id, d.deployment_id, d.project_name)}
-                    disabled={deployActionLoading === d.deployment_id || (!canApprove.allowed && !canApprove.loading)}
-                    title={(!canApprove.allowed && !canApprove.loading) ? 'You do not have permission to approve deployments.' : undefined}
-                    className="rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50 flex items-center gap-1"
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    {deployActionLoading === d.deployment_id ? '...' : 'Approve'}
-                  </button>
-                  <button
-                    onClick={() => setRejectModal({ projectId: d.project_id, deploymentId: d.deployment_id, projectName: d.project_name })}
-                    disabled={deployActionLoading === d.deployment_id}
-                    className="rounded-lg bg-red-100 dark:bg-red-900/30 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50 flex items-center gap-1"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    Reject
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* Reject Deployment Modal */}
-      {rejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="button" tabIndex={0} aria-label="Close modal" onClick={() => setRejectModal(null)} onKeyDown={(e) => e.key === 'Escape' && setRejectModal(null)}>
-          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-900 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Reject Deployment</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              Reject deployment for <span className="font-medium text-gray-900 dark:text-white">{rejectModal.projectName}</span>
-            </p>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Reason for rejection (optional)"
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 resize-none"
-              rows={3}
-            />
-            <div className="mt-4 flex justify-end gap-3">
-              <button
-                onClick={() => { setRejectModal(null); setRejectReason(''); }}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRejectDeploy}
-                disabled={deployActionLoading === rejectModal.deploymentId}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition-colors disabled:opacity-50"
-              >
-                {deployActionLoading === rejectModal.deploymentId ? 'Rejecting...' : 'Reject Deployment'}
-              </button>
-            </div>
+                {/* Inline reject confirmation — non-blocking, anchored beneath this row */}
+                {isRejecting && (
+                  <div
+                    role="alertdialog"
+                    aria-label={`Reject deployment for ${d.project_name}`}
+                    onKeyDown={(e) => { if (e.key === 'Escape') closeReject(); }}
+                    className="border-t border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-900/10 px-4 py-3"
+                  >
+                    <p className="text-xs text-red-700 dark:text-red-300 mb-2">
+                      Reject deployment for <strong>{d.project_name}</strong>? Optionally add a reason.
+                    </p>
+                    <textarea
+                      // eslint-disable-next-line jsx-a11y/no-autofocus
+                      autoFocus
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      placeholder="Reason for rejection (optional)"
+                      className="w-full rounded-lg border border-red-200 dark:border-red-800/50 bg-white dark:bg-slate-800 p-2.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 resize-none"
+                      rows={2}
+                    />
+                    <div className="mt-2 flex justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-3 text-xs"
+                        onClick={closeReject}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 px-3 text-xs bg-red-600 hover:bg-red-700 text-white"
+                        disabled={deployActionLoading === d.deployment_id}
+                        onClick={handleRejectDeploy}
+                      >
+                        {deployActionLoading === d.deployment_id ? 'Rejecting...' : 'Reject Deployment'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              );
+            })}
           </div>
         </div>
       )}

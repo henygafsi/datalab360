@@ -89,16 +89,12 @@ export default function DrillThroughPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex"
+      className="fixed inset-y-0 right-0 z-[70] flex"
       role="dialog"
+      aria-modal="false"
       aria-label="Drill-through details"
     >
-      <div
-        className="flex-1 bg-black/30 backdrop-blur-sm"
-        onClick={onClose}
-        aria-label="Close panel"
-      />
-      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 shadow-2xl flex flex-col">
+      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b dark:border-slate-700">
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">

@@ -12,6 +12,7 @@ import { toast } from 'react-hot-toast';
 import { dryRunIngestion } from '@/app/services/api/exploreDesignApi';
 import { getApiErrorMessage } from '@/lib/api-client';
 import type { IngestionMode, WhereClauseCondition } from '@/app/services/api/types';
+import { safeLocale } from '@/lib/format-number';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -245,10 +246,10 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
               {/* Summary Stats */}
               <div className="grid grid-cols-4 gap-px bg-slate-200 dark:bg-slate-700 border-b dark:border-slate-700">
                 {[
-                  { label: 'Rows Processed', value: result.rowsProcessed.toLocaleString(), color: 'text-slate-700' },
-                  { label: 'Inserts', value: result.summary.inserts.toLocaleString(), color: 'text-green-600' },
-                  { label: 'Updates', value: result.summary.updates.toLocaleString(), color: 'text-blue-600' },
-                  { label: 'Deletes', value: result.summary.deletes.toLocaleString(), color: 'text-red-600' },
+                  { label: 'Rows Processed', value: safeLocale(result.rowsProcessed), color: 'text-slate-700' },
+                  { label: 'Inserts', value: safeLocale(result.summary.inserts), color: 'text-green-600' },
+                  { label: 'Updates', value: safeLocale(result.summary.updates), color: 'text-blue-600' },
+                  { label: 'Deletes', value: safeLocale(result.summary.deletes), color: 'text-red-600' },
                 ].map((stat) => (
                   <div key={stat.label} className="bg-white dark:bg-slate-800 px-3 py-2 text-center">
                     <p className={cn('text-sm font-semibold', stat.color)}>{stat.value}</p>

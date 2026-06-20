@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { columnPreview, columnProfile } from '@/app/services/api/exploreDesignApi';
+import { safeToFixed, safeLocale } from '@/lib/format-number';
 
 // Adapted shapes for rendering (mapped from new API responses)
 interface ColumnPreviewData {
@@ -249,7 +250,7 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
                 <>
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm text-slate-500">
-                      Showing {previewData.sample_values.length} of {previewData.total_rows.toLocaleString()} rows
+                      Showing {previewData.sample_values.length} of {safeLocale(previewData.total_rows)} rows
                     </p>
                     <Button variant="outline" size="sm" onClick={loadData}>
                       <RefreshCw className="h-3.5 w-3.5 mr-2" />
@@ -348,7 +349,7 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
                         <span className="text-xs text-slate-500">Total Rows</span>
                       </div>
                       <p className="text-xl font-bold text-slate-900 dark:text-white">
-                        {profileData.total_rows.toLocaleString()}
+                        {safeLocale(profileData.total_rows)}
                       </p>
                     </div>
 
@@ -358,10 +359,10 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
                         <span className="text-xs text-slate-500">Distinct Values</span>
                       </div>
                       <p className="text-xl font-bold text-slate-900 dark:text-white">
-                        {profileData.distinct_count.toLocaleString()}
+                        {safeLocale(profileData.distinct_count)}
                       </p>
                       <p className="text-xs text-slate-500">
-                        {profileData.distinct_percentage.toFixed(1)}%
+                        {safeToFixed(profileData.distinct_percentage, 1)}%
                       </p>
                     </div>
 
@@ -371,10 +372,10 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
                         <span className="text-xs text-slate-500">NULL Count</span>
                       </div>
                       <p className="text-xl font-bold text-slate-900 dark:text-white">
-                        {profileData.null_count.toLocaleString()}
+                        {safeLocale(profileData.null_count)}
                       </p>
                       <p className="text-xs text-slate-500">
-                        {profileData.null_percentage.toFixed(1)}%
+                        {safeToFixed(profileData.null_percentage, 1)}%
                       </p>
                     </div>
 
@@ -459,7 +460,7 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
                                   {formatValue(item.value)}
                                 </span>
                                 <span className="text-xs text-slate-500">
-                                  {item.count.toLocaleString()} ({item.percentage.toFixed(1)}%)
+                                  {safeLocale(item.count)} ({safeToFixed(item.percentage, 1)}%)
                                 </span>
                               </div>
                               <div className="h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -491,7 +492,7 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
                         <div>
                           <p className="text-xs text-slate-500">Avg Length</p>
                           <p className="text-lg font-bold">
-                            {profileData.avg_length?.toFixed(1) ?? '-'}
+                            {safeToFixed(profileData.avg_length, 1, '-')}
                           </p>
                         </div>
                       </div>

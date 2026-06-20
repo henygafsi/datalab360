@@ -19,6 +19,7 @@ import {
 } from '@/app/services/catalog';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { safeToFixed } from '@/lib/format-number';
 
 interface TableDetailPanelProps {
   database: string;
@@ -241,7 +242,7 @@ export default function TableDetailPanel({
                     <MiniStat label="Scanned" value={fmtBytes(data360.finops.bytes_scanned_total)} />
                   )}
                   {data360.finops.credits_cloud_services != null && (
-                    <MiniStat label="Credits" value={data360.finops.credits_cloud_services.toFixed(3)} />
+                    <MiniStat label="Credits" value={safeToFixed(data360.finops.credits_cloud_services, 3)} />
                   )}
                 </div>
               </div>

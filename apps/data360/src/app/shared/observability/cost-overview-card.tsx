@@ -15,24 +15,29 @@ interface CostOverviewCardProps {
   className?: string;
 }
 
-function formatCurrency(value: number | undefined | null): string {
-  // No fake $0: a missing estimate renders as an em dash.
-  if (value == null) return '—';
-  if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
-  if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `$${value.toFixed(2)}`;
+// Backend sends numeric fields as strings ("1234.5") → the declared `number`
+// type is a lie at runtime. Coerce + guard so .toFixed never crashes; a
+// missing/non-numeric value renders "—" (no fake $0).
+function formatCurrency(value: number | string | undefined | null): string {
+  const n = Number(value);
+  if (value == null || value === '' || !Number.isFinite(n)) return '—';
+  if (n >= 1000000) return `$${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `$${(n / 1000).toFixed(1)}K`;
+  return `$${n.toFixed(2)}`;
 }
 
-function formatCredits(value: number | undefined | null): string {
-  if (value == null) return '—';
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
-  return value.toFixed(1);
+function formatCredits(value: number | string | undefined | null): string {
+  const n = Number(value);
+  if (value == null || value === '' || !Number.isFinite(n)) return '—';
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return n.toFixed(1);
 }
 
-function formatStorage(gb: number | undefined | null): string {
-  if (gb == null) return '—';
-  if (gb >= 1024) return `${(gb / 1024).toFixed(2)} TB`;
-  return `${gb.toFixed(2)} GB`;
+function formatStorage(gb: number | string | undefined | null): string {
+  const n = Number(gb);
+  if (gb == null || gb === '' || !Number.isFinite(n)) return '—';
+  if (n >= 1024) return `${(n / 1024).toFixed(2)} TB`;
+  return `${n.toFixed(2)} GB`;
 }
 
 export default function CostOverviewCard({

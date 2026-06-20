@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { PiWarehouseDuotone } from 'react-icons/pi';
 import type { Warehouse } from '@/app/services/org-accounts/types';
+import { safeToFixed } from '@/lib/format-number';
 
 interface WarehouseUsageChartProps {
   data: Warehouse[];
@@ -94,7 +95,7 @@ export default function WarehouseUsageChart({
         </div>
         <div className="flex items-center gap-4">
           <Text className="text-xs text-gray-500">
-            Total: <span className="font-semibold text-indigo-600">{totals.total.toFixed(2)}</span> credits
+            Total: <span className="font-semibold text-indigo-600">{safeToFixed(totals.total, 2)}</span> credits
           </Text>
         </div>
       </div>
@@ -104,13 +105,13 @@ export default function WarehouseUsageChart({
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.compute }} />
           <Text className="text-xs text-gray-600 dark:text-gray-300">
-            Compute: <span className="font-medium">{totals.compute.toFixed(2)}</span>
+            Compute: <span className="font-medium">{safeToFixed(totals.compute, 2)}</span>
           </Text>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.cloud }} />
           <Text className="text-xs text-gray-600 dark:text-gray-300">
-            Cloud Services: <span className="font-medium">{totals.cloud.toFixed(2)}</span>
+            Cloud Services: <span className="font-medium">{safeToFixed(totals.cloud, 2)}</span>
           </Text>
         </div>
       </div>
@@ -130,7 +131,7 @@ export default function WarehouseUsageChart({
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={true} vertical={false} />
               <XAxis
                 type="number"
-                tickFormatter={(value) => value.toFixed(1)}
+                tickFormatter={(value) => safeToFixed(value, 1)}
                 stroke="#9ca3af"
                 fontSize={12}
                 tickLine={false}
@@ -161,13 +162,13 @@ export default function WarehouseUsageChart({
                         )}
                         <div className="space-y-1">
                           <Text className="text-sm text-gray-600 dark:text-gray-300">
-                            Total: <span className="font-semibold text-indigo-600">{item.total_credits.toFixed(3)}</span>
+                            Total: <span className="font-semibold text-indigo-600">{safeToFixed(item.total_credits, 3)}</span>
                           </Text>
                           <Text className="text-sm text-gray-600 dark:text-gray-300">
-                            Compute: <span className="font-semibold text-blue-600">{item.compute_credits.toFixed(3)}</span>
+                            Compute: <span className="font-semibold text-blue-600">{safeToFixed(item.compute_credits, 3)}</span>
                           </Text>
                           <Text className="text-sm text-gray-600 dark:text-gray-300">
-                            Cloud: <span className="font-semibold text-green-600">{item.cloud_credits.toFixed(3)}</span>
+                            Cloud: <span className="font-semibold text-green-600">{safeToFixed(item.cloud_credits, 3)}</span>
                           </Text>
                           <Text className="text-xs text-gray-500 mt-1">
                             Metering Hours: {item.metering_hours}

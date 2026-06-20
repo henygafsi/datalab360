@@ -476,21 +476,15 @@ export default function ChartPaletteRail({
       <AnimatePresence>
         {activeModal === 'text' && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-            onClick={() => {
-              setActiveModal(null);
-            }}
+            initial={{ x: '100%', opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: '100%', opacity: 0 }}
+            transition={{ type: 'tween', duration: 0.2 }}
+            role="dialog"
+            aria-modal="false"
+            aria-label="Add text widget"
+            className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-md flex-col overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
           >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-            >
               <h2 className="mb-4 text-lg font-bold text-slate-900 dark:text-white">
                 Add text widget
               </h2>
@@ -539,7 +533,6 @@ export default function ChartPaletteRail({
                   {savingText ? 'Adding…' : 'Add widget'}
                 </motion.button>
               </div>
-            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

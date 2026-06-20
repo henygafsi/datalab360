@@ -34,6 +34,7 @@ import {
   Lock,
   Pencil,
   RefreshCw,
+  Search,
   Settings2,
   ShieldAlert,
   ShieldCheck,
@@ -41,10 +42,13 @@ import {
   Timer,
   User,
   Users,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { safeLocale } from '@/lib/format-number';
 import EmptyState from '@/components/ui/EmptyState';
+import Pager, { usePagination } from '@/components/ui/Pager';
 import { GlassPanel } from '@/app/shared/glass';
 import {
   getCacheConfig,
@@ -105,6 +109,76 @@ function Loading({ rows = 4 }: { rows?: number }) {
   );
 }
 
+/** Inline 200ms debounce — kept local (src/hooks is out of this surface's scope). */
+function useDebounced(value: string, delay = 200): string {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setV(value), delay);
+    return () => clearTimeout(id);
+  }, [value, delay]);
+  return v;
+}
+
+/** Compact search box shared by the config tables. */
+function SearchBox({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="relative">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-56 rounded-lg border border-slate-200 bg-white py-1 pl-8 pr-7 text-[11px] text-slate-700 outline-none focus:border-[hsl(var(--primary))] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          aria-label="Clear search"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Toggleable filter chip. */
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors',
+        active
+          ? 'bg-[hsl(var(--primary))] text-white'
+          : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function ErrBox({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="flex items-start gap-1.5 rounded-lg border border-red-200 bg-red-50/70 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
@@ -146,16 +220,26 @@ function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  // Non-blocking inline confirm (no fixed inset-0 scrim). Escape/cancel dismiss.
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-      <GlassPanel depth={3} radius="2xl" className="w-full max-w-sm p-4">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+    <div
+      role="alertdialog"
+      aria-labelledby="d360-confirm-title"
+      aria-describedby="d360-confirm-body"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onCancel();
+      }}
+      className="mt-2"
+    >
+      <GlassPanel depth={3} radius="2xl" className="w-full max-w-sm p-4 ring-1 ring-amber-300/50 dark:ring-amber-500/30">
+        <p id="d360-confirm-title" className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
           <AlertTriangle className="h-4 w-4 text-amber-500" /> {title}
         </p>
-        <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{body}</p>
+        <p id="d360-confirm-body" className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{body}</p>
         <div className="mt-3 flex justify-end gap-2">
           <button
             type="button"
+            autoFocus
             onClick={onCancel}
             className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
@@ -225,13 +309,36 @@ function ConfigTab() {
   const cfg = useFetch<Data360ConfigResponse>(() => getData360Config());
   const mapping = useFetch<TableRefreshMappingResponse>(() => getTableRefreshMapping());
 
+  // Triggering a refresh is a runtime config write → gate it (honest disable).
+  const canRefresh = useCanPerform('gouvernance', 'apply');
+  const refreshBlocked = !canRefresh.allowed && !canRefresh.loading;
+
   // Per-table refresh: confirm (runtime write) → POST → toast + bell + next-step.
   const [pending, setPending] = useState<{ table: string } | null>(null);
   const [busyTable, setBusyTable] = useState<string | null>(null);
   // Tables refreshed this session → drive the "Refreshed · view" next-step strip.
   const [refreshed, setRefreshed] = useState<Record<string, string>>({});
 
-  const tables: TableRefreshMappingItem[] = useMemo(() => mapping.data?.tables ?? [], [mapping.data]);
+  // Debounced search + "has date column" filter over the table mapping.
+  const [search, setSearch] = useState('');
+  const dq = useDebounced(search).trim().toLowerCase();
+  const [onlyDated, setOnlyDated] = useState(false);
+
+  const allTables: TableRefreshMappingItem[] = useMemo(() => mapping.data?.tables ?? [], [mapping.data]);
+  const tables: TableRefreshMappingItem[] = useMemo(
+    () =>
+      allTables.filter((t) => {
+        if (onlyDated && t.date_columns.length === 0) return false;
+        if (!dq) return true;
+        return (
+          t.table_name.toLowerCase().includes(dq) ||
+          `${t.database}.${t.schema}`.toLowerCase().includes(dq) ||
+          t.date_columns.some((dc) => dc.name.toLowerCase().includes(dq))
+        );
+      }),
+    [allTables, dq, onlyDated],
+  );
+  const tablesPage = usePagination(tables, 12);
 
   const confirmRefresh = useCallback(async () => {
     if (!pending) return;
@@ -317,7 +424,7 @@ function ConfigTab() {
 
       {/* Tables → date columns → refresh (getTableRefreshMapping + triggerRefresh) */}
       <GlassPanel depth={1} radius="xl" className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-white/30 px-3 py-2 dark:border-white/10">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/30 px-3 py-2 dark:border-white/10">
           <div>
             <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
               <Table2 className="h-3.5 w-3.5" /> Tables · date columns · refresh
@@ -326,23 +433,31 @@ function ConfigTab() {
               Each table&apos;s freshness date-column and last refresh. <span className="font-medium">Refresh</span> re-reads the table now (runtime config write).
             </p>
           </div>
-          {mapping.state === 'done' && (
-            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-              {tables.length} tables
-            </span>
+          {mapping.state === 'done' && allTables.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <SearchBox value={search} onChange={setSearch} placeholder="Search table, schema, column…" />
+              <FilterChip active={onlyDated} onClick={() => setOnlyDated((v) => !v)}>
+                Has date column
+              </FilterChip>
+              <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                {tables.length} of {allTables.length}
+              </span>
+            </div>
           )}
         </div>
         {mapping.state === 'running' || mapping.state === 'idle' ? (
           <div className="p-3">
             <Loading rows={5} />
           </div>
-        ) : mapping.state === 'error' || tables.length === 0 ? (
+        ) : mapping.state === 'error' || allTables.length === 0 ? (
           // Route may 404 until deployed → honest empty, never a fake row.
           <EmptyState icon={Table2} compact title="No table refresh mapping to show" />
+        ) : tables.length === 0 ? (
+          <EmptyState icon={Search} compact title="No tables match your filter" description="Adjust the search or clear the date-column filter." />
         ) : (
-          <div className="scrollbar-thin max-h-[480px] overflow-auto">
+          <div className="px-1 pb-2">
             <table className="w-full border-collapse text-[11px]">
-              <thead className="sticky top-0">
+              <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-slate-400">
                   <th className="glass-2 px-3 py-1.5 text-left font-semibold">Table</th>
                   <th className="glass-2 px-2 py-1.5 text-left font-semibold">Date column(s)</th>
@@ -351,7 +466,7 @@ function ConfigTab() {
                 </tr>
               </thead>
               <tbody>
-                {tables.map((t) => {
+                {tablesPage.slice.map((t) => {
                   const fqn = `${t.database}.${t.schema}.${t.table_name}`;
                   const busy = busyTable === t.table;
                   const justAt = refreshed[t.table];
@@ -396,10 +511,10 @@ function ConfigTab() {
                       <td className="px-2 py-1.5 text-right">
                         <button
                           type="button"
-                          disabled={busy}
+                          disabled={busy || refreshBlocked}
                           onClick={() => setPending({ table: t.table })}
-                          title={`Re-read ${fqn} from the data warehouse now`}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 transition-colors hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))] disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                          title={refreshBlocked ? 'You do not have permission to trigger a refresh' : `Re-read ${fqn} from the data warehouse now`}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-600 transition-colors hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
                         >
                           <RefreshCw className={cn('h-3 w-3', busy && 'animate-spin')} />
                           {busy ? 'Refreshing…' : 'Refresh'}
@@ -410,6 +525,15 @@ function ConfigTab() {
                 })}
               </tbody>
             </table>
+            <Pager
+              page={tablesPage.page}
+              pageCount={tablesPage.pageCount}
+              total={tablesPage.total}
+              from={tablesPage.from}
+              to={tablesPage.to}
+              onPage={tablesPage.setPage}
+              unit="tables"
+            />
           </div>
         )}
       </GlassPanel>
@@ -448,12 +572,42 @@ function CacheTab() {
   const bd = useFetch(() => getCacheBreakdown());
   const inval = useFetch(() => getCacheInvalidations(100));
 
-  const cacheEntries: CacheEntry[] = entries.data?.entries ?? [];
+  // Editing a TTL is a platform-wide config write → gate it (honest disable).
+  const canApply = useCanPerform('gouvernance', 'apply');
+  const writeBlocked = !canApply.allowed && !canApply.loading;
+
+  const allCacheEntries: CacheEntry[] = entries.data?.entries ?? [];
   const redisConnected = entries.data?.redis_connected ?? true;
   const byClass = bd.data?.by_class ?? [];
   const cachedQueries = bd.data?.cached_queries ?? [];
   const invEvents = inval.data?.events ?? [];
   const cfgEntries = Object.entries(cfg.data ?? {});
+
+  // Debounced search + module filter over cached entries.
+  const [search, setSearch] = useState('');
+  const dq = useDebounced(search).trim().toLowerCase();
+  const [moduleFilter, setModuleFilter] = useState<string | null>(null);
+  const modules = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of allCacheEntries) if (e.module) s.add(e.module);
+    return [...s].sort();
+  }, [allCacheEntries]);
+  const cacheEntries = useMemo(
+    () =>
+      allCacheEntries.filter((e) => {
+        if (moduleFilter && e.module !== moduleFilter) return false;
+        if (!dq) return true;
+        return (
+          e.key.toLowerCase().includes(dq) ||
+          (e.module ?? '').toLowerCase().includes(dq) ||
+          (e.user ?? '').toLowerCase().includes(dq)
+        );
+      }),
+    [allCacheEntries, moduleFilter, dq],
+  );
+  const entriesPage = usePagination(cacheEntries, 12);
+  const queriesPage = usePagination(cachedQueries, 12);
+  const invPage = usePagination(invEvents, 12);
 
   // TTL inline edit (platform-wide → confirm before PATCH).
   const [editKey, setEditKey] = useState<string | null>(null);
@@ -494,21 +648,43 @@ function CacheTab() {
     <div className="space-y-3">
       {/* Cached entries (live key inventory) */}
       <GlassPanel depth={1} radius="xl" className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-white/30 px-3 py-2 dark:border-white/10">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/30 px-3 py-2 dark:border-white/10">
           <div>
             <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Cached entries</p>
             <p className="text-[10px] text-slate-400">
-              {entries.data?.truncated
-                ? `Showing first ${cacheEntries.length} (truncated) · scanned ${(entries.data?.total_scanned ?? 0).toLocaleString()}`
-                : `${cacheEntries.length} keys · scanned ${(entries.data?.total_scanned ?? 0).toLocaleString()}`}
+              {entries.state !== 'done'
+                ? 'Live key inventory'
+                : entries.data?.truncated
+                  ? `Showing first ${allCacheEntries.length} (truncated) · scanned ${(entries.data?.total_scanned ?? 0).toLocaleString()}`
+                  : `${allCacheEntries.length} keys · scanned ${(entries.data?.total_scanned ?? 0).toLocaleString()}`}
             </p>
           </div>
-          {entries.state === 'done' && !redisConnected && (
-            <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-              <AlertTriangle className="h-3 w-3" /> Redis offline — in-process fallback
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {entries.state === 'done' && allCacheEntries.length > 0 && (
+              <>
+                <SearchBox value={search} onChange={setSearch} placeholder="Search key, module, user…" />
+                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                  {cacheEntries.length} of {allCacheEntries.length}
+                </span>
+              </>
+            )}
+            {entries.state === 'done' && !redisConnected && (
+              <span className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                <AlertTriangle className="h-3 w-3" /> Redis offline — in-process fallback
+              </span>
+            )}
+          </div>
         </div>
+        {entries.state === 'done' && modules.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-100 px-3 py-1.5 dark:border-slate-800">
+            <span className="text-[10px] font-medium text-slate-400">Module:</span>
+            {modules.map((m) => (
+              <FilterChip key={m} active={moduleFilter === m} onClick={() => setModuleFilter(moduleFilter === m ? null : m)}>
+                {m}
+              </FilterChip>
+            ))}
+          </div>
+        )}
         <p className="flex items-center gap-1 border-b border-slate-100 px-3 py-1.5 text-[10px] text-slate-400 dark:border-slate-800">
           <Info className="h-3 w-3 shrink-0" /> Inventory only — cached values are never exposed; per-key hit counts aren’t tracked.
         </p>
@@ -516,13 +692,15 @@ function CacheTab() {
           <div className="p-3">
             <Loading rows={5} />
           </div>
-        ) : entries.state === 'error' || cacheEntries.length === 0 ? (
+        ) : entries.state === 'error' || allCacheEntries.length === 0 ? (
           // New endpoint may 404 until deployed → honest empty, not an error box.
           <EmptyState icon={HardDrive} compact title="No cached entries to show" />
+        ) : cacheEntries.length === 0 ? (
+          <EmptyState icon={Search} compact title="No cached entries match your filter" description="Adjust the search or clear the module filter." />
         ) : (
-          <div className="scrollbar-thin max-h-[320px] overflow-auto">
+          <div className="px-1 pb-2">
             <table className="w-full border-collapse text-[11px]">
-              <thead className="sticky top-0">
+              <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-slate-400">
                   <th className="glass-2 px-3 py-1.5 text-left font-semibold">Key</th>
                   <th className="glass-2 px-2 py-1.5 text-left font-semibold">Module</th>
@@ -532,8 +710,8 @@ function CacheTab() {
                 </tr>
               </thead>
               <tbody>
-                {cacheEntries.map((e, i) => (
-                  <tr key={`${e.key}-${i}`} className="border-b border-slate-100 dark:border-slate-800">
+                {entriesPage.slice.map((e, i) => (
+                  <tr key={`${e.key}-${entriesPage.from + i}`} className="border-b border-slate-100 dark:border-slate-800">
                     <td className="max-w-[280px] truncate px-3 py-1 font-mono text-slate-700 dark:text-slate-200" title={e.key}>
                       {e.key}
                     </td>
@@ -545,6 +723,15 @@ function CacheTab() {
                 ))}
               </tbody>
             </table>
+            <Pager
+              page={entriesPage.page}
+              pageCount={entriesPage.pageCount}
+              total={entriesPage.total}
+              from={entriesPage.from}
+              to={entriesPage.to}
+              onPage={entriesPage.setPage}
+              unit="entries"
+            />
           </div>
         )}
       </GlassPanel>
@@ -557,7 +744,7 @@ function CacheTab() {
             <p className="text-[10px] text-slate-400">Keys by class · cached query results</p>
           </div>
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-            {(bd.data?.total ?? 0).toLocaleString()} keys
+            {bd.state === 'done' && bd.data ? `${bd.data.total.toLocaleString()} keys` : '— keys'}
           </span>
         </div>
         {bd.state === 'running' || bd.state === 'idle' ? (
@@ -573,22 +760,33 @@ function CacheTab() {
             <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
               {byClass.map((c) => (
                 <span key={c.prefix} className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/20 dark:text-blue-300">
-                  {c.class} · {c.count.toLocaleString()}
+                  {c.class} · {safeLocale(c.count)}
                 </span>
               ))}
             </div>
             {cachedQueries.length === 0 ? (
               <EmptyState icon={Database} compact title="No cached queries right now" />
             ) : (
-              <div className="scrollbar-thin max-h-[280px] divide-y divide-slate-100 overflow-auto dark:divide-slate-800">
-                {cachedQueries.slice(0, 200).map((q, i) => (
-                  <div key={`${q.fqdn}-${i}`} className="flex items-center justify-between gap-2 px-3 py-1 text-[11px]">
-                    <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={q.fqdn}>
-                      {q.fqdn}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-slate-400">{q.db}</span>
-                  </div>
-                ))}
+              <div className="px-3 pb-2">
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {queriesPage.slice.map((q, i) => (
+                    <div key={`${q.fqdn}-${queriesPage.from + i}`} className="flex items-center justify-between gap-2 py-1 text-[11px]">
+                      <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={q.fqdn}>
+                        {q.fqdn}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-slate-400">{q.db}</span>
+                    </div>
+                  ))}
+                </div>
+                <Pager
+                  page={queriesPage.page}
+                  pageCount={queriesPage.pageCount}
+                  total={queriesPage.total}
+                  from={queriesPage.from}
+                  to={queriesPage.to}
+                  onPage={queriesPage.setPage}
+                  unit="queries"
+                />
               </div>
             )}
           </>
@@ -612,18 +810,29 @@ function CacheTab() {
         ) : invEvents.length === 0 ? (
           <EmptyState icon={Layers} compact title="No invalidations since restart" />
         ) : (
-          <div className="scrollbar-thin max-h-[240px] divide-y divide-slate-100 overflow-auto dark:divide-slate-800">
-            {invEvents.map((e, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 px-3 py-1 text-[11px]">
-                <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={e.table}>
-                  {e.table}
-                </span>
-                <span className="shrink-0 text-[10px] text-slate-400">
-                  {e.module ?? ''} {e.triggered_by ? `· ${e.triggered_by}` : ''}{' '}
-                  {e.ts ? new Date(e.ts).toLocaleTimeString() : ''}
-                </span>
-              </div>
-            ))}
+          <div className="px-3 pb-2">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {invPage.slice.map((e, i) => (
+                <div key={invPage.from + i} className="flex items-center justify-between gap-2 py-1 text-[11px]">
+                  <span className="truncate font-mono text-slate-700 dark:text-slate-200" title={e.table}>
+                    {e.table}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-slate-400">
+                    {e.module ?? ''} {e.triggered_by ? `· ${e.triggered_by}` : ''}{' '}
+                    {e.ts ? new Date(e.ts).toLocaleTimeString() : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <Pager
+              page={invPage.page}
+              pageCount={invPage.pageCount}
+              total={invPage.total}
+              from={invPage.from}
+              to={invPage.to}
+              onPage={invPage.setPage}
+              unit="events"
+            />
           </div>
         )}
       </GlassPanel>
@@ -632,7 +841,11 @@ function CacheTab() {
       <GlassPanel depth={1} radius="xl" className="overflow-hidden">
         <div className="border-b border-white/30 px-3 py-2 dark:border-white/10">
           <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">Cache TTL zones (seconds)</p>
-          <p className="text-[10px] text-slate-400">Click the value to edit · applies platform-wide via PATCH /api/data360/cache-config</p>
+          <p className="text-[10px] text-slate-400">
+            {writeBlocked
+              ? 'Read-only — you don’t have permission to change cache TTL'
+              : 'Click the value to edit · applies platform-wide via PATCH /api/data360/cache-config'}
+          </p>
         </div>
         {cfg.state === 'error' ? (
           <div className="p-3">
@@ -687,12 +900,13 @@ function CacheTab() {
                   ) : (
                     <button
                       type="button"
+                      disabled={writeBlocked}
                       onClick={() => startEdit(key, ttl)}
-                      title="Edit TTL"
-                      className="flex shrink-0 items-center gap-1 rounded px-1 font-semibold text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800"
+                      title={writeBlocked ? 'You do not have permission to change cache TTL' : 'Edit TTL'}
+                      className="flex shrink-0 items-center gap-1 rounded px-1 font-semibold text-slate-800 enabled:hover:bg-slate-100 disabled:cursor-not-allowed dark:text-slate-100 dark:enabled:hover:bg-slate-800"
                     >
                       {busy ? '…' : `${ttl}s`}
-                      <Pencil className="h-3 w-3 text-slate-400" />
+                      {!writeBlocked && <Pencil className="h-3 w-3 text-slate-400" />}
                     </button>
                   )}
                 </div>

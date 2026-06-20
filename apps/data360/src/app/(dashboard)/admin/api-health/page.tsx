@@ -5,7 +5,17 @@
 // type mismatches are acceptable here.
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import { useAtom } from 'jotai';
+import { atomWithStorage } from 'jotai/utils';
+import { signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
+
+import { routes } from '@/config/routes';
+import { KpiStrip } from './components/KpiStrip';
+import { DrillPanel } from './components/DrillPanel';
+import { SLOW_THRESHOLD_MS, isDefect, isExpected, type ProbeDetail } from './components/types';
 
 // ── Command Center ──
 import {
@@ -969,34 +979,119 @@ type TestResult = {
   ms?: number;
   error?: string;
   httpStatus?: number;
+  method?: string;
+  url?: string;
+  errorBody?: string;
+  data?: string;
 };
+
+const isSlowResult = (r?: TestResult) =>
+  !!r && (r.status === 'success' || r.status === 'warn') && r.ms != null && r.ms >= SLOW_THRESHOLD_MS;
 
 type ResultsMap = Record<string, TestResult>;
 
+// ── Persistence ──
+// The probe run is expensive (500+ endpoints) and a mid-run 401/refresh used to
+// wipe everything. Persist the results map + a run timestamp to localStorage via
+// jotai's atomWithStorage (the app's cross-refresh pattern, CLAUDE.md). Because
+// every `setResults(...)` writes through the atom, partial runs are saved
+// INCREMENTALLY as each probe lands — an interrupted run survives. atomWithStorage
+// defaults to getOnInit:false, so SSR + first client render both read the default
+// then sync from storage in an effect (no hydration mismatch, SSR-safe for free).
+const RESULTS_STORAGE_KEY = 'd360_api_health_results';
+const LAST_RUN_STORAGE_KEY = 'd360_api_health_last_run';
+// epoch ms (NOT a Date — JSON round-trips a Date to a string and breaks formatting).
+const resultsAtom = atomWithStorage<ResultsMap>(RESULTS_STORAGE_KEY, {});
+const lastRunAtAtom = atomWithStorage<number | null>(LAST_RUN_STORAGE_KEY, null);
+
 export default function ApiHealthPage() {
-  const [results, setResults] = useState<ResultsMap>({});
+  const [results, setResults] = useAtom(resultsAtom);
+  const [lastRunAt, setLastRunAt] = useAtom(lastRunAtAtom);
   const [running, setRunning] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'error' | 'success' | 'warn'>('all');
+  // Default to "Issues only" so the board loads CLEAN — just the things that
+  // need attention (defects + failing + slow). Expected/Healthy are revealed via
+  // their own chips.
+  const [filter, setFilter] = useState<'issues' | 'all' | 'error' | 'success' | 'expected' | 'warn' | 'slow' | 'defect'>('issues');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [drillKey, setDrillKey] = useState<string | null>(null);
+  const [reprobingKey, setReprobingKey] = useState<string | null>(null);
+  const [staleBannerDismissed, setStaleBannerDismissed] = useState(false);
+  const router = useRouter();
   const abortRef = useRef(false);
 
+  // Debounce the search input (300ms).
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim().toLowerCase()), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
   const totalTests = TEST_MODULES.reduce((s, m) => s + m.tests.length, 0);
+  const hasRun = Object.keys(results).length > 0;
   const successCount = Object.values(results).filter(r => r.status === 'success').length;
   const errorCount = Object.values(results).filter(r => r.status === 'error').length;
-  const warnCount = Object.values(results).filter(r => r.status === 'warn').length;
+  // Real defects: SQL_COMPILATION_ERROR / 405 / 408 / network — these otherwise
+  // hide inside the yellow 4xx bucket. Errors (5xx/network) are a subset.
+  const defectCount = Object.values(results).filter(r => isDefect(r)).length;
   const runningCount = Object.values(results).filter(r => r.status === 'running').length;
+  const slowCount = Object.values(results).filter(r => isSlowResult(r)).length;
+  // Category buckets are mutually exclusive with the priority:
+  //   defect > error > slow > expected > residual-warn > success.
+  // Slow wins over expected, so a slow expected-4xx counts as slow only.
+  // Expected = the API CORRECTLY rejecting fake/empty probe input (benign).
+  const expectedCount = Object.values(results).filter(
+    r => isExpected(r) && !isSlowResult(r),
+  ).length;
+  // Residual warn = a 4xx that is neither a genuine defect nor an expected
+  // rejection (rare) and not slow.
+  const warnCount = Object.values(results).filter(
+    r => r.status === 'warn' && !isDefect(r) && !isExpected(r) && !isSlowResult(r),
+  ).length;
+  // Healthy = genuine successes ONLY. Expected 4xx is now its own bucket so the
+  // two never double-count.
+  const healthyCount = successCount;
+  // Avg latency over reachable probes only — error timeouts would skew this upward.
+  const timed = Object.values(results).filter(
+    r => r.ms != null && (r.status === 'success' || r.status === 'warn'),
+  ) as TestResult[];
+  const avgLatencyMs = timed.length
+    ? Math.round(timed.reduce((s, r) => s + (r.ms || 0), 0) / timed.length)
+    : null;
+
+  // Stale-session detection: a 500 whose body mentions an insufficient-privilege
+  // / role / access-control failure means the browser session is running as a
+  // limited Snowflake role (e.g. SYSADMIN) rather than the user's full role.
+  // A fresh login refreshes the role and clears it. Many such failures at once
+  // (>= 5) distinguishes a role problem from normal fake-id 4xx noise.
+  const PRIVILEGE_ERROR = /primary role|must have CREATE|access control error|42501|003001/i;
+  const privilegeFailCount = Object.values(results).filter(
+    r => r.httpStatus === 500 && PRIVILEGE_ERROR.test(`${r.error || ''} ${r.errorBody || ''}`),
+  ).length;
+  const showStaleBanner = privilegeFailCount >= 5 && !staleBannerDismissed;
+
+  const handleRelogin = useCallback(async () => {
+    await signOut({ redirect: false });
+    router.replace(routes.signIn);
+  }, [router]);
 
   const runTest = useCallback(async (module: string, test: TestDef) => {
     const key = `${module}::${test.name}`;
     setResults(prev => ({ ...prev, [key]: { status: 'running' } }));
     const t0 = performance.now();
     try {
-      await test.fn();
+      const result = await test.fn();
       const ms = Math.round(performance.now() - t0);
-      setResults(prev => ({ ...prev, [key]: { status: 'success', ms } }));
+      // Capture the EXACT return data, capped to ~2000 chars so a huge payload
+      // never balloons the results map (bounded snapshot, not the live object).
+      const snapshot = safeStringify(result);
+      const data = snapshot.length > 2000 ? `${snapshot.slice(0, 2000)}… (truncated)` : snapshot;
+      setResults(prev => ({ ...prev, [key]: { status: 'success', ms, data: data || undefined } }));
     } catch (err: any) {
       const ms = Math.round(performance.now() - t0);
       const httpStatus = err?.response?.status || err?.status;
+      const method = err?.config?.method ? String(err.config.method).toUpperCase() : undefined;
+      const url = err?.config?.url || err?.request?.responseURL || undefined;
       const raw =
         err?.response?.data?.detail ??
         err?.response?.data?.message ??
@@ -1004,6 +1099,14 @@ export default function ApiHealthPage() {
         err?.message ??
         String(err);
       const message = typeof raw === 'string' ? raw : safeStringify(raw);
+      // Lossless capture of the full response body so the structured defect
+      // parser can read error_code / query_id / snowflake_code / hint even when
+      // the message-first extraction above kept only the human message string.
+      const data = err?.response?.data;
+      let errorBody: string | undefined;
+      if (data && typeof data === 'object') {
+        try { errorBody = JSON.stringify(data); } catch { errorBody = undefined; }
+      }
 
       // 400/404/422 with fake IDs = endpoint works, just validation
       const isValidationError = httpStatus && httpStatus >= 400 && httpStatus < 500;
@@ -1011,7 +1114,7 @@ export default function ApiHealthPage() {
         ...prev,
         [key]: {
           status: isValidationError ? 'warn' : 'error',
-          ms, error: message, httpStatus,
+          ms, error: message, httpStatus, method, url, errorBody,
         },
       }));
     }
@@ -1028,6 +1131,11 @@ export default function ApiHealthPage() {
     abortRef.current = false;
     setRunning(true);
     setResults({});
+    // Stamp the run START (not completion) so an interrupted/refreshed-mid-run
+    // still shows persisted partial results WITH a "last run" time.
+    setLastRunAt(Date.now());
+    // Re-surface the stale-session banner on each full run if the role problem persists.
+    setStaleBannerDismissed(false);
     const queue = [...TEST_MODULES];
     const workers = Array.from({ length: 3 }, async () => {
       while (queue.length > 0 && !abortRef.current) {
@@ -1037,9 +1145,33 @@ export default function ApiHealthPage() {
     });
     await Promise.all(workers);
     setRunning(false);
+    if (!abortRef.current) toast.success('Re-probe complete');
   }, [runModule]);
 
   const stopAll = useCallback(() => { abortRef.current = true; setRunning(false); }, []);
+
+  // Clear the persisted run (results + timestamp). Distinct from the search
+  // "Clear" — this wipes the stored probe results from localStorage too.
+  const clearResults = useCallback(() => {
+    setResults({});
+    setLastRunAt(null);
+    setDrillKey(null);
+  }, [setResults, setLastRunAt]);
+
+  // Re-probe a single endpoint (per-row + drill panel).
+  const reprobeOne = useCallback(async (module: string, name: string) => {
+    const mod = TEST_MODULES.find(m => m.module === module);
+    const test = mod?.tests.find(t => t.name === name);
+    if (!test) return;
+    const key = `${module}::${name}`;
+    setReprobingKey(key);
+    try {
+      await runTest(module, test);
+    } finally {
+      setReprobingKey(null);
+    }
+    toast.success(`Re-probed ${name}`);
+  }, [runTest]);
 
   const exportCsv = useCallback(() => {
     const rows = ['Module,Function,Status,Time (ms),HTTP Status,Error'];
@@ -1061,13 +1193,92 @@ export default function ApiHealthPage() {
 
   const toggle = (mod: string) => setCollapsed(p => ({ ...p, [mod]: !p[mod] }));
 
+  // Combined status + search predicate, reused for rendering and "X of Y".
+  const matchRow = useCallback((modName: string, name: string, r?: TestResult) => {
+    if (debouncedSearch) {
+      const hay = `${modName} ${name} ${r?.url || ''}`.toLowerCase();
+      if (!hay.includes(debouncedSearch)) return false;
+    }
+    if (filter === 'all') return true;
+    // "Issues only" — the default: real problems needing attention.
+    if (filter === 'issues') return isDefect(r) || r?.status === 'error' || isSlowResult(r);
+    if (filter === 'slow') return isSlowResult(r);
+    if (filter === 'defect') return isDefect(r);
+    // "expected" = the API correctly rejecting fake/empty probe input.
+    if (filter === 'expected') return isExpected(r) && !isSlowResult(r);
+    // "warn" filter = residual 4xx only (defects + expected carved out).
+    if (filter === 'warn')
+      return r?.status === 'warn' && !isDefect(r) && !isExpected(r) && !isSlowResult(r);
+    return r?.status === filter;
+  }, [debouncedSearch, filter]);
+
+  // "X of Y": X = rows passing the active filter+search, Y = all rows.
+  const visibleCount = useMemo(() => {
+    let n = 0;
+    for (const mod of TEST_MODULES) {
+      for (const t of mod.tests) {
+        if (matchRow(mod.module, t.name, results[`${mod.module}::${t.name}`])) n += 1;
+      }
+    }
+    return n;
+  }, [matchRow, results]);
+
+  // Resolve the drilled row into a typed presentational detail.
+  const drillDetail = useMemo<ProbeDetail | null>(() => {
+    if (!drillKey) return null;
+    const sep = drillKey.indexOf('::');
+    const module = drillKey.slice(0, sep);
+    const name = drillKey.slice(sep + 2);
+    const result = results[drillKey];
+    return { module, name, result, isSlow: isSlowResult(result) };
+  }, [drillKey, results]);
+
   return (
     <div style={{ padding: 24, fontFamily: 'system-ui, sans-serif', maxWidth: 1400, margin: '0 auto' }}>
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>API Service Health Check</h1>
       <p style={{ color: '#666', marginBottom: 20, fontSize: 14 }}>
         Tests <b>{totalTests}</b> service endpoints across <b>{TEST_MODULES.length}</b> modules.
-        {' '}Green = success, Yellow = endpoint works but returned 4xx (expected with fake IDs), Red = 500/network error.
+        {' '}The board defaults to <b>Issues only</b> — defects, failures and slow calls.
+        {' '}Grey <b>Expected</b> rows are the API correctly rejecting the probe’s fake/empty test input (not a problem);
+        {' '}use the chips to reveal Expected and Healthy.
       </p>
+
+      {/* Stale-session re-login banner — only when MANY privilege errors cluster */}
+      {showStaleBanner && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          marginBottom: 16, padding: '12px 16px', borderRadius: 8,
+          border: '1px solid #f59e0b', background: '#fffbeb', color: '#92400e', fontSize: 14,
+        }}>
+          <span style={{ flex: 1, minWidth: 240 }}>
+            <b>Several endpoints failed with insufficient-privilege errors</b> ({privilegeFailCount}) — your
+            session may be running as a limited role. Re-login to refresh your full role.
+          </span>
+          <button onClick={handleRelogin} style={{
+            padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
+            background: '#d97706', color: '#fff', fontWeight: 600, fontSize: 13,
+          }}>Re-login</button>
+          <button
+            onClick={() => setStaleBannerDismissed(true)}
+            aria-label="Dismiss banner"
+            style={{
+              padding: '4px 8px', borderRadius: 6, border: '1px solid #f59e0b',
+              cursor: 'pointer', background: 'transparent', color: '#92400e', fontSize: 13,
+            }}
+          >Dismiss</button>
+        </div>
+      )}
+
+      {/* KPI strip — "—" until a probe has run, never fake-0 */}
+      <KpiStrip
+        total={totalTests}
+        healthy={hasRun ? healthyCount : null}
+        expected={hasRun ? expectedCount : null}
+        defects={hasRun ? defectCount : null}
+        failing={hasRun ? errorCount : null}
+        slow={hasRun ? slowCount : null}
+        avgLatencyMs={avgLatencyMs}
+      />
 
       {/* Controls */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1076,7 +1287,7 @@ export default function ApiHealthPage() {
           cursor: running ? 'not-allowed' : 'pointer',
           background: running ? '#94a3b8' : '#2563eb', color: '#fff', fontWeight: 600, fontSize: 14,
         }}>
-          {running ? `Running... (${runningCount} active)` : 'Test All'}
+          {running ? `Re-probing... (${runningCount} active)` : hasRun ? 'Re-probe all' : 'Test All'}
         </button>
         {running && (
           <button onClick={stopAll} style={{
@@ -1088,110 +1299,257 @@ export default function ApiHealthPage() {
           padding: '8px 16px', borderRadius: 6, border: '1px solid #d1d5db',
           cursor: 'pointer', background: '#fff', color: '#374151', fontSize: 14,
         }}>Export CSV</button>
+        {hasRun && (
+          <button onClick={clearResults} disabled={running} style={{
+            padding: '8px 16px', borderRadius: 6, border: '1px solid #d1d5db',
+            cursor: running ? 'not-allowed' : 'pointer', background: '#fff', color: '#374151', fontSize: 14,
+          }}>Clear results</button>
+        )}
+        {lastRunAt != null && (
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>
+            last run: {new Date(lastRunAt).toLocaleString()}
+          </span>
+        )}
 
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-          {(['all', 'success', 'warn', 'error'] as const).map(f => (
-            <button key={f} onClick={() => setFilter(f)} style={{
-              padding: '4px 12px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
-              border: filter === f ? '2px solid #2563eb' : '1px solid #d1d5db',
-              background: filter === f ? '#eff6ff' : '#fff',
-              color: filter === f ? '#2563eb' : '#6b7280', fontWeight: filter === f ? 600 : 400,
-            }}>
-              {f === 'all' ? `All (${totalTests})` : f === 'error' ? `500s (${errorCount})` : f === 'warn' ? `4xx (${warnCount})` : `OK (${successCount})`}
-            </button>
-          ))}
+        {/* Search over module / function / route */}
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search endpoint or path…"
+          style={{
+            padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db',
+            fontSize: 13, width: 220, color: '#374151',
+          }}
+        />
+        {search && (
+          <button onClick={() => setSearch('')} style={{
+            padding: '4px 8px', borderRadius: 4, border: '1px solid #d1d5db',
+            cursor: 'pointer', background: '#fff', color: '#6b7280', fontSize: 12,
+          }}>Clear</button>
+        )}
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+          {visibleCount} of {totalTests}
+        </span>
+
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {/* "Issues only" is the default and groups the attention-worthy buckets;
+              Expected/Healthy live behind their own chips so the board loads clean. */}
+          {(['issues', 'defect', 'error', 'slow', 'expected', 'success', 'warn', 'all'] as const).map(f => {
+            const active = filter === f;
+            const issuesCount = defectCount + errorCount + slowCount;
+            // Per-chip accent so each category reads in its own colour and never
+            // blends into another bucket.
+            const accent =
+              f === 'defect' ? '#a21caf'
+              : f === 'error' ? '#dc2626'
+              : f === 'slow' ? '#c2410c'
+              : f === 'expected' ? '#64748b'
+              : f === 'success' ? '#16a34a'
+              : f === 'issues' ? '#2563eb'
+              : '#2563eb';
+            const tint =
+              f === 'defect' ? '#fdf4ff'
+              : f === 'error' ? '#fef2f2'
+              : f === 'slow' ? '#fff7ed'
+              : f === 'expected' ? '#f1f5f9'
+              : f === 'success' ? '#f0fdf4'
+              : '#eff6ff';
+            return (
+              <button key={f} onClick={() => setFilter(f)} style={{
+                padding: '4px 12px', borderRadius: 4, fontSize: 13, cursor: 'pointer',
+                border: active ? `2px solid ${accent}` : '1px solid #d1d5db',
+                background: active ? tint : '#fff',
+                color: active ? accent : '#6b7280', fontWeight: active ? 600 : 400,
+              }}>
+                {f === 'issues' ? `Issues only (${issuesCount})`
+                  : f === 'all' ? `All (${totalTests})`
+                  : f === 'error' ? `Failing (${errorCount})`
+                  : f === 'expected' ? `Expected (${expectedCount})`
+                  : f === 'warn' ? `Other 4xx (${warnCount})`
+                  : f === 'defect' ? `Defects (${defectCount})`
+                  : f === 'slow' ? `Slow (${slowCount})`
+                  : `Healthy (${successCount})`}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Summary */}
-      {Object.keys(results).length > 0 && (
-        <div style={{ display: 'flex', gap: 16, marginBottom: 20, padding: 12, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-          <Stat label="Total" value={totalTests} color="#334155" />
-          <Stat label="Success" value={successCount} color="#16a34a" />
-          <Stat label="4xx (OK)" value={warnCount} color="#d97706" />
-          <Stat label="500/Err" value={errorCount} color="#dc2626" />
-          <Stat label="Running" value={runningCount} color="#2563eb" />
-          <Stat label="Pending" value={totalTests - successCount - errorCount - warnCount - runningCount} color="#94a3b8" />
+      {/* Live progress (only while probing) */}
+      {running && (
+        <div style={{ marginBottom: 16, fontSize: 13, color: '#2563eb' }}>
+          Probing… {runningCount} active · {Object.keys(results).length} of {totalTests} done
         </div>
       )}
 
-      {/* Modules */}
-      {TEST_MODULES.map(mod => {
-        const modTests = mod.tests.map(t => ({
-          ...t,
-          key: `${mod.module}::${t.name}`,
-          result: results[`${mod.module}::${t.name}`],
-        }));
-        const filtered = modTests.filter(t => {
-          if (filter === 'all') return true;
-          return t.result?.status === filter;
-        });
-        if (filtered.length === 0 && filter !== 'all') return null;
-
-        const me = modTests.filter(t => t.result?.status === 'error').length;
-        const ms = modTests.filter(t => t.result?.status === 'success').length;
-        const mw = modTests.filter(t => t.result?.status === 'warn').length;
-        const isCollapsed = collapsed[mod.module];
-
-        return (
-          <div key={mod.module} style={{ marginBottom: 16 }}>
-            <div
-              style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, cursor: 'pointer', userSelect: 'none' }}
-              onClick={() => toggle(mod.module)}
-            >
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>{isCollapsed ? '\u25B6' : '\u25BC'}</span>
-              <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>{mod.module}</h2>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>({mod.tests.length})</span>
-              {ms > 0 && <Badge text={`${ms} ok`} bg="#f0fdf4" color="#16a34a" />}
-              {mw > 0 && <Badge text={`${mw} 4xx`} bg="#fffbeb" color="#d97706" />}
-              {me > 0 && <Badge text={`${me} err`} bg="#fef2f2" color="#dc2626" />}
-              <button onClick={(e) => { e.stopPropagation(); runModule(mod); }} disabled={running} style={{
-                marginLeft: 8, padding: '2px 10px', borderRadius: 4, border: '1px solid #d1d5db',
-                cursor: running ? 'not-allowed' : 'pointer', background: '#fff', fontSize: 12, color: '#374151',
-              }}>Test</button>
+      {/* Modules + docked drill panel */}
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {visibleCount === 0 ? (
+            <div style={{
+              padding: 32, textAlign: 'center', borderRadius: 8,
+              border: '1px dashed #cbd5e1', color: '#94a3b8', fontSize: 14,
+            }}>
+              {!hasRun
+                ? 'No probes run yet \u2014 click \u201CTest All\u201D to check endpoint health.'
+                : debouncedSearch
+                  ? `No endpoints match \u201C${debouncedSearch}\u201D.`
+                  : filter === 'issues'
+                    ? '\u2713 No issues \u2014 no defects, failures or slow calls. Use the chips to reveal Expected and Healthy endpoints.'
+                    : 'No endpoints match the current filter.'}
             </div>
+          ) : TEST_MODULES.map(mod => {
+            const modTests = mod.tests.map(t => ({
+              ...t,
+              key: `${mod.module}::${t.name}`,
+              result: results[`${mod.module}::${t.name}`],
+            }));
+            const filtered = modTests.filter(t => matchRow(mod.module, t.name, t.result));
+            if (filtered.length === 0) return null;
 
-            {!isCollapsed && (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                    <th style={{ padding: '6px 8px', width: 300 }}>Function</th>
-                    <th style={{ padding: '6px 8px', width: 70 }}>Status</th>
-                    <th style={{ padding: '6px 8px', width: 70 }}>Time</th>
-                    <th style={{ padding: '6px 8px', width: 50 }}>HTTP</th>
-                    <th style={{ padding: '6px 8px' }}>Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(t => (
-                    <tr key={t.key} style={{
-                      borderBottom: '1px solid #f1f5f9',
-                      background: t.result?.status === 'error' ? '#fef2f2' : t.result?.status === 'warn' ? '#fffbeb' : 'transparent',
-                    }}>
-                      <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12 }}>{t.name}</td>
-                      <td style={{ padding: '5px 8px' }}><StatusBadge status={t.result?.status || 'idle'} /></td>
-                      <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12 }}>{t.result?.ms != null ? `${t.result.ms}ms` : '-'}</td>
-                      <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12,
-                        color: t.result?.httpStatus && t.result.httpStatus >= 500 ? '#dc2626' : t.result?.httpStatus && t.result.httpStatus >= 400 ? '#d97706' : '#374151',
-                      }}>{t.result?.httpStatus || '-'}</td>
-                      <td style={{ padding: '5px 8px', fontSize: 12, color: t.result?.status === 'error' ? '#dc2626' : '#92400e',
-                        maxWidth: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }} title={t.result?.error}>{t.result?.error || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        );
-      })}
+            const md = modTests.filter(t => isDefect(t.result)).length;
+            const ms = modTests.filter(t => t.result?.status === 'success').length;
+            const mex = modTests.filter(t => isExpected(t.result) && !isSlowResult(t.result)).length;
+            const mw = modTests.filter(
+              t => t.result?.status === 'warn' && !isDefect(t.result) && !isExpected(t.result) && !isSlowResult(t.result),
+            ).length;
+            const msl = modTests.filter(t => isSlowResult(t.result)).length;
+            const isCollapsed = collapsed[mod.module];
+
+            return (
+              <div key={mod.module} style={{ marginBottom: 16 }}>
+                <div
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => toggle(mod.module)}
+                >
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>{isCollapsed ? '\u25B6' : '\u25BC'}</span>
+                  <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>{mod.module}</h2>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>({mod.tests.length})</span>
+                  {ms > 0 && <Badge text={`${ms} ok`} bg="#f0fdf4" color="#16a34a" />}
+                  {mex > 0 && <Badge text={`${mex} expected`} bg="#f1f5f9" color="#64748b" />}
+                  {mw > 0 && <Badge text={`${mw} 4xx`} bg="#fffbeb" color="#d97706" />}
+                  {msl > 0 && <Badge text={`${msl} slow`} bg="#fff7ed" color="#c2410c" />}
+                  {md > 0 && <Badge text={`${md} defect`} bg="#fdf4ff" color="#a21caf" />}
+                  <button onClick={(e) => { e.stopPropagation(); runModule(mod); }} disabled={running} style={{
+                    marginLeft: 8, padding: '2px 10px', borderRadius: 4, border: '1px solid #d1d5db',
+                    cursor: running ? 'not-allowed' : 'pointer', background: '#fff', fontSize: 12, color: '#374151',
+                  }}>Re-probe</button>
+                </div>
+
+                {!isCollapsed && (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                        <th style={{ padding: '6px 8px', width: 280 }}>Function</th>
+                        <th style={{ padding: '6px 8px', width: 70 }}>Status</th>
+                        <th style={{ padding: '6px 8px', width: 70 }}>Time</th>
+                        <th style={{ padding: '6px 8px', width: 50 }}>HTTP</th>
+                        <th style={{ padding: '6px 8px' }}>Error</th>
+                        <th style={{ padding: '6px 8px', width: 80 }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map(t => {
+                        const slow = isSlowResult(t.result);
+                        const defect = isDefect(t.result);
+                        // Expected = the API correctly rejecting fake/empty probe input.
+                        // Slow wins (priority), so a slow expected-4xx is not "expected" here.
+                        const expected = isExpected(t.result) && !slow;
+                        // Success rows are drillable too when they captured a payload —
+                        // that detail panel is the only place the exact response data shows.
+                        const drillable =
+                          t.result?.status === 'error' || slow || defect || expected ||
+                          (t.result?.status === 'success' && !!t.result?.data) ||
+                          (t.result?.status === 'warn' && !!t.result?.errorBody);
+                        const selected = drillKey === t.key;
+                        // A defective 4xx (e.g. SQL_COMPILATION_ERROR) is visually
+                        // promoted to magenta so it never blends into expected-grey.
+                        const defectWarn = defect && t.result?.status === 'warn';
+                        return (
+                          <tr key={t.key} style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            cursor: drillable ? 'pointer' : 'default',
+                            // Expected rows read MUTED (neutral grey), never amber —
+                            // they are benign, correct rejections of test input.
+                            background: selected ? '#eef2ff'
+                              : t.result?.status === 'error' ? '#fef2f2'
+                              : defectWarn ? '#fdf4ff'
+                              : slow ? '#fff7ed'
+                              : expected ? '#f8fafc'
+                              : t.result?.status === 'warn' ? '#fffbeb'
+                              : 'transparent',
+                            // Mute the whole expected row so it visually recedes.
+                            color: expected ? '#94a3b8' : undefined,
+                          }}
+                            onClick={drillable ? () => setDrillKey(t.key) : undefined}
+                            title={drillable
+                              ? expected
+                                ? 'Expected — probe sent a test id / empty body, API correctly rejected it'
+                                : 'Click for detail'
+                              : undefined}
+                          >
+                            <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12, color: expected ? '#94a3b8' : undefined }}>
+                              {t.name}
+                              {t.result?.data && (
+                                <span
+                                  title="Response payload captured — click row to view"
+                                  style={{ marginLeft: 6, display: 'inline-block', padding: '0 5px', borderRadius: 4, fontSize: 9, fontWeight: 700, background: '#eff6ff', color: '#2563eb', verticalAlign: 'middle' }}
+                                >data</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '5px 8px' }}>
+                              <StatusBadge status={t.result?.status || 'idle'} expected={expected} />
+                              {defect && <span style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#fdf4ff', color: '#a21caf' }}>DEFECT</span>}
+                              {slow && <span style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#fff7ed', color: '#c2410c' }}>SLOW</span>}
+                              {expected && <span title="Probe sent a test id / empty body — the API correctly rejected it" style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#64748b' }}>Expected</span>}
+                            </td>
+                            <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12, color: expected ? '#94a3b8' : undefined }}>{t.result?.ms != null ? `${t.result.ms}ms` : '-'}</td>
+                            <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12,
+                              color: expected ? '#94a3b8' : t.result?.httpStatus && t.result.httpStatus >= 500 ? '#dc2626' : t.result?.httpStatus && t.result.httpStatus >= 400 ? '#d97706' : '#374151',
+                            }}>{t.result?.httpStatus || '-'}</td>
+                            <td style={{ padding: '5px 8px', fontSize: 12, color: expected ? '#94a3b8' : t.result?.status === 'error' ? '#dc2626' : '#92400e',
+                              maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }} title={t.result?.error}>{expected ? 'probe sent a test id / empty body — correct rejection' : (t.result?.error || '-')}</td>
+                            <td style={{ padding: '5px 8px', textAlign: 'right' }}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); reprobeOne(mod.module, t.name); }}
+                                disabled={running || reprobingKey === t.key}
+                                style={{
+                                  padding: '2px 8px', borderRadius: 4, border: '1px solid #d1d5db',
+                                  cursor: running || reprobingKey === t.key ? 'not-allowed' : 'pointer',
+                                  background: '#fff', fontSize: 11, color: '#374151',
+                                }}
+                              >{reprobingKey === t.key ? '\u2026' : 'Re-probe'}</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {drillDetail && (
+          <DrillPanel
+            key={drillKey}
+            detail={drillDetail}
+            onClose={() => setDrillKey(null)}
+            onReprobe={(d) => reprobeOne(d.module, d.name)}
+            reprobing={reprobingKey === drillKey}
+          />
+        )}
+      </div>
     </div>
   );
 }
 
 // ── UI helpers ──
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, expected }: { status: string; expected?: boolean }) {
   const config: Record<string, { bg: string; color: string; label: string }> = {
     idle: { bg: '#f1f5f9', color: '#94a3b8', label: 'IDLE' },
     running: { bg: '#eff6ff', color: '#2563eb', label: 'RUN' },
@@ -1199,7 +1557,10 @@ function StatusBadge({ status }: { status: string }) {
     warn: { bg: '#fffbeb', color: '#d97706', label: '4xx' },
     error: { bg: '#fef2f2', color: '#dc2626', label: '500' },
   };
-  const c = config[status] || config.idle;
+  // Expected 4xx renders MUTED grey, never the amber "4xx" warn badge.
+  const c = expected
+    ? { bg: '#f1f5f9', color: '#64748b', label: '4xx' }
+    : config[status] || config.idle;
   return (
     <span style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, background: c.bg, color: c.color }}>
       {c.label}

@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { safeLocale, safeToFixed } from '@/lib/format-number';
 import AuditTable, { type Row } from '@/app/shared/command-center/AuditTable';
 import { getServerMetrics, type ServerMetrics } from '@/app/services/admin-visibility';
 import {
@@ -320,8 +321,8 @@ export default function PerformancePanel() {
       <PanelCard icon={ServerCog} title="API latency & throughput" subtitle="live · in-process since restart">
         <Feed phase={smPhase} label="Server metrics" error={smError} onRetry={() => void loadServerMetrics()}>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-            <KpiStat label="Req / min" value={sm ? String(sm.requests_per_min) : '—'} sub={sm ? `${sm.total_requests.toLocaleString()} total` : undefined} />
-            <KpiStat label="Error rate" value={sm ? `${sm.error_rate.toFixed(2)}%` : '—'} sub={sm ? `${sm.error_count} errors` : undefined} alert={Boolean(sm && sm.error_rate > 5)} />
+            <KpiStat label="Req / min" value={sm ? String(sm.requests_per_min) : '—'} sub={sm ? `${safeLocale(sm.total_requests)} total` : undefined} />
+            <KpiStat label="Error rate" value={sm ? `${safeToFixed(sm.error_rate, 2)}%` : '—'} sub={sm ? `${sm.error_count} errors` : undefined} alert={Boolean(sm && sm.error_rate > 5)} />
             <KpiStat label="p50" value={sm ? `${Math.round(sm.latency.p50_ms)} ms` : '—'} />
             <KpiStat label="p90" value={sm ? `${Math.round(sm.latency.p90_ms)} ms` : '—'} />
             <KpiStat label="p99" value={sm ? `${Math.round(sm.latency.p99_ms)} ms` : '—'} alert={Boolean(sm && sm.latency.p99_ms > 2000)} />
@@ -365,11 +366,11 @@ export default function PerformancePanel() {
         <Feed phase={whPhase} label="Warehouse performance" error={whError} onRetry={() => void loadWarehouse()}>
           {wh && (
             <div className="mb-2 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
-              <KpiStat label="Queries 7d" value={wh.query_performance.total_queries_7d.toLocaleString()} />
+              <KpiStat label="Queries 7d" value={safeLocale(wh.query_performance.total_queries_7d)} />
               <KpiStat label="Avg exec" value={`${Math.round(wh.query_performance.avg_execution_ms)} ms`} />
               <KpiStat label="p95 exec" value={`${Math.round(wh.query_performance.p95_execution_ms)} ms`} alert={wh.query_performance.p95_execution_ms > 30000} />
-              <KpiStat label="Failed 7d" value={wh.query_performance.failed_queries_7d.toLocaleString()} alert={wh.query_performance.failed_queries_7d > 0} />
-              <KpiStat label="Queued 7d" value={wh.query_performance.queued_queries_7d.toLocaleString()} />
+              <KpiStat label="Failed 7d" value={safeLocale(wh.query_performance.failed_queries_7d)} alert={wh.query_performance.failed_queries_7d > 0} />
+              <KpiStat label="Queued 7d" value={safeLocale(wh.query_performance.queued_queries_7d)} />
             </div>
           )}
           {warehouseRows.length > 0 ? (

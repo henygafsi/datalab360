@@ -45,6 +45,7 @@ import {
   getSentimentEmoji,
 } from '@/app/services/cortex/ml-features';
 import { getCortexModels } from '@/app/services/cortex/ai';
+import { safeToFixed } from '@/lib/format-number';
 import AiCostBadge from './components/AiCostBadge';
 import { useTrackAiCharge } from './store/ai-store';
 import { useAiCostEstimate } from '@/hooks/useAiCostEstimate';
@@ -476,7 +477,7 @@ function SentimentTab() {
                     style={{ backgroundColor: getSentimentColor(result.sentiment) }}
                     className="text-white"
                   >
-                    {result.sentiment.toFixed(2)}
+                    {safeToFixed(result.sentiment, 2)}
                   </Badge>
                 </div>
               </div>

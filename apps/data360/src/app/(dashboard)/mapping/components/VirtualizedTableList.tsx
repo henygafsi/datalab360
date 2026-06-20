@@ -10,6 +10,20 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { IngestionMode } from './TableDetailPanel';
+import IngestionBadge from '@/app/(dashboard)/explore-design/components/IngestionBadge';
+import type { IngestionTraceEntry } from '@/app/services/explore-design/ingestionTrace';
+
+/**
+ * Optional per-row ingestion-trace lookup. When supplied (explore-design wires
+ * it from the single bulk `useIngestionTrace` call), each row renders an
+ * IngestionBadge. mapping passes nothing → behaviour unchanged. It is a pure
+ * O(1) Map.get — no per-row fetch (no N+1).
+ */
+export type IngestionLookup = (
+  db?: string | null,
+  schema?: string | null,
+  table?: string | null,
+) => IngestionTraceEntry | null;
 
 export type DetectedSourceType =
   | 'SNOWPIPE'
@@ -62,6 +76,8 @@ interface VirtualizedTableListProps {
   onSchemaToggle: (schema: string) => void;
   searchQuery?: string;
   className?: string;
+  /** Optional ingestion-trace lookup → renders a per-row IngestionBadge when set. */
+  ingestionLookup?: IngestionLookup;
 }
 
 const STATUS_CONFIG = {
@@ -166,8 +182,11 @@ const TableRow: React.FC<{
   isSelected: boolean;
   onSelect: (selected: boolean) => void;
   onClick: () => void;
-}> = ({ table, isSelected, onSelect, onClick }) => {
+  ingestionLookup?: IngestionLookup;
+}> = ({ table, isSelected, onSelect, onClick, ingestionLookup }) => {
   const status = STATUS_CONFIG[table.status];
+  // Pure O(1) Map.get — no fetch here (the single bulk call lives in the page).
+  const ingestion = ingestionLookup ? ingestionLookup(table.database, table.schema, table.table) : null;
 
   const handleCheckboxClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -243,6 +262,10 @@ const TableRow: React.FC<{
             <span className={cn('h-1.5 w-1.5 rounded-full', status.dot)} />
             {status.label}
           </span>
+
+          {/* Snowpipe / COPY ingestion trace badge (explore-design only — set when
+              ingestionLookup is supplied; mapping renders nothing extra). */}
+          {ingestionLookup && <IngestionBadge entry={ingestion} />}
 
           {/* Ingestion mode badge */}
           {(() => {
@@ -376,6 +399,7 @@ export const VirtualizedTableList: React.FC<VirtualizedTableListProps> = ({
   onSchemaToggle,
   searchQuery = '',
   className,
+  ingestionLookup,
 }) => {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -494,6 +518,7 @@ export const VirtualizedTableList: React.FC<VirtualizedTableListProps> = ({
                   isSelected={selectedTables.has(item.data.id)}
                   onSelect={(selected) => onSelectionChange(item.data.id, selected)}
                   onClick={() => onTableClick(item.data)}
+                  ingestionLookup={ingestionLookup}
                 />
               )}
             </div>

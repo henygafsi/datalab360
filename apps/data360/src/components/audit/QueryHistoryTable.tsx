@@ -5,6 +5,7 @@ import { Badge } from 'rizzui';
 import toast from 'react-hot-toast';
 import DataTable, { type DataTableColumn } from '@/components/ui/DataTable';
 import { getQueryHistory, type AuditQueryRow } from '@/app/services/audit';
+import { safeToFixed } from '@/lib/format-number';
 
 const STATUS_COLORS: Record<string, string> = {
   SUCCEEDED: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -26,7 +27,7 @@ const COLUMNS: DataTableColumn[] = [
   { key: 'rows_produced', label: 'Rows', sortable: true, format: 'number', align: 'right' },
   { key: 'bytes_scanned', label: 'Scanned', sortable: true, format: 'bytes', align: 'right' },
   { key: 'credits_used_cloud_services', label: 'Credits', sortable: true, align: 'right',
-    render: (v: number) => <span>{v != null ? v.toFixed(4) : '-'}</span> },
+    render: (v: number) => <span>{safeToFixed(v, 4, '-')}</span> },
   { key: 'start_time', label: 'Start Time', sortable: true, format: 'date' },
 ];
 

@@ -16,10 +16,12 @@
  * `ARTEFACT_PUBLISHED` once step 5's redirect button is clicked (fire-and-
  * forget — telemetry never blocks the user flow).
  *
- * Matches the shell rhythm of GuidedAiWorkflowWizard.tsx: full-screen
- * backdrop, framer-motion spring entry, AnimatePresence step transitions.
- * Closing is non-destructive (the draft is always persisted + resumable from
- * the Deploy App home) so there is no discard-confirm dialog.
+ * Right-docked side panel — NO click-blocking backdrop, the page behind stays
+ * interactive (mirrors the command-center ApprovalDetailModal pattern). Kept
+ * WIDE (max-w-2xl) so the multi-step flow stays comfortable. framer-motion
+ * slide-in entry, AnimatePresence step transitions. Closing is non-destructive
+ * (the draft is always persisted + resumable from the Deploy App home) so there
+ * is no discard-confirm dialog.
  */
 import {
   useCallback,
@@ -516,28 +518,35 @@ export default function DeployAppWizard({
 
   /* ── Render ──────────────────────────────────────────────────────── */
 
+  // Close on Escape — keyboard parity, works regardless of focus position.
+  // Closing is non-destructive (drafts are persisted) so no confirm is needed.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleRequestClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, handleRequestClose]);
+
   if (!open) return null;
 
   return (
     <AnimatePresence>
+      {/* Right-docked side panel — NO click-blocking backdrop, the page behind
+          stays interactive. Closes via the X button or Escape. Kept WIDE
+          (max-w-2xl) so the multi-step form stays comfortable. */}
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-stretch justify-stretch bg-slate-900/50 backdrop-blur-sm"
-        onClick={handleRequestClose}
+        initial={{ x: '100%', opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: '100%', opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+        role="region"
+        aria-modal="false"
+        aria-label="Deploy App wizard"
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
       >
-        <motion.div
-          initial={{ scale: 0.98, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.98, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 380, damping: 28 }}
-          onClick={(e) => e.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Deploy App wizard"
-          className="m-auto flex h-[min(900px,95vh)] w-[min(1100px,95vw)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        >
+        <div className="flex h-full flex-col overflow-hidden">
           {/* Top bar ──────────────────────────────────────────────── */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <div className="flex items-center gap-3">
@@ -719,7 +728,7 @@ export default function DeployAppWizard({
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
-        </motion.div>
+        </div>
       </motion.div>
     </AnimatePresence>
   );

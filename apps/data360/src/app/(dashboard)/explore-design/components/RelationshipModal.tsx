@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Modal, Button, Select, Badge, Input } from 'rizzui';
-import { Link2, X, Save, Trash2, GitBranch, AlertCircle, ArrowRight, Sparkles, Check, XCircle, Loader2 } from 'lucide-react';
+import { Button, Select, Badge, Input } from 'rizzui';
+import { Link2, Save, Trash2, GitBranch, AlertCircle, ArrowRight, Sparkles, Check, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import DesignDockPanel from './DesignDockPanel';
 import { useEventStore } from '../stores/event-store';
 import { aiDiscoverRelationships } from '@/app/services/api/exploreDesignApi';
 import { useAiFeatures } from '../stores/ai-store';
@@ -334,45 +335,63 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="lg">
-      <div className="p-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-              <Link2 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold">
-                {existingRelationship ? 'Edit Relationship' : 'Create Relationship'}
-              </h2>
-              <p className="text-sm text-slate-500">
-                {database}.{schema}.{sourceTable}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {isEnabled('relationship_discovery') && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAiDiscover}
-                disabled={isDiscovering}
-                className="gap-1.5 border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/20"
-              >
-                {isDiscovering ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                AI Discover
-              </Button>
-            )}
-            <Button variant="text" size="sm" onClick={onClose}>
-              <X className="h-5 w-5" />
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title={existingRelationship ? 'Edit Relationship' : 'Create Relationship'}
+      subtitle={`${database}.${schema}.${sourceTable}`}
+      widthClass="max-w-xl"
+      icon={
+        <div className="w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+          <Link2 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+        </div>
+      }
+      footer={
+        <div className="flex items-center justify-between">
+          {existingRelationship && (
+            <Button
+              variant="outline"
+              onClick={handleDelete}
+              className="gap-2 text-red-600 border-red-300"
+              disabled={isSubmitting}
+              isLoading={isSubmitting}
+            >
+              <Trash2 className="h-4 w-4" />
+              {isSubmitting ? 'Removing...' : 'Remove Relationship'}
+            </Button>
+          )}
+          <div className="flex items-center gap-3 ml-auto">
+            <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreate} className="gap-2" disabled={isSubmitting} isLoading={isSubmitting}>
+              <Save className="h-4 w-4" />
+              {isSubmitting ? 'Saving...' : `${existingRelationship ? 'Update' : 'Create'} Relationship`}
             </Button>
           </div>
         </div>
+      }
+    >
+      <div>
+        {/* AI Discover action (relocated from header) */}
+        {isEnabled('relationship_discovery') && (
+          <div className="flex justify-end mb-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAiDiscover}
+              disabled={isDiscovering}
+              className="gap-1.5 border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/20"
+            >
+              {isDiscovering ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              AI Discover
+            </Button>
+          </div>
+        )}
 
         {/* AI Discovery Results */}
         {showDiscovery && (
@@ -600,33 +619,8 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
             </p>
           )}
         </div>
-
-        {/* Footer Actions */}
-        <div className="flex items-center justify-between">
-          {existingRelationship && (
-            <Button
-              variant="outline"
-              onClick={handleDelete}
-              className="gap-2 text-red-600 border-red-300"
-              disabled={isSubmitting}
-              isLoading={isSubmitting}
-            >
-              <Trash2 className="h-4 w-4" />
-              {isSubmitting ? 'Removing...' : 'Remove Relationship'}
-            </Button>
-          )}
-          <div className="flex items-center gap-3 ml-auto">
-            <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreate} className="gap-2" disabled={isSubmitting} isLoading={isSubmitting}>
-              <Save className="h-4 w-4" />
-              {isSubmitting ? 'Saving...' : `${existingRelationship ? 'Update' : 'Create'} Relationship`}
-            </Button>
-          </div>
-        </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 };
 

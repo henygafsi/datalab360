@@ -1,6 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { Modal, Input, Button, Select, Textarea, Badge } from 'rizzui';
+import { Input, Button, Select, Textarea, Badge } from 'rizzui';
 import toast from 'react-hot-toast';
 import apiClient from '@/lib/api-client';
 import {
@@ -8,6 +8,7 @@ import {
   Zap, Sparkles, ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import DesignDockPanel from './DesignDockPanel';
 
 interface Props {
   isOpen: boolean;
@@ -15,6 +16,8 @@ interface Props {
   sourceTable?: { database: string; schema: string; table: string };
   warehouses?: string[];
   columns?: { name: string; dataType: string }[];
+  /** Called after a successful create so the canvas / source list can refresh. */
+  onCreated?: () => void;
 }
 
 // ── Prebuilt Alert Templates ──────────────────────────────────────
@@ -121,7 +124,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   'deployment': 'Deployment',
 };
 
-export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = [], columns = [] }: Props) {
+export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = [], columns = [], onCreated }: Props) {
   const [mode, setMode] = useState<'templates' | 'custom'>('templates');
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [selectedColumn, setSelectedColumn] = useState('');
@@ -166,6 +169,7 @@ export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = 
         schema: sourceTable?.schema,
       });
       toast.success(`Alert "${name}" created`);
+      onCreated?.();
       onClose();
     } catch (e: any) {
       toast.error(e?.response?.data?.detail || 'Failed to create alert');
@@ -175,22 +179,44 @@ export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = 
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="720px">
-      <div className="p-6 space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg shadow-amber-500/25">
-              <AlertTriangle className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white">Create Alert</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                {sourceTable ? `on ${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}` : 'Scheduled condition monitoring'}
-              </p>
-            </div>
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Create Alert"
+      subtitle={sourceTable ? `on ${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}` : 'Scheduled condition monitoring'}
+      widthClass="max-w-2xl"
+      icon={
+        <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg shadow-amber-500/25">
+          <AlertTriangle className="h-5 w-5 text-white" />
+        </div>
+      }
+      footer={
+        <div className="flex justify-between items-center">
+          {mode === 'custom' && activeTemplate ? (
+            <button
+              onClick={() => setMode('templates')}
+              className="text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400"
+            >
+              ← Back to templates
+            </button>
+          ) : <div className="flex-1" />}
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button
+              isLoading={loading}
+              onClick={handleCreate}
+              disabled={loading || mode === 'templates' || !name || !warehouse}
+              className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md"
+            >
+              Create Alert
+            </Button>
           </div>
-          {/* Mode toggle */}
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {/* Mode toggle */}
+        <div className="flex items-center justify-end">
           <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5">
             <button
               onClick={() => setMode('templates')}
@@ -327,31 +353,7 @@ export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = 
             />
           </div>
         )}
-
-        {/* Footer */}
-        <div className="flex justify-between items-center pt-2 border-t dark:border-slate-700">
-          {mode === 'custom' && activeTemplate && (
-            <button
-              onClick={() => setMode('templates')}
-              className="text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400"
-            >
-              ← Back to templates
-            </button>
-          )}
-          <div className="flex-1" />
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button
-              isLoading={loading}
-              onClick={handleCreate}
-              disabled={loading || mode === 'templates' || !name || !warehouse}
-              className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md"
-            >
-              Create Alert
-            </Button>
-          </div>
-        </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 }

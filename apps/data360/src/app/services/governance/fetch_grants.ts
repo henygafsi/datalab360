@@ -19,13 +19,10 @@ export async function getPermissions(): Promise<GrantTableDataType[]> {
     for (const roleData of allRoles) {
       const roleName = roleData.role;
       try {
-        const roleGrants = await getGrantsForRole(roleName);
-        for (const grantString of roleGrants) {
-          const parts = grantString.split(' on ');
-          let privilege = parts[0];
-          let objectDetails = parts[1] || 'GLOBAL';
-
-          const fullGrantIdentifier = `${privilege} on ${objectDetails}`;
+        const roleGrants = await getRolesForGrantsMatrix(roleName);
+        for (const g of roleGrants) {
+          const objectDetails = [g.granted_on, g.name].filter(Boolean).join(' ') || 'GLOBAL';
+          const fullGrantIdentifier = `${g.privilege || 'GRANT'} on ${objectDetails}`;
           if (!grantsMap.has(fullGrantIdentifier)) {
             grantsMap.set(fullGrantIdentifier, new Set<string>());
           }
@@ -50,23 +47,71 @@ export async function getPermissions(): Promise<GrantTableDataType[]> {
 }
 
 /**
- * Returns grants for a single role (alias for getGrantsForRole for matrix/view usage).
- * @param roleName The name of the role.
- * @returns A promise that resolves to an array of grant strings.
+ * A normalized object-level grant row (one `SHOW GRANTS TO ROLE` privilege).
+ * `revocable` is true only when we have BOTH an object type and an object name,
+ * which the REVOKE call requires — string-only rows (rare/legacy) render but
+ * cannot be safely revoked.
  */
-export async function getRolesForGrantsMatrix(roleName: string): Promise<string[]> {
-  return getGrantsForRole(roleName);
+export interface RoleGrant {
+  privilege: string;
+  granted_on: string;
+  name: string;
+  revocable: boolean;
+}
+
+/**
+ * Normalize a single raw grant row coming from `/gouvernance/grants-for-role`.
+ * The backend (real `SHOW GRANTS`) returns OBJECTS with snake_case keys, but a
+ * couple of legacy aggregators stringified rows ("SELECT on TABLE DB.SCH.T").
+ * We accept BOTH so the panel renders + revoke works regardless of shape.
+ */
+function normalizeGrant(raw: unknown): RoleGrant {
+  if (raw && typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    const privilege = String(o.privilege ?? o.PRIVILEGE ?? '').trim();
+    const granted_on = String(o.granted_on ?? o.GRANTED_ON ?? o.type ?? o.TYPE ?? '').trim();
+    const name = String(o.name ?? o.NAME ?? o.object_name ?? o.OBJECT_NAME ?? '').trim();
+    return { privilege, granted_on, name, revocable: Boolean(privilege && granted_on && name) };
+  }
+  // Legacy string row: "PRIVILEGE on OBJECT_TYPE OBJECT_NAME". We can recover the
+  // privilege + the object descriptor but cannot reliably split type vs name, so
+  // mark it non-revocable rather than firing a malformed REVOKE.
+  const s = String(raw ?? '');
+  const [priv, rest] = s.split(' on ');
+  const restParts = (rest ?? '').trim().split(/\s+/);
+  const granted_on = restParts.length > 1 ? restParts[0] : '';
+  const name = restParts.length > 1 ? restParts.slice(1).join(' ') : (rest ?? '').trim();
+  return {
+    privilege: (priv ?? '').trim() || s.trim(),
+    granted_on,
+    name,
+    revocable: false,
+  };
+}
+
+/**
+ * Returns the object-level grants for a single role as NORMALIZED objects
+ * (alias of getGrantsForRole for the matrix/view/admin panels). Always shaped
+ * `{ privilege, granted_on, name, revocable }` regardless of whether the backend
+ * emits objects or legacy strings.
+ * @param roleName The name of the role.
+ */
+export async function getRolesForGrantsMatrix(roleName: string): Promise<RoleGrant[]> {
+  const rows = await getGrantsForRole(roleName);
+  return rows.map(normalizeGrant);
 }
 
 /**
  * Fetches grants (privileges) for a specific role from the backend.
+ * The real `SHOW GRANTS TO ROLE` returns OBJECT rows; a couple of legacy paths
+ * stringified them. We return the raw rows untouched (objects or strings) and let
+ * {@link normalizeGrant} reconcile the shape — see getRolesForGrantsMatrix.
  * @param roleName The name of the role to fetch grants for.
- * @returns A promise that resolves to an array of grant strings.
  */
-export async function getGrantsForRole(roleName: string): Promise<string[]> {
+export async function getGrantsForRole(roleName: string): Promise<unknown[]> {
   try {
-    const response = await apiClient.get(`/gouvernance/grants-for-role/${roleName}`);
-    return Array.isArray(response.data) ? (response.data as string[]) : [];
+    const response = await apiClient.get(`/gouvernance/grants-for-role/${encodeURIComponent(roleName)}`);
+    return Array.isArray(response.data) ? (response.data as unknown[]) : [];
   } catch (error: any) {
     console.error(`Error fetching grants for role ${roleName}:`, error.response?.data || error.message);
     throw error;

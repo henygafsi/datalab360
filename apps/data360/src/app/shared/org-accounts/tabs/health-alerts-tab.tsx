@@ -20,6 +20,7 @@ import {
   getAccountHealthScore,
 } from '@/app/services/org-accounts/hooks';
 import { formatCredits, formatDate, extractApiError } from '@/app/services/org-accounts/utils';
+import { safeToFixed } from '@/lib/format-number';
 import type {
   HealthScore,
   Alert,
@@ -401,7 +402,7 @@ export default function HealthAlertsTab({ refreshKey }: HealthAlertsTabProps) {
                         color={usagePct < 50 ? 'success' : usagePct <= 80 ? 'warning' : 'danger'}
                         size="sm"
                       >
-                        {usagePct.toFixed(1)}% used
+                        {safeToFixed(usagePct, 1)}% used
                       </Badge>
                     </div>
 
@@ -508,9 +509,9 @@ export default function HealthAlertsTab({ refreshKey }: HealthAlertsTabProps) {
                     <tr key={`${a.account_name}-${a.date}-${i}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <td className="px-4 py-3"><Text className="text-sm text-gray-900 dark:text-white">{formatDate(a.date)}</Text></td>
                       <td className="px-4 py-3"><Text className="text-sm font-medium text-gray-900 dark:text-white">{a.account_name}</Text></td>
-                      <td className="px-4 py-3 text-right"><Text className="text-sm font-bold text-red-600">{a.currency} {a.actual_value.toFixed(2)}</Text></td>
-                      <td className="px-4 py-3 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{a.currency} {a.forecasted_value.toFixed(2)}</Text></td>
-                      <td className="px-4 py-3 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{a.currency} {a.upper_bound.toFixed(2)}</Text></td>
+                      <td className="px-4 py-3 text-right"><Text className="text-sm font-bold text-red-600">{a.currency} {safeToFixed(a.actual_value, 2)}</Text></td>
+                      <td className="px-4 py-3 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{a.currency} {safeToFixed(a.forecasted_value, 2)}</Text></td>
+                      <td className="px-4 py-3 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{a.currency} {safeToFixed(a.upper_bound, 2)}</Text></td>
                       <td className="px-4 py-3">
                         <Badge variant="flat" color={severity === 'critical' ? 'danger' : 'warning'} className="text-xs">
                           {severity}

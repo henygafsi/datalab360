@@ -384,8 +384,7 @@ export const API = {
     vectorColumns: (db?: string) => `/cortex/vectors/columns${db ? `?database=${enc(db)}` : ''}`,
     /** POST /cortex/embeddings — embed a column with vector model (verified vs backend). */
     embedColumn: () => '/cortex/embeddings',
-    // TODO(henry-P1): no backend route for /cortex/analyst/query — Analyst API not exposed.
-    // UI consumers must rely on the 404-self-disable pattern until the route ships.
+    /** POST /cortex/analyst/query — Cortex Analyst NL→SQL→results (cortex/router.py:1287, verified vs backend). */
     analystQuery: () => '/cortex/analyst/query',
     /** GET /cortex/ml/classification/models — list classification models */
     classificationModels: () => '/cortex/ml/classification/models',
@@ -638,6 +637,14 @@ export const API = {
   admin: {
     /** GET /admin/activity-stats — platform-wide activity stats. */
     activityStats: () => '/admin/activity-stats',
+    /**
+     * GET /admin/api-health/introspect?query_id=<id> — resolve a probed call's
+     * underlying warehouse query (SQL text, status, elapsed/bytes/rows, warehouse,
+     * role) plus related events. Used by the api-health DrillPanel. May 404/501
+     * until the backend route is live.
+     */
+    apiHealthIntrospect: (queryId: string) =>
+      `/admin/api-health/introspect?query_id=${enc(queryId)}`,
   },
 
   /** BI Dashboard — backend: /bi-dashboard/* (modules/bi_dashboard/router.py). */
@@ -691,11 +698,9 @@ export const API = {
     update: (id: string) => `/data-products/${enc(id)}`,
     /** DELETE /data-products/{id} — delete a data product */
     delete: (id: string) => `/data-products/${enc(id)}`,
-    /** GET /data-products/{id}/lineage — upstream + downstream table lineage for a product */
-    // TODO(henry-P1): /lineage and /consumers are NOT in the backend (verified 2026-06-07 —
-    // real routes: GET /data-products, GET /{id}, POST /{id}/{publish,refresh,subscribe}).
+    /** GET /data-products/{id}/lineage — upstream + downstream table lineage (data_products.py:1021, verified vs backend). */
     lineage: (id: string) => `/data-products/${enc(id)}/lineage`,
-    /** GET /data-products/{id}/consumers — list subscribers. (backend gap) */
+    /** GET /data-products/{id}/consumers — subscriber accounts + recent readers (data_products.py:1087, verified vs backend). */
     consumers: (id: string) => `/data-products/${enc(id)}/consumers`,
     /** POST /data-products/{id}/publish — publish product as a live Snowflake Secure Data Share */
     publish: (id: string) => `/data-products/${enc(id)}/publish`,
@@ -931,6 +936,13 @@ export const API = {
       userDetail: (account: string, username: string, hours?: number) =>
         `/administration/performance/${enc(account)}/user/${enc(username)}${qs({ hours })}`,
     },
+    /**
+     * GET /administration/platform-health?hours=&user=&module=&limit= — audit-backed
+     * platform health (reads usage telemetry on the caller's own connection, so it
+     * works locally and in prod with no service account). KPIs + granular tables.
+     */
+    platformHealth: (opts?: { hours?: number; user?: string; module?: string; limit?: number }) =>
+      `/administration/platform-health${qs({ hours: opts?.hours, user: opts?.user, module: opts?.module, limit: opts?.limit })}`,
   },
 } as const;
 

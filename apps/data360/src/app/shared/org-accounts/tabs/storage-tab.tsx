@@ -20,6 +20,7 @@ import {
   getStorageStages,
 } from '@/app/services/org-accounts/hooks';
 import { formatStorage, formatBytes, extractApiError } from '@/app/services/org-accounts/utils';
+import { safeToFixed } from '@/lib/format-number';
 import type {
   AccountStorage,
   StorageTrendPoint,
@@ -141,7 +142,7 @@ export default function StorageTab({ refreshKey }: StorageTabProps) {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis dataKey="usage_date" tickFormatter={formatDate} stroke="#9ca3af" fontSize={12} tickLine={false} />
-                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v: number) => `${v.toFixed(1)} TB`} />
+                <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v: number) => `${safeToFixed(v, 1)} TB`} />
                 <Tooltip content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
                   const item = payload[0].payload;
@@ -149,7 +150,7 @@ export default function StorageTab({ refreshKey }: StorageTabProps) {
                     <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
                       <Text className="text-sm font-medium text-gray-900 dark:text-white">{formatDate(item.usage_date)}</Text>
                       <Text className="text-sm text-purple-600">Storage: {formatStorage(item.total_tb)}</Text>
-                      <Text className="text-xs text-gray-500">Credits: {item.total_credits?.toFixed(2)}</Text>
+                      <Text className="text-xs text-gray-500">Credits: {safeToFixed(item.total_credits, 2)}</Text>
                     </div>
                   );
                 }} />
@@ -183,7 +184,7 @@ export default function StorageTab({ refreshKey }: StorageTabProps) {
                   <tr key={acc.account_name} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                     <td className="px-4 py-3"><Text className="font-medium text-gray-900 dark:text-white">{acc.account_name}</Text></td>
                     <td className="px-4 py-3 text-right"><Text className="text-gray-900 dark:text-white">{formatStorage(acc.total_tb)}</Text></td>
-                    <td className="px-4 py-3 text-right"><Text className="text-gray-600 dark:text-gray-300">{acc.storage_credits.toFixed(2)}</Text></td>
+                    <td className="px-4 py-3 text-right"><Text className="text-gray-600 dark:text-gray-300">{safeToFixed(acc.storage_credits, 2)}</Text></td>
                   </tr>
                 ))}
               </tbody>

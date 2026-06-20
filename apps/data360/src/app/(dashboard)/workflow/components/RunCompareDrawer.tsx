@@ -196,20 +196,12 @@ const RunCompareDrawer: React.FC<RunCompareDrawerProps> = ({
   return (
     <div
       role="dialog"
-      aria-modal="true"
+      aria-modal="false"
       aria-label="Compare runs"
-      className="fixed inset-0 z-50 flex"
+      className="fixed inset-y-0 right-0 z-[70] flex"
     >
-      {/* Backdrop */}
-      <button
-        type="button"
-        aria-label="Close compare drawer"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/40"
-      />
-
       {/* Drawer */}
-      <div className="ml-auto h-full w-full max-w-3xl overflow-y-auto bg-white shadow-xl dark:bg-slate-900">
+      <div className="ml-auto h-full w-full max-w-3xl overflow-y-auto border-l border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
           <div className="flex items-center gap-2">

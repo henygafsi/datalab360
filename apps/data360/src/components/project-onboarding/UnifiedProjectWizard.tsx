@@ -19,7 +19,8 @@
  * the build mode + any AI description / template id the host needs to
  * continue the flow.
  */
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import {
@@ -33,7 +34,6 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { createExploreProject } from '@/app/services/api/exploreDesignApi';
 import * as workflowApi from '@/app/services/api/workflowApi';
@@ -196,6 +196,18 @@ export default function UnifiedProjectWizard({
     onOpenChange(false);
   }, [reset, onOpenChange]);
 
+  // Close on Escape — keyboard parity, works regardless of focus position.
+  // Suppressed while the discard confirmation is open so Esc dismisses that
+  // first rather than the whole wizard.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !showDiscard) requestClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, showDiscard, requestClose]);
+
   const goNext = useCallback(() => {
     if (!canContinue) return;
     if (step === 2 && buildMode === 'manual') {
@@ -315,13 +327,21 @@ export default function UnifiedProjectWizard({
 
   return (
     <>
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          if (!next) requestClose();
-        }}
-      >
-        <DialogContent className="max-w-2xl gap-0 overflow-hidden bg-white p-0 dark:bg-slate-900">
+      {open &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <motion.aside
+            role="dialog"
+            aria-modal="false"
+            aria-label={`New ${moduleLabel} project`}
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', stiffness: 340, damping: 34 }}
+            // Right-docked, backdrop-less drawer — NO full-bleed scrim, the page
+            // behind stays interactive. Closes via the X / Cancel buttons or Escape.
+            className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+          >
           {/* Header */}
           <div className="relative flex items-start justify-between gap-3 border-b border-slate-200 px-6 pb-4 pt-5 dark:border-slate-700">
             <div className="pointer-events-none absolute -left-16 -top-16 h-44 w-44 rounded-full bg-gradient-to-br from-blue-400/15 to-indigo-500/15 blur-3xl" />
@@ -388,7 +408,7 @@ export default function UnifiedProjectWizard({
           </div>
 
           {/* Body */}
-          <div className="min-h-[280px] px-6 py-5">
+          <div className="min-h-[280px] flex-1 overflow-y-auto px-6 py-5">
             <AnimatePresence mode="wait">
               <motion.div
                 key={step}
@@ -687,8 +707,9 @@ export default function UnifiedProjectWizard({
               )}
             </button>
           </div>
-        </DialogContent>
-      </Dialog>
+          </motion.aside>,
+          document.body,
+        )}
 
       {/* Discard confirmation — soft tier */}
       <ConfirmDialog

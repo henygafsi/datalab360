@@ -1,5 +1,6 @@
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
+import { toServiceError } from '../_errors';
 
 // ============================================
 // TYPES & INTERFACES
@@ -102,8 +103,7 @@ export async function listSemanticModels(): Promise<SemanticModel[]> {
     return [];
   } catch (error: any) {
     console.error('Error fetching semantic models:', error);
-    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
-    throw new Error(`Failed to list semantic models: ${message}`);
+    throw toServiceError(error, 'Failed to list semantic models');
   }
 }
 
@@ -174,8 +174,7 @@ export async function getSemanticModelContent(modelName: string): Promise<Semant
     };
   } catch (error: any) {
     console.error(`Error fetching semantic model ${modelName}:`, error);
-    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
-    throw new Error(`Failed to get semantic model: ${message}`);
+    throw toServiceError(error, 'Failed to get semantic model');
   }
 }
 
@@ -203,8 +202,7 @@ export async function createSemanticModel(request: CreateSemanticModelRequest): 
     return response.data;
   } catch (error: any) {
     console.error('Error creating semantic model:', error);
-    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
-    throw new Error(`Failed to create semantic model: ${message}`);
+    throw toServiceError(error, 'Failed to create semantic model');
   }
 }
 
@@ -222,8 +220,7 @@ export async function generateSemanticModel(
     const data = response.data?.data || response.data;
     return data as SemanticModelGenerateResponse;
   } catch (error: any) {
-    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
-    throw new Error(`Failed to generate semantic model: ${message}`);
+    throw toServiceError(error, 'Failed to generate semantic model');
   }
 }
 
@@ -242,8 +239,7 @@ export async function generateAndSaveSemanticModel(
     const data = response.data?.data || response.data;
     return data as SemanticModelGenerateResponse;
   } catch (error: any) {
-    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
-    throw new Error(`Failed to generate and save semantic model: ${message}`);
+    throw toServiceError(error, 'Failed to generate and save semantic model');
   }
 }
 
@@ -258,8 +254,7 @@ export async function deleteSemanticModel(modelName: string): Promise<any> {
     return response.data;
   } catch (error: any) {
     console.error(`Error deleting semantic model ${modelName}:`, error);
-    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
-    throw new Error(`Failed to delete semantic model: ${message}`);
+    throw toServiceError(error, 'Failed to delete semantic model');
   }
 }
 
@@ -274,8 +269,7 @@ export async function updateSemanticModel(modelName: string, yamlContent: string
     );
     return response.data;
   } catch (error: any) {
-    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
-    throw new Error(`Failed to update semantic model: ${message}`);
+    throw toServiceError(error, 'Failed to update semantic model');
   }
 }
 
@@ -379,12 +373,14 @@ tables:
  * @param bytes - File size in bytes
  * @returns Formatted string (e.g., "1.5 KB")
  */
-export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
+export function formatFileSize(bytes: number | string | null | undefined): string {
+  const b = bytes == null || bytes === '' ? NaN : Number(bytes);
+  if (!Number.isFinite(b)) return '—';
+  if (b === 0) return '0 Bytes';
   const k = 1024;
   const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  const i = Math.floor(Math.log(b) / Math.log(k));
+  return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 /**

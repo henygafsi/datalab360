@@ -13,6 +13,7 @@ import {
   Legend,
 } from 'recharts';
 import type { CreditTrend, DateRange } from '@/app/services/org-accounts/types';
+import { safeNum } from '@/lib/format-number';
 
 interface CreditsTrendChartProps {
   data: CreditTrend[];
@@ -43,11 +44,13 @@ export default function CreditsTrendChart({
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const formatCredits = (value: number) => {
-    if (value >= 1000) {
-      return `${(value / 1000).toFixed(1)}K`;
+  const formatCredits = (value: number | string | null | undefined) => {
+    const n = safeNum(value);
+    if (n == null) return '—';
+    if (n >= 1000) {
+      return `${(n / 1000).toFixed(1)}K`;
     }
-    return value.toFixed(0);
+    return n.toFixed(0);
   };
 
   if (loading) {

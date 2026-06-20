@@ -154,7 +154,8 @@ import ObjectStorageAudit from './ObjectStorageAudit';
 import SnowflakeObjectsTab from './SnowflakeObjectsTab';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import CostPreview from './CostPreview';
-import { dash, fmtNum, isBlank, EM_DASH } from '@/app/shared/ui/format';
+import { dash, fmtNum, EM_DASH } from '@/app/shared/ui/format';
+import { safeToFixed } from '@/lib/format-number';
 import type {
   SecurityOverviewResponse,
   PerformanceOverviewResponse,
@@ -4669,24 +4670,20 @@ const ProjectsTab = memo(function ProjectsTab({
         </SectionCard>
       </div>
 
-      {/* Reject Deployment Modal */}
+      {/* Reject Deployment — inline non-blocking confirm (no scrim) */}
       {rejectModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={() => setRejectModal(null)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              setRejectModal(null);
-              setRejectReason('');
-            }
-          }}
-        >
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center p-4 sm:justify-end">
           <div
-            role="dialog"
-            aria-modal="true"
+            role="alertdialog"
             aria-labelledby="reject-modal-title"
-            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-900"
-            onClick={(e) => e.stopPropagation()}
+            aria-describedby="reject-modal-desc"
+            className="pointer-events-auto w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setRejectModal(null);
+                setRejectReason('');
+              }
+            }}
           >
             <h3
               id="reject-modal-title"
@@ -4694,7 +4691,7 @@ const ProjectsTab = memo(function ProjectsTab({
             >
               Reject Deployment
             </h3>
-            <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+            <p id="reject-modal-desc" className="mb-4 text-sm text-gray-500 dark:text-gray-400">
               Reject deployment for{' '}
               <span className="font-medium text-gray-900 dark:text-white">
                 {rejectModal.projectName}
@@ -4829,9 +4826,9 @@ const CostTab = memo(function CostTab({
   const cortexCredits =
     (data as any).cortex_credits_30d ?? (data as any).cortex_total ?? 0;
   const storageTb =
-    (storage.database_tb ?? 0) +
-    (storage.stage_tb ?? 0) +
-    (storage.failsafe_tb ?? 0);
+    safeNum(storage.database_tb, 0) +
+    safeNum(storage.stage_tb, 0) +
+    safeNum(storage.failsafe_tb, 0);
 
   // Iter 4 — additive FinOps panels (all optional fields, graceful fallbacks).
   const lastTrend: any = dailyTrend[dailyTrend.length - 1] || {};
@@ -6411,7 +6408,7 @@ const DataOperationsTab = memo(function DataOperationsTab({
                     </p>
                   </div>
                   <Badge size="sm" variant="flat" color="primary">
-                    {p.credits?.toFixed(2)} credits
+                    {safeToFixed(p.credits, 2)} credits
                   </Badge>
                 </div>
               ))}
@@ -6878,7 +6875,7 @@ const ComputeTab = memo(function ComputeTab({
   const { totalCredits, sorted, topWarehouse } = useMemo(() => {
     const warehouses = Array.isArray(data?.warehouses) ? data.warehouses : [];
     const total = warehouses.reduce(
-      (s: number, w: any) => s + (w.total_credits || 0),
+      (s: number, w: any) => s + safeNum(w.total_credits, 0),
       0
     );
     const s = [...warehouses].sort(
@@ -6973,21 +6970,21 @@ const ComputeTab = memo(function ComputeTab({
             label: 'Total Credits',
             sortable: true,
             align: 'right',
-            render: (v: number) => (isBlank(v) ? EM_DASH : v.toFixed(2)),
+            render: (v: number) => safeToFixed(v, 2, EM_DASH),
           },
           {
             key: 'compute_credits',
             label: 'Compute',
             sortable: true,
             align: 'right',
-            render: (v: number) => (isBlank(v) ? EM_DASH : v.toFixed(2)),
+            render: (v: number) => safeToFixed(v, 2, EM_DASH),
           },
           {
             key: 'cloud_credits',
             label: 'Cloud',
             sortable: true,
             align: 'right',
-            render: (v: number) => (isBlank(v) ? EM_DASH : v.toFixed(2)),
+            render: (v: number) => safeToFixed(v, 2, EM_DASH),
           },
         ]}
       />
@@ -7011,7 +7008,7 @@ const ComputeTab = memo(function ComputeTab({
                     </p>
                   </div>
                   <Badge size="sm" variant="flat" color="info">
-                    {isBlank(r.credits) ? EM_DASH : r.credits.toFixed(2)} credits
+                    {safeToFixed(r.credits, 2, EM_DASH)} credits
                   </Badge>
                 </div>
               ))}
@@ -7041,7 +7038,7 @@ const ComputeTab = memo(function ComputeTab({
             </div>
             <div className="rounded-lg bg-amber-50 p-4 text-center dark:bg-amber-900/20">
               <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                {data.clustering?.total_credits?.toFixed(2) ?? EM_DASH}
+                {safeToFixed(data.clustering?.total_credits, 2, EM_DASH)}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Cluster Credits
@@ -7049,7 +7046,7 @@ const ComputeTab = memo(function ComputeTab({
             </div>
             <div className="rounded-lg bg-violet-50 p-4 text-center dark:bg-violet-900/20">
               <p className="text-2xl font-bold text-violet-600 dark:text-violet-400">
-                {data.materialized_views?.total_credits?.toFixed(2) ?? EM_DASH}
+                {safeToFixed(data.materialized_views?.total_credits, 2, EM_DASH)}
               </p>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 MV Credits

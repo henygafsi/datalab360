@@ -9,6 +9,7 @@ import FreeDiscoverySamplePanel, {
   type DiscoveryTable,
 } from './FreeDiscoverySamplePanel';
 import type { TableRef, TablePreview } from '@/app/services/api/types';
+import { safeLocale } from '@/lib/format-number';
 
 interface StepAiSampleDataProps {
   projectId: string;
@@ -42,7 +43,7 @@ function deterministicNarrative(
   if (dates.length > 0) {
     parts.push(`Time columns: ${dates.map((d) => d.name).join(', ')}.`);
   }
-  parts.push(`${table.rowCount.toLocaleString()} rows profiled.`);
+  parts.push(`${safeLocale(table.rowCount)} rows profiled.`);
   return parts.join(' ');
 }
 

@@ -5,6 +5,7 @@ import { Handle, Position, NodeProps } from 'reactflow';
 import { ChevronUp, ChevronDown, AlertTriangle, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getBlockByType, ETLBlockDefinition } from './etl-blocks';
+import { safeLocale } from '@/lib/format-number';
 import type { ComponentType, PipelineComponent } from '@/app/services/etl/types';
 import NodeRuntimeChip, { type RuntimeChipStatus } from './NodeRuntimeChip';
 import NodeBigPicturePopover, { type BigPictureUpstream } from './NodeBigPicturePopover';
@@ -304,7 +305,7 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
           {execStatus === 'completed' && (
             <>
               <CheckCircle2 className="h-3 w-3" />
-              {rowsAffected !== undefined && <span>{rowsAffected.toLocaleString()} rows</span>}
+              {rowsAffected != null && <span>{safeLocale(rowsAffected)} rows</span>}
               {durationMs !== undefined && <span className="text-slate-400">| {fmtDuration(durationMs)}</span>}
             </>
           )}

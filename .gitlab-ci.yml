@@ -35,6 +35,10 @@ variables:
   NEXT_TELEMETRY_DISABLED: "1"
   CI: "true"
   PNPM_VERSION: "9.1.4"
+  # Faster checkout (shallow) + faster cache (parallel zip). Safe defaults.
+  GIT_DEPTH: "20"
+  FF_USE_FASTZIP: "true"
+  CACHE_COMPRESSION_LEVEL: "fast"
   # pnpm + vercel installed locally per pipeline. PNPM_BIN_DIR is reused
   # across jobs via cache so cold-start cost is paid once.
   PNPM_BIN_DIR: "$CI_PROJECT_DIR/.pnpm-bin"
@@ -113,10 +117,25 @@ build:
   timeout: 15 minutes
   script:
     - pnpm --filter iso build 2>&1 | tee reports/build.txt
+    # Bundle report runs HERE (reuses the .next we just built) instead of a
+    # separate extras job that re-ran a full build. Fast + non-blocking.
+    - node scripts/ci/bundle-report.mjs apps/data360/.next > reports/bundle.txt 2>&1 || true
   artifacts:
     when: always
-    paths: [reports/build.txt]
+    paths: [reports/build.txt, reports/bundle.txt]
     expire_in: 3 days
+
+route-contract:
+  stage: build
+  extends: .with-pnpm
+  rules: !reference [.code-changes, rules]
+  timeout: 8 minutes
+  script:
+    - pnpm --filter iso check:routes 2>&1 | tee reports/route-contract.txt
+  artifacts:
+    when: always
+    paths: [reports/route-contract.txt, apps/data360/backend-route-manifest.json]
+    expire_in: 1 month
 
 lint:
   stage: build
@@ -164,6 +183,8 @@ typecheck:
 deploy:
   stage: deploy
   timeout: 15 minutes
+  # A production Vercel deploy must NOT be cancelled mid-flight by a newer push.
+  interruptible: false
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
   # `build` is `optional: true` so deploy still runs on CI-only commits where
@@ -265,17 +286,65 @@ extras:secret-scan:
     - mkdir -p reports
   script:
     - set +e
-    - find apps packages -type d \( -name node_modules -o -name .next -o -name .pnpm-store -o -name .pnpm-bin -o -name .turbo -o -name dist -o -name build \) -prune -o -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.json' \) -print > /tmp/scan-files.txt 2>/dev/null || true
+    - git ls-files apps packages e2e scripts '*.json' '*.mjs' '*.ts' '*.tsx' '*.js' '*.jsx' > /tmp/scan-files.txt 2>/dev/null || true
     - xargs -a /tmp/scan-files.txt grep -EHn '(SECRET|PASSWORD|TOKEN|API_KEY|PRIVATE_KEY)[[:space:]]*=[[:space:]]*["\x27][^"\x27]{8,}' 2>/dev/null | tee reports/secrets.txt || true
     - xargs -a /tmp/scan-files.txt grep -EHn 'eyJhbGciOi[A-Za-z0-9_-]{20,}' 2>/dev/null | tee -a reports/secrets.txt || true
     - xargs -a /tmp/scan-files.txt grep -EHn 'http://api\.datalab360\.io' 2>/dev/null | tee -a reports/secrets.txt || true
     - LEAKS=$(grep -c . reports/secrets.txt 2>/dev/null || echo 0)
     - 'echo "Potential leaks=$LEAKS"'
-    - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$LEAKS" -gt 0 ]; then exit 1; fi
+    - if { [ "$ENFORCE_QUALITY" = "1" ] || [ "$CI_COMMIT_BRANCH" = "main" ]; } && [ "$LEAKS" -gt 0 ]; then exit 1; fi
     - exit 0
   artifacts:
     when: always
     paths: [reports/secrets.txt]
+    expire_in: 1 month
+  allow_failure: false
+
+extras:page-audit:
+  stage: extras
+  extends: .with-pnpm
+  rules: !reference [.extras-rules, rules]
+  timeout: 30 minutes
+  needs:
+    - job: build
+      optional: true
+      artifacts: false
+  script:
+    - |
+      if [ -z "$DATA360_E2E_ACCOUNT" ] || [ -z "$DATA360_E2E_USER" ] || [ -z "$DATA360_E2E_PASSWORD" ]; then
+        echo "Missing DATA360_E2E_ACCOUNT / DATA360_E2E_USER / DATA360_E2E_PASSWORD"
+        echo "Configure protected GitLab variables before running extras:page-audit."
+        exit 2
+      fi
+    - pnpm --filter iso exec next dev --hostname 127.0.0.1 --port 3000 > reports/next-dev.log 2>&1 &
+    - NEXT_PID=$!
+    - |
+      OK=0
+      for i in $(seq 1 45); do
+        if curl -sf http://127.0.0.1:3000/signin -o /dev/null; then
+          OK=1
+          break
+        fi
+        sleep 2
+      done
+      if [ "$OK" != "1" ]; then
+        echo "Next dev server did not become ready"
+        tail -160 reports/next-dev.log || true
+        kill "$NEXT_PID" 2>/dev/null || true
+        exit 1
+      fi
+    - |
+      set +e
+      PAGE_AUDIT_BASE_URL=http://127.0.0.1:3000 pnpm audit:pages
+      AUDIT_EXIT=$?
+      kill "$NEXT_PID" 2>/dev/null || true
+      wait "$NEXT_PID" 2>/dev/null || true
+      exit "$AUDIT_EXIT"
+  artifacts:
+    when: always
+    paths:
+      - reports/page-audit/
+      - reports/next-dev.log
     expire_in: 1 month
   allow_failure: true
 
@@ -295,22 +364,5 @@ extras:dead-route-scan:
     expire_in: 1 week
   allow_failure: true
 
-extras:bundle-size:
-  stage: extras
-  extends: .with-pnpm
-  rules: !reference [.extras-rules, rules]
-  timeout: 8 minutes
-  needs:
-    - job: build
-      artifacts: false
-  script:
-    - set +e
-    - pnpm --filter iso build > /dev/null 2>&1
-    - node scripts/ci/bundle-report.mjs apps/data360/.next > reports/bundle.txt 2>&1 || true
-    - cat reports/bundle.txt
-    - exit 0
-  artifacts:
-    when: always
-    paths: [reports/bundle.txt]
-    expire_in: 1 week
-  allow_failure: true
+# (extras:bundle-size removed — bundle-report now runs inside `build`, reusing
+#  the freshly-built .next instead of re-running a full build in a second job.)

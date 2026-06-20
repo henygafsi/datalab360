@@ -628,11 +628,13 @@ export async function initializeTables(): Promise<{
 /**
  * Format duration in seconds to human-readable string
  */
-export function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
+export function formatDuration(seconds: number | string | null | undefined): string {
+  const s = seconds == null || seconds === '' ? NaN : Number(seconds);
+  if (!Number.isFinite(s)) return '—';
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+  const hours = Math.floor(s / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
   return `${hours}h ${minutes}m`;
 }
 

@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { Button, Badge, Input, Modal } from 'rizzui';
+import { Button, Badge, Input } from 'rizzui';
 import {
   LayoutTemplate, Search, Loader2, CheckCircle2, Package,
   ChevronRight, FileCode, Variable,
 } from 'lucide-react';
+import DesignDockPanel from './DesignDockPanel';
 import { toast } from 'react-hot-toast';
 import { listEventTemplates, applyEventTemplate } from '@/app/services/api/exploreDesignApi';
 import { getApiErrorMessage } from '@/lib/api-client';
@@ -111,13 +112,19 @@ const EventTemplatePickerModal: React.FC<EventTemplatePickerModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="lg">
-      <div className="p-6">
-        <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Event Templates"
+      subtitle="Apply a prebuilt set of events to your project"
+      widthClass="max-w-2xl"
+      icon={
+        <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
           <LayoutTemplate className="h-5 w-5 text-indigo-500" />
-          Event Templates
-        </h3>
-
+        </div>
+      }
+    >
+      <div>
         {/* Search */}
         <Input
           size="sm"
@@ -274,7 +281,7 @@ const EventTemplatePickerModal: React.FC<EventTemplatePickerModalProps> = ({
           </div>
         </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 };
 

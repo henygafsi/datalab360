@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Modal, Input } from 'rizzui';
+import { createPortal } from 'react-dom';
+import { Input } from 'rizzui';
 import {
   BarChart3, LineChart, PieChart, ScatterChart as ScatterIcon,
   Table2, Type, X, TrendingUp, CircleDot, Gauge,
@@ -300,13 +301,34 @@ export default function AddWidgetPanel({
     }
   }, [isOpen]);
 
+  // Escape-to-close for the docked drawers (picker / text). Child config
+  // surfaces own their own close handling.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (activeModal === 'picker') onClose();
+      else if (activeModal === 'text') resetAndClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, activeModal, onClose]);
+
   if (!isOpen) return null;
+  if (typeof document === 'undefined') return null;
 
   return (
     <>
       {/* ── Widget Type Picker ── */}
-      <Modal isOpen={activeModal === 'picker'} onClose={onClose} customSize="600px">
-        <div className="p-6">
+      {activeModal === 'picker' && createPortal(
+        <aside
+          role="dialog"
+          aria-modal="false"
+          aria-label="Add Widget"
+          className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-lg flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">Add Widget</h2>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -342,8 +364,10 @@ export default function AddWidgetPanel({
               </div>
             </div>
           ))}
-        </div>
-      </Modal>
+          </div>
+        </aside>,
+        document.body,
+      )}
 
       {/* ── Chart Config ── */}
       {activeModal === 'chart' && (
@@ -374,8 +398,14 @@ export default function AddWidgetPanel({
       )}
 
       {/* ── Text Widget Form ── */}
-      <Modal isOpen={activeModal === 'text'} onClose={resetAndClose} customSize="500px">
-        <div className="p-6">
+      {activeModal === 'text' && createPortal(
+        <aside
+          role="dialog"
+          aria-modal="false"
+          aria-label="Add Text Widget"
+          className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-lg flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div className="p-6">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Add Text Widget</h2>
           <div className="space-y-4">
             <div>
@@ -414,8 +444,10 @@ export default function AddWidgetPanel({
               </button>
             </div>
           </div>
-        </div>
-      </Modal>
+          </div>
+        </aside>,
+        document.body,
+      )}
     </>
   );
 }

@@ -71,7 +71,14 @@ export const routes = {
     dashboard: '/observability',
   },
   // dataEngineering & developer modules merged into explore-design & workflow
-  /** Administration landing index — links to the real /admin/* sub-pages. */
+  /**
+   * Administration HUB (front door) — the unified `/administration` surface with
+   * 7 `?tab=<id>` sections that organize the split `/admin/*` and
+   * `/administration/*` pages into one coherent entry. Non-destructive: every
+   * `admin/*` route below stays registered so deep-links / breadcrumbs never 404.
+   */
+  administrationHub: '/administration',
+  /** @deprecated landing index — superseded by the Administration HUB (administrationHub). Kept registered for back-compat. */
   adminHome: '/admin',
   data360Config: {
     /** Config Data360 : metadata, tables, colonnes date, cache/refresh */

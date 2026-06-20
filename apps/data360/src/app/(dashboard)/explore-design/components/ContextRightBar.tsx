@@ -19,6 +19,8 @@ import PermissionGate from '@/components/ui/PermissionGate';
 import ProjectKpiStrip from '@/app/shared/score-cards/ProjectKpiStrip';
 import GovernancePostureCard from '@/app/shared/score-cards/GovernancePostureCard';
 import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
+import IngestionBadge, { relativeTimeShort } from './IngestionBadge';
+import type { IngestionTraceEntry } from '@/app/services/explore-design/ingestionTrace';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,6 +123,14 @@ export interface ContextRightBarProps {
    * is project/event-scoped and is useful even with nothing selected.
    */
   deployOverride?: React.ReactNode;
+  /**
+   * Per-table Snowpipe/COPY ingestion trace for the SELECTED table, from the
+   * page's single bulk `useIngestionTrace` call (account-global COPY_HISTORY,
+   * aggregated client-side). Drives the "Ingestion & Cost" block in the Quality
+   * tab. `null` → graceful "—". Cost is sourced separately (per-table catalog
+   * SmartRightBar service) inside the block, not here.
+   */
+  ingestionTrace?: IngestionTraceEntry | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,8 +161,8 @@ export default function ContextRightBar({
   activeTab, onTabChange, focusedAction, onFocusAction,
   columnClassifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify,
   onAddEvent, profileData, historyEvents,
-  pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onOpenDeployModal, onDeselectTable,
-  emptyOverride, onNodeAction, deployOverride,
+  pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onDeselectTable,
+  emptyOverride, onNodeAction, deployOverride, ingestionTrace,
 }: ContextRightBarProps) {
 
   // Model-general landing: when nothing is selected and the caller supplied an
@@ -164,18 +174,42 @@ export default function ContextRightBar({
   const fqn = selectedTable ? `${selectedTable.database}.${selectedTable.schema}.${selectedTable.table}` : '';
   const classifications = selectedTable ? columnClassifications.get(selectedTable.id) : undefined;
 
-  // Per-project KPI strip — only when a project context is in scope (per-PROJECT,
-  // never per-account). The strip is per-project, not per-table, so it shows even
-  // with no table selected; it self-hides (renders null) when the rollup isn't
-  // provisioned. No project id → no strip (don't invent one).
-  const kpiStrip = projectId ? <ProjectKpiStrip projectId={projectId} compact /> : undefined;
-
   // Role-filtered quick-actions (System 2 Action-RBAC, project-scoped). Each one
   // reuses an EXISTING panel handler — no rebuilt logic. Fail-open while the
   // allow-set loads (`allowed || loading`), mirroring ActionsPanel below.
   const canCreate = useCanPerform('explore_design', 'create', projectId);
   const canApprove = useCanPerform('explore_design', 'approve', projectId);
   const canDeploy = useCanPerform('explore_design', 'deploy', projectId);
+
+  // Role-context chip — a compact, capability-derived ("Owner / Editor / Viewer")
+  // badge with a tooltip listing the effective can-create/approve/deploy/execute
+  // grants. Derived from the SAME useCanPerform allow-set above (no new RBAC
+  // source); the raw d360Role lands in the tooltip. Rendered at the TOP of the bar
+  // (kpiStrip slot) so it is visible on every tab, regardless of selection.
+  const canExecuteTop = useCanPerform('explore_design', 'execute', projectId);
+  const roleChip = (
+    <RoleContextChip
+      canCreate={canCreate}
+      canApprove={canApprove}
+      canDeploy={canDeploy}
+      canExecute={canExecuteTop}
+      fallbackRole={userRole}
+    />
+  );
+
+  // Per-project KPI strip — only when a project context is in scope (per-PROJECT,
+  // never per-account). The strip is per-project, not per-table, so it shows even
+  // with no table selected; it self-hides (renders null) when the rollup isn't
+  // provisioned. No project id → no strip (don't invent one). The role chip is
+  // ALWAYS shown (project-independent), so the slot itself is always defined —
+  // otherwise the chip would vanish on projectless views (RightTabPanel only
+  // renders the kpi slot when truthy).
+  const kpiStrip = (
+    <div className="space-y-2">
+      {roleChip}
+      {projectId ? <ProjectKpiStrip projectId={projectId} compact /> : null}
+    </div>
+  );
   const quickActions: QuickAction[] = [];
   if (canCreate.allowed || canCreate.loading) {
     quickActions.push({
@@ -266,7 +300,7 @@ export default function ContextRightBar({
     {
       id: 'quality', icon: BarChart3, label: 'Quality',
       render: () => selectedTable
-        ? <QualityPanel table={selectedTable} columns={tableColumns} profileData={profileData} onAddEvent={onAddEvent} />
+        ? <QualityPanel table={selectedTable} columns={tableColumns} projectId={projectId} profileData={profileData} onAddEvent={onAddEvent} ingestionTrace={ingestionTrace ?? null} />
         : empty,
     },
     {
@@ -292,7 +326,6 @@ export default function ContextRightBar({
           pendingEvents={pendingEvents}
           database={selectedDatabase}
           schema={selectedSchema}
-          onOpenDeployModal={onOpenDeployModal}
         />
       ) : empty),
     },
@@ -387,6 +420,75 @@ function SelectProjectEmpty() {
 }
 
 // ---------------------------------------------------------------------------
+// Role-context: capability tier derived from the Action-RBAC allow-set.
+// ---------------------------------------------------------------------------
+//
+// One source of truth for the "what can THIS user do here" label, reused by the
+// top-of-bar chip, the read-only Actions view, and per-tab hints. We derive a
+// human tier from CAPABILITIES (not the raw role string): deploy ⇒ Owner,
+// create ⇒ Editor, otherwise Viewer (read-only). `canExecute` (run/refresh) is
+// tracked separately so an execute-only viewer is still told they can run jobs.
+type CapResult = { allowed: boolean; loading: boolean; d360Role: string | null };
+
+function deriveCapability(caps: {
+  canCreate: CapResult; canApprove: CapResult; canDeploy: CapResult; canExecute: CapResult;
+}) {
+  const loading = caps.canCreate.loading || caps.canDeploy.loading;
+  // Fail-open during load mirrors useCanPerform (`allowed || loading`).
+  const can = (c: CapResult) => c.allowed || c.loading;
+  const write = can(caps.canCreate);
+  const deploy = can(caps.canDeploy);
+  const approve = can(caps.canApprove);
+  const execute = can(caps.canExecute);
+  const tier = deploy ? 'Owner' : write ? 'Editor' : 'Viewer';
+  const verb = deploy ? 'can deploy' : write ? 'can edit' : 'read-only';
+  const role =
+    caps.canDeploy.d360Role || caps.canCreate.d360Role || caps.canApprove.d360Role || null;
+  return { loading, tier, verb, write, deploy, approve, execute, role };
+}
+
+function RoleContextChip({ canCreate, canApprove, canDeploy, canExecute, fallbackRole }: {
+  canCreate: CapResult; canApprove: CapResult; canDeploy: CapResult; canExecute: CapResult;
+  fallbackRole?: string;
+}) {
+  const cap = deriveCapability({ canCreate, canApprove, canDeploy, canExecute });
+  // While the allow-set is still resolving, show a neutral, non-committal pill
+  // rather than flashing a wrong tier.
+  if (cap.loading) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 px-2 py-0.5 text-[10px] font-medium text-slate-400">
+        <Loader size="sm" className="h-2.5 w-2.5" /> Checking access…
+      </span>
+    );
+  }
+  const tone =
+    cap.tier === 'Owner'
+      ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+      : cap.tier === 'Editor'
+      ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
+      : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
+  const TierIcon = cap.tier === 'Owner' ? Rocket : cap.tier === 'Editor' ? Edit2 : Eye;
+  const tip = (
+    <div className="space-y-0.5 text-left">
+      <p className="font-semibold">{cap.tier} · {cap.verb}</p>
+      <p>Create / edit: {cap.write ? 'yes' : 'no'}</p>
+      <p>Approve: {cap.approve ? 'yes' : 'no'}</p>
+      <p>Deploy: {cap.deploy ? 'yes' : 'no'}</p>
+      <p>Run / refresh: {cap.execute ? 'yes' : 'no'}</p>
+      {(cap.role || fallbackRole) && <p className="opacity-70">Role: {cap.role || fallbackRole}</p>}
+    </div>
+  );
+  return (
+    <Tooltip content={tip} placement="bottom">
+      <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold cursor-default', tone)}>
+        <TierIcon className="h-2.5 w-2.5" aria-hidden />
+        {cap.tier} · {cap.verb}
+      </span>
+    </Tooltip>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // A0. Cost & KPIs Panel (read-only per-project rollup)
 // ---------------------------------------------------------------------------
 //
@@ -464,6 +566,27 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
     if (focusedAction === 'ingestion') ingestionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (focusedAction === 'add_column') addColRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [focusedAction]);
+
+  // Read-only experience — when the user has NO write permission (and we're past
+  // loading: `canWrite` already folds in `writePerm.loading`, so `!canWrite`
+  // never flashes during the in-flight allow-set). Instead of a wall of greyed
+  // write buttons, render a tidy notice + ONE primary "Request edit access" CTA
+  // and keep the genuinely READ-only affordances visible (governance posture,
+  // impact review, profiling pointer, access context). Placed AFTER all hooks so
+  // rules-of-hooks hold. The full write-path render below is untouched for
+  // write users (every handler preserved byte-for-byte).
+  if (!canWrite) {
+    return (
+      <ReadOnlyActions
+        table={table}
+        columns={columns}
+        projectId={projectId}
+        userRole={userRole}
+        canExecute={canExecute}
+        onAddEvent={onAddEvent}
+      />
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">
@@ -788,6 +911,183 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
 }
 
 // ---------------------------------------------------------------------------
+// A1. Read-only Actions view (no write permission)
+// ---------------------------------------------------------------------------
+//
+// Shown in place of the write-button wall when the user lacks `create`. Keeps the
+// READ affordances a viewer legitimately has — governance posture (self-fetching,
+// read-only), impact review (a GET), profiling (gated on `execute`), and the
+// access-context summary — plus ONE primary "Request edit access" CTA.
+function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAddEvent }: {
+  table: TableItem; columns: ColumnInfo[]; projectId: string | null;
+  userRole?: string; canExecute: boolean; onAddEvent: (e: any) => void;
+}) {
+  const [requesting, setRequesting] = useState(false);
+  const [loadingDdl, setLoadingDdl] = useState(false);
+  const [listingFiles, setListingFiles] = useState(false);
+
+  // Same object-type detection as the write-path ActionsPanel. A viewer keeps the
+  // UNGATED READ operations these object types carry (View DDL / View changes /
+  // List files) — those were previously available to everyone, so the read-only
+  // branch must not drop them. onClick bodies are copied verbatim from ActionsPanel.
+  const isStage = table.table.startsWith('@') || table.schema === 'STAGES' || (table as any).objectType === 'STAGE';
+  const isView = (table as any).objectType === 'VIEW' || table.table.startsWith('V_');
+  const isStream = (table as any).objectType === 'STREAM';
+
+  const requestEditAccess = async () => {
+    if (requesting) return;
+    setRequesting(true);
+    try {
+      // STUB — no "request edit access" endpoint exists yet. We record the intent
+      // as a draft event (visible in History/Deploy) and toast honestly. When a
+      // backend access-request route lands, swap this body for the real call.
+      onAddEvent({
+        type: 'ACCESS_REQUESTED',
+        projectId,
+        target: { database: table.database, schema: table.schema, table: table.table },
+        payload: { requestedRole: 'editor', reason: 'Requested edit access from explore-design' },
+      });
+      toast.success('Edit-access request recorded — an owner will review it');
+    } finally {
+      setRequesting(false);
+    }
+  };
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* Read-only notice + primary CTA */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40 p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Eye className="h-4 w-4 text-slate-400" />
+          <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">View-only access</h4>
+        </div>
+        <p className="text-[11px] text-slate-500 leading-relaxed">
+          You have view-only access to this project. You can review governance,
+          impact and quality below{canExecute ? ', and run profiling' : ''} — but
+          editing the model, policies and deployments needs edit access.
+        </p>
+        <button
+          onClick={requestEditAccess}
+          disabled={requesting}
+          aria-busy={requesting}
+          className="w-full py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white transition-colors flex items-center justify-center gap-1.5"
+        >
+          {requesting ? <><Loader size="sm" className="h-3 w-3" /> Requesting…</> : <><Send className="h-3.5 w-3.5" /> Request edit access</>}
+        </button>
+      </div>
+
+      {/* Governance posture — read-only, self-fetches + self-hides on 404/501. */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+        <GovernancePostureCard
+          objectRef={`${table.database}.${table.schema}.${table.table}`}
+          compact
+          className="border-0 bg-transparent p-0 dark:bg-transparent"
+        />
+      </div>
+
+      {/* Read affordances a viewer keeps */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-2">
+        <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">What you can do</h4>
+        <div className="flex flex-wrap gap-1.5">
+          {canExecute && (
+            <ActionBtn label="Run profiling" icon={BarChart3} onClick={async () => {
+              try {
+                const { getTableProfile } = await import('@/app/services/explore-design/de-objects');
+                const res = await getTableProfile(table.database, table.schema, table.table);
+                toast.success(`Profile: ${res?.row_count || 0} rows, ${res?.column_count || 0} cols, quality ${res?.overall_quality_score ?? '—'}%`);
+              } catch { toast.error('Profiling failed — check table access'); }
+            }} />
+          )}
+          <ActionBtn label="Review impact" icon={Eye} onClick={async () => {
+            try {
+              const api = await import('@/app/services/api/exploreDesignApi');
+              const res = await api.enhancedImpactAnalysis(projectId || '', { database: table.database, schema: table.schema, table: table.table });
+              const count = res?.impacts?.length || 0;
+              toast.success(`Impact: ${count} downstream objects, risk ${res?.risk_score ?? 0}/100`);
+            } catch { toast.error('Impact analysis failed'); }
+          }} />
+        </div>
+        <p className="text-[10px] text-slate-400">
+          Quality, Cost &amp; KPIs and History tabs are fully available in view-only mode.
+        </p>
+      </div>
+
+      {/* Object-type READ operations (ungated reads, kept for viewers). */}
+      {isView && (
+        <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/20 dark:bg-indigo-900/10 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Eye className="h-4 w-4 text-indigo-500" />
+            <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">View</h4>
+          </div>
+          <ActionBtn label="View DDL" icon={FileText} loading={loadingDdl} onClick={async () => {
+            if (loadingDdl) return;
+            setLoadingDdl(true);
+            try {
+              const api = await import('@/app/services/api/exploreDesignApi');
+              const res = await api.sqlDiff(projectId || '', { database: table.database, schema_name: table.schema, event_ids: [] });
+              toast.success(`DDL: ${res?.diffs?.length || 0} changes found`);
+            } catch { toast.error('DDL diff not available — no pending changes'); } finally { setLoadingDdl(false); }
+          }} />
+        </div>
+      )}
+
+      {isStream && (
+        <div className="rounded-xl border border-green-200 dark:border-green-800 bg-green-50/20 dark:bg-green-900/10 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-4 w-4 text-green-500" />
+            <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Stream (CDC)</h4>
+          </div>
+          <ActionBtn label="View changes" icon={Eye} onClick={async () => {
+            try {
+              const { getStreamData } = await import('@/app/services/explore-design/de-objects');
+              const data = await getStreamData(table.table, table.database, table.schema);
+              toast.success(`Stream has ${data?.rows?.length || 0} pending changes`);
+            } catch { toast.error('Failed to read stream'); }
+          }} />
+        </div>
+      )}
+
+      {isStage && (
+        <div className="rounded-xl border border-cyan-200 dark:border-cyan-800 bg-cyan-50/20 dark:bg-cyan-900/10 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-cyan-500" />
+            <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Stage</h4>
+          </div>
+          <ActionBtn label="List files" icon={Eye} loading={listingFiles} onClick={async () => {
+            if (listingFiles) return;
+            setListingFiles(true);
+            try {
+              const { listSnowflakeStageFiles } = await import('@/app/(dashboard)/data-source-connection/connectionServices');
+              const res = await listSnowflakeStageFiles(table.table);
+              toast.success(`${res?.files?.length || 0} files in stage`);
+            } catch { toast.error('Failed to list stage files'); } finally { setListingFiles(false); }
+          }} />
+        </div>
+      )}
+
+      {/* Access context — same honest summary as the write view */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-1.5">
+        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Access Context</p>
+        <div className="grid grid-cols-2 gap-1 text-[10px]">
+          <span className="text-slate-500">Role</span>
+          <span className="font-medium text-slate-700 dark:text-slate-300">{userRole || '—'}</span>
+          <span className="text-slate-500">Database</span>
+          <span className="font-mono text-slate-700 dark:text-slate-300">{table.database}</span>
+          <span className="text-slate-500">Schema</span>
+          <span className="font-mono text-slate-700 dark:text-slate-300">{table.schema}</span>
+          <span className="text-slate-500">Object</span>
+          <span className="font-mono text-slate-700 dark:text-slate-300">{table.table}</span>
+          <span className="text-slate-500">Columns</span>
+          <span className="font-medium text-slate-700 dark:text-slate-300">{columns.length}</span>
+          <span className="text-slate-500">Can write</span>
+          <span className="font-semibold text-red-500">No</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // B. AI Assist Panel
 // ---------------------------------------------------------------------------
 
@@ -977,30 +1277,140 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
 // C. Quality Panel
 // ---------------------------------------------------------------------------
 
-function QualityPanel({ table, columns, profileData, onAddEvent }: { table: TableItem; columns: ColumnInfo[]; profileData?: any; onAddEvent: (e: any) => void }) {
-  const nullCols = profileData?.columns?.filter((c: any) => (c.null_count ?? 0) > 0).length ?? 0;
-  const pkCandidate = columns.find((c) => c.isPrimaryKey)?.name || columns[0]?.name || '—';
-  const qualityScore = profileData?.aggregate_quality_score ?? 100;
+// ---------------------------------------------------------------------------
+// C0. Ingestion & Cost (selected table) — Snowpipe/COPY trace + per-table cost.
+// ---------------------------------------------------------------------------
+//
+// Ingestion fields come from the page's single bulk ingestion trace (no fetch
+// here). Cost reuses the canonical catalog SmartRightBar service
+// (`getTableIngestion(...).avg_cost_credits`) — ONE call on table selection, not
+// a parallel/new cost fetch and not N+1. Every field is graceful "—":
+// null/absent → "—" (no-fake-0); a real numeric 0 is allowed.
+function IngestionCostPanel({ table, trace }: { table: TableItem; trace: IngestionTraceEntry | null }) {
+  const [credits, setCredits] = useState<number | null>(null);
+  const [costLoaded, setCostLoaded] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setCredits(null);
+    setCostLoaded(false);
+    // Reuse the catalog rightbar service — same per-table context the SmartRightBar
+    // uses. avg_cost_credits is best-effort warehouse credits (null when absent).
+    void (async () => {
+      try {
+        const { getTableIngestion } = await import('@/app/services/catalog/rightbar');
+        const ing = await getTableIngestion(table.database, table.schema, table.table);
+        if (!alive) return;
+        setCredits(typeof ing?.avg_cost_credits === 'number' ? ing.avg_cost_credits : null);
+      } catch {
+        if (alive) setCredits(null);
+      } finally {
+        if (alive) setCostLoaded(true);
+      }
+    })();
+    return () => { alive = false; };
+  }, [table.database, table.schema, table.table]);
+
+  const method = trace?.method ?? null;
+  const methodLabel = method === 'SNOWPIPE' ? 'Snowpipe' : method === 'COPY' ? 'COPY' : '—';
+  const lastLoad = relativeTimeShort(trace?.lastLoad) ?? '—';
+  const rows7d = typeof trace?.rows7d === 'number' ? trace.rows7d.toLocaleString() : '—';
+  const errors7d = typeof trace?.errors === 'number' ? trace.errors.toLocaleString() : '—';
+  const hasErrors = typeof trace?.errors === 'number' && trace.errors > 0;
+  const creditsLabel = credits == null ? (costLoaded ? '—' : '…') : credits.toFixed(3);
+
+  return (
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Coins className="h-4 w-4 text-amber-500" />
+          <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Ingestion &amp; Cost</h4>
+        </div>
+        <IngestionBadge entry={trace} />
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-[10px]">
+        <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+          <span className="text-slate-400">Method</span>
+          <p className="font-medium text-slate-700 dark:text-slate-300">{methodLabel}</p>
+        </div>
+        <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+          <span className="text-slate-400">Last load</span>
+          <p className="font-medium text-slate-700 dark:text-slate-300">{lastLoad}</p>
+        </div>
+        <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+          <span className="text-slate-400">Rows loaded (7d)</span>
+          <p className="font-medium text-slate-700 dark:text-slate-300">{rows7d}</p>
+        </div>
+        <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
+          <span className="text-slate-400">Errors (7d)</span>
+          <p className={cn('font-medium', hasErrors ? 'text-red-500' : 'text-slate-700 dark:text-slate-300')}>{errors7d}</p>
+        </div>
+        <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 col-span-2">
+          <span className="text-slate-400">Credits (7d)</span>
+          <p className="font-medium text-slate-700 dark:text-slate-300">{creditsLabel}</p>
+        </div>
+      </div>
+      <p className="text-[10px] text-slate-400">
+        Source-load activity (Snowpipe &amp; COPY) and best-effort warehouse credits. “—” = no data.
+      </p>
+    </div>
+  );
+}
+
+// Subtle, role-aware one-liner for a tab's intro. Keeps it quiet (slate text,
+// info icon) — the goal is orientation, not a banner.
+function TabRoleHint({ text }: { text: string }) {
+  return (
+    <p className="flex items-start gap-1.5 text-[10px] text-slate-400 dark:text-slate-500 px-1">
+      <Info className="h-3 w-3 shrink-0 mt-px" aria-hidden /> {text}
+    </p>
+  );
+}
+
+function QualityPanel({ table, columns, projectId, profileData, onAddEvent, ingestionTrace }: { table: TableItem; columns: ColumnInfo[]; projectId: string | null; profileData?: any; onAddEvent: (e: any) => void; ingestionTrace?: IngestionTraceEntry | null }) {
+  // Role-aware hint: a viewer can read every metric here; only "Set up monitoring"
+  // drafts a change (gated downstream). canWrite folds in loading (fail-open).
+  const writePerm = useCanPerform('explore_design', 'create', projectId);
+  const canWrite = writePerm.allowed || writePerm.loading;
+  // Honest: only score/count when a real profile exists. Un-profiled tables
+  // render an em-dash with neutral (slate) styling — never an asserted 100%.
+  const nullCols: number | null = profileData
+    ? (profileData?.columns?.filter((c: any) => (c.null_count ?? 0) > 0).length ?? 0)
+    : null;
+  // Only surface a PK candidate when a real primary key exists — don't present
+  // an arbitrary first column as a "candidate".
+  const pkCandidate = columns.find((c) => c.isPrimaryKey)?.name ?? '—';
+  const qualityScore: number | null =
+    profileData?.aggregate_quality_score ?? null;
+  const hasScore = qualityScore != null;
 
   return (
     <div className="p-4 space-y-4">
+      <TabRoleHint text={canWrite
+        ? 'Profile this table and draft freshness monitoring.'
+        : 'View-only: all quality metrics here are readable; setting up monitoring needs edit access.'} />
+      {/* Ingestion & Cost — Snowpipe/COPY trace + per-table credits for this table. */}
+      <IngestionCostPanel table={table} trace={ingestionTrace ?? null} />
+
       {/* Score overview */}
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4">
         <div className="flex items-center justify-between mb-3">
           <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Quality Score</h4>
-          <span className={cn('text-lg font-bold', qualityScore >= 80 ? 'text-green-600' : qualityScore >= 60 ? 'text-amber-600' : 'text-red-600')}>{qualityScore}%</span>
+          <span className={cn('text-lg font-bold', !hasScore ? 'text-slate-400' : qualityScore >= 80 ? 'text-green-600' : qualityScore >= 60 ? 'text-amber-600' : 'text-red-600')}>{hasScore ? `${qualityScore}%` : '—'}</span>
         </div>
         <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-          <div className={cn('h-full rounded-full transition-all', qualityScore >= 80 ? 'bg-green-500' : qualityScore >= 60 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: `${qualityScore}%` }} />
+          <div className={cn('h-full rounded-full transition-all', !hasScore ? 'bg-slate-300 dark:bg-slate-600' : qualityScore >= 80 ? 'bg-green-500' : qualityScore >= 60 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: hasScore ? `${qualityScore}%` : '0%' }} />
         </div>
       </div>
 
       {/* Metrics grid */}
       <div className="grid grid-cols-2 gap-2">
-        <MetricCard label="Null columns" value={nullCols} total={columns.length} color={nullCols > 0 ? 'amber' : 'green'} />
-        <MetricCard label="Duplicate risk" value="Low" color="green" />
-        <MetricCard label="PK candidate" value={pkCandidate} color="blue" />
-        <MetricCard label="Freshness" value="Not set" color="slate" />
+        <MetricCard label="Null columns" value={nullCols == null ? '—' : nullCols} total={nullCols == null ? undefined : columns.length} color={nullCols == null ? 'slate' : nullCols > 0 ? 'amber' : 'green'} />
+        {/* No duplicate-risk / freshness field on the profile payload — render an
+            honest "—" rather than a hardcoded "Low" / "Not set" for every table. */}
+        <MetricCard label="Duplicate risk" value="—" color="slate" />
+        <MetricCard label="PK candidate" value={pkCandidate} color={pkCandidate === '—' ? 'slate' : 'blue'} />
+        <MetricCard label="Freshness" value="—" color="slate" />
       </div>
 
       {/* Actions — real API calls */}
@@ -1018,9 +1428,9 @@ function QualityPanel({ table, columns, profileData, onAddEvent }: { table: Tabl
             only, no DMF), so this records intent / drafts a freshness watch but
             does NOT yet move DQ coverage. Honest label + honest toast until the
             deploy path lands. */}
-        <ActionBtn label="Set up monitoring" icon={Plus} onClick={() => {
+        <ActionBtn label="Set up monitoring" icon={Plus} disabled={!canWrite} onClick={() => {
           const colName = columns.find((c) => c.dataType === 'TIMESTAMP' || c.dataType === 'DATE')?.name || columns[0]?.name || 'UPDATED_AT';
-          onAddEvent({ type: 'QUALITY_GATE_SET', projectId: table.database, target: { database: table.database, schema: table.schema, table: table.table }, payload: { gateType: 'freshness', maxAgeHours: 24, column: colName } });
+          onAddEvent({ type: 'QUALITY_GATE_SET', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { gateType: 'freshness', maxAgeHours: 24, column: colName } });
           toast.success(`Freshness monitoring on ${colName} added to draft`);
         }} fullWidth />
       </div>
@@ -1079,12 +1489,29 @@ function HistoryPanel({ events }: { events: HistoryEvent[] }) {
 // ---------------------------------------------------------------------------
 
 function HelpPanel({ table }: { table: TableItem }) {
-  const steps = [
+  // No-fake-0: only `hasPrimaryKey` is a real signal passed to this panel. The PK
+  // step renders its true done/not-done state; the others have no signal here, so
+  // they are rendered as honest guidance ("not set" — neutral, NOT a completion
+  // checkbox implying tracked state we don't have). We don't thread new props in
+  // just to light them up (that would be scope creep into the page).
+  const steps: { label: string; done: boolean | null }[] = [
     { label: 'Confirm primary key', done: table.hasPrimaryKey },
-    { label: 'Add row-level security', done: false },
-    { label: 'Add calculated margin field', done: false },
-    { label: 'Add freshness rule', done: false },
-    { label: 'Attach changes to release', done: false },
+    { label: 'Add row-level security', done: null },
+    { label: 'Add calculated margin field', done: null },
+    { label: 'Add freshness rule', done: null },
+    { label: 'Attach changes to release', done: null },
+  ];
+
+  // Governance checklist: same honesty rule. `hasPrimaryKey` is the one verifiable
+  // item; the rest have no signal in this panel → shown as "—" / "not set", never
+  // a fabricated check.
+  const govItems: { label: string; state: 'done' | 'unknown' }[] = [
+    { label: 'Primary key set', state: table.hasPrimaryKey ? 'done' : 'unknown' },
+    { label: 'Owner assigned', state: 'unknown' },
+    { label: 'Masking policies reviewed', state: 'unknown' },
+    { label: 'Data classification applied', state: 'unknown' },
+    { label: 'Quality rules attached', state: 'unknown' },
+    { label: 'Lineage verified', state: 'unknown' },
   ];
 
   return (
@@ -1101,11 +1528,12 @@ function HelpPanel({ table }: { table: TableItem }) {
         <div className="space-y-1.5">
           {steps.map((s, i) => (
             <div key={i} className="flex items-center gap-2 text-xs">
-              {s.done
+              {s.done === true
                 ? <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
                 : <span className="w-3.5 h-3.5 rounded-full border-2 border-slate-300 dark:border-slate-600 shrink-0" />
               }
-              <span className={cn(s.done ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-300')}>{s.label}</span>
+              <span className={cn('flex-1', s.done === true ? 'text-slate-400 line-through' : 'text-slate-700 dark:text-slate-300')}>{s.label}</span>
+              {s.done === null && <span className="text-[9px] text-slate-400 shrink-0">not set</span>}
             </div>
           ))}
         </div>
@@ -1113,13 +1541,19 @@ function HelpPanel({ table }: { table: TableItem }) {
 
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-2">
         <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Governance Checklist</h4>
-        <div className="space-y-1 text-[11px] text-slate-500">
-          <p>• Owner assigned</p>
-          <p>• Masking policies reviewed</p>
-          <p>• Data classification applied</p>
-          <p>• Quality rules attached</p>
-          <p>• Lineage verified</p>
+        <div className="space-y-1 text-[11px]">
+          {govItems.map((g) => (
+            <div key={g.label} className="flex items-center gap-2">
+              {g.state === 'done'
+                ? <CheckCircle className="h-3 w-3 text-green-500 shrink-0" />
+                : <span className="w-3 h-3 rounded-full border-2 border-slate-300 dark:border-slate-600 shrink-0" />
+              }
+              <span className="flex-1 text-slate-600 dark:text-slate-400">{g.label}</span>
+              <span className="text-[9px] text-slate-400 shrink-0">{g.state === 'done' ? 'set' : '—'}</span>
+            </div>
+          ))}
         </div>
+        <p className="text-[10px] text-slate-400 pt-1">Only the primary key is verified here; “—” means not tracked in this view.</p>
       </div>
     </div>
   );
@@ -1137,12 +1571,12 @@ const DEPLOY_STEPS: { id: StepId; label: string; icon: React.ElementType; desc: 
   { id: 'pre_checks', label: 'Pre-Checks', icon: Shield, desc: 'Validate permissions and conflicts', required: true },
   { id: 'dry_run', label: 'Dry Run', icon: Play, desc: 'Simulate deployment on clone schema', required: false },
   { id: 'impact', label: 'Impact Analysis', icon: AlertTriangle, desc: 'Check downstream dependencies', required: false },
-  { id: 'deploy', label: 'Execute Deploy', icon: Rocket, desc: 'Apply DDL to Snowflake', required: true },
+  { id: 'deploy', label: 'Execute Deploy', icon: Rocket, desc: 'Apply changes to the data warehouse', required: true },
   { id: 'verify', label: 'Post-Verify', icon: CheckCircle, desc: 'Verify deployed objects', required: false },
 ];
 
-function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pendingEvents, database, schema }: {
-  projectId: string | null; pendingEventsCount: number; onOpenDeployModal: () => void;
+function DeployPanel({ projectId, pendingEventsCount, pendingEvents, database, schema }: {
+  projectId: string | null; pendingEventsCount: number;
   pendingEvents?: any[]; database?: string; schema?: string;
 }) {
   const [stepStatus, setStepStatus] = useState<Record<StepId, StepStatus>>({
@@ -1343,7 +1777,7 @@ function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pending
       action="deploy"
       projectId={projectId}
       title="Deployment restricted"
-      description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. You can keep modelling, but applying changes to Snowflake requires an administrator to grant deploy access."
+      description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. You can keep modelling, but applying changes to the data warehouse requires an administrator to grant deploy access."
     >
     <div className="p-4 space-y-4">
       {/* Header */}

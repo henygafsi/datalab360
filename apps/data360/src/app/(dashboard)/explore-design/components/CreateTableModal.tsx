@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Modal, Button, Input, Select, Badge, Checkbox } from 'rizzui';
+import { Button, Input, Select, Badge, Checkbox } from 'rizzui';
+import DesignDockPanel from './DesignDockPanel';
 import { Plus, Trash2, Save, X, Database, Table as TableIcon, Key, Cloud, Snowflake, Clock, Timer, Sparkles, Loader2, ThumbsUp, ThumbsDown, CheckCheck, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore } from '../stores/event-store';
@@ -609,26 +610,30 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
   const currentTypeInfo = TABLE_TYPES.find(t => t.value === tableType);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size="xl">
-      <div className="p-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-              <TableIcon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold dark:text-white">Create {currentTypeInfo?.label} Table</h2>
-              <p className="text-sm text-slate-500">
-                {database}.{schema}
-              </p>
-            </div>
-          </div>
-          <Button variant="text" size="sm" onClick={onClose}>
-            <X className="h-5 w-5" />
+    <DesignDockPanel
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Create ${currentTypeInfo?.label} Table`}
+      subtitle={`${database}.${schema}`}
+      widthClass="max-w-2xl"
+      icon={
+        <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+          <TableIcon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+        </div>
+      }
+      footer={
+        <div className="flex items-center justify-end gap-3">
+          <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button onClick={handleCreate} className="gap-2" disabled={isSubmitting} isLoading={isSubmitting}>
+            <Save className="h-4 w-4" />
+            {isSubmitting ? 'Creating...' : `Create ${currentTypeInfo?.label} Table`}
           </Button>
         </div>
-
+      }
+    >
+      <div>
         {/* Table Type Selector */}
         <div className="mb-6">
           <label className="block text-sm font-medium mb-2 dark:text-white">Table Type</label>
@@ -1074,19 +1079,8 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
             </div>
           ))}
         </div>
-
-        {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-3">
-          <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button onClick={handleCreate} className="gap-2" disabled={isSubmitting} isLoading={isSubmitting}>
-            <Save className="h-4 w-4" />
-            {isSubmitting ? 'Creating...' : `Create ${currentTypeInfo?.label} Table`}
-          </Button>
-        </div>
       </div>
-    </Modal>
+    </DesignDockPanel>
   );
 };
 

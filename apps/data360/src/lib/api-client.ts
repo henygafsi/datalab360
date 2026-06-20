@@ -152,7 +152,10 @@ apiClient.interceptors.response.use(
       // logged-in user gets ejected to /signin.
       const errorCode = data?.error_code ?? (typeof data?.detail === 'object' ? data.detail?.error_code : undefined);
       const isRealAuth = !errorCode || ['NOT_AUTHENTICATED', 'TOKEN_INVALID_OR_EXPIRED', 'SESSION_EXPIRED'].includes(errorCode);
-      if (isRealAuth && typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/')) {
+      // On the API Health diagnostic board a probe may deliberately hit an
+      // unauthorized/expired endpoint — that 401 must be RECORDED as a result,
+      // not nuke the whole page mid-run. Skip the redirect there only.
+      if (isRealAuth && typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/') && !window.location.pathname.startsWith('/admin/api-health')) {
         if (process.env.NODE_ENV === 'development') {
           console.warn('[API Client] 401 Unauthorized (auth) - Redirecting to sign-in');
         }

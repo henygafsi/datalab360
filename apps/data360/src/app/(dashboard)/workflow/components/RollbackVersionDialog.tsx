@@ -6,6 +6,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   History,
   Clock,
@@ -15,17 +16,11 @@ import {
   AlertCircle,
   CheckCircle2,
   ArrowRight,
+  X,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import * as workflowApi from '@/app/services/api/workflowApi';
@@ -155,6 +150,16 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
     }
   }, [open]);
 
+  // ---- Close on Escape — keyboard parity for the backdrop-less drawer ----
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onOpenChange(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, onOpenChange]);
+
   // ---- Confirm rollback --------------------------------------------------
   const handleConfirmRollback = useCallback(async () => {
     if (!workflowId || !selectedVersion) return;
@@ -175,25 +180,43 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
   }, [workflowId, selectedVersion, onOpenChange, onRolledBack]);
 
   // ---- Render ------------------------------------------------------------
-  return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-2xl bg-white dark:bg-slate-900">
-          <DialogHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
-                <History className="h-5 w-5 text-slate-600 dark:text-slate-300" />
-              </div>
-              <DialogTitle className="text-slate-900 dark:text-white">
-                Roll back workflow
-              </DialogTitle>
-            </div>
-            <DialogDescription className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+  if (!open || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <aside
+      role="dialog"
+      aria-modal="false"
+      aria-label="Roll back workflow"
+      className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+    >
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-4 dark:border-slate-700">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
+            <History className="h-5 w-5 text-slate-600 dark:text-slate-300" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+              Roll back workflow
+            </h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
               Pick one of the last 10 versions. We&apos;ll show a diff against
               the current version before you commit the change.
-            </DialogDescription>
-          </DialogHeader>
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          aria-label="Close"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
 
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
           {/* Loading / error / empty */}
           {loading && (
             <div className="flex items-center justify-center py-10">
@@ -374,10 +397,11 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
               </div>
             </div>
           )}
+      </div>
 
-          {/* Footer actions */}
-          {!loading && versions.length > 0 && (
-            <div className="mt-4 flex items-center justify-end gap-2">
+      {/* Footer actions */}
+      {!loading && versions.length > 0 && (
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-3 dark:border-slate-700">
               <button
                 type="button"
                 onClick={() => onOpenChange(false)}
@@ -398,12 +422,10 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
                 )}
                 {isRollingBack ? 'Rolling back…' : 'Roll back'}
               </button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-    </>
+        </div>
+      )}
+    </aside>,
+    document.body,
   );
 };
 

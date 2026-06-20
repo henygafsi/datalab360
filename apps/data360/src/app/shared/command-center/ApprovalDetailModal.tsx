@@ -84,6 +84,16 @@ export default function ApprovalDetailModal({
     fetchDetails();
   }, [isOpen, projectId, isWorkflow]);
 
+  // Close on Escape — keyboard parity, works regardless of focus position.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, onClose]);
+
   const toggleExpand = (index: number) => {
     setExpandedItems(prev => {
       const next = new Set(prev);
@@ -97,17 +107,14 @@ export default function ApprovalDetailModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60"
-      onClick={onClose}
-      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+      role="region"
+      aria-modal="false"
+      aria-label="Review Deployment"
+      // Right-docked side panel — NO click-blocking backdrop, the page behind
+      // stays interactive. Closes via the X / Cancel buttons or Escape.
+      className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl bg-white dark:bg-gray-900 shadow-2xl flex flex-col border-l border-gray-200 dark:border-gray-700 motion-safe:animate-slide-in-right"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="w-full max-w-5xl rounded-xl bg-white dark:bg-gray-900 shadow-2xl flex flex-col mx-4"
-        style={{ height: '80vh' }}
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex flex-col h-full">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-center justify-between">

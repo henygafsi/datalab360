@@ -12,11 +12,14 @@ interface PerformanceMetricsCardProps {
   className?: string;
 }
 
-function formatDuration(ms: number | undefined | null): string {
-  if (ms == null) return '0ms';
-  if (ms < 1000) return `${ms.toFixed(0)}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${(ms / 60000).toFixed(1)}m`;
+function formatDuration(ms: number | string | undefined | null): string {
+  // Coerce + finite-guard: the backend sometimes sends these latency fields as
+  // strings, and a bare `.toFixed()` on a string crashes the render.
+  const n = Number(ms);
+  if (ms == null || !Number.isFinite(n)) return '0ms';
+  if (n < 1000) return `${n.toFixed(0)}ms`;
+  if (n < 60000) return `${(n / 1000).toFixed(1)}s`;
+  return `${(n / 60000).toFixed(1)}m`;
 }
 
 function formatDurationSec(sec: number | undefined | null): string {

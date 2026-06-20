@@ -19,6 +19,7 @@
  * yet — surfaced as a Backend Gap card.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
@@ -46,12 +47,6 @@ import {
 import * as LucideIcons from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { runAdHocSQL } from '@/app/services/workflow';
 import { generateCompletion } from '@/app/services/cortex/ml-features';
@@ -193,6 +188,16 @@ const CustomBlockFactoryModal: React.FC<CustomBlockFactoryModalProps> = ({
     }
   }, [open]);
 
+  // Close on Escape — keyboard parity for the backdrop-less drawer.
+  useEffect(() => {
+    if (!open || showSkipTestConfirm) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onOpenChange(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open, showSkipTestConfirm, onOpenChange]);
+
   // ---- Validation per step ------------------------------------------------
   const nameError = useMemo(() => validateBlockName(state.name), [state.name]);
   const labelError = useMemo(() => {
@@ -308,18 +313,24 @@ const CustomBlockFactoryModal: React.FC<CustomBlockFactoryModalProps> = ({
 
   return (
     <>
-      <Dialog open={open && !showSkipTestConfirm} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl bg-white dark:bg-slate-900 p-0">
+      {open && !showSkipTestConfirm && typeof document !== 'undefined' &&
+        createPortal(
+          <aside
+            role="dialog"
+            aria-modal="false"
+            aria-label="Create custom block"
+            className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+          >
           {/* Header */}
-          <DialogHeader className="border-b border-slate-200 dark:border-slate-700 px-6 py-4">
+          <div className="border-b border-slate-200 dark:border-slate-700 px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-fuchsia-500">
                 <Wand2 className="h-5 w-5 text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <DialogTitle className="text-slate-900 dark:text-white">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                   Create custom block
-                </DialogTitle>
+                </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Scoped to this project. Saved as an audit event ({STEP_LABELS[step]} — step {step + 1}/4).
                 </p>
@@ -367,10 +378,10 @@ const CustomBlockFactoryModal: React.FC<CustomBlockFactoryModalProps> = ({
                 })}
               </ol>
             </nav>
-          </DialogHeader>
+          </div>
 
           {/* Body */}
-          <div className="px-6 py-5 min-h-[420px] max-h-[60vh] overflow-y-auto">
+          <div className="flex-1 px-6 py-5 overflow-y-auto">
             <AnimatePresence mode="wait">
               {step === 0 && (
                 <motion.div
@@ -431,7 +442,7 @@ const CustomBlockFactoryModal: React.FC<CustomBlockFactoryModalProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="border-t border-slate-200 dark:border-slate-700 px-6 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 rounded-b-lg">
+          <div className="border-t border-slate-200 dark:border-slate-700 px-6 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
             <button
               type="button"
               onClick={goBack}
@@ -489,8 +500,9 @@ const CustomBlockFactoryModal: React.FC<CustomBlockFactoryModalProps> = ({
               </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
+          </aside>,
+          document.body,
+        )}
 
       <ConfirmDialog
         open={showSkipTestConfirm}

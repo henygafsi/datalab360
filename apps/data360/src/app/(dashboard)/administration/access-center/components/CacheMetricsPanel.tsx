@@ -29,6 +29,7 @@ import axios from 'axios';
 import { Database, Gauge, KeyRound, Route, Timer } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { safeNum } from '@/lib/format-number';
 import { API } from '@/lib/api-contracts';
 import AuditTable, { type Row } from '@/app/shared/command-center/AuditTable';
 import { ErrBox } from './shared';
@@ -94,10 +95,11 @@ function num(v: number | null | undefined): string {
 function ms(v: number | null | undefined): string {
   return v == null || Number.isNaN(v) ? DASH : `${Math.round(v)} ms`;
 }
-function pct(v: number | null | undefined): string {
-  if (v == null || Number.isNaN(v)) return DASH;
+function pct(v: number | string | null | undefined): string {
+  const n = safeNum(v);
+  if (n == null) return DASH;
   // Accept either a 0..1 ratio or an already-scaled 0..100 percentage.
-  const scaled = v <= 1 ? v * 100 : v;
+  const scaled = n <= 1 ? n * 100 : n;
   return `${scaled.toFixed(1)}%`;
 }
 function bytes(v: number | null | undefined): string {

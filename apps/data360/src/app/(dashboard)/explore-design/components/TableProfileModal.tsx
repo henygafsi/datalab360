@@ -40,6 +40,7 @@ import {
 import type { AiColumnCategory, ClusteringKeysResult } from '@/app/services/api/types';
 import { useAiFeatures } from '../stores/ai-store';
 import { fmtNum } from '@/app/shared/ui/format';
+import { safeToFixed } from '@/lib/format-number';
 
 // Adapted column profile shape for rendering (mapped from new API)
 interface ColumnProfile {
@@ -825,7 +826,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
 
                       {col.has_nulls && (
                         <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-[10px]">
-                          {(col.null_percentage ?? 0).toFixed(1)}% NULL
+                          {safeToFixed(col.null_percentage, 1)}% NULL
                         </Badge>
                       )}
 
@@ -862,13 +863,13 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                           <div className="space-y-1">
                             <p className="text-xs text-slate-500 uppercase tracking-wide">Null Count</p>
                             <p className="text-lg font-bold text-orange-600">{fmtNum(col.null_count)}</p>
-                            <p className="text-xs text-slate-400">{col.null_percentage != null ? `${col.null_percentage.toFixed(2)}%` : '—'}</p>
+                            <p className="text-xs text-slate-400">{col.null_percentage != null ? `${safeToFixed(col.null_percentage, 2)}%` : '—'}</p>
                           </div>
 
                           <div className="space-y-1">
                             <p className="text-xs text-slate-500 uppercase tracking-wide">Distinct Values</p>
                             <p className="text-lg font-bold text-blue-600">{fmtNum(col.distinct_count)}</p>
-                            <p className="text-xs text-slate-400">{col.distinct_percentage != null ? `${col.distinct_percentage.toFixed(2)}%` : '—'}</p>
+                            <p className="text-xs text-slate-400">{col.distinct_percentage != null ? `${safeToFixed(col.distinct_percentage, 2)}%` : '—'}</p>
                           </div>
 
                           <div className="space-y-1">
@@ -924,7 +925,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                               <p className="text-sm font-mono">
                                 {col.min_length} - {col.max_length} chars
                                 {col.avg_length != null && (
-                                  <span className="text-slate-400 ml-1">(avg: {col.avg_length?.toFixed(1)})</span>
+                                  <span className="text-slate-400 ml-1">(avg: {safeToFixed(col.avg_length, 1)})</span>
                                 )}
                               </p>
                             </div>
@@ -1038,7 +1039,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                               (col.null_percentage ?? 0) > 50 ? 'text-red-600' :
                               (col.null_percentage ?? 0) > 10 ? 'text-orange-600' : 'text-slate-500',
                             )}>
-                              {(col.null_percentage ?? 0).toFixed(1)}%
+                              {safeToFixed(col.null_percentage, 1)}%
                             </span>
                           ) : (
                             <span className="text-xs text-green-600">0%</span>

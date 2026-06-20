@@ -20,6 +20,7 @@ import {
   getServicesQueryAcceleration,
 } from '@/app/services/org-accounts/hooks';
 import { formatCredits, formatBytes, extractApiError } from '@/app/services/org-accounts/utils';
+import { safeLocale } from '@/lib/format-number';
 import type {
   ClusteringEntry,
   MaterializedViewEntry,
@@ -183,7 +184,7 @@ export default function ComputeServicesTab({ refreshKey }: ComputeServicesTabPro
                   <td className="px-4 py-2"><Text className="text-sm font-medium text-gray-900 dark:text-white">{c.account_name}</Text></td>
                   <td className="px-4 py-2 text-right"><Text className="text-sm text-blue-600">{formatCredits(c.total_credits)}</Text></td>
                   <td className="px-4 py-2 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{formatBytes(c.bytes_reclustered)}</Text></td>
-                  <td className="px-4 py-2 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{c.rows_reclustered.toLocaleString()}</Text></td>
+                  <td className="px-4 py-2 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{safeLocale(c.rows_reclustered)}</Text></td>
                 </tr>
               ))}
             </tbody>
@@ -229,7 +230,7 @@ export default function ComputeServicesTab({ refreshKey }: ComputeServicesTabPro
                   <tr key={p.account_name} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                     <td className="px-4 py-2"><Text className="text-sm text-gray-900 dark:text-white">{p.account_name}</Text></td>
                     <td className="px-4 py-2 text-right"><Text className="text-sm text-green-600">{formatCredits(p.total_credits)}</Text></td>
-                    <td className="px-4 py-2 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{p.total_files_inserted.toLocaleString()}</Text></td>
+                    <td className="px-4 py-2 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{safeLocale(p.total_files_inserted)}</Text></td>
                   </tr>
                 ))}
               </tbody>
