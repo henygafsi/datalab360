@@ -46,8 +46,12 @@ type MigrationClass = 'product' | 'preparation' | 'mvp' | 'cloned';
 interface SampleObject {
   name: string; type: string; db: string; schema: string; owner: string;
   aiScore: number; storage: string; perfRisk: 'Low' | 'Medium' | 'High';
-  secRisk: 'Low' | 'Medium' | 'High'; roles: number; projects: number;
-  products: number; cost: string; costMo: string; nextAction: string;
+  // secRisk: REAL masking/RLS/policy-reference signal is NOT in the loaded
+  // ACCOUNT_USAGE payload (no such field on ObjectEnrichmentRow / table-storage),
+  // so this is always `null` → rendered "—". Never a fabricated 'Low'.
+  secRisk: 'Low' | 'Medium' | 'High' | null;
+  roles: number | null; projects: number | null;
+  products: number | null; cost: string; costMo: string; nextAction: string;
   migration: MigrationClass; tags: string[]; sensitivity: string;
   classification: string; policy: string; rows: string; cols: number; timeTravel: string;
   // ── real per-object enrichment overlay (present only when a matching
@@ -131,10 +135,11 @@ function mapObject(
     aiScore,
     storage: fmtSize(tb),
     perfRisk: clustered ? 'Low' : rows > 1e8 ? 'High' : 'Medium',
-    secRisk: 'Low',
-    roles: e?.distinct_roles ?? 0,
-    projects: e?.projects ?? 0,
-    products: e?.products ?? 0,
+    // No masking/RLS/policy signal in this payload → unknown, render "—".
+    secRisk: null,
+    roles: e?.distinct_roles ?? null,
+    projects: e?.projects ?? null,
+    products: e?.products ?? null,
     cost: tb > 1 ? 'High' : tb > 0.1 ? 'Medium' : 'Low',
     costMo,
     nextAction: tb > 1 ? 'Model in Data360' : clustered ? 'Govern in Governance' : 'Review',
@@ -474,9 +479,9 @@ function OverviewSub() {
                     </td>
                     <td className="whitespace-nowrap px-2.5 py-1.5 text-gray-700 dark:text-gray-300">{o.storage}</td>
                     <td className="px-2.5 py-1.5"><span className={`rounded px-1.5 py-0.5 ${RISK_TONE[o.perfRisk]}`}>{o.perfRisk}</span></td>
-                    <td className="px-2.5 py-1.5"><span className={`rounded px-1.5 py-0.5 ${RISK_TONE[o.secRisk]}`}>{o.secRisk}</span></td>
-                    <td className="whitespace-nowrap px-2.5 py-1.5 text-gray-500">{!realLoaded || o.enriched ? `${o.roles}r · ${o.projects}p` : '—'}</td>
-                    <td className="px-2.5 py-1.5 text-gray-500">{!realLoaded || o.enriched ? `${o.products} prod.` : '—'}</td>
+                    <td className="px-2.5 py-1.5">{o.secRisk ? <span className={`rounded px-1.5 py-0.5 ${RISK_TONE[o.secRisk]}`}>{o.secRisk}</span> : <span className="text-gray-400">—</span>}</td>
+                    <td className="whitespace-nowrap px-2.5 py-1.5 text-gray-500">{(!realLoaded || o.enriched) && o.roles != null && o.projects != null ? `${o.roles}r · ${o.projects}p` : '—'}</td>
+                    <td className="px-2.5 py-1.5 text-gray-500">{(!realLoaded || o.enriched) && o.products != null ? `${o.products} prod.` : '—'}</td>
                     <td className="px-2.5 py-1.5"><span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${M.tone}`}><M.icon className="h-3 w-3" />{M.label}</span></td>
                     <td className="whitespace-nowrap px-2.5 py-1.5"><span className="text-gray-700 dark:text-gray-300">{o.cost}</span> <span className="text-gray-400">{o.costMo}</span></td>
                     <td className="whitespace-nowrap px-2.5 py-1.5"><span className="rounded-lg border border-gray-200 px-2 py-0.5 text-primary dark:border-gray-700">{o.nextAction}</span></td>
@@ -537,7 +542,7 @@ function OverviewSub() {
             <DetailBox title="Overview"><Kv k="Rows" v={selected.rows} /><Kv k="Columns" v={String(selected.cols)} /></DetailBox>
             <DetailBox title="Storage & Time Travel"><Kv k="Total Size" v={selected.storage} /><Kv k="Time Travel" v={selected.timeTravel} /></DetailBox>
             <DetailBox title="Governance & Security"><Kv k="Sensitivity" v={selected.sensitivity} tone={selected.sensitivity === 'Sensitive' || selected.sensitivity === 'Restricted' ? 'rose' : undefined} /><Kv k="Classification" v={selected.classification} tone={selected.classification === 'PII' ? 'rose' : undefined} /><Kv k="Policy" v={selected.policy} tone={selected.policy !== '—' ? 'emerald' : undefined} /></DetailBox>
-            <DetailBox title="Linked To"><Kv k="Roles" v={String(selected.roles)} /><Kv k="Projects" v={String(selected.projects)} /><Kv k="Products" v={String(selected.products)} /></DetailBox>
+            <DetailBox title="Linked To"><Kv k="Roles" v={selected.roles != null ? String(selected.roles) : '—'} /><Kv k="Projects" v={selected.projects != null ? String(selected.projects) : '—'} /><Kv k="Products" v={selected.products != null ? String(selected.products) : '—'} /></DetailBox>
             <DetailBox title="AI Insights"><li className="text-[11px] text-gray-600 dark:text-gray-300">{selected.cost === 'High' ? 'High scan cost in last 30 days' : 'Cost within budget'}</li><li className="text-[11px] text-gray-600 dark:text-gray-300">{selected.perfRisk === 'High' ? 'Costly queries detected' : 'Good clustering & pruning'}</li></DetailBox>
             <DetailBox title="Opportunities"><li className="text-[11px] text-gray-600 dark:text-gray-300">Model in Data360 ({MIGRATION_META[selected.migration].label})</li><li className="text-[11px] text-gray-600 dark:text-gray-300">Expose as API with cache</li></DetailBox>
           </div>
@@ -549,7 +554,7 @@ function OverviewSub() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <DetailBox title="Sensitivity"><Kv k="Level" v={selected.sensitivity} /><Kv k="Classification" v={selected.classification} /></DetailBox>
             <DetailBox title="Policies"><Kv k="Row Access" v={selected.policy} /><Kv k="Masking" v={selected.classification === 'PII' ? 'À appliquer' : '—'} /></DetailBox>
-            <DetailBox title="Access"><Kv k="Roles" v={`${selected.roles} roles`} /><Kv k="Over-granted" v={selected.secRisk === 'High' ? 'Oui' : 'Non'} /></DetailBox>
+            <DetailBox title="Access"><Kv k="Roles" v={selected.roles != null ? `${selected.roles} roles` : '—'} /><Kv k="Over-granted" v={selected.secRisk == null ? '—' : selected.secRisk === 'High' ? 'Oui' : 'Non'} /></DetailBox>
           </div>
         )}
         {detailTab === 'Cost & Performance' && (
@@ -579,7 +584,7 @@ function OverviewSub() {
                 <Kv k="Dernier accès" v={fmtDate(selected.lastAccessed)} />
               </DetailBox>
               <DetailBox title="Rôles accédants">
-                <Kv k="Distinct" v={!realLoaded || selected.enriched ? `${selected.roles} roles` : '—'} />
+                <Kv k="Distinct" v={(!realLoaded || selected.enriched) && selected.roles != null ? `${selected.roles} roles` : '—'} />
                 {selected.rolesSample && selected.rolesSample.length > 0 && (
                   <li className="flex flex-wrap gap-1 pt-1">
                     {selected.rolesSample.map((r) => (
@@ -589,10 +594,10 @@ function OverviewSub() {
                 )}
               </DetailBox>
               <DetailBox title="Projets liés">
-                <Kv k="Projets" v={!realLoaded || selected.enriched ? `${selected.projects} projects` : '—'} />
+                <Kv k="Projets" v={(!realLoaded || selected.enriched) && selected.projects != null ? `${selected.projects} projects` : '—'} />
               </DetailBox>
               <DetailBox title="Produits">
-                <Kv k="Used in" v={!realLoaded || selected.enriched ? `${selected.products} products` : '—'} />
+                <Kv k="Used in" v={(!realLoaded || selected.enriched) && selected.products != null ? `${selected.products} products` : '—'} />
               </DetailBox>
             </div>
           )
@@ -624,18 +629,22 @@ function Kv({ k, v, tone }: { k: string; v: string; tone?: string }) {
 function riskScore(r: 'Low' | 'Medium' | 'High') {
   return r === 'Low' ? 90 : r === 'Medium' ? 65 : 40;
 }
-function adnAxes(o: SampleObject) {
+interface AdnAxis { key: string; label: string; score: number | null }
+function adnAxes(o: SampleObject): AdnAxis[] {
   // 5 axes — Sécurité folds in governance + access; "Accès" renamed to "Sécurité".
-  const gov = o.policy !== '—' ? 85 : o.classification === 'PII' ? 35 : 55;
+  // SEC: both inputs (secRisk + policy/classification) are absent from the loaded
+  // ACCOUNT_USAGE payload (no masking/RLS/policy-reference signal), so we surface
+  // it as unknown ("—") rather than a confident number off a constant.
   return [
     { key: 'DQ', label: 'Qualité', score: o.aiScore },
     { key: 'PERF', label: 'Perf', score: riskScore(o.perfRisk) },
-    { key: 'SEC', label: 'Sécurité', score: Math.round((riskScore(o.secRisk) + gov) / 2) },
+    { key: 'SEC', label: 'Sécurité', score: null },
     { key: 'STORAGE', label: 'Stockage', score: o.cost === 'High' ? 45 : o.cost === 'Medium' ? 70 : 90 },
-    { key: 'USAGE', label: 'Usage', score: Math.min(95, 35 + o.projects * 9) },
+    { key: 'USAGE', label: 'Usage', score: o.projects != null ? Math.min(95, 35 + o.projects * 9) : null },
   ];
 }
-function scoreTone(s: number) {
+function scoreTone(s: number | null) {
+  if (s == null) return 'gray';
   return s >= 80 ? 'emerald' : s >= 60 ? 'amber' : 'rose';
 }
 function AdnStrip({ o }: { o: SampleObject }) {
@@ -649,10 +658,10 @@ function AdnStrip({ o }: { o: SampleObject }) {
           <span
             key={a.key}
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-${t}-100 text-${t}-700 dark:bg-${t}-900/30 dark:text-${t}-300`}
-            title={`${a.label} : ${a.score}/100`}
+            title={a.score != null ? `${a.label} : ${a.score}/100` : `${a.label} : indisponible`}
           >
             {Ic && <Ic className="h-3 w-3" />}
-            {a.label} <strong>{a.score}</strong>
+            {a.label} <strong>{a.score != null ? a.score : '—'}</strong>
           </span>
         );
       })}

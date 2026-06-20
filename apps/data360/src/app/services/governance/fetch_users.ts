@@ -133,6 +133,10 @@ export async function addUser(userData: {
     const role = userData.role?.trim() ? userData.role.trim() : undefined;
     const payload = { ...userData, role };
     const response = await apiClient.post('/gouvernance/add-user', payload);
+    // Defensive: the optional role is granted to the NEW user, not the caller, so
+    // this can't move the caller's allow-set — refresh for consistency with the
+    // sibling assignRoleToUser (cheap, idempotent).
+    invalidateMyPermissions();
     const data = response.data;
 
     // Backend may return a bare string (legacy) or a structured object (new).
@@ -336,6 +340,9 @@ export async function updateUser(
       `/gouvernance/enterprise-users/${encodeURIComponent(username)}`,
       data
     );
+    // `default_role` can change which Snowflake role (→ D360 role) the user
+    // resolves to; if the caller edits themselves, their allow-set shifts. Refresh.
+    invalidateMyPermissions();
     return response.data;
   } catch (error: any) {
     console.error('Error updating user:', error);

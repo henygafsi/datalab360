@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Badge, Button, Input, Modal, Select as RizzSelect, Text } from 'rizzui';
+import { Badge, Button, Input, Select as RizzSelect, Text } from 'rizzui';
 import {
   Key, Database, Table2, Columns3, Shield, Clock, RefreshCw,
   History, AlertTriangle, Check, Info, ChevronDown, ChevronRight,
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Tooltip } from '@/app/shared/ui/Tooltip';
 import { cn } from '@/lib/utils';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import type { TableItem, ColumnInfo } from './VirtualizedTableList';
 
 // Ingestion Mode Types
@@ -289,8 +290,11 @@ const ColumnMaskingRow: React.FC<{
   masking?: MaskingConfig;
   availablePolicies: Array<{ name: string; type: string }>;
   onMaskingChange: (config: MaskingConfig | null) => void;
-}> = ({ column, masking, availablePolicies, onMaskingChange }) => {
+  canEdit: boolean;
+  deniedReason: string;
+}> = ({ column, masking, availablePolicies, onMaskingChange, canEdit, deniedReason }) => {
   const [showConfig, setShowConfig] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   return (
     <div className={cn(
@@ -312,16 +316,41 @@ const ColumnMaskingRow: React.FC<{
             <Lock className="h-3 w-3 mr-1" />
             {masking.policyName}
           </Badge>
-          <Tooltip label="Remove the masking policy from this column">
-            <button
-              type="button"
-              aria-label="Remove masking"
-              className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-              onClick={() => onMaskingChange(null)}
-            >
-              <EyeOff className="h-4 w-4 text-slate-500" />
-            </button>
-          </Tooltip>
+          {confirmRemove ? (
+            // Inline (non-blocking) confirm — removing a governance masking policy
+            // exposes the column, so never fire it on a single click.
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-red-50 px-2 py-0.5 dark:bg-red-900/20">
+              <span className="text-[11px] font-medium text-red-700 dark:text-red-400">
+                Remove masking?
+              </span>
+              <button
+                type="button"
+                className="text-[11px] font-semibold text-red-700 hover:underline dark:text-red-400"
+                onClick={() => { setConfirmRemove(false); onMaskingChange(null); }}
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                className="text-[11px] font-semibold text-slate-600 hover:underline dark:text-slate-400"
+                onClick={() => setConfirmRemove(false)}
+              >
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <Tooltip label={canEdit ? 'Remove the masking policy from this column' : deniedReason}>
+              <button
+                type="button"
+                aria-label="Remove masking"
+                disabled={!canEdit}
+                className="p-1 rounded hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-700"
+                onClick={() => setConfirmRemove(true)}
+              >
+                <EyeOff className="h-4 w-4 text-slate-500" />
+              </button>
+            </Tooltip>
+          )}
         </div>
       ) : (
         <button
@@ -387,6 +416,17 @@ export const TableDetailPanel: React.FC<TableDetailPanelProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'columns' | 'ingestion' | 'masking'>('columns');
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
+  // Inline (non-blocking) confirm for the destructive bulk column mutations.
+  const [pendingBulk, setPendingBulk] = useState<null | 'pk' | 'nullable' | 'sensitive'>(null);
+
+  // System-2 Action-RBAC gate. These bulk flag changes + masking removal mutate
+  // governance-relevant column metadata; `data_products`/`edit` is the registry
+  // key used across the adjacent Sources/catalog surfaces. Fail-open while the
+  // allow-set loads; honest-disable only on a resolved denial.
+  const editPerm = useCanPerform('data_products', 'edit');
+  const canEdit = editPerm.allowed || editPerm.loading;
+  const editDeniedReason =
+    'You lack the "edit" permission on data products. Ask an administrator to grant it.';
 
   const sensitiveColumns = useMemo(() => columns.filter((c) => c.isSensitive), [columns]);
   const primaryKeyColumns = useMemo(() => columns.filter((c) => c.isPrimaryKey), [columns]);
@@ -483,40 +523,73 @@ export const TableDetailPanel: React.FC<TableDetailPanelProps> = ({
       <div className="flex-1 overflow-auto p-4">
         {activeTab === 'columns' && (
           <div className="space-y-2">
-            {/* Bulk actions */}
+            {/* Bulk actions — each destructive flag change is gated (RBAC) and
+                routed through an inline, non-blocking confirm. */}
             {selectedColumns.size > 0 && (
-              <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg mb-4">
-                <span className="text-sm font-medium">{selectedColumns.size} selected</span>
-                <button
-                  className="px-2 py-1 text-xs bg-amber-100 text-amber-800 rounded hover:bg-amber-200"
-                  onClick={() => {
-                    const newPKs = [...currentConfig.primaryKeys, ...Array.from(selectedColumns)];
-                    onConfigChange({ primaryKeys: Array.from(new Set(newPKs)) });
-                    setSelectedColumns(new Set());
-                  }}
-                >
-                  Set as PK
-                </button>
-                <button
-                  className="px-2 py-1 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200"
-                  onClick={() => {
-                    const newNullable = [...currentConfig.nullable, ...Array.from(selectedColumns)];
-                    onConfigChange({ nullable: Array.from(new Set(newNullable)) });
-                    setSelectedColumns(new Set());
-                  }}
-                >
-                  Mark Nullable
-                </button>
-                <button
-                  className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded hover:bg-red-200"
-                  onClick={() => {
-                    const newSensitive = [...currentConfig.sensitive, ...Array.from(selectedColumns)];
-                    onConfigChange({ sensitive: Array.from(new Set(newSensitive)) });
-                    setSelectedColumns(new Set());
-                  }}
-                >
-                  Mark Sensitive
-                </button>
+              <div className="space-y-2 mb-4">
+                <div className="flex items-center gap-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                  <span className="text-sm font-medium">{selectedColumns.size} selected</span>
+                  <button
+                    disabled={!canEdit}
+                    title={!canEdit ? editDeniedReason : undefined}
+                    className="px-2 py-1 text-xs bg-amber-100 text-amber-800 rounded hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    onClick={() => setPendingBulk('pk')}
+                  >
+                    Set as PK
+                  </button>
+                  <button
+                    disabled={!canEdit}
+                    title={!canEdit ? editDeniedReason : undefined}
+                    className="px-2 py-1 text-xs bg-slate-100 text-slate-800 rounded hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    onClick={() => setPendingBulk('nullable')}
+                  >
+                    Mark Nullable
+                  </button>
+                  <button
+                    disabled={!canEdit}
+                    title={!canEdit ? editDeniedReason : undefined}
+                    className="px-2 py-1 text-xs bg-red-100 text-red-800 rounded hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    onClick={() => setPendingBulk('sensitive')}
+                  >
+                    Mark Sensitive
+                  </button>
+                </div>
+
+                {pendingBulk && (
+                  <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/40 dark:bg-amber-900/20">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span className="flex-1 text-xs text-amber-800 dark:text-amber-300">
+                      {pendingBulk === 'pk'
+                        ? `Mark ${selectedColumns.size} column(s) as primary key?`
+                        : pendingBulk === 'nullable'
+                          ? `Mark ${selectedColumns.size} column(s) as nullable?`
+                          : `Mark ${selectedColumns.size} column(s) as sensitive?`}
+                    </span>
+                    <button
+                      className="text-xs font-semibold text-amber-700 hover:underline dark:text-amber-400"
+                      onClick={() => {
+                        const sel = Array.from(selectedColumns);
+                        if (pendingBulk === 'pk') {
+                          onConfigChange({ primaryKeys: Array.from(new Set([...currentConfig.primaryKeys, ...sel])) });
+                        } else if (pendingBulk === 'nullable') {
+                          onConfigChange({ nullable: Array.from(new Set([...currentConfig.nullable, ...sel])) });
+                        } else {
+                          onConfigChange({ sensitive: Array.from(new Set([...currentConfig.sensitive, ...sel])) });
+                        }
+                        setPendingBulk(null);
+                        setSelectedColumns(new Set());
+                      }}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      className="text-xs font-semibold text-slate-600 hover:underline dark:text-slate-400"
+                      onClick={() => setPendingBulk(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -592,6 +665,8 @@ export const TableDetailPanel: React.FC<TableDetailPanelProps> = ({
                 }}
                 masking={currentConfig.masking.find((m) => m.columnName === col.name)}
                 availablePolicies={availableMaskingPolicies}
+                canEdit={canEdit}
+                deniedReason={editDeniedReason}
                 onMaskingChange={(maskingConfig) => {
                   const otherMasking = currentConfig.masking.filter((m) => m.columnName !== col.name);
                   onConfigChange({

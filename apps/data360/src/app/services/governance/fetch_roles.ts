@@ -4,6 +4,7 @@
  */
 import apiClient from '@/lib/api-client';
 import { RoleTableDataType } from '@/app/shared/governance/roles/table';
+import { invalidateMyPermissions } from '@/hooks/useCanPerform';
 
 /**
  * Fetches the list of roles from the backend API.
@@ -41,6 +42,10 @@ export async function getRoles(): Promise<RoleTableDataType[]> {
 export async function addRole(roleName: string): Promise<string> {
   try {
     const response = await apiClient.post('/gouvernance/add-role', { role_name: roleName });
+    // Defensive: a brand-new empty role has no grants/assignees yet, so it cannot
+    // change the caller's effective allow-set — but stay consistent with the other
+    // role mutations and refresh anyway (cheap, idempotent cache-bust).
+    invalidateMyPermissions();
     return response.data;
   } catch (error) {
     console.error('Error adding role:', error);
@@ -122,6 +127,9 @@ export async function deleteRole(roleName: string): Promise<{
     const response = await apiClient.delete('/gouvernance/drop-role', {
       data: { role_name: roleName }
     });
+    // Dropping a role revokes it from all users (incl. possibly the caller) and
+    // can change the caller's effective D360 allow-set — refresh.
+    invalidateMyPermissions();
     return response.data;
   } catch (error) {
     console.error('Error deleting role:', error);
@@ -143,6 +151,8 @@ export async function deleteMultipleRoles(roleNames: string[]): Promise<{
     const response = await apiClient.post('/gouvernance/drop-roles-batch', {
       role_names: roleNames
     });
+    // Batch role drop can revoke a role the caller holds — refresh allow-set.
+    invalidateMyPermissions();
     return response.data;
   } catch (error) {
     console.error('Error deleting multiple roles:', error);
@@ -169,6 +179,9 @@ export async function updateRole(
 }> {
   try {
     const response = await apiClient.put(`/gouvernance/roles/${roleName}`, data);
+    // `modules` edits a role's module grants — same class of change as updateGrants
+    // (which invalidates) — so refresh the caller's effective allow-set.
+    invalidateMyPermissions();
     return response.data;
   } catch (error) {
     console.error('Error updating role:', error);
@@ -272,6 +285,10 @@ export async function getD360RoleTemplates(): Promise<D360RoleTemplate[]> {
  */
 export async function createD360Role(payload: D360RoleCreatePayload): Promise<D360Role> {
   const response = await apiClient.post('/gouvernance/d360-roles', payload);
+  // Defensive: a freshly created D360 role isn't yet assigned to the caller, so it
+  // can't move their allow-set — but a template_from clone seeds permissions, so
+  // refresh to stay consistent (cheap, idempotent).
+  invalidateMyPermissions();
   const raw = response.data?.role ?? response.data?.data ?? response.data;
   return normalizeD360Role(raw);
 }
@@ -288,6 +305,9 @@ export async function updateD360Role(
     `/gouvernance/d360-roles/${encodeURIComponent(roleName)}`,
     payload
   );
+  // Defensive: D360RoleUpdate only edits display_name/description (no permission
+  // change) — refresh anyway for consistency with the other role mutations.
+  invalidateMyPermissions();
   const raw = response.data?.role ?? response.data?.data ?? response.data;
   return normalizeD360Role(raw);
 }
@@ -300,6 +320,9 @@ export async function deleteD360Role(roleName: string): Promise<{ message: strin
   const response = await apiClient.delete(
     `/gouvernance/d360-roles/${encodeURIComponent(roleName)}`
   );
+  // Deleting a D360 role removes its permissions — if the caller resolved to it,
+  // their effective allow-set changes. Refresh.
+  invalidateMyPermissions();
   return response.data;
 }
 
@@ -579,6 +602,9 @@ export async function setRolePermissions(
       ...(projectId ? { project_id: projectId } : {}),
     }
   );
+  // This IS a role's D360 permission write — if the caller resolves to this role,
+  // their effective allow-set just changed. Refresh.
+  invalidateMyPermissions();
   const d = response.data ?? {};
   return {
     success: Boolean(d.success ?? true),
@@ -610,5 +636,8 @@ export async function applyTemplate(
     `/gouvernance/d360-roles/${encodeURIComponent(roleName)}/apply-template`,
     { template, mode }
   );
+  // Copying a template onto a role rewrites its permission set — refresh the
+  // caller's effective allow-set in case they resolve to this role.
+  invalidateMyPermissions();
   return response.data;
 }

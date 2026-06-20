@@ -187,14 +187,23 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
     );
   }
 
-  if (loading) {
+  // First-run only: progressive skeleton (no blocking spinner). On re-detect
+  // (loading WITH existing models) we keep the prior results visible and show a
+  // subtle refreshing strip below, so the tab never blanks out.
+  if (loading && models.length === 0) {
     return (
-      <div className="text-center py-16">
-        <div className="relative inline-block mb-4">
-          <Loader size="lg" />
+      <div className="space-y-4" aria-busy="true">
+        <p className="text-xs text-gray-500">Analyzing table structures and detecting models…</p>
+        <div className="grid grid-cols-4 gap-3" aria-hidden="true">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-16 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+          ))}
         </div>
-        <p className="text-sm text-gray-500">Analyzing table structures and detecting models...</p>
-        <p className="text-xs text-gray-400 mt-1">This may take a moment</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3" aria-hidden="true">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-32 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -203,6 +212,17 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
 
   return (
     <div className="space-y-4">
+      {/* Non-blocking re-detect strip — keeps prior results on screen. */}
+      {loading && (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300"
+        >
+          <Loader size="sm" />
+          Re-analyzing table structures… showing previous results until done.
+        </div>
+      )}
+
       {/* Summary Row */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
@@ -235,11 +255,12 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
             size="sm"
             variant="outline"
             onClick={runDetection}
-            disabled={!canDetect}
+            disabled={!canDetect || loading}
             title={!canDetect ? detectDeniedReason : undefined}
             className="gap-1.5"
           >
-            <RefreshCw className="h-3 w-3" />Re-detect
+            <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} />
+            {loading ? 'Re-detecting…' : 'Re-detect'}
           </Button>
           <Link href={`/explore-design?project=${encodeURIComponent(projectId)}`}>
             <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">

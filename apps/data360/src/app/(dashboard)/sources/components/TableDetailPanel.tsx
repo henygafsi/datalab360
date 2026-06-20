@@ -185,8 +185,24 @@ export default function TableDetailPanel({
       {/* Content split: tiers left, actions right (stacked in panel) */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader size="lg" />
+          <div className="p-4 space-y-4" aria-busy="true" aria-hidden="true">
+            {/* Progressive skeleton — mirrors the loaded layout (score chips,
+                stat grid, list rows) instead of blocking the panel on a spinner. */}
+            <div className="flex gap-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-5 w-12 animate-pulse rounded-full bg-gray-100 dark:bg-gray-800" />
+              ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="h-12 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-8 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+              ))}
+            </div>
           </div>
         ) : !data360 ? (
           <div className="px-4 py-12 text-center" role="alert">

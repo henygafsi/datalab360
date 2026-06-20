@@ -317,6 +317,17 @@ function safeNum(value: unknown, fallback = 0): number {
 }
 
 /**
+ * Honest numeric coercion: returns the real finite number when present, else
+ * `null` — never a fabricated 0. Use for KPI values that must render "—" (via
+ * formatKpiValue / KpiCard) when the backend field is absent or non-finite.
+ */
+function safeNumOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * Safe percentage from part/total. Returns 0 when total is 0/invalid (never
  * NaN/Infinity). Rounds to the nearest integer by default.
  */
@@ -1549,17 +1560,21 @@ function CommandCenterDashboardInner() {
 
   const fetchProjects = useCallback(async () => {
     setTabLoading((p) => ({ ...p, projects: true }));
+    setTabError((p) => ({ ...p, projects: null }));
     try {
       const data = await getProjectsOverview(filters);
       if (isApiError(data)) {
         console.warn('[CommandCenter] projects-overview returned error:', data);
+        setTabError((p) => ({ ...p, projects: 'Failed to load projects data' }));
         return;
       }
       setProjectsData(data);
       setLastUpdated(new Date());
       tabDataCache.current['projects'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
-      toast.error('Failed to load projects data');
+      const msg = getApiErrorMessage(err) || 'Failed to load projects data';
+      toast.error(msg);
+      setTabError((p) => ({ ...p, projects: msg }));
     } finally {
       setTabLoading((p) => ({ ...p, projects: false }));
     }
@@ -2156,11 +2171,15 @@ function CommandCenterDashboardInner() {
               />
             )}
             {activeTab === 'projects' && (
-              <ProjectsTab
-                data={projectsData}
-                loading={tabLoading.projects}
-                onRefresh={fetchProjects}
-              />
+              tabError.projects && !tabLoading.projects ? (
+                <TabErrorState message={tabError.projects} onRetry={fetchProjects} />
+              ) : (
+                <ProjectsTab
+                  data={projectsData}
+                  loading={tabLoading.projects}
+                  onRefresh={fetchProjects}
+                />
+              )
             )}
             {/* Merged Security tab: posture/audit (SecurityAdvTab) stacked with
                 the Security Map graph. Two clearly-headed sections, no popup. */}
@@ -2895,20 +2914,21 @@ const OverviewTab = memo(function OverviewTab({
   // safeNum() coerces null/undefined/NaN/Infinity to the fallback.
   // The `provisioned ? … : undefined` guard makes the kpis side fall THROUGH
   // to summary when the cache is missing (a raw `0 ?? summary` short-circuits).
+  // Honest values: real number when present, else `null` → "—" (no fake 0s).
   const creditsUsed =
-    (provisioned ? kpis?.credits_used : undefined) ??
-    safeNum(summary?.cost?.credits_30d, 0);
+    (provisioned ? safeNumOrNull(kpis?.credits_used) : null) ??
+    safeNumOrNull(summary?.cost?.credits_30d);
   const activeUsers =
-    (provisioned ? kpis?.data360_users : undefined) ??
-    safeNum(summary?.platform?.active_users_7d, 0);
+    (provisioned ? safeNumOrNull(kpis?.data360_users) : null) ??
+    safeNumOrNull(summary?.platform?.active_users_7d);
   const totalProjects =
-    (provisioned ? kpis?.active_projects : undefined) ??
-    safeNum(summary?.platform?.total_projects, 0);
+    (provisioned ? safeNumOrNull(kpis?.active_projects) : null) ??
+    safeNumOrNull(summary?.platform?.total_projects);
   const qualityScore =
-    (provisioned ? kpis?.workspace_health_pct : undefined) ??
-    safeNum(summary?.quality?.health_score, 0);
-  const mfaCoverage = safeNum(summary?.security?.mfa_coverage_pct, 0);
-  const aiModels = safeNum(summary?.ai?.semantic_models, 0);
+    (provisioned ? safeNumOrNull(kpis?.workspace_health_pct) : null) ??
+    safeNumOrNull(summary?.quality?.health_score);
+  const mfaCoverage = safeNumOrNull(summary?.security?.mfa_coverage_pct);
+  const aiModels = safeNumOrNull(summary?.ai?.semantic_models);
   const cacheAgeLabel = (() => {
     if (kpisLoading && !kpis) return 'Loading…';
     if (!kpis?.cache_age_seconds && kpis?.cache_age_seconds !== 0) return null;
@@ -3140,7 +3160,7 @@ const OverviewTab = memo(function OverviewTab({
           icon={DollarSign}
           onClick={() => onNavigateTab?.('finops')}
         />
-        {summary?.security?.mfa_coverage_pct != null && mfaCoverage < 80 ? (
+        {mfaCoverage != null && mfaCoverage < 80 ? (
           <ActionChip
             label="Require MFA"
             tone="red"
@@ -3238,7 +3258,7 @@ const OverviewTab = memo(function OverviewTab({
         />
         <KpiCard
           label={`Credits (${range})`}
-          value={Number(creditsUsed).toLocaleString()}
+          value={creditsUsed}
           icon={DollarSign}
           color="amber"
           trend={Number(summary?.cost?.credit_trend_pct) || undefined}
@@ -3267,7 +3287,7 @@ const OverviewTab = memo(function OverviewTab({
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiCard
           label="Workspace Health"
-          value={`${qualityScore}%`}
+          value={qualityScore != null ? `${qualityScore}%` : null}
           icon={CheckCircle}
           color="green"
         />
@@ -3294,9 +3314,9 @@ const OverviewTab = memo(function OverviewTab({
         <KpiCard
           label="MFA / AI Models"
           value={
-            summary?.security || summary?.ai
-              ? `${mfaCoverage}% · ${aiModels}`
-              : '—'
+            mfaCoverage != null || aiModels != null
+              ? `${mfaCoverage != null ? `${mfaCoverage}%` : '—'} · ${aiModels != null ? aiModels : '—'}`
+              : null
           }
           icon={Shield}
           color="rose"
@@ -7189,11 +7209,13 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
     const us = Array.isArray(platformData?.user_sessions)
       ? platformData.user_sessions
       : [];
+    // Honest totals: `null` (→ "—") when the source array is absent/empty,
+    // never a fabricated 0-sum over no rows.
     return {
-      totalEvents: ea.reduce((s: number, e: any) => s + e.count, 0),
-      totalSessions: us.reduce((s: number, u: any) => s + u.sessions, 0),
+      totalEvents: ea.length > 0 ? ea.reduce((s: number, e: any) => s + safeNum(e.count), 0) : null,
+      totalSessions: us.length > 0 ? us.reduce((s: number, u: any) => s + safeNum(u.sessions), 0) : null,
       uniqueUsersTotal:
-        us.length > 0 ? Math.max(...us.map((u: any) => u.unique_users)) : 0,
+        us.length > 0 ? Math.max(...us.map((u: any) => safeNum(u.unique_users))) : null,
     };
   }, [platformData]);
 
@@ -7327,13 +7349,13 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-9">
         <KpiCard
           label="Total Events"
-          value={totalEvents.toLocaleString()}
+          value={totalEvents}
           icon={Activity}
           color="blue"
         />
         <KpiCard
           label="Sessions"
-          value={totalSessions.toLocaleString()}
+          value={totalSessions}
           icon={Users}
           color="green"
         />

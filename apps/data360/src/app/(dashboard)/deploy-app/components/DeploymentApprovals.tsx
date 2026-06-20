@@ -218,7 +218,7 @@ function DeploymentCard({
 }) {
   const [busy, setBusy] = useState<null | string>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<null | 'reject' | 'rollback'>(null);
+  const [confirm, setConfirm] = useState<null | 'reject' | 'rollback' | 'approve' | 'execute'>(null);
   const [reason, setReason] = useState('');
   const elapsed = useElapsed(busy === 'execute' || busy === 'rollback');
 
@@ -338,56 +338,78 @@ function DeploymentCard({
         </div>
       )}
 
-      {/* Inline destructive confirm (reject / rollback) — never a global modal. */}
+      {/* Inline confirm for every lifecycle action — never a global modal.
+          reject/rollback are destructive (red, reason input); approve/execute are
+          high-impact-but-not-destructive (emerald/blue, no reason). */}
       {confirm ? (
-        <div className="mt-3 space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 dark:border-amber-900/40 dark:bg-amber-900/20">
-          <p className="text-[11px] font-medium text-amber-800 dark:text-amber-300">
-            {confirm === 'reject'
+        (() => {
+          const destructive = confirm === 'reject' || confirm === 'rollback';
+          const prompt =
+            confirm === 'reject'
               ? 'Reject this deployment?'
-              : 'Roll this deployment back to its prior version?'}
-          </p>
-          <input
-            type="text"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Reason (optional)"
-            aria-label="Reason"
-            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setConfirm(null);
-                setReason('');
-              }}
-              className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={busy != null}
-              onClick={() =>
-                confirm === 'reject'
-                  ? void run('reject', () =>
-                      rejectDeployment(row.deployment_id, {
-                        reason: reason || undefined,
-                      }),
-                    )
-                  : void run('rollback', () =>
-                      rollbackDeployment(row.deployment_id, {
-                        reason: reason || undefined,
-                      }),
-                    )
-              }
-              className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-red-700 disabled:opacity-60"
-            >
-              {busy != null && <Loader2 className="h-3 w-3 animate-spin" />}
-              Confirm
-            </button>
-          </div>
-        </div>
+              : confirm === 'rollback'
+                ? 'Roll this deployment back to its prior version?'
+                : confirm === 'approve'
+                  ? 'Approve this deployment for execution?'
+                  : 'Execute this deployment now? This applies changes to the target.';
+          return (
+            <div className="mt-3 space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 dark:border-amber-900/40 dark:bg-amber-900/20">
+              <p className="text-[11px] font-medium text-amber-800 dark:text-amber-300">{prompt}</p>
+              {destructive && (
+                <input
+                  type="text"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Reason (optional)"
+                  aria-label="Reason"
+                  className="w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                />
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirm(null);
+                    setReason('');
+                  }}
+                  className="rounded-md px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={busy != null}
+                  onClick={() => {
+                    if (confirm === 'reject') {
+                      void run('reject', () =>
+                        rejectDeployment(row.deployment_id, { reason: reason || undefined }),
+                      );
+                    } else if (confirm === 'rollback') {
+                      void run('rollback', () =>
+                        rollbackDeployment(row.deployment_id, { reason: reason || undefined }),
+                      );
+                    } else if (confirm === 'approve') {
+                      void run('approve', () => approveDeployment(row.deployment_id));
+                    } else {
+                      void run('execute', () => executeDeployment(row.deployment_id));
+                    }
+                  }}
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-60',
+                    destructive
+                      ? 'bg-red-600 hover:bg-red-700'
+                      : confirm === 'approve'
+                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        : 'bg-blue-600 hover:bg-blue-700',
+                  )}
+                >
+                  {busy != null && <Loader2 className="h-3 w-3 animate-spin" />}
+                  Confirm
+                </button>
+              </div>
+            </div>
+          );
+        })()
       ) : (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {canApprove && (
@@ -398,9 +420,7 @@ function DeploymentCard({
               icon={ThumbsUp}
               label="Approve"
               tone="emerald"
-              onClick={() =>
-                void run('approve', () => approveDeployment(row.deployment_id))
-              }
+              onClick={() => setConfirm('approve')}
             />
           )}
           {canApprove && (
@@ -422,9 +442,7 @@ function DeploymentCard({
               icon={Play}
               label="Execute"
               tone="blue"
-              onClick={() =>
-                void run('execute', () => executeDeployment(row.deployment_id))
-              }
+              onClick={() => setConfirm('execute')}
             />
           )}
           {!terminal && (
