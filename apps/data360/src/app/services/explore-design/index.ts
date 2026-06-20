@@ -454,8 +454,9 @@ export async function getExploreProjects(): Promise<ExploreProjectsResponse> {
     }));
     return { projects, total: data.total ?? projects.length };
   } catch {
-    // Fallback to legacy endpoint
-    const response = await apiClient.get(`${ED}/projects`);
+    // Fallback: same unified list without the project_type filter. (Was the
+    // non-existent `${ED}/projects` — that path collides with GET /explore-design/{id}.)
+    const response = await apiClient.get('/projects');
     return response.data;
   }
 }
@@ -487,9 +488,10 @@ export async function createExploreProject(
       message: 'Project created successfully',
     };
   } catch {
-    // Fallback to legacy endpoint
+    // Fallback: the create route IS POST /explore-design (empty path on the
+    // prefixed router). The old `${ED}/projects` had no backend route.
     const response = await apiClient.post(
-      `${ED}/projects`,
+      ED,
       {
         project_name: projectName,
         metadata: metadata || {},
@@ -531,7 +533,7 @@ export async function createProject(
   tables?: TableReference[]
 ): Promise<{ project_id: string; name: string }> {
   const response = await apiClient.post(
-    `${ED}/projects`,
+    ED,
     { project_name: name, metadata: tables ? { tables } : undefined },
   );
   return response.data;
@@ -2333,9 +2335,10 @@ export async function ensureProjectExists(
   projectName: string
 ): Promise<{ project_id: string; created: boolean }> {
   try {
-    // Try to create the project - if it already exists, backend may return it
+    // Try to create the project - if it already exists, backend may return it.
+    // Create route is POST /explore-design (empty path); `${ED}/projects` had no route.
     const response = await apiClient.post(
-      `${ED}/projects`,
+      ED,
       { name: projectName },
     );
 
@@ -2768,8 +2771,16 @@ export interface WorkflowDAG {
 }
 
 /**
- * Create a new workflow
- * POST /explore-design/workflow
+ * Create a new workflow.
+ *
+ * Retargeted to the real route POST /workflow (workflow/router.py:594) — the old
+ * `/explore-design/workflow` had no backend route. The backend WorkflowCreate body
+ * is {project_name, steps[], description?, tags?}, so this legacy {name, tasks}
+ * shape is mapped on the way out. NOTE: the canonical, fully-typed workflow create
+ * lives in services/api/workflowApi.ts (used by the live ETL builder); this helper
+ * is retained only for the api-health harness. Sibling ED workflow helpers
+ * (getWorkflowDAG etc.) still point at the non-existent /explore-design/workflow/*
+ * and remain out of scope here.
  */
 export async function createWorkflow(
   projectId: string,
@@ -2782,12 +2793,12 @@ export async function createWorkflow(
   }
 ): Promise<{ workflow_id: string; status: WorkflowStatus }> {
   const response = await apiClient.post(
-    `${ED}/workflow`,
+    '/workflow',
     {
+      project_name: name,
       project_id: projectId,
-      name,
-      tasks,
-      ...options,
+      steps: tasks,
+      description: options?.description,
     },
   );
   return response.data;
@@ -4504,8 +4515,15 @@ export async function dryRunDDL(projectId: string, data: { database: string; sch
 }
 
 export async function batchAddDDLActions(projectId: string, data: { actions: Array<{ ddl_sql: string; ddl_type?: string; priority?: number; target_table?: string; description?: string }> }) {
-  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ddl-actions/batch`, data);
-  return res.data;
+  // No backend batch route exists — only POST /{project_id}/ddl-actions (single action;
+  // the `/batch` path collided with DELETE /ddl-actions/{event_id}). Submit per-action
+  // against the real single-submit route so the public signature is preserved.
+  const results = [];
+  for (const action of data.actions) {
+    const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ddl-actions`, action);
+    results.push(res.data);
+  }
+  return { results, count: results.length };
 }
 
 export async function preCheckDeployment(projectId: string, data: { database: string; schema: string; warehouse?: string }) {
@@ -4585,8 +4603,17 @@ export async function discoverRelationships(projectId: string, data: { tables: a
   return res.data;
 }
 
-export async function getSchemaHealth(projectId: string) {
-  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/ai/schema-health`);
+export async function getSchemaHealth(
+  projectId: string,
+  body: { database: string; schema: string },
+) {
+  // Backend only registers POST /{project_id}/ai/schema-health (requires {database, schema});
+  // a GET 405s. The score scans {database}.{schema} server-side, so the real project
+  // db/schema must be supplied (no governance default — that would score wrong tables).
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/schema-health`, {
+    database: body.database,
+    schema: body.schema,
+  });
   return res.data;
 }
 

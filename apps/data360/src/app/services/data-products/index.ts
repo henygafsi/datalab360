@@ -166,3 +166,44 @@ export async function subscribeToProduct(
   );
   return data;
 }
+
+export interface DataProductLineageResponse {
+  product_id: string;
+  objects: string[];
+  upstream: Array<Record<string, unknown>>;
+  downstream: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+/**
+ * One-level lineage around the product's underlying object.
+ * GET /data-products/{id}/lineage (data_products.py:1021, verified vs backend).
+ */
+export async function getDataProductLineage(
+  productId: string
+): Promise<DataProductLineageResponse> {
+  const { data } = await apiClient.get<DataProductLineageResponse>(
+    API.dataProducts.lineage(productId)
+  );
+  return data;
+}
+
+export interface DataProductConsumersResponse {
+  product_id: string;
+  subscribers: Array<Record<string, unknown>>;
+  recent_readers: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+/**
+ * Subscriber accounts + recent readers for a published product.
+ * GET /data-products/{id}/consumers (data_products.py:1087, verified vs backend).
+ */
+export async function getDataProductConsumers(
+  productId: string
+): Promise<DataProductConsumersResponse> {
+  const { data } = await apiClient.get<DataProductConsumersResponse>(
+    API.dataProducts.consumers(productId)
+  );
+  return data;
+}

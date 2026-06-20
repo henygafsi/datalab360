@@ -92,7 +92,12 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
           table_name: t.table,
         })),
       }),
-      getSchemaHealth(projectId),
+      // schema-health scans {database}.{schema} server-side, so pass the project's
+      // real source location (guaranteed present — runDetection guards sourceTables.length).
+      getSchemaHealth(projectId, {
+        database: sourceTables[0].database,
+        schema: sourceTables[0].schema,
+      }),
     ]);
 
     // Relationship discovery is the primary signal — if it fails, surface the error.

@@ -225,12 +225,30 @@ export interface DmfThresholdResponse {
 /**
  * Persist a DMF threshold rule.
  * POST /data-quality/dmf/thresholds
- * FIX DQ-04: replaces the former dead-toast stub with a real backend call.
+ *
+ * Backend ThresholdRequest (dmf_lifecycle_router.py:83-88) requires a SINGLE numeric
+ * `threshold` + a pass `operator`; it has no `min_value`/`max_value`/`column_name`/
+ * `threshold_type`. The UI still collects min/max for `range`, so we map here:
+ *   - max_value present → operator '<=' threshold=max_value  (upper bound)
+ *   - else min_value present → operator '>=' threshold=min_value (lower bound)
+ *   - non-range types → the single provided value (max preferred, else min)
+ * Range is lossy (only one bound can be sent); we send the upper bound when both
+ * are present. `column_name` is dropped (backend keys on table_name + metric).
  */
 export async function setDmfThreshold(
   payload: DmfThresholdPayload,
 ): Promise<DmfThresholdResponse> {
-  const { data } = await apiClient.post(API.dataQuality.dmfThresholds(), payload);
+  const hasMax = typeof payload.max_value === 'number';
+  const hasMin = typeof payload.min_value === 'number';
+  const threshold = hasMax ? (payload.max_value as number) : (payload.min_value as number);
+  const operator = hasMax ? '<=' : hasMin ? '>=' : '<=';
+  const body = {
+    table_name: payload.table_name,
+    metric: payload.metric,
+    threshold,
+    operator,
+  };
+  const { data } = await apiClient.post(API.dataQuality.dmfThresholds(), body);
   return data?.data || data;
 }
 

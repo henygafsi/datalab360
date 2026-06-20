@@ -4,6 +4,7 @@
  */
 import apiClient from '@/lib/api-client';
 import axios from 'axios';
+import { API } from '@/lib/api-contracts';
 import { toServiceError } from '../_errors';
 
 export interface CortexQueryRequest {
@@ -73,6 +74,41 @@ export async function queryCortex(request: CortexQueryRequest): Promise<CortexQu
     console.error('Error in cortex query:', error);
     if (axios.isAxiosError(error)) {
       throw toServiceError(error, 'Query failed');
+    }
+    throw error;
+  }
+}
+
+export interface AnalystQueryRequest {
+  question: string;
+  /** Provide either a semantic model YAML (stage path/name) OR a semantic view. */
+  semantic_model_file?: string;
+  semantic_view?: string;
+}
+
+export interface AnalystQueryResponse {
+  sql: string | null;
+  results: Array<Record<string, unknown>>;
+  row_count: number;
+  columns: string[];
+  method: string;
+  text?: string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * Cortex Analyst — natural-language question → generated SQL → executed sample rows.
+ * POST /cortex/analyst/query (cortex/router.py:1287, verified vs backend).
+ */
+export async function analystQuery(
+  request: AnalystQueryRequest
+): Promise<AnalystQueryResponse> {
+  try {
+    const { data } = await apiClient.post(API.cortex.analystQuery(), request);
+    return (data?.data ?? data) as AnalystQueryResponse;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      throw toServiceError(error, 'Analyst query failed');
     }
     throw error;
   }

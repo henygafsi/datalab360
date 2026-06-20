@@ -6,11 +6,16 @@ import { Activity } from 'lucide-react';
 
 interface SchemaHealthBadgeProps {
   projectId: string;
+  /** Required for the score to be meaningful — health scans {database}.{schema}. */
+  database?: string;
+  schema?: string;
   onLoad?: (score: number) => void;
 }
 
 export default function SchemaHealthBadge({
   projectId,
+  database,
+  schema,
   onLoad,
 }: SchemaHealthBadgeProps) {
   const [health, setHealth] = useState<{
@@ -19,10 +24,12 @@ export default function SchemaHealthBadge({
   } | null>(null);
 
   useEffect(() => {
-    if (!projectId) return;
+    // schema-health is computed by scanning {database}.{schema}; without them the
+    // score would be meaningless, so don't fire (badge stays hidden) rather than guess.
+    if (!projectId || !database || !schema) return;
     import('@/app/services/explore-design/de-objects').then((api) => {
       api
-        .getSchemaHealth(projectId)
+        .getSchemaHealth(projectId, { database, schema })
         .then((data) => {
           const score = Math.round(data.overall_score ?? 0);
           const explanation =
@@ -33,7 +40,7 @@ export default function SchemaHealthBadge({
         })
         .catch(() => {});
     });
-  }, [projectId, onLoad]);
+  }, [projectId, database, schema, onLoad]);
 
   if (!health) return null;
 
