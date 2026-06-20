@@ -20,6 +20,12 @@ export type ProbeResult = {
    * be dropped by the message-first extraction in the page's catch block.
    */
   errorBody?: string;
+  /**
+   * Capped JSON snapshot of the EXACT data the endpoint returned on success
+   * (truncated to ~2000 chars in the probe to bound memory). Absent on
+   * warn/error rows — those carry `error` / `errorBody` instead.
+   */
+  data?: string;
 };
 
 /** A single probed endpoint flattened for the drill / detail panel. */
@@ -108,4 +114,51 @@ export function isDefect(result?: ProbeResult | null): boolean {
   if (result.httpStatus === 405 || result.httpStatus === 408) return true;
   const { code } = parseErrorBody(result.errorBody ?? result.error);
   return code != null && DEFECT_CODES.has(code);
+}
+
+// ════════════════════════════════════════════════════════════
+// Expected classification — a 4xx that is the API CORRECTLY rejecting
+// the probe's fake/empty test input (FAKE_ID, empty lists, TEST_TABLE, no
+// body). These read as benign, NOT as warnings.
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Signature of a correct rejection of fake/empty probe input:
+ * "not found" / "field required" / validation phrasing / the probe markers
+ * (__test_health_check__, TEST_TABLE) / object-does-not-exist / not-authorized.
+ */
+const EXPECTED_PATTERN =
+  /not found|field required|must have at least|missing required field|Input should be|does not exist|not authorized|__test_health_check__|TEST_TABLE|required\b|valid integer|valid list|valid string|Provide (zone|table)/i;
+
+/** True when the combined error text matches the fake-id / validation signature. */
+export function matchesExpectedPattern(result?: ProbeResult | null): boolean {
+  if (!result) return false;
+  // Test BOTH the human message AND the raw body — "field required" lands in
+  // `error`, while OBJECT_NOT_FOUND / "does not exist" lands in `errorBody`.
+  const text = `${result.error ?? ''} ${result.errorBody ?? ''}`;
+  return EXPECTED_PATTERN.test(text);
+}
+
+/**
+ * True when a 4xx is the API CORRECTLY rejecting the probe's test input —
+ * not a problem. Rule: 4xx AND not a genuine defect AND the error matches the
+ * fake-id / validation signature.
+ */
+export function isExpected(result?: ProbeResult | null): boolean {
+  if (!result) return false;
+  const code = result.httpStatus;
+  if (!(code != null && code >= 400 && code < 500)) return false;
+  if (isDefect(result)) return false;
+  return matchesExpectedPattern(result);
+}
+
+/**
+ * A residual "warn": a 4xx that is neither a genuine defect nor an expected
+ * rejection (rare — an unrecognised 4xx that still warrants a glance).
+ */
+export function isResidualWarn(result?: ProbeResult | null): boolean {
+  if (!result) return false;
+  const code = result.httpStatus;
+  if (!(code != null && code >= 400 && code < 500)) return false;
+  return !isDefect(result) && !isExpected(result);
 }
