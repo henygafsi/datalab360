@@ -11,7 +11,9 @@ import {
   HiOutlineCloudArrowUp,
   HiOutlineShieldCheck,
   HiOutlineCheckCircle,
-  HiOutlineExclamationCircle
+  HiOutlineExclamationCircle,
+  HiXCircle,
+  HiOutlineArrowPath
 } from 'react-icons/hi2';
 import { Database, ArrowLeft, Sparkles } from 'lucide-react';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
@@ -356,6 +358,7 @@ export default function DataSourceConnectionPage() {
   const [activeConnectionId, setActiveConnectionId] = useState<string | null>(null);
   const [activeConnections, setActiveConnections] = useState<StageConnection[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState<boolean>(false);
+  const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [errorMessages, setErrorMessages] = useState<string[]>([]); // État persistant pour les erreurs
   const [showAddConnection, setShowAddConnection] = useState<boolean>(false); // Contrôle affichage section Add Connection
   const [showAiHelper, setShowAiHelper] = useState<boolean>(false); // AI connector-helper modal
@@ -494,6 +497,7 @@ export default function DataSourceConnectionPage() {
   // Load stages from backend API
   const loadConnections = async () => {
     setConnectionsLoading(true);
+    setConnectionsError(null);
     try {
       const response = await listSnowflakeStages();
       // Support both old format (response.stages) and new paginated format (response.data)
@@ -513,8 +517,11 @@ export default function DataSourceConnectionPage() {
         }));
       setActiveConnections(connections);
     } catch (err) {
+      // Distinguish a fetch failure from a genuinely empty workspace: keep the
+      // last list and surface a recoverable error instead of silently rendering
+      // the "no connections yet" empty-CTA (which would mask a backend hiccup).
       console.error('Failed to load stages', err);
-      setActiveConnections([]);
+      setConnectionsError(err instanceof Error ? err.message : 'Failed to load ingestion stages.');
     } finally {
       setConnectionsLoading(false);
     }
@@ -2561,7 +2568,15 @@ export default function DataSourceConnectionPage() {
           try {
               const result = await oracleTest(oracleFormData);
               setOracleTestResult(result);
-              toast.success(`Connected! ${result.table_count || 0} tables found (${result.latency_ms || 0}ms)`);
+              // Honest copy: only quote a count / latency the backend actually
+              // returned — don't fabricate a "0 tables (0ms)" when undetermined.
+              const tablesPart =
+                  typeof result.table_count === 'number'
+                      ? `${result.table_count} table${result.table_count === 1 ? '' : 's'} found`
+                      : 'connection verified';
+              const latencyPart =
+                  typeof result.latency_ms === 'number' ? ` (${result.latency_ms}ms)` : '';
+              toast.success(`Connected! ${tablesPart}${latencyPart}`);
           } catch (err: any) {
               toast.error(err?.message || 'Connection failed');
               setOracleTestResult({ ok: false });
@@ -2979,8 +2994,30 @@ export default function DataSourceConnectionPage() {
                         </div>
                     )}
 
+                    {/* Load error — honest "couldn't load, retry" distinct from the
+                        empty-CTA so a backend hiccup isn't mistaken for an empty workspace. */}
+                    {connectionsError && !connectionsLoading && (
+                        <div className="text-center py-12 mb-8 rounded-2xl border-2 border-dashed border-red-300 dark:border-red-700/60 bg-red-50/50 dark:bg-red-900/10">
+                            <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500 to-rose-600 shadow-lg mb-4">
+                                <HiXCircle className="h-8 w-8 text-white" />
+                            </div>
+                            <p className="text-lg font-semibold text-slate-900 dark:text-white mb-2">Couldn&apos;t load your ingestion stages</p>
+                            <p className="text-slate-500 dark:text-slate-400 mb-2 max-w-md mx-auto">
+                                This is a loading error, not an empty workspace — your existing connections may still be there.
+                            </p>
+                            <p className="text-xs text-red-600 dark:text-red-400 mb-6 max-w-md mx-auto break-words">{connectionsError}</p>
+                            <button
+                                className="px-6 py-3 bg-slate-700 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium shadow-lg"
+                                onClick={() => loadConnections()}
+                            >
+                                <HiOutlineArrowPath className="h-5 w-5 inline mr-2" />
+                                Retry
+                            </button>
+                        </div>
+                    )}
+
                     {/* Empty state CTA when no connections exist and not loading */}
-                    {activeConnections.length === 0 && !connectionsLoading && (
+                    {activeConnections.length === 0 && !connectionsLoading && !connectionsError && (
                         <div className="text-center py-12 mb-8 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-800/30">
                             <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg mb-4">
                                 <Database className="h-8 w-8 text-white" />

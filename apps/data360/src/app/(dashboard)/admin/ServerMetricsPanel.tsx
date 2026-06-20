@@ -105,8 +105,12 @@ export default function ServerMetricsPanel() {
   const [live, setLive] = useState(true);
   const [pollMs, setPollMs] = useState<number>(POLL_OPTIONS[0].ms);
   const [updatedAt, setUpdatedAt] = useState<string>('');
+  // Consecutive poll failures since the last success → drives the stale badge +
+  // exponential backoff so a down endpoint isn't hammered at the base cadence.
+  const [failures, setFailures] = useState(0);
+  const failuresRef = useRef(0);
   const [query, setQuery] = useState('');
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -115,6 +119,8 @@ export default function ServerMetricsPanel() {
       setError(null);
       setState('done');
       setUpdatedAt(new Date().toLocaleTimeString());
+      failuresRef.current = 0;
+      setFailures(0);
     } catch (e) {
       // A 404/501 means the route isn't live on this backend — degrade honestly
       // rather than painting a fake-0 board. (Same contract as the insights layer.)
@@ -125,6 +131,9 @@ export default function ServerMetricsPanel() {
       }
       setError(getApiErrorMessage(e));
       setState((s) => (s === 'done' ? 'done' : 'error'));
+      // Keep the last good board on screen but mark the live feed stale + back off.
+      failuresRef.current += 1;
+      setFailures(failuresRef.current);
     }
   }, []);
 
@@ -132,15 +141,33 @@ export default function ServerMetricsPanel() {
     setState('running');
     void load();
     return () => {
-      if (timer.current) clearInterval(timer.current);
+      if (timer.current) clearTimeout(timer.current);
     };
   }, [load]);
 
+  // Live polling with exponential backoff on consecutive failures. Self-scheduling
+  // timeout (not a fixed interval) so the delay grows while failing and snaps back
+  // to the base cadence on recovery.
   useEffect(() => {
-    if (timer.current) clearInterval(timer.current);
-    if (live && state !== 'unavailable') timer.current = setInterval(() => void load(), pollMs);
+    if (timer.current) clearTimeout(timer.current);
+    if (!live || state === 'unavailable') return;
+
+    let cancelled = false;
+    const MAX_BACKOFF_MS = 5 * 60_000;
+    const schedule = () => {
+      if (cancelled) return;
+      const delay = Math.min(pollMs * 2 ** failuresRef.current, MAX_BACKOFF_MS);
+      timer.current = setTimeout(async () => {
+        if (cancelled) return;
+        await load();
+        schedule();
+      }, delay);
+    };
+    schedule();
+
     return () => {
-      if (timer.current) clearInterval(timer.current);
+      cancelled = true;
+      if (timer.current) clearTimeout(timer.current);
     };
   }, [live, pollMs, load, state]);
 
@@ -277,11 +304,34 @@ export default function ServerMetricsPanel() {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-          <span className={cn('h-2 w-2 rounded-full', live ? 'animate-pulse bg-emerald-500' : 'bg-slate-400')} />
-          {live ? `Live (${POLL_OPTIONS.find((o) => o.ms === pollMs)?.label ?? `${pollMs / 1000}s`})` : 'Paused'}
-          {updatedAt ? ` · updated ${updatedAt}` : ''}
-        </p>
+        {(() => {
+          // A failing live poll keeps the last good board on screen — flag it
+          // amber + show its age so a silent backoff never reads as fresh.
+          const stale = live && failures > 0;
+          const label = POLL_OPTIONS.find((o) => o.ms === pollMs)?.label ?? `${pollMs / 1000}s`;
+          return (
+            <p
+              className={cn(
+                'flex items-center gap-1.5 text-[11px]',
+                stale ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400',
+              )}
+              title={
+                stale
+                  ? `Live refresh is failing (${failures} attempt${failures > 1 ? 's' : ''}); backing off. Showing the last successful update at ${updatedAt || 'an earlier time'}.`
+                  : undefined
+              }
+            >
+              <span
+                className={cn(
+                  'h-2 w-2 rounded-full',
+                  !live ? 'bg-slate-400' : stale ? 'bg-amber-500' : 'animate-pulse bg-emerald-500',
+                )}
+              />
+              {!live ? 'Paused' : stale ? 'Stale — retrying' : `Live (${label})`}
+              {updatedAt ? ` · updated ${updatedAt}` : ''}
+            </p>
+          );
+        })()}
         <div className="flex items-center gap-1">
           <select
             value={pollMs}

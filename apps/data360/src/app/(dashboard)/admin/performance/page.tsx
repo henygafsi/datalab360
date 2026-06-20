@@ -446,10 +446,34 @@ export default function PerformancePage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <p className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-            <span className={cn('h-2 w-2 rounded-full', live ? 'animate-pulse bg-emerald-500' : 'bg-slate-400')} />
-            {live ? 'Live (5s)' : 'Paused'}{updatedAt ? ` · ${updatedAt}` : ''}
-          </p>
+          {(() => {
+            // When the live poll is failing, the data on screen is the LAST GOOD
+            // snapshot — flag it amber + show its age so a silent backoff never
+            // reads as fresh. `failures` is 0 while healthy.
+            const stale = live && overview.failures > 0;
+            return (
+              <p
+                className={cn(
+                  'flex items-center gap-1.5 text-[11px]',
+                  stale ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400',
+                )}
+                title={
+                  stale
+                    ? `Live refresh is failing (${overview.failures} attempt${overview.failures > 1 ? 's' : ''}); backing off. Showing the last successful update at ${updatedAt || 'an earlier time'}.`
+                    : undefined
+                }
+              >
+                <span
+                  className={cn(
+                    'h-2 w-2 rounded-full',
+                    !live ? 'bg-slate-400' : stale ? 'bg-amber-500' : 'animate-pulse bg-emerald-500',
+                  )}
+                />
+                {!live ? 'Paused' : stale ? 'Stale — retrying' : 'Live (5s)'}
+                {updatedAt ? ` · updated ${updatedAt}` : ''}
+              </p>
+            );
+          })()}
           <button
             type="button"
             onClick={() => setLive((v) => !v)}

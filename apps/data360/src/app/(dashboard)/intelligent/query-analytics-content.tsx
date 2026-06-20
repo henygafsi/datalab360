@@ -192,8 +192,24 @@ export default function QueryAnalyticsContent() {
         </div>
       </div>
 
+      {/* Non-blocking progress — the analysis can take ~20s. The existing
+          summary/table below stays interactive; this banner reassures the user
+          the long-running job is in flight without freezing the tab. */}
+      {analyzing && (
+        <div className="bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800 rounded-lg px-4 py-3 flex items-center gap-3">
+          <HiOutlineArrowPath className="w-5 h-5 text-cyan-600 dark:text-cyan-400 shrink-0 animate-spin" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-cyan-800 dark:text-cyan-300">Analyzing the last {hours}h of query history…</p>
+            <p className="text-xs text-cyan-600/80 dark:text-cyan-400/80 mt-0.5">This can take up to ~20 seconds. You can keep browsing the results below while it runs.</p>
+            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-cyan-100 dark:bg-cyan-950">
+              <div className="h-full w-full rounded-full bg-cyan-500/70 dark:bg-cyan-400/70 animate-pulse" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Analysis Result Banner */}
-      {analyzeResult && (
+      {!analyzing && analyzeResult && (
         <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3 flex items-center gap-3">
           <HiOutlineCheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 shrink-0" />
           <p className="text-sm text-green-700 dark:text-green-300">

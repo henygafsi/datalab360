@@ -12,8 +12,9 @@
  *
  * Honesty contract:
  *   - This route is NOT yet deployed on every backend. A 404/501 means the
- *     metrics route isn't live → the WHOLE SECTION SELF-HIDES (renders null), it
- *     does NOT show a fabricated "coming soon" note or zeros.
+ *     metrics route isn't live → the section renders an HONEST "not available
+ *     on this backend" notice (it does NOT silently vanish, and it does NOT
+ *     fabricate a "coming soon" board of zeros).
  *   - Any absent/null metric renders an honest "—", never a synthetic 0. Numeric
  *     cells passed to AuditTable stay `null` when missing (AuditTable formats
  *     null as "—"); we never coerce to 0 just to make the math run.
@@ -26,7 +27,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { Database, Gauge, KeyRound, Route, Timer } from 'lucide-react';
+import { Database, Gauge, KeyRound, Route, Sparkles, Timer } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { safeNum } from '@/lib/format-number';
@@ -249,8 +250,17 @@ export default function CacheMetricsPanel() {
     [data],
   );
 
-  // ── 404/501 → the section disappears entirely (keeps the tab button). ───────
-  if (phase === 'hidden') return null;
+  // ── 404/501 → render an HONEST "not available" notice (never silently vanish). ─
+  if (phase === 'hidden') {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white px-3 py-6 text-[12px] text-slate-400 dark:border-slate-700 dark:bg-slate-900">
+        <span className="inline-flex items-center gap-2">
+          <Sparkles className="h-4 w-4" />
+          Cache &amp; call metrics are not available on this backend yet — the runtime-cache telemetry route is coming online.
+        </span>
+      </div>
+    );
+  }
   if (phase === 'loading') return <Skeleton />;
   if (phase === 'error') return <ErrBox message={error ?? 'Cache metrics unavailable'} onRetry={() => void load()} />;
 

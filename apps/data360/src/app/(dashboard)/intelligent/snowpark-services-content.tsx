@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Badge, Button, Input, Loader, Textarea } from 'rizzui';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
@@ -104,6 +104,26 @@ function RefreshBtn({ loading, onClick }: { loading: boolean; onClick: () => voi
   return <Button variant="outline" size="sm" onClick={onClick} disabled={loading}><PiArrowsClockwise className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></Button>;
 }
 
+// States that resolve on their own — while any row sits in one of these,
+// poll the list so the badge updates without a manual refresh. Stops once
+// everything has settled (or the component unmounts).
+const TRANSITIONAL_STATES = new Set(['PENDING', 'STARTING', 'SUSPENDING', 'RESUMING', 'STOPPING']);
+
+/**
+ * usePollWhile — re-runs `load` every `intervalMs` while `shouldPoll` is true.
+ * Uses a ref for `load` so the interval isn't torn down/recreated by an
+ * unstable callback identity, avoiding a stale-closure restart loop.
+ */
+function usePollWhile(shouldPoll: boolean, load: () => void, intervalMs = 5000) {
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    if (!shouldPoll) return;
+    const id = setInterval(() => loadRef.current(), intervalMs);
+    return () => clearInterval(id);
+  }, [shouldPoll, intervalMs]);
+}
+
 // ── Compute Pools Sub-Tab ──────────────────────────────────────────────────
 
 function ComputePoolsPanel() {
@@ -115,13 +135,20 @@ function ComputePoolsPanel() {
   const [creating, setCreating] = useState(false);
 
   const errMsg = (e: any) => e?.response?.data?.detail || e?.message || 'Failed';
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
+  // `silent` polls refresh state in place without flashing the skeleton.
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setError(null);
     try { setPools((await listComputePools()).pools || []); }
-    catch (e: any) { setError(errMsg(e)); setPools([]); }
-    finally { setLoading(false); }
+    catch (e: any) { setError(errMsg(e)); if (!silent) setPools([]); }
+    finally { if (!silent) setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Same transitional auto-poll as Container Services — pools report STARTING/
+  // SUSPENDING/RESUMING while they settle.
+  const hasTransitional = pools.some((p) => TRANSITIONAL_STATES.has((p.state || '').toUpperCase()));
+  usePollWhile(hasTransitional, useCallback(() => load(true), [load]));
 
   const handleCreate = async () => {
     if (!form.name.trim()) { toast.error('Name is required'); return; }
@@ -154,7 +181,7 @@ function ComputePoolsPanel() {
           <KPIBadge label="Total Nodes" value={pools.reduce((sum, p) => sum + (Number(p.max_nodes) || 0), 0)} />
         </div>
         <div className="flex gap-2">
-          <RefreshBtn loading={loading} onClick={load} />
+          <RefreshBtn loading={loading} onClick={() => load()} />
           <PermissionGatedButton
             module="cortex"
             action="manage-compute-pools"
@@ -247,14 +274,22 @@ function ContainerServicesPanel() {
   const [autoStopForm, setAutoStopForm] = useState<{ seconds: number; mode: 'suspend' | 'drop' }>({ seconds: 3600, mode: 'suspend' });
   const [autoStopBusy, setAutoStopBusy] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null);
+  // `silent` skips the full-page skeleton toggle so background polls refresh the
+  // status badges in place rather than flashing the table back to skeleton.
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    setError(null);
     try { const r = await listServices(); setServices(r.services || []); }
-    catch (e: any) { setError(e?.response?.data?.detail || e?.message || 'Failed to load'); setServices([]); }
-    finally { setLoading(false); }
+    catch (e: any) { setError(e?.response?.data?.detail || e?.message || 'Failed to load'); if (!silent) setServices([]); }
+    finally { if (!silent) setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-poll while any service is still spinning up/down so the status badge
+  // resolves on its own (was: stuck on PENDING until a manual refresh).
+  const hasTransitional = services.some((s) => TRANSITIONAL_STATES.has((s.status || '').toUpperCase()));
+  usePollWhile(hasTransitional, useCallback(() => load(true), [load]));
 
   const errMsg = (e: any) => e?.response?.data?.detail || e?.message || 'Action failed';
   const svcParams = (s: ContainerService) => ({ database: s.database_name, schema: s.schema_name });
@@ -319,7 +354,7 @@ function ContainerServicesPanel() {
       <div className="flex items-center justify-between">
         <KPIBadge label="Total Services" value={services.length} />
         <div className="flex gap-2">
-          <RefreshBtn loading={loading} onClick={load} />
+          <RefreshBtn loading={loading} onClick={() => load()} />
           <PermissionGatedButton
             module="cortex"
             action="manage-services"
@@ -531,7 +566,7 @@ function StreamlitAppsPanel() {
           <KPIBadge label="Total Apps" value={apps.length} />
         </div>
         <div className="flex gap-2">
-          <RefreshBtn loading={loading} onClick={load} />
+          <RefreshBtn loading={loading} onClick={() => load()} />
           {/* AI-guided app builder. Lives HERE (Container Apps → Data Apps),
               not as a top-level "Deploy App" menu module — app hosting
               + versioning belong with container services. */}
@@ -635,7 +670,7 @@ function ImageReposPanel() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <KPIBadge label="Repositories" value={repos.length} />
-        <Button variant="outline" size="sm" onClick={load} disabled={loading}><PiArrowsClockwise className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></Button>
+        <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><PiArrowsClockwise className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></Button>
       </div>
 
       {error && <ErrorBar error={error} onRetry={load} />}

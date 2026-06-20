@@ -31,15 +31,18 @@ const DOT_PRIORITY: Record<ConnectorHealthItem['status'], number> = {
 };
 const MAX_DOTS = 18;
 
+// Honesty rule: a missing / non-positive metric is undetermined, not a real 0 —
+// render an em-dash rather than a fabricated "0" / "0 B" (the roll-up coerces
+// absent ACCOUNT_USAGE fields to 0, so 0 here means "not reported", not "zero").
 const formatNumber = (n: number): string => {
-  if (!n) return '0';
+  if (!n || n <= 0) return '—';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
 };
 
 const formatBytes = (bytes: number): string => {
-  if (!bytes || bytes <= 0) return '0 B';
+  if (!bytes || bytes <= 0) return '—';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);

@@ -346,7 +346,7 @@ export default function SourceCatalog() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get('/connect/source-catalog', { params: { database: selectedDb } });
+      const res = await apiClient.get(API.connect.sourceCatalog(), { params: { database: selectedDb } });
       setCatalog(res.data);
       // Auto-expand first 3 domains
       const first3 = (res.data?.domains || []).slice(0, 3).map((d: DomainSummary) => d.domain);

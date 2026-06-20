@@ -81,9 +81,81 @@ export const API = {
       `/connect/stages/${enc(stage)}/files${qs(params)}`,
     /** DELETE /connect/stages/{stage}/files/{file_path} */
     deleteStageFile: (stage: string, filePath: string) =>
-      `/connect/stages/${enc(stage)}/files/${filePath}`,
+      `/connect/stages/${enc(stage)}/files/${enc(filePath)}`,
     /** POST /connect/snowflake_lake/datalake/connect */
     datalakeConnect: () => '/connect/snowflake_lake/datalake/connect',
+
+    // --- Azure ---
+    /** POST /connect/azure/storage_integration */
+    azureStorageIntegration: () => '/connect/azure/storage_integration',
+    /** POST /connect/azure/notification_integration */
+    azureNotificationIntegration: () => '/connect/azure/notification_integration',
+    /** POST /connect/azure/snowpipe */
+    azureSnowpipe: () => '/connect/azure/snowpipe',
+    /** POST /connect/azure/stage */
+    azureStage: () => '/connect/azure/stage',
+
+    // --- AWS ---
+    /** POST /connect/aws/storage_integration */
+    awsStorageIntegration: () => '/connect/aws/storage_integration',
+
+    // --- GCS ---
+    /** POST /connect/gcs/storage_integration */
+    gcsStorageIntegration: () => '/connect/gcs/storage_integration',
+    /** POST /connect/gcs/notification_integration */
+    gcsNotificationIntegration: () => '/connect/gcs/notification_integration',
+
+    // --- Integration (storage integration describe / alter) ---
+    /** GET /connect/integration?integration_name=... */
+    integrationDetails: () => '/connect/integration',
+    /** PATCH /connect/integration/{integration_name} */
+    patchIntegration: (name: string) => `/connect/integration/${enc(name)}`,
+
+    // --- Stage files (preview / download / grants) ---
+    /** GET /connect/stages/{stage}/grants */
+    stageGrants: (stage: string) => `/connect/stages/${enc(stage)}/grants`,
+    /** GET /connect/stages/{stage}/files/{file_path}/preview */
+    previewStageFile: (stage: string, filePath: string) =>
+      `/connect/stages/${enc(stage)}/files/${enc(filePath)}/preview`,
+    /** GET /connect/stages/{stage}/files/{file_path}/download */
+    downloadStageFile: (stage: string, filePath: string) =>
+      `/connect/stages/${enc(stage)}/files/${enc(filePath)}/download`,
+
+    // --- PostgreSQL / MySQL ---
+    /** POST /connect/postgres/ingest */
+    postgresIngest: () => '/connect/postgres/ingest',
+    /** POST /connect/mysql/ingest */
+    mysqlIngest: () => '/connect/mysql/ingest',
+
+    // --- Databricks ---
+    /** POST /connect/databricks/test */
+    databricksTest: () => '/connect/databricks/test',
+    /** POST /connect/databricks/catalogs */
+    databricksCatalogs: () => '/connect/databricks/catalogs',
+    /** POST /connect/databricks/schemas */
+    databricksSchemas: () => '/connect/databricks/schemas',
+    /** POST /connect/databricks/tables */
+    databricksTables: () => '/connect/databricks/tables',
+    /** POST /connect/databricks/ingest */
+    databricksIngest: () => '/connect/databricks/ingest',
+
+    // --- Oracle ---
+    /** POST /connect/oracle/test */
+    oracleTest: () => '/connect/oracle/test',
+    /** POST /connect/oracle/ingest */
+    oracleIngest: () => '/connect/oracle/ingest',
+    /** POST /connect/oracle/sample-stage */
+    oracleSampleStage: () => '/connect/oracle/sample-stage',
+
+    // --- Iceberg ---
+    /** POST /connect/iceberg/test */
+    icebergTest: () => '/connect/iceberg/test',
+    /** POST /connect/iceberg/namespaces */
+    icebergNamespaces: () => '/connect/iceberg/namespaces',
+    /** POST /connect/iceberg/tables */
+    icebergTables: () => '/connect/iceberg/tables',
+    /** POST /connect/iceberg/ingest */
+    icebergIngest: () => '/connect/iceberg/ingest',
   },
 
   /**

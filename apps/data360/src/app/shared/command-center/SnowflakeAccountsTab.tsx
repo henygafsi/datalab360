@@ -357,9 +357,23 @@ export default function SnowflakeAccountsTab() {
   );
 
   if (state.loadingList) {
+    // Skeleton (account picker bar + KPI strip + two panels) instead of a
+    // single blocking "Loading…" line, matching this file's slate palette.
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900">
-        Loading accounts…
+      <div className="space-y-6">
+        <div className="h-12 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-7">
+          {[...Array(8)].map((_, i) => (
+            <div
+              key={i}
+              className="h-20 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800"
+            />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="h-48 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+          <div className="h-48 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+        </div>
       </div>
     );
   }
@@ -488,7 +502,11 @@ export default function SnowflakeAccountsTab() {
         <KpiCard
           icon={CreditCard}
           label="Credits 30d"
-          value={fmt(Math.round((accountSummary as any)?.credits_30d ?? 0))}
+          value={fmt(
+            (accountSummary as any)?.credits_30d == null
+              ? null
+              : Math.round((accountSummary as any).credits_30d),
+          )}
         />
         <KpiCard
           icon={Zap}
@@ -581,14 +599,6 @@ export default function SnowflakeAccountsTab() {
           >
             Manage Roles
           </a>
-          <button
-            type="button"
-            disabled
-            className="cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs font-medium text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500"
-            title="Coming soon"
-          >
-            Reset Account
-          </button>
           <a
             href="/account-overview?tab=finops"
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"

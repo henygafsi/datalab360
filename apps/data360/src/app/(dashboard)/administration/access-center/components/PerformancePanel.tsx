@@ -262,7 +262,8 @@ export default function PerformancePanel() {
       Queries: r.query_count,
       'Avg ms': r.query_count > 0 ? Math.round((r.total_seconds * 1000) / r.query_count) : null,
       'Total s': Math.round(r.total_seconds),
-      Credits: Number(r.credits?.toFixed?.(2) ?? r.credits ?? 0),
+      // No-fake-0: a missing credit figure stays null → AuditTable renders "—".
+      Credits: r.credits == null ? null : Number(r.credits.toFixed(2)),
     }));
   }, [cm]);
 
@@ -276,7 +277,8 @@ export default function PerformancePanel() {
         'Avg ms': Math.round(w.avg_execution_ms),
         'Queue ms': Math.round(w.queue_time_avg_ms),
         'Util %': w.utilization_pct,
-        Credits: Number(w.credits_used?.toFixed?.(2) ?? w.credits_used ?? 0),
+        // No-fake-0: a missing credit figure stays null → AuditTable renders "—".
+        Credits: w.credits_used == null ? null : Number(w.credits_used.toFixed(2)),
       })),
     [wh],
   );

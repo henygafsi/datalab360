@@ -464,7 +464,7 @@ function ClassificationSection() {
   const [predicting, setPredicting] = useState(false);
   const [predictForm, setPredictForm] = useState({ model_name: '', input_table: '', database: '', schema: '' });
   const [predictError, setPredictError] = useState<string | null>(null);
-  const [predictNotice, setPredictNotice] = useState<string | null>(null);
+  const [predictResult, setPredictResult] = useState<any>(null);
   const [metrics, setMetrics] = useState<any>(null);
   const [metricsModel, setMetricsModel] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -477,6 +477,12 @@ function ClassificationSection() {
   // persistent model artifact). Fail-open while the allow-set loads.
   const createPerm = useCanPerform('cortex', 'create');
   const canCreate = createPerm.allowed || createPerm.loading;
+  // Running a prediction is an AI-inference action over data — it maps to
+  // cortex:generate (same action gating AI-produced output elsewhere, e.g.
+  // semantic-model generation). Fail-open while the allow-set loads so the
+  // control never flashes disabled.
+  const generatePerm = useCanPerform('cortex', 'generate');
+  const canPredict = generatePerm.allowed || generatePerm.loading;
 
   const fetchModels = useCallback(async () => {
     const result = await listClassificationModels();
@@ -516,14 +522,15 @@ function ClassificationSection() {
     if (!predictForm.model_name || !predictForm.input_table) { setPredictError('Model name and input table are required'); return; }
     setPredicting(true);
     setPredictError(null);
-    setPredictNotice(null);
+    setPredictResult(null);
     try {
-      await predictClassification({
+      // Backend returns { model, predictions: [...row objects...], count }.
+      const result = await predictClassification({
         ...predictForm,
         database: predictForm.database || undefined,
         schema: predictForm.schema || undefined,
       });
-      setPredictNotice('Prediction complete');
+      setPredictResult(result?.data || result);
     } catch (err) {
       setPredictError(err instanceof Error ? err.message : 'Prediction failed');
     } finally {
@@ -560,7 +567,7 @@ function ClassificationSection() {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">ML Classification Models</h3>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { setShowPredict((v) => !v); setPredictError(null); setPredictNotice(null); }} className="gap-2">
+          <Button variant="outline" onClick={() => { setShowPredict((v) => !v); setPredictError(null); }} disabled={!canPredict} title={!canPredict ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2">
             <PiPlay className="w-4 h-4" /> Predict
           </Button>
           <Button onClick={() => { setShowTrain((v) => !v); setTrainError(null); }} disabled={!canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2 bg-blue-600 text-white hover:bg-blue-700">
@@ -597,15 +604,71 @@ function ClassificationSection() {
           <Input label="Model Name" value={predictForm.model_name} onChange={(e) => setPredictForm({ ...predictForm, model_name: e.target.value })} />
           <Input label="Input Table" placeholder="DB.SCHEMA.TABLE" value={predictForm.input_table} onChange={(e) => setPredictForm({ ...predictForm, input_table: e.target.value })} />
           {predictError && <InlineError message={predictError} onDismiss={() => setPredictError(null)} />}
-          {predictNotice && <InlineSuccess message={predictNotice} onDismiss={() => setPredictNotice(null)} />}
           <div className="flex justify-end gap-3 pt-1">
-            <Button variant="outline" size="sm" onClick={() => { setShowPredict(false); setPredictError(null); setPredictNotice(null); }}>Close</Button>
-            <Button size="sm" onClick={handlePredict} disabled={predicting} className="bg-blue-600 text-white hover:bg-blue-700">
+            <Button variant="outline" size="sm" onClick={() => { setShowPredict(false); setPredictError(null); }}>Close</Button>
+            <Button size="sm" onClick={handlePredict} disabled={predicting || !canPredict} title={!canPredict ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined} className="bg-blue-600 text-white hover:bg-blue-700">
               {predicting ? <Loader variant="spinner" size="sm" /> : 'Predict'}
             </Button>
           </div>
         </div>
       )}
+
+      {/* Prediction results — backend returns { model, predictions: [...], count }.
+          Render the row set as a table; honest empty state when zero rows. */}
+      {predictResult && (() => {
+        const preds: any[] = Array.isArray(predictResult?.predictions)
+          ? predictResult.predictions
+          : Array.isArray(predictResult)
+            ? predictResult
+            : [];
+        const cols = preds.length > 0 ? Object.keys(preds[0]) : [];
+        return (
+          <div className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="font-medium text-slate-900 dark:text-white">Prediction Results</h4>
+              <div className="flex items-center gap-2">
+                {typeof predictResult?.count === 'number' && (
+                  <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">{predictResult.count} rows</Badge>
+                )}
+                <button type="button" aria-label="Dismiss results" onClick={() => setPredictResult(null)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                  <PiX className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            {preds.length === 0 ? (
+              <div className="text-center py-6 text-sm text-slate-500">
+                The model ran but returned no prediction rows for this input table.
+              </div>
+            ) : (
+              <div className="overflow-auto max-h-96">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-700">
+                      {cols.map((c) => (
+                        <th key={c} className="text-left py-2 px-3 text-slate-600 dark:text-slate-400 font-medium whitespace-nowrap">{c}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preds.map((row, ri) => (
+                      <tr key={ri} className="border-b border-slate-100 dark:border-slate-800">
+                        {cols.map((c) => {
+                          const val = row[c];
+                          return (
+                            <td key={c} className="py-2 px-3 text-slate-900 dark:text-white whitespace-nowrap">
+                              {val == null ? '—' : typeof val === 'object' ? JSON.stringify(val) : String(val)}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {actionError && <InlineError message={actionError} onDismiss={() => setActionError(null)} />}
 

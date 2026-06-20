@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, memo, useMemo } from 'react';
-import { Badge, Loader } from 'rizzui';
+import { Badge } from 'rizzui';
 import {
   Database,
   GitBranch,
@@ -19,6 +19,7 @@ import {
   Lightbulb,
   ChevronDown,
   AlertTriangle,
+  RefreshCw,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -456,6 +457,9 @@ function ModulesTab() {
   // Default 30d to match the other command-center endpoints / sibling tabs.
   const [days, setDays] = useState<number>(30);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by the inline Retry button to re-run the loader without changing the
+  // selected window (so a failed fetch retries instead of toggling days).
+  const [reloadNonce, setReloadNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -485,7 +489,7 @@ function ModulesTab() {
     return () => {
       cancelled = true;
     };
-  }, [days]);
+  }, [days, reloadNonce]);
 
   // Aggregate usage trend across modules (sum per day) — declared BEFORE any
   // early return so the hook order stays stable across renders.
@@ -520,17 +524,62 @@ function ModulesTab() {
   }, [summary]);
 
   if (loading) {
+    // Skeleton mirrors the tab's own layout (KPI strip + sparkline tiles + card
+    // grid + chart row) instead of a single centered spinner.
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader size="lg" />
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {[...Array(5)].map((_, i) => (
+            <div
+              key={i}
+              className="h-20 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700"
+            />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
+          {[...Array(8)].map((_, i) => (
+            <div
+              key={i}
+              className="h-24 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700"
+            />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
+            <div
+              key={i}
+              className="h-44 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700"
+            />
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {[...Array(3)].map((_, i) => (
+            <div
+              key={i}
+              className="h-56 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700"
+            />
+          ))}
+        </div>
       </div>
     );
   }
 
   if (error) {
+    // Inline error + Retry — re-runs the loader for the current window rather
+    // than forcing the user to toggle the days selector.
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
-        {error}
+      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-red-200 bg-red-50 p-8 text-center dark:border-red-800 dark:bg-red-900/20">
+        <AlertTriangle className="h-6 w-6 text-red-500" />
+        <p className="text-sm font-medium text-red-700 dark:text-red-300">
+          {error}
+        </p>
+        <button
+          type="button"
+          onClick={() => setReloadNonce((n) => n + 1)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50"
+        >
+          <RefreshCw className="h-3.5 w-3.5" /> Retry
+        </button>
       </div>
     );
   }

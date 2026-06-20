@@ -71,7 +71,7 @@ const tabs: TabItem[] = [
   { id: 'compliance', label: 'Compliance', icon: PiShieldCheckDuotone, description: 'GDPR & SOC 2 reports' },
   { id: 'tasks-lineage', label: 'Tasks & Lineage', icon: PiClockCounterClockwise, description: 'Snowflake tasks, dependencies & lineage graph' },
   { id: 'cross-module', label: 'Cross-Modules & Objects', icon: PiGitBranch, description: 'Lineage, dependencies & module explorer' },
-  { id: 'impact-analysis', label: 'Impact Analysis', icon: PiWarningCircleBold, description: 'Assess change impact before modifying tables, columns, or policies' },
+  { id: 'impact-analysis', label: 'Impact Analysis', icon: PiWarningCircleBold, description: 'Estimate change impact before modifying tables, columns, or policies (preview)' },
 ];
 
 // ── Domain icon mapping ──
@@ -1260,8 +1260,11 @@ function ImpactAnalysisTab() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Change Impact Analysis</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Assess the blast radius of schema changes, column drops, or policy modifications before applying them.</p>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Change Impact Analysis
+            <span className="ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Estimate</span>
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Estimate the blast radius of schema changes, column drops, or policy modifications before applying them.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -1273,6 +1276,17 @@ function ImpactAnalysisTab() {
             {impactLoading ? 'Analyzing...' : 'Analyze Change'}
           </button>
         </div>
+      </div>
+
+      {/* Honest framing — this is a derived estimate, not an authoritative impact report. */}
+      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+        <PiWarningCircleBold className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          Preview estimate. Figures are derived from the lineage &amp; object-dependency feeds (delayed up to a few
+          hours) and approximate the blast radius — they are <span className="font-semibold">not a guaranteed list</span> of
+          everything a change will break. The change-type cards below are guidance only and do not alter the computed
+          figures. Always confirm against the source object before applying a change.
+        </span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1332,7 +1346,7 @@ function ImpactAnalysisTab() {
           <EmptyState
             icon={PiTreeStructureDuotone}
             title="No analysis run yet"
-            description='Select an object and click "Analyze Change" to see downstream dependencies, affected queries, and impacted users.'
+            description='Select an object and click "Analyze Change" for an estimated blast radius — downstream dependencies, affected queries, and impacted users derived from lineage.'
           />
         ) : (
           <div className="space-y-0">
@@ -1362,19 +1376,19 @@ function ImpactAnalysisTab() {
 
         <div className="border-t border-gray-200 dark:border-gray-700 grid grid-cols-1 md:grid-cols-4 divide-x divide-gray-200 dark:divide-gray-700">
           <div className="px-4 py-3 text-center">
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Downstream Tables</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Downstream Tables (est.)</p>
             <p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{impactResult?.downstreamTables ?? '—'}</p>
           </div>
           <div className="px-4 py-3 text-center">
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Affected Queries</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Affected Queries (est.)</p>
             <p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{impactResult?.affectedQueries ?? '—'}</p>
           </div>
           <div className="px-4 py-3 text-center">
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Impacted Users</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Impacted Users (est.)</p>
             <p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{impactResult?.impactedUsers ?? '—'}</p>
           </div>
           <div className="px-4 py-3 text-center">
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Risk Level</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Risk Level (est.)</p>
             <p className={cn('text-lg font-bold mt-1', impactResult ? riskColor(impactResult.riskLevel) : 'text-gray-900 dark:text-white')}>{impactResult?.riskLevel ?? '—'}</p>
           </div>
         </div>

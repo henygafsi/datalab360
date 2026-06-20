@@ -78,6 +78,10 @@ interface Recommendation {
 interface CacheInfo {
   loadedAt: number;
   fromCache: boolean;
+  // Real cache age reported by the backend (meta.cache_age_seconds), when the
+  // endpoint provides it. Absent → the badge falls back to a client-side
+  // "loaded Xs ago" label (honest about what it measures).
+  cacheAgeSeconds?: number;
 }
 
 // ── Constants ──
@@ -198,6 +202,15 @@ async function fetchQualityData(path: string, forceRefresh = false, params?: Rec
   return promise;
 }
 
+// Pull the backend-reported cache age from a response envelope, when present.
+// Endpoints that route through the cache decorator may expose it under
+// meta.cache_age_seconds (or a couple of legacy aliases); absent → undefined,
+// and the badge falls back to the client-clock label.
+function readCacheAgeSeconds(data: any): number | undefined {
+  const v = data?.meta?.cache_age_seconds ?? data?.cache_age_seconds ?? data?.meta?.age_seconds;
+  return typeof v === 'number' ? v : undefined;
+}
+
 // ── Skeleton Components ──
 
 function SkeletonBar({ className, style }: { className?: string; style?: React.CSSProperties }) {
@@ -254,19 +267,37 @@ function CacheAgeBadge({ cacheInfo }: { cacheInfo: CacheInfo | null }) {
 
   if (!cacheInfo) return null;
 
-  const ageMs = Date.now() - cacheInfo.loadedAt;
-  const ageMin = Math.floor(ageMs / 60000);
-  const ageSec = Math.floor((ageMs % 60000) / 1000);
-  const label = ageMin > 0 ? `${ageMin}m ago` : `${ageSec}s ago`;
+  const fmt = (totalSec: number) => {
+    const min = Math.floor(totalSec / 60);
+    const sec = Math.floor(totalSec % 60);
+    return min > 0 ? `${min}m` : `${sec}s`;
+  };
+
+  // Prefer the backend-reported cache age when present — it reflects how stale
+  // the *server's* cached entry is. Otherwise fall back to a client-clock label
+  // that is honest about measuring time since this client loaded the data.
+  const hasBackendAge = typeof cacheInfo.cacheAgeSeconds === 'number';
+  let text: string;
+  let tip: string;
+  if (cacheInfo.fromCache && hasBackendAge) {
+    text = `cached ${fmt(cacheInfo.cacheAgeSeconds as number)} old`;
+    tip = 'Served from cache — age reported by the server';
+  } else if (cacheInfo.fromCache) {
+    text = `cached, loaded ${fmt((Date.now() - cacheInfo.loadedAt) / 1000)} ago`;
+    tip = 'Served from cache — time since this view loaded it';
+  } else {
+    text = `fresh, loaded ${fmt((Date.now() - cacheInfo.loadedAt) / 1000)} ago`;
+    tip = 'Fresh data from server';
+  }
 
   return (
-    <Tooltip content={cacheInfo.fromCache ? 'Served from cache' : 'Fresh data from server'}>
+    <Tooltip content={tip}>
       <Badge
         variant="flat"
         color={cacheInfo.fromCache ? 'warning' : 'success'}
         className="text-[10px] cursor-default"
       >
-        {cacheInfo.fromCache ? `cached ${label}` : `fresh ${label}`}
+        {text}
       </Badge>
     </Tooltip>
   );
@@ -1181,6 +1212,7 @@ export default function DataQualityPage() {
       setCacheInfo({
         loadedAt: Date.now(),
         fromCache: !force,
+        cacheAgeSeconds: readCacheAgeSeconds(data),
       });
     } catch (err) {
       // Surface the failure as an inline per-tab error rather than swallowing it
