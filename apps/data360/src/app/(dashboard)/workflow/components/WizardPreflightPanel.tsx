@@ -192,8 +192,11 @@ export default function WizardPreflightPanel({
         return;
       }
 
-      // Legacy sequential path — kept as fallback when the wizard doesn't
-      // pass precomputed previews (e.g. external consumers of this panel).
+      // Fallback path — kept for external consumers that don't pass precomputed
+      // previews. Source previews are independent, so fire them concurrently
+      // (allSettled) and stream each result into state as it settles, rather than
+      // waiting on each in series. Each preview sets its own nodeId, so the panel
+      // fills in per-source instead of blocking on the slowest fetch.
       setPreviews((prev) => {
         const next = { ...prev };
         ready.forEach((s) => {
@@ -201,17 +204,19 @@ export default function WizardPreflightPanel({
         });
         return next;
       });
-      for (const s of ready) {
-        try {
-          const data = await getTablePreview(s.database, s.schema, s.table, 5, 0);
-          if (cancelled) return;
-          setPreviews((prev) => ({ ...prev, [s.nodeId]: { status: 'ok', data } }));
-        } catch (err) {
-          if (cancelled) return;
-          const msg = err instanceof Error ? err.message : String(err);
-          setPreviews((prev) => ({ ...prev, [s.nodeId]: { status: 'err', error: msg } }));
-        }
-      }
+      await Promise.allSettled(
+        ready.map(async (s) => {
+          try {
+            const data = await getTablePreview(s.database, s.schema, s.table, 5, 0);
+            if (cancelled) return;
+            setPreviews((prev) => ({ ...prev, [s.nodeId]: { status: 'ok', data } }));
+          } catch (err) {
+            if (cancelled) return;
+            const msg = err instanceof Error ? err.message : String(err);
+            setPreviews((prev) => ({ ...prev, [s.nodeId]: { status: 'err', error: msg } }));
+          }
+        }),
+      );
     }
     void loadAll();
     return () => {

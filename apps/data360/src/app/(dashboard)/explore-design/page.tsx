@@ -2027,9 +2027,25 @@ export default function ExploreDesignPage() {
       try {
         const newTables: TableItem[] = [];
 
-        // Iterate over schema->database map entries
-        for (const [schemaName, dbName] of Array.from(selectedSchemas.entries())) {
-          const tableList = await getTables(dbName, schemaName);
+        // Fetch each schema's table list concurrently — the per-schema reads are
+        // independent (one doesn't consume another's result), so wait for max(...)
+        // not sum(...). allSettled keeps one slow/failed schema from blocking the
+        // rest; results stay in schema order to preserve the prior list ordering.
+        const schemaEntries = Array.from(selectedSchemas.entries());
+        const tableListResults = await Promise.allSettled(
+          schemaEntries.map(([schemaName, dbName]) => getTables(dbName, schemaName)),
+        );
+        // Preserve the prior error semantics: a failed schema read used to throw
+        // into the outer catch and surface catalogLoadError. With allSettled the
+        // healthy schemas still render, but if any rejected we keep that signal
+        // visible (never let a failed fetch masquerade as "fewer tables").
+        const anyRejected = tableListResults.some((r) => r.status === 'rejected');
+        if (anyRejected) {
+          setCatalogLoadError('Some schemas failed to load tables. Check your connection and retry.');
+        }
+        schemaEntries.forEach(([schemaName, dbName], i) => {
+          const r = tableListResults[i];
+          const tableList = r.status === 'fulfilled' ? r.value : null;
           if (tableList) {
             tableList.forEach((tableName: string) => {
               const tableId = `${dbName}.${schemaName}.${tableName}`;
@@ -2047,7 +2063,7 @@ export default function ExploreDesignPage() {
               });
             });
           }
-        }
+        });
 
         // Merge with existing tables: keep target/DWH tables, add new schema tables
         setTables(prev => {
@@ -2596,15 +2612,17 @@ export default function ExploreDesignPage() {
 
         await loadProjectEvents({ projectId, events: backendEvents });
 
-        // Load DDL actions from backend (for awareness / logging only)
-        // All events stay pending — DDL execution happens later in the deployment modal
-        try {
-          const ddlResponse = await listDDLActions(projectId);
-          const ddlActions = ddlResponse.actions || [];
-          void ddlActions; // loaded for awareness only
-        } catch (ddlErr) {
-          console.warn('[handleProjectSelect] Failed to load DDL actions:', ddlErr);
-        }
+        // Load DDL actions from backend (for awareness / logging only).
+        // Result is discarded (events stay pending — DDL execution happens later
+        // in the deployment modal), so fire it WITHOUT awaiting: it overlaps the
+        // schema-restore waterfall below instead of serializing in front of it.
+        void listDDLActions(projectId)
+          .then((ddlResponse) => {
+            void (ddlResponse.actions || []); // loaded for awareness only
+          })
+          .catch((ddlErr) => {
+            console.warn('[handleProjectSelect] Failed to load DDL actions:', ddlErr);
+          });
 
         // Load saved column mappings from backend (legacy fallback for pre-event mappings)
         /**try {

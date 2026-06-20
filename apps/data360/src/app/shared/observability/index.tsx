@@ -1195,17 +1195,21 @@ function ImpactAnalysisTab() {
     setImpactLoading(true);
     setImpactResult(null);
     try {
-      // Fetch downstream lineage for the specified object
-      const lineageRes = await apiClient.get('/observability/lineage', {
-        params: { database: impactDb, schema: impactSchema, table: impactObject, days: 30 },
-      });
+      // Fetch lineage (required) and object dependencies (supplementary) concurrently
+      // so the analysis waits for the slower of the two, not their sum. deps keeps its
+      // own inline catch so its failure stays non-blocking; a lineage failure still
+      // rejects the Promise.all → outer catch (behavior preserved — not allSettled).
+      const [lineageRes, depsRes] = await Promise.all([
+        apiClient.get('/observability/lineage', {
+          params: { database: impactDb, schema: impactSchema, table: impactObject, days: 30 },
+        }),
+        apiClient.get('/observability/dependencies', {
+          params: { database: impactDb },
+        }).catch(() => ({ data: { dependencies: [] } })),
+      ]);
       const lineageData = lineageRes.data?.data || lineageRes.data?.lineage || lineageRes.data || [];
       const rows = Array.isArray(lineageData) ? lineageData : [];
 
-      // Fetch object dependencies
-      const depsRes = await apiClient.get('/observability/dependencies', {
-        params: { database: impactDb },
-      }).catch(() => ({ data: { dependencies: [] } }));
       const deps = depsRes.data?.dependencies || depsRes.data?.data || [];
       const depsArr = Array.isArray(deps) ? deps : [];
 
@@ -1400,7 +1404,6 @@ function ImpactAnalysisTab() {
 export default function ObservabilityDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [, startTabTransition] = useTransition();
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Data states
@@ -1433,18 +1436,13 @@ export default function ObservabilityDashboard() {
       toast.error('Failed to load compliance data');
     } finally {
       setLoadingStates((prev) => ({ ...prev, compliance: false }));
-      setIsLoading(false);
     }
   }, []);
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4 py-4">
-        <TableSkeleton rows={6} columns={4} />
-      </div>
-    );
-  }
-
+  // No shell-level loading gate: the default tab (Health & Insights) self-fetches
+  // and renders its own per-section skeletons immediately. Compliance streams into
+  // its own tab (ComplianceCard owns its skeleton via loadingStates.compliance), so
+  // first paint is never blocked on the compliance fetch the landing view doesn't use.
   return (
     <div className="@container">
       {/* Header */}

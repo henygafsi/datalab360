@@ -1889,38 +1889,31 @@ function CommandCenterDashboardInner() {
   ]);
 
   // ── Loading state ────────────────────────────────────────────────────────
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6 p-4">
-        {/* Header skeleton */}
-        <div className="h-16 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700" />
-        {/* Tab bar skeleton */}
-        <div className="flex gap-2">
-          {[...Array(7)].map((_, i) => (
-            <div
-              key={i}
-              className="h-10 w-32 animate-pulse rounded-lg bg-gray-200 dark:bg-gray-700"
-            />
-          ))}
-        </div>
-        {/* KPI cards skeleton */}
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-          {[...Array(6)].map((_, i) => (
-            <div
-              key={i}
-              className="h-24 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700"
-            />
-          ))}
-        </div>
-        {/* Chart skeletons */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="h-64 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700" />
-          <div className="h-64 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700" />
-        </div>
-      </div>
-    );
-  }
+  //
+  // PERF: the dashboard shell (header + tab bar + active tab) now renders
+  // IMMEDIATELY rather than being gated behind a full-page `if (isLoading)`
+  // skeleton. The old gate blocked every child of the Overview tab —
+  // crucially `<ExecutiveOverview>` (cross-module + sensors) and the fast
+  // `useOverviewKpis` cache call — until `fetchOverview`'s FIRST endpoint
+  // (summary / module-health / activity-feed, 8–28s) resolved and tripped
+  // `dropSpinner()`. That serialized ExecutiveOverview's 4 endpoints BEHIND
+  // the slowest-of-first-batch (sum-not-max) on the priority tab.
+  //
+  // Every tab component already accepts a `loading` prop and streams its own
+  // section skeleton (OverviewTab → <LoadingSection/> while `loading && !data`),
+  // so the shell renders at once and each section fills in as its own endpoint
+  // lands. `ExecutiveOverview` + `useOverviewKpis` now mount on first paint and
+  // fetch CONCURRENTLY with `fetchOverview`, turning the Overview wall-time from
+  // (first-Overview-hit + cross-module/sensors) into max(all-of-them).
+  //
+  // `dropSpinner()` is still live — it drives `lastUpdated`, clears
+  // `tabLoading.overview`, and seeds `tabDataCache`. The `isLoading` state +
+  // its 10s safety-net effect (above) are now VESTIGIAL: nothing reads
+  // `isLoading` in render anymore, so the safety-net only flips a state no one
+  // observes. Left in place (harmless) to keep `dropSpinner`'s shape unchanged;
+  // could be deleted in a later cleanup. The active tab streams its own section
+  // skeleton (OverviewTab renders <LoadingSection/> while
+  // `loading && !summary && !kpis`), so no separate full-page skeleton is needed.
 
   // ── Render ───────────────────────────────────────────────────────────────
 
