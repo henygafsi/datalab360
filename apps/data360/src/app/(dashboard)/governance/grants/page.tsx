@@ -36,7 +36,7 @@ import {
   type D360Role,
   type D360RoleTemplate,
 } from '@/app/services/governance/fetch_roles';
-import { useCanPerform } from '@/hooks/useCanPerform';
+import { useCanPerform, invalidateMyPermissions } from '@/hooks/useCanPerform';
 import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
 import PermissionGate from '@/components/ui/PermissionGate';
 import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
@@ -86,6 +86,9 @@ function SourceProductGrantsPanel() {
           role_name: grantRole.trim(),
         },
       });
+      // A new privilege can change the caller's own effective access — refresh
+      // the cached action allow-set so gated controls re-resolve.
+      invalidateMyPermissions();
       setFeedback({
         type: 'success',
         text: `Granted ${grantPrivilege} on ${grantObjectType} ${grantTarget.trim()} to ${grantRole.trim()}.`,
@@ -336,6 +339,8 @@ function D360RolesPanel() {
         });
         setFeedback({ type: 'success', text: `Role "${form.role_name.trim()}" created.` });
       }
+      // Creating/editing a D360 role can change the caller's own allow-set — refresh.
+      invalidateMyPermissions();
       close();
       await reload();
     } catch (err: any) {
@@ -350,6 +355,8 @@ function D360RolesPanel() {
     setDeleting(true);
     try {
       await deleteD360Role(deleteTarget.role_name);
+      // Deleting a D360 role can change the caller's own allow-set — refresh.
+      invalidateMyPermissions();
       setFeedback({ type: 'success', text: `Role "${deleteTarget.role_name}" deleted.` });
       setDeleteTarget(null);
       await reload();

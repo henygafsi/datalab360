@@ -938,7 +938,7 @@ export default function DataSourceConnectionPage() {
     port: 1522,
     service_name: 'g9bbeb1dc290c07_data360_medium.adb.oraclecloud.com',
     username: 'ADMIN',
-    password: 'Henuch*1991!',
+    password: '', // credential must be entered by the user
     connection_mode: 'tls' as 'standard' | 'tls' | 'wallet',
     wallet_path: '',
     wallet_password: '',
@@ -2593,7 +2593,7 @@ export default function DataSourceConnectionPage() {
               port: 1522,
               service_name: 'g9bbeb1dc290c07_data360_medium.adb.oraclecloud.com',
               username: 'ADMIN',
-              password: 'Henuch*1991!',
+              password: '', // credential must be entered by the user
               connection_mode: 'tls' as const,
           },
           custom: {

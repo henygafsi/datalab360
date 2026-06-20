@@ -134,6 +134,7 @@ import {
 import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { isAdminRole } from '@/config/constants';
 
 // Lazy-loaded new tabs
@@ -640,6 +641,23 @@ function LoadingSection() {
       </div>
       <div className="h-48 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700" />
       <div className="h-48 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700" />
+    </div>
+  );
+}
+
+/** Inline error + Retry — shown when a tab fetch fails, so a failed request
+ *  renders an actionable message instead of an infinite loading skeleton. */
+function TabErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="m-4 flex flex-col items-center justify-center gap-3 rounded-xl border border-red-100 bg-red-50 p-8 text-center dark:border-red-900/50 dark:bg-red-950/40">
+      <AlertTriangle className="h-6 w-6 text-red-500" />
+      <p className="text-sm font-medium text-red-700 dark:text-red-300">{message}</p>
+      <button
+        onClick={onRetry}
+        className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50"
+      >
+        <RefreshCw className="h-3.5 w-3.5" /> Retry
+      </button>
     </div>
   );
 }
@@ -1398,6 +1416,11 @@ function CommandCenterDashboardInner() {
     'platform-activity': false,
   });
 
+  // Per-tab error state — a failed fetch (catch OR isApiError branch) must set
+  // this so the tab renders an inline error + Retry instead of an infinite
+  // skeleton (CostTab/SecurityAdvTab fall to <LoadingSection/> on `!data`).
+  const [tabError, setTabError] = useState<Record<string, string | null>>({});
+
   // ── Fetchers ─────────────────────────────────────────────────────────────
 
   const fetchOverview = useCallback(async () => {
@@ -1544,10 +1567,12 @@ function CommandCenterDashboardInner() {
 
   const fetchSecurityAdv = useCallback(async () => {
     setTabLoading((p) => ({ ...p, security: true }));
+    setTabError((p) => ({ ...p, security: null }));
     try {
       const data = await getSecurityOverview(filters.days, filters);
       if (isApiError(data)) {
         console.warn('[CommandCenter] security-overview returned error:', data);
+        setTabError((p) => ({ ...p, security: 'Failed to load security data' }));
         return;
       }
       setSecurityData(data);
@@ -1558,7 +1583,9 @@ function CommandCenterDashboardInner() {
         filtersKey: buildFiltersKey(filters),
       };
     } catch (err) {
-      toast.error('Failed to load security data');
+      const msg = getApiErrorMessage(err) || 'Failed to load security data';
+      toast.error(msg);
+      setTabError((p) => ({ ...p, security: msg }));
     } finally {
       setTabLoading((p) => ({ ...p, security: false }));
     }
@@ -1629,6 +1656,7 @@ function CommandCenterDashboardInner() {
 
   const fetchCost = useCallback(async () => {
     setTabLoading((p) => ({ ...p, finops: true }));
+    setTabError((p) => ({ ...p, finops: null }));
     try {
       const [cost, cortex] = await Promise.all([
         getCostBreakdown(filters.days, {
@@ -1647,6 +1675,7 @@ function CommandCenterDashboardInner() {
       ]);
       if (isApiError(cost)) {
         console.warn('[CommandCenter] cost-breakdown returned error:', cost);
+        setTabError((p) => ({ ...p, finops: 'Failed to load cost data' }));
         return;
       }
       const cortexCredits =
@@ -1661,7 +1690,9 @@ function CommandCenterDashboardInner() {
       setLastUpdated(new Date());
       tabDataCache.current['finops'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
-      toast.error('Failed to load cost data');
+      const msg = getApiErrorMessage(err) || 'Failed to load cost data';
+      toast.error(msg);
+      setTabError((p) => ({ ...p, finops: msg }));
     } finally {
       setTabLoading((p) => ({ ...p, finops: false }));
     }
@@ -2099,12 +2130,16 @@ function CommandCenterDashboardInner() {
               <SnowflakeObjectsTab />
             )}
             {activeTab === 'finops' && (
-              <CostTab
-                data={costData}
-                loading={tabLoading.finops}
-                days={filters.days}
-                onNavigateTab={goToTab}
-              />
+              tabError.finops && !tabLoading.finops ? (
+                <TabErrorState message={tabError.finops} onRetry={fetchCost} />
+              ) : (
+                <CostTab
+                  data={costData}
+                  loading={tabLoading.finops}
+                  days={filters.days}
+                  onNavigateTab={goToTab}
+                />
+              )
             )}
             {activeTab === 'modules' && (
               <Suspense fallback={<LoadingSection />}>
@@ -2135,11 +2170,15 @@ function CommandCenterDashboardInner() {
                   <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Security posture &amp; audit
                   </h2>
-                  <SecurityAdvTab
-                    data={securityData}
-                    loading={tabLoading['security']}
-                    onNavigateTab={goToTab}
-                  />
+                  {tabError.security && !tabLoading['security'] ? (
+                    <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
+                  ) : (
+                    <SecurityAdvTab
+                      data={securityData}
+                      loading={tabLoading['security']}
+                      onNavigateTab={goToTab}
+                    />
+                  )}
                 </section>
                 <section>
                   <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -3804,6 +3843,10 @@ const ProjectsTab = memo(function ProjectsTab({
     setLocalData(dataProp);
   }, [dataProp]);
   const data = localData;
+  // Action-RBAC gate for deployment approval — same module/action used on
+  // explore-design. Fail-open on hard error (see useCanPerform). Mirrors the
+  // gating that already protects approve/deploy elsewhere.
+  const { allowed: canApprove } = useCanPerform('explore_design', 'approve');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [rejectModal, setRejectModal] = useState<{
     projectId: string;
@@ -3811,6 +3854,13 @@ const ProjectsTab = memo(function ProjectsTab({
     projectName: string;
   } | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  // Inline non-blocking confirm for Approve (mirrors rejectModal) so the
+  // one-click Approve is symmetric with Reject and never fires accidentally.
+  const [approveModal, setApproveModal] = useState<{
+    projectId: string;
+    deploymentId: string;
+    projectName: string;
+  } | null>(null);
   const [detailModal, setDetailModal] = useState<{
     projectId: string;
     projectName: string;
@@ -4452,21 +4502,23 @@ const ProjectsTab = memo(function ProjectsTab({
                   >
                     <Eye className="h-3.5 w-3.5" />
                   </button>
-                  <button
-                    aria-label="Approve deployment"
-                    onClick={() =>
-                      handleApprove(
-                        row.project_id,
-                        row.deployment_id,
-                        row.project_name
-                      )
-                    }
-                    disabled={actionLoading === row.deployment_id}
-                    className="rounded-md bg-green-100 p-1.5 text-green-700 transition-colors hover:bg-green-200 disabled:opacity-50 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50"
-                    title="Approve deployment"
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                  </button>
+                  {canApprove && (
+                    <button
+                      aria-label="Approve deployment"
+                      onClick={() =>
+                        setApproveModal({
+                          projectId: row.project_id,
+                          deploymentId: row.deployment_id,
+                          projectName: safeStr(row.project_name),
+                        })
+                      }
+                      disabled={actionLoading === row.deployment_id}
+                      className="rounded-md bg-green-100 p-1.5 text-green-700 transition-colors hover:bg-green-200 disabled:opacity-50 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50"
+                      title="Approve deployment"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   <button
                     aria-label="Reject deployment"
                     onClick={() =>
@@ -4532,19 +4584,21 @@ const ProjectsTab = memo(function ProjectsTab({
                       >
                         Details
                       </button>
-                      <button
-                        onClick={() =>
-                          handleApprove(
-                            p.project_id,
-                            p.deployment_id,
-                            p.project_name
-                          )
-                        }
-                        disabled={actionLoading === p.deployment_id}
-                        className="rounded-md bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700 transition-colors hover:bg-green-200 disabled:opacity-50 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50"
-                      >
-                        {actionLoading === p.deployment_id ? '...' : 'Approve'}
-                      </button>
+                      {canApprove && (
+                        <button
+                          onClick={() =>
+                            setApproveModal({
+                              projectId: p.project_id,
+                              deploymentId: p.deployment_id,
+                              projectName: safeStr(p.project_name),
+                            })
+                          }
+                          disabled={actionLoading === p.deployment_id}
+                          className="rounded-md bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700 transition-colors hover:bg-green-200 disabled:opacity-50 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50"
+                        >
+                          {actionLoading === p.deployment_id ? '...' : 'Approve'}
+                        </button>
+                      )}
                       <button
                         onClick={() =>
                           setRejectModal({
@@ -4729,6 +4783,56 @@ const ProjectsTab = memo(function ProjectsTab({
         </div>
       )}
 
+      {/* Approve Deployment — inline non-blocking confirm (mirrors Reject) */}
+      {approveModal && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center p-4 sm:justify-end">
+          <div
+            role="alertdialog"
+            aria-labelledby="approve-modal-title"
+            aria-describedby="approve-modal-desc"
+            className="pointer-events-auto w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-900"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setApproveModal(null);
+            }}
+          >
+            <h3
+              id="approve-modal-title"
+              className="mb-1 text-lg font-semibold text-gray-900 dark:text-white"
+            >
+              Approve Deployment
+            </h3>
+            <p id="approve-modal-desc" className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+              Approve and release the deployment for{' '}
+              <span className="font-medium text-gray-900 dark:text-white">
+                {approveModal.projectName}
+              </span>
+              ? This action will proceed immediately.
+            </p>
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                onClick={() => setApproveModal(null)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const m = approveModal;
+                  setApproveModal(null);
+                  await handleApprove(m.projectId, m.deploymentId, m.projectName);
+                }}
+                disabled={actionLoading === approveModal.deploymentId}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
+              >
+                {actionLoading === approveModal.deploymentId
+                  ? 'Approving...'
+                  : 'Approve Deployment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Approval Detail Modal */}
       {detailModal && (
         <ApprovalDetailModal
@@ -4741,6 +4845,7 @@ const ProjectsTab = memo(function ProjectsTab({
           requestedBy={detailModal.requestedBy}
           requestedAt={detailModal.requestedAt}
           isActionLoading={!!actionLoading}
+          canApprove={canApprove}
           onApprove={async () => {
             await handleApprove(
               detailModal.projectId,
@@ -4887,7 +4992,7 @@ const CostTab = memo(function CostTab({
         />
         <KpiCard
           label="Storage (TB)"
-          value={storageTb.toFixed(3)}
+          value={data?.storage ? storageTb.toFixed(3) : null}
           icon={Database}
           color="blue"
           help={{
@@ -4898,13 +5003,13 @@ const CostTab = memo(function CostTab({
         />
         <KpiCard
           label="Daily Avg"
-          value={dailyAvg.toLocaleString()}
+          value={dailyTrend.length > 0 ? dailyAvg.toLocaleString() : null}
           icon={BarChart3}
           color="violet"
         />
         <KpiCard
           label={`AI Spend (${periodDays}d)`}
-          value={Number(cortexCredits).toLocaleString()}
+          value={cortexCredits > 0 ? Number(cortexCredits).toLocaleString() : null}
           icon={Zap}
           color="purple"
         />

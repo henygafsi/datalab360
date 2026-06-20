@@ -57,7 +57,7 @@ import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import { formatApiDetail } from '@/lib/utils';
 import { dash } from '@/app/shared/ui/format';
-import { useCanPerform } from '@/hooks/useCanPerform';
+import { useCanPerform, invalidateMyPermissions } from '@/hooks/useCanPerform';
 
 // ============= SHARED UI COMPONENTS =============
 
@@ -264,6 +264,8 @@ export default function SecurityMatrixPage() {
       });
 
       await batchUpdateSecurityMatrix({ updates });
+      // Matrix edits change role→scope mappings — refresh the cached allow-set.
+      invalidateMyPermissions();
       toast.success(`Saved ${updates.length} changes`);
       setDirtyMatrixRows(new Map());
       loadMatrix(true);
@@ -280,6 +282,7 @@ export default function SecurityMatrixPage() {
     setConfirmAction(null);
     try {
       await deleteSecurityMatrixEntry(row.id);
+      invalidateMyPermissions();
       toast.success('Entry deleted');
       setDirtyMatrixRows((prev) => { const next = new Map(prev); next.delete(row.id); return next; });
       loadMatrix(true);
@@ -302,6 +305,7 @@ export default function SecurityMatrixPage() {
         },
         access_level: matrixForm.access_level,
       });
+      invalidateMyPermissions();
       toast.success('Entry added');
       setShowAddMatrixModal(false);
       setMatrixForm({ role_name: '', region_id: '', store_id: '', department_id: '', product_category: '', customer_segment: '', access_level: 'READ' });

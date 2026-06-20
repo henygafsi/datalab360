@@ -288,7 +288,9 @@ export default function PolicyGrantsTable() {
           id: `password-${p.policy_name}`,
           policy_name: p.policy_name,
           policy_type: 'password' as const,
-          description: `Min length: ${p.min_length}, Min uppercase: ${p.min_upper_case_chars}`,
+          // Config detail is not in the LIST response — show "—" rather than a
+          // fabricated value (open Details for the real settings).
+          description: `Min length: ${p.min_length ?? '—'}, Min uppercase: ${p.min_upper_case_chars ?? '—'}`,
           active: p.is_default || true,
           schema: p.schema,
           granted_roles: p.granted_roles || [],
@@ -300,7 +302,8 @@ export default function PolicyGrantsTable() {
           id: `session-${p.policy_name}`,
           policy_name: p.policy_name,
           policy_type: 'session' as const,
-          description: `Idle timeout: ${p.session_idle_timeout_mins}min, UI timeout: ${p.session_ui_idle_timeout_mins}min`,
+          // Timeouts are not in the LIST response — show "—" not a fabricated value.
+          description: `Idle timeout: ${p.session_idle_timeout_mins != null ? `${p.session_idle_timeout_mins}min` : '—'}, UI timeout: ${p.session_ui_idle_timeout_mins != null ? `${p.session_ui_idle_timeout_mins}min` : '—'}`,
           active: p.is_default || true,
           schema: p.schema,
           granted_roles: p.granted_roles || [],

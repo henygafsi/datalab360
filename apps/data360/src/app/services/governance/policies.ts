@@ -285,15 +285,18 @@ export interface ApplyTagRequest {
 export interface PasswordPolicy {
   policy_name: string;
   schema: string;
-  min_length: number;
-  max_length: number;
-  min_upper_case_chars: number;
-  min_lower_case_chars: number;
-  min_numeric_chars: number;
-  min_special_chars: number;
-  max_age_days: number;
-  max_retries: number;
-  lockout_time_mins: number;
+  // Config detail fields are NOT in the LIST response (only the details endpoint
+  // returns them). The LIST mapper sets these to `null` rather than fabricating a
+  // default — null renders as "—"/"not set", never an invented value.
+  min_length: number | null;
+  max_length: number | null;
+  min_upper_case_chars: number | null;
+  min_lower_case_chars: number | null;
+  min_numeric_chars: number | null;
+  min_special_chars: number | null;
+  max_age_days: number | null;
+  max_retries: number | null;
+  lockout_time_mins: number | null;
   is_default?: boolean;
   created_at?: string;
   granted_roles?: string[];
@@ -319,8 +322,10 @@ export interface CreatePasswordPolicyRequest {
 export interface SessionPolicy {
   policy_name: string;
   schema: string;
-  session_idle_timeout_mins: number;
-  session_ui_idle_timeout_mins: number;
+  // Timeout fields are NOT in the LIST response — the LIST mapper sets these to
+  // `null` (rendered as "—") instead of fabricating a default.
+  session_idle_timeout_mins: number | null;
+  session_ui_idle_timeout_mins: number | null;
   is_default?: boolean;
   created_at?: string;
   granted_roles?: string[];
@@ -1032,15 +1037,17 @@ export async function getPasswordPolicies(): Promise<PasswordPolicy[]> {
   const mappedPolicies: PasswordPolicy[] = backendPolicies.map((policy: BackendPolicy) => ({
     policy_name: policy.name,
     schema: policy.schema_name,
-    min_length: 8, // Default - not in LIST response
-    max_length: 256,
-    min_upper_case_chars: 0,
-    min_lower_case_chars: 0,
-    min_numeric_chars: 0,
-    min_special_chars: 0,
-    max_age_days: 90,
-    max_retries: 5,
-    lockout_time_mins: 15,
+    // The LIST response carries no config detail — surface null (→ "—") instead
+    // of a fabricated default. The real values come from the details endpoint.
+    min_length: null,
+    max_length: null,
+    min_upper_case_chars: null,
+    min_lower_case_chars: null,
+    min_numeric_chars: null,
+    min_special_chars: null,
+    max_age_days: null,
+    max_retries: null,
+    lockout_time_mins: null,
     is_default: false,
     created_at: policy.created_on,
     granted_roles: policy.granted_roles || [],
@@ -1178,8 +1185,9 @@ export async function getSessionPolicies(): Promise<SessionPolicy[]> {
   const mappedPolicies: SessionPolicy[] = backendPolicies.map((policy: BackendPolicy) => ({
     policy_name: policy.name,
     schema: policy.schema_name,
-    session_idle_timeout_mins: 60, // Default - not in LIST response
-    session_ui_idle_timeout_mins: 30,
+    // Timeouts are not in the LIST response — surface null (→ "—") not a default.
+    session_idle_timeout_mins: null,
+    session_ui_idle_timeout_mins: null,
     is_default: false,
     created_at: policy.created_on,
     granted_roles: policy.granted_roles || [],

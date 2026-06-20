@@ -20,9 +20,9 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Database, Boxes, Table2, Eye, GitBranch, Activity as ActivityIcon, Layers,
-  Workflow, Server, ShieldAlert, DollarSign, Gauge, Sparkles, ArrowRight,
-  AlertTriangle, Lock, Cpu, Zap, FileBox, ShieldCheck, Boxes as BoxesIcon, Rocket,
+  Database, Boxes, Table2, GitBranch, Layers,
+  DollarSign, Gauge, Sparkles, ArrowRight,
+  AlertTriangle, Lock, Zap, FileBox, ShieldCheck, Boxes as BoxesIcon, Rocket,
 } from 'lucide-react';
 import AuditTable from './AuditTable';
 import LineageFlow from './LineageFlow';
@@ -41,35 +41,6 @@ const SUBTABS = [
   'Governance', 'Cost & Performance', 'Activity',
 ] as const;
 type SubTab = (typeof SUBTABS)[number];
-
-// ── sample data (échantillon — replaced by real endpoints after UX sign-off) ──
-const spark = (seed: number) =>
-  Array.from({ length: 12 }, (_, i) => 40 + Math.round(20 * Math.sin(seed + i / 1.7)) + (i % 3) * 4);
-
-const KPIS: { label: string; value: string; delta?: string; tone: string; badge?: { text: string; tone: string }; seed: number }[] = [
-  { label: 'Databases', value: '24', delta: '+3', tone: 'blue', seed: 1 },
-  { label: 'Schemas', value: '156', delta: '+8', tone: 'violet', seed: 2 },
-  { label: 'Objects', value: '8,732', delta: '+142', tone: 'indigo', seed: 3 },
-  { label: 'Tables', value: '4,102', delta: '+61', tone: 'cyan', seed: 4 },
-  { label: 'Views', value: '2,341', delta: '+32', tone: 'sky', seed: 5 },
-  { label: 'Dynamic Tables', value: '128', delta: '+5', tone: 'teal', seed: 6 },
-  { label: 'Streams', value: '97', delta: '—', tone: 'emerald', seed: 7 },
-  { label: 'Tasks', value: '214', delta: '+9', tone: 'blue', seed: 8 },
-  { label: 'Pipes', value: '68', delta: '+3', tone: 'violet', seed: 9 },
-  { label: 'Warehouses', value: '19', delta: '—', tone: 'indigo', seed: 10 },
-  { label: 'Roles / Grants Risk', value: '12', delta: '+4', tone: 'rose', badge: { text: 'High', tone: 'rose' }, seed: 11 },
-  { label: 'Monthly Cost', value: '$128,430', delta: '↓6%', tone: 'amber', badge: { text: 'Med', tone: 'amber' }, seed: 12 },
-  { label: 'AI Scan Score', value: '78/100', delta: '+6 pts', tone: 'green', badge: { text: 'Good', tone: 'green' }, seed: 13 },
-];
-
-const DISCOVERY: { cat: string; tone: string; icon: any; title: string; metric: string; sub: string; cta: string }[] = [
-  { cat: 'Cost', tone: 'blue', icon: DollarSign, title: 'High storage cost', metric: '12 objects', sub: '$18.4k/mo estimated', cta: 'Review in Governance' },
-  { cat: 'Perf', tone: 'rose', icon: Gauge, title: 'Performance risk', metric: '7 slow objects', sub: 'High latency / long scans', cta: 'Investigate Performance' },
-  { cat: 'Security', tone: 'amber', icon: ShieldAlert, title: 'Security risk', metric: '5 sensitive objects', sub: 'Without policy or masking', cta: 'Review in Governance' },
-  { cat: 'Usage', tone: 'sky', icon: ActivityIcon, title: 'Usage anomaly', metric: '3 roles overexposed', sub: 'Excessive access detected', cta: 'Review Access' },
-  { cat: 'Opportunity', tone: 'violet', icon: Sparkles, title: 'Modeling opportunity', metric: '9 costly queries', sub: 'Can be modeled in Data360', cta: 'Open in Modeling' },
-  { cat: 'Opportunity', tone: 'emerald', icon: Zap, title: 'API opportunity', metric: '4 datasets', sub: 'Ready to expose with cache', cta: 'Expose as API' },
-];
 
 type MigrationClass = 'product' | 'preparation' | 'mvp' | 'cloned';
 interface SampleObject {
@@ -91,14 +62,6 @@ interface SampleObject {
   attributedCredits?: number | null;
   billableQueries?: number | null;
 }
-
-const OBJECTS: SampleObject[] = [
-  { name: 'FACT_TRANSACTIONS', type: 'TABLE', db: 'RETAIL_DW', schema: 'SALES', owner: 'Riya Patel', aiScore: 92, storage: '2.34 TB', perfRisk: 'Low', secRisk: 'Medium', roles: 12, projects: 6, products: 4, cost: 'High', costMo: '$6,240/mo', nextAction: 'Model in Data360', migration: 'product', tags: ['Retail', 'Finance', 'Sensitive', 'Used in 4 products', 'Candidate for API'], sensitivity: 'Sensitive', classification: 'PII', policy: 'Row Access Policy', rows: '1.24B', cols: 42, timeTravel: '7 days' },
-  { name: 'DIM_CUSTOMERS', type: 'TABLE', db: 'RETAIL_DW', schema: 'SALES', owner: 'Arjun Mehta', aiScore: 88, storage: '842 GB', perfRisk: 'Medium', secRisk: 'Low', roles: 9, projects: 4, products: 3, cost: 'Medium', costMo: '$1,820/mo', nextAction: 'Govern in Governance', migration: 'preparation', tags: ['Retail', 'Reference'], sensitivity: 'Internal', classification: '—', policy: '—', rows: '48M', cols: 31, timeTravel: '3 days' },
-  { name: 'ORDERS', type: 'TABLE', db: 'RETAIL_DW', schema: 'SALES', owner: 'Neha Singh', aiScore: 76, storage: '512 GB', perfRisk: 'Low', secRisk: 'Low', roles: 7, projects: 3, products: 2, cost: 'Medium', costMo: '$1,210/mo', nextAction: 'Expose as API', migration: 'mvp', tags: ['Retail', 'Transactional'], sensitivity: 'Internal', classification: '—', policy: '—', rows: '210M', cols: 24, timeTravel: '1 day' },
-  { name: 'CHAT_MESSAGES', type: 'TABLE', db: 'RETAIL_DW', schema: 'SALES', owner: 'Riya Patel', aiScore: 61, storage: '211 GB', perfRisk: 'High', secRisk: 'High', roles: 15, projects: 5, products: 1, cost: 'High', costMo: '$3,780/mo', nextAction: 'Review in Governance', migration: 'cloned', tags: ['Support', 'Sensitive', 'Unmasked PII'], sensitivity: 'Sensitive', classification: 'PII', policy: '—', rows: '92M', cols: 18, timeTravel: '7 days' },
-  { name: 'GUI_PERMISSIONS', type: 'TABLE', db: 'RETAIL_DW', schema: 'SALES', owner: 'Security Team', aiScore: 54, storage: '68 GB', perfRisk: 'Low', secRisk: 'High', roles: 21, projects: 7, products: 0, cost: 'Low', costMo: '$210/mo', nextAction: 'Review Access', migration: 'preparation', tags: ['Security', 'Over-granted'], sensitivity: 'Restricted', classification: '—', policy: '—', rows: '1.1M', cols: 12, timeTravel: '1 day' },
-];
 
 const RISK_TONE: Record<string, string> = {
   Low: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
@@ -195,18 +158,91 @@ function mapObject(
   };
 }
 
-// ── tiny inline sparkline ─────────────────────────────────────────────────────
-function Sparkline({ seed, tone }: { seed: number; tone: string }) {
-  const d = spark(seed);
-  const max = Math.max(...d), min = Math.min(...d);
-  const pts = d
-    .map((v, i) => `${(i / (d.length - 1)) * 100},${24 - ((v - min) / Math.max(max - min, 1)) * 22}`)
-    .join(' ');
-  return (
-    <svg viewBox="0 0 100 24" className="h-6 w-full" preserveAspectRatio="none">
-      <polyline points={pts} fill="none" stroke={`var(--tw-${tone})`} className={`stroke-${tone}-400`} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
+// ── derived KPIs (computed from the REAL table-storage rows — no fabrication) ──
+// We surface only what the loaded ACCOUNT_USAGE objects let us count honestly:
+//   Databases / Schemas / Objects / Tables / Views + total storage.
+// Everything not derivable from this payload (Warehouses, Tasks, Pipes, Streams,
+// Monthly Cost, AI Scan Score) renders "—" rather than a fabricated number.
+interface DerivedKpi { label: string; value: string }
+function deriveKpis(objects: SampleObject[], loaded: boolean): DerivedKpi[] {
+  const dash = '—';
+  if (!loaded || objects.length === 0) {
+    return [
+      { label: 'Databases', value: dash },
+      { label: 'Schemas', value: dash },
+      { label: 'Objects', value: dash },
+      { label: 'Tables', value: dash },
+      { label: 'Views', value: dash },
+      { label: 'Total storage', value: dash },
+    ];
+  }
+  const dbs = new Set<string>();
+  const schemas = new Set<string>();
+  let tables = 0;
+  let views = 0;
+  let totalTb = 0;
+  for (const o of objects) {
+    if (o.db) dbs.add(o.db);
+    if (o.db || o.schema) schemas.add(`${o.db}.${o.schema}`);
+    const t = (o.type || '').toUpperCase();
+    if (t.includes('VIEW')) views += 1;
+    else tables += 1;
+    // storage strings are "x.xx TB" / "x.x GB" / "x MB" — parse back to TB
+    const m = /([\d.]+)\s*(TB|GB|MB)/.exec(o.storage || '');
+    if (m) {
+      const n = parseFloat(m[1]);
+      totalTb += m[2] === 'TB' ? n : m[2] === 'GB' ? n / 1024 : n / (1024 * 1024);
+    }
+  }
+  return [
+    { label: 'Databases', value: dbs.size.toLocaleString() },
+    { label: 'Schemas', value: schemas.size.toLocaleString() },
+    { label: 'Objects', value: objects.length.toLocaleString() },
+    { label: 'Tables', value: tables.toLocaleString() },
+    { label: 'Views', value: views.toLocaleString() },
+    { label: 'Total storage', value: totalTb > 0 ? fmtSize(totalTb) : dash },
+  ];
+}
+
+// ── Discovery — REAL findings derived from the loaded objects (no fabrication) ─
+interface DiscoveryItem { cat: string; tone: string; icon: any; title: string; metric: string; sub: string; cta: string; route: string }
+function deriveDiscovery(objects: SampleObject[]): DiscoveryItem[] {
+  const items: DiscoveryItem[] = [];
+  const highCost = objects.filter((o) => o.cost === 'High').length;
+  if (highCost > 0) {
+    items.push({
+      cat: 'Cost', tone: 'blue', icon: DollarSign, title: 'High-storage objects',
+      metric: `${highCost} object${highCost > 1 ? 's' : ''}`, sub: 'Largest storage footprint',
+      cta: 'Review in Governance', route: '/governance',
+    });
+  }
+  const perfRisk = objects.filter((o) => o.perfRisk === 'High').length;
+  if (perfRisk > 0) {
+    items.push({
+      cat: 'Perf', tone: 'rose', icon: Gauge, title: 'Performance risk',
+      metric: `${perfRisk} object${perfRisk > 1 ? 's' : ''}`, sub: 'Unclustered / very large tables',
+      cta: 'Open in Modeling', route: '/explore-design',
+    });
+  }
+  // Migration opportunity — objects scanned but not yet linked to a Data360
+  // project/product (enrichment overlay present, zero links).
+  const unmigrated = objects.filter((o) => o.enriched && o.projects === 0 && o.products === 0).length;
+  if (unmigrated > 0) {
+    items.push({
+      cat: 'Opportunity', tone: 'violet', icon: Sparkles, title: 'Modeling opportunity',
+      metric: `${unmigrated} object${unmigrated > 1 ? 's' : ''}`, sub: 'Not yet a Data360 product',
+      cta: 'Model in Data360', route: '/explore-design?intent=model&from=scan',
+    });
+  }
+  const productCandidates = objects.filter((o) => o.migration === 'product').length;
+  if (productCandidates > 0) {
+    items.push({
+      cat: 'Opportunity', tone: 'emerald', icon: Zap, title: 'API opportunity',
+      metric: `${productCandidates} dataset${productCandidates > 1 ? 's' : ''}`, sub: 'Large governed candidates to expose',
+      cta: 'Expose as API', route: '/governance/oauth',
+    });
+  }
+  return items;
 }
 
 function SamplePill() {
@@ -220,9 +256,10 @@ function SamplePill() {
 // ── Overview sub-tab ──────────────────────────────────────────────────────────
 function OverviewSub() {
   const router = useRouter();
-  const [objects, setObjects] = useState<SampleObject[]>(OBJECTS);
-  const [selected, setSelected] = useState<SampleObject>(OBJECTS[0]);
+  const [objects, setObjects] = useState<SampleObject[]>([]);
+  const [selected, setSelected] = useState<SampleObject | null>(null);
   const [detailTab, setDetailTab] = useState<'Summary' | 'Lineage' | 'Governance' | 'Cost & Performance' | 'Usage'>('Summary');
+  const [loadingObjects, setLoadingObjects] = useState(true);
   const [realLoaded, setRealLoaded] = useState(false);
   const [enrichDegraded, setEnrichDegraded] = useState(false);
   const [page, setPage] = useState(0);
@@ -238,6 +275,7 @@ function OverviewSub() {
   // columns live and render "—" for usage/cost instead of fake zeros.
   useEffect(() => {
     let active = true;
+    setLoadingObjects(true);
     Promise.all([getTableStorage(120), getObjectEnrichment(90)])
       .then(([storage, enrich]) => {
         if (!active) return;
@@ -262,17 +300,28 @@ function OverviewSub() {
         const mapped = ((storage?.data ?? []) as Record<string, unknown>[]).map((r) =>
           mapObject(r, emap),
         );
-        if (mapped.length) {
-          setObjects(mapped);
-          setSelected(mapped[0]);
-          setRealLoaded(true);
-        }
+        // Always reflect the REAL result — including an honest-empty (clean
+        // account) — instead of retaining seeded sample rows.
+        setObjects(mapped);
+        setSelected(mapped[0] ?? null);
+        setRealLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!active) return;
+        setObjects([]);
+        setSelected(null);
+        setRealLoaded(false);
+      })
+      .finally(() => {
+        if (active) setLoadingObjects(false);
+      });
     return () => {
       active = false;
     };
   }, []);
+
+  const kpis = deriveKpis(objects, realLoaded);
+  const discovery = deriveDiscovery(objects);
 
   // Hierarchy filter (db → schema) + pagination → keep the table to one page.
   const filtered = objects.filter(
@@ -293,63 +342,60 @@ function OverviewSub() {
 
   return (
     <div className="space-y-5">
-      {/* KPI grid */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        {KPIS.map((k) => (
+      {/* KPI grid — counts derived from the REAL table-storage payload.
+          Non-derivable metrics render "—" (never a fabricated number / fake 0). */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {kpis.map((k) => (
           <div key={k.label} className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
-            <div className="flex items-center justify-between">
-              <span className="truncate text-[11px] text-gray-500 dark:text-gray-400">{k.label}</span>
-              {k.badge && (
-                <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${RISK_TONE[k.badge.text === 'High' ? 'High' : k.badge.text === 'Med' ? 'Medium' : 'Low'] ?? ''}`}>
-                  {k.badge.text}
-                </span>
-              )}
-            </div>
+            <span className="truncate text-[11px] text-gray-500 dark:text-gray-400">{k.label}</span>
             <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-lg font-bold text-gray-900 dark:text-white">{k.value}</span>
-              {k.delta && <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400">{k.delta}</span>}
+              <span className="text-lg font-bold text-gray-900 dark:text-white">
+                {loadingObjects && !realLoaded ? '…' : k.value}
+              </span>
             </div>
-            <Sparkline seed={k.seed} tone={k.tone} />
           </div>
         ))}
       </div>
 
-      {/* AI Discovery Summary */}
-      <section>
-        <div className="mb-2 flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-violet-500" />
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">AI Discovery Summary</h3>
-          <SamplePill />
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          {DISCOVERY.map((d) => (
-            <div key={d.title} className="flex flex-col rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
-              <div className="mb-1 flex items-center gap-1.5">
-                <d.icon className={`h-3.5 w-3.5 text-${d.tone}-500`} />
-                <span className="text-[10px] font-medium uppercase tracking-wide text-gray-400">{d.cat}</span>
+      {/* Discovery — real findings computed from the loaded objects. CTAs are
+          wired to the actual module routes; no fabricated metrics. */}
+      {realLoaded && discovery.length > 0 && (
+        <section>
+          <div className="mb-2 flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-violet-500" />
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Discovery</h3>
+            <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
+              données réelles
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
+            {discovery.map((d) => (
+              <div key={d.title} className="flex flex-col rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
+                <div className="mb-1 flex items-center gap-1.5">
+                  <d.icon className={`h-3.5 w-3.5 text-${d.tone}-500`} />
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-gray-400">{d.cat}</span>
+                </div>
+                <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">{d.title}</p>
+                <p className="mt-0.5 text-sm font-bold text-gray-900 dark:text-white">{d.metric}</p>
+                <p className="mt-0.5 flex-1 text-[11px] text-gray-500 dark:text-gray-400">{d.sub}</p>
+                <button onClick={() => router.push(d.route)} className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline">
+                  {d.cta} <ArrowRight className="h-3 w-3" />
+                </button>
               </div>
-              <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">{d.title}</p>
-              <p className="mt-0.5 text-sm font-bold text-gray-900 dark:text-white">{d.metric}</p>
-              <p className="mt-0.5 flex-1 text-[11px] text-gray-500 dark:text-gray-400">{d.sub}</p>
-              <button className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline">
-                {d.cta} <ArrowRight className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Explorer table */}
       <section>
         <div className="mb-2 flex items-center gap-2">
           <Boxes className="h-4 w-4 text-indigo-500" />
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Explorer</h3>
-          {realLoaded ? (
+          {realLoaded && objects.length > 0 && (
             <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
               données réelles · {objects.length}
             </span>
-          ) : (
-            <SamplePill />
           )}
         </div>
         {realLoaded && enrichDegraded && (
@@ -383,6 +429,18 @@ function OverviewSub() {
             <span className="text-gray-400">· {filtered.length} objets</span>
           </div>
         )}
+        {loadingObjects && !realLoaded ? (
+          <div className="h-48 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+        ) : !selected ? (
+          <div className="rounded-xl border border-gray-200 bg-white p-8 text-center dark:border-gray-700 dark:bg-gray-900">
+            <Database className="mx-auto mb-2 h-6 w-6 text-gray-300 dark:text-gray-600" />
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Aucun objet de stockage détecté</p>
+            <p className="mt-1 text-xs text-gray-400">
+              ACCOUNT_USAGE.TABLE_STORAGE_METRICS n’a renvoyé aucune ligne pour ce compte.
+            </p>
+          </div>
+        ) : (
+        <>
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
           <table className="w-full text-left text-[11px]">
@@ -400,7 +458,7 @@ function OverviewSub() {
                   <tr
                     key={`${o.db}.${o.schema}.${o.name}`}
                     onClick={() => setSelected(o)}
-                    className={`cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50 ${selected.name === o.name ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}`}
+                    className={`cursor-pointer border-b border-gray-100 last:border-0 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50 ${selected?.name === o.name ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}`}
                   >
                     <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-gray-900 dark:text-gray-100">{o.name}</td>
                     <td className="px-2.5 py-1.5 text-gray-500">{o.type}</td>
@@ -439,9 +497,12 @@ function OverviewSub() {
         </div>
           <ActionRail o={selected} onGo={(r) => router.push(r)} />
         </div>
+        </>
+        )}
       </section>
 
       {/* Detail panel */}
+      {selected && (
       <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <Table2 className="h-4 w-4 text-indigo-500" />
@@ -537,6 +598,7 @@ function OverviewSub() {
           )
         )}
       </section>
+      )}
     </div>
   );
 }

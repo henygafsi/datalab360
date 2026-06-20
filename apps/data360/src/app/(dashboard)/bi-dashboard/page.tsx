@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
-import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, ExternalLink, Clock, Rocket } from 'lucide-react';
+import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, ExternalLink, Clock, Rocket, AlertTriangle, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -294,6 +294,11 @@ function BIDashboardPage() {
   const [showAutoCreate, setShowAutoCreate] = useState(false);
   const [projects, setProjects] = useState<UnifiedProject[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
+  // A fetch failure must NOT read as "no dashboards yet" (an empty state implies
+  // success-with-no-rows). Track the error distinctly so we can render an inline
+  // error + retry instead of the misleading empty state.
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     trackFeatureClick('page_view', { module: 'bi_dashboard' });
@@ -307,18 +312,28 @@ function BIDashboardPage() {
     // own / contributed projects, which hid every seed). The response is already
     // in UnifiedProject shape and is cross-type, so we filter to bi_dashboard
     // here. Real KPIs (version / deployment) come straight from the payload.
+    let cancelled = false;
+    setProjectsLoading(true);
+    setProjectsError(null);
     getUnifiedProjects({ mine_only: false, limit: 100, offset: 0 })
       .then((res) => {
+        if (cancelled) return;
         const rows = Array.isArray(res?.projects) ? res.projects : [];
         setProjects(
           rows.filter((p) => p.type === 'bi_dashboard' && p.status !== 'deleted'),
         );
       })
       .catch(() => {
-        // graceful — show empty state
+        // Surface the failure as a distinct error state (not the empty state) so
+        // a backend hiccup is honestly recoverable via Retry.
+        if (cancelled) return;
+        setProjectsError("Couldn't load your dashboards. This is a loading error, not an empty workspace.");
       })
-      .finally(() => setProjectsLoading(false));
-  }, []);
+      .finally(() => {
+        if (!cancelled) setProjectsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
   const handleCreated = useCallback((projectId: string) => {
     trackFeatureClick('bi_dashboard_created', { projectId });
@@ -396,11 +411,29 @@ function BIDashboardPage() {
           <div className="mb-6">
             <ScoreCards projectId={urlProjectId ?? undefined} />
           </div>
-          {!projectsLoading && projects.length === 0 && (
+          {/* Distinct error state — never collapse a fetch failure into the
+              "no dashboards yet" empty state. */}
+          {!projectsLoading && projectsError && (
+            <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-red-200 bg-red-50 px-6 py-12 text-center dark:border-red-900/50 dark:bg-red-900/10">
+              <AlertTriangle className="h-8 w-8 text-red-500" />
+              <p className="max-w-md text-sm text-red-600 dark:text-red-400">{projectsError}</p>
+              <button
+                type="button"
+                onClick={() => setReloadKey((k) => k + 1)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Retry
+              </button>
+            </div>
+          )}
+          {!projectsLoading && !projectsError && projects.length === 0 && (
             <EmptyState onCreate={() => { setShowCreate(true); }} />
           )}
-          <ProjectList projects={projects} isLoading={projectsLoading} highlightId={urlProjectId} />
-          {(!projectsLoading || projects.length > 0) && <FeatureGrid />}
+          {!projectsError && (
+            <ProjectList projects={projects} isLoading={projectsLoading} highlightId={urlProjectId} />
+          )}
+          {!projectsError && (!projectsLoading || projects.length > 0) && <FeatureGrid />}
         </div>
 
         {/* Create modal */}

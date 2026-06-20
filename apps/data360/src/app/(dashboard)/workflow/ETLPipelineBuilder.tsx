@@ -4296,10 +4296,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             (Box icon). Selecting a node on the canvas routes the panel there. */}
       </div>
 
-      {/* Loading overlay */}
-      {isLoading && (
-        <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 flex items-center justify-center z-50">
-          <Loader size="lg" />
+      {/* Refetch indicator — non-blocking. The very first load is handled by the
+          page-level full-screen state above (isLoading && workflows.length === 0).
+          On every subsequent refetch we keep the canvas interactive and show only
+          a subtle corner badge so background syncs never block editing. */}
+      {isLoading && workflows.length > 0 && (
+        <div className="absolute top-3 right-3 z-50 flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm backdrop-blur-sm pointer-events-none dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-300">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+          Refreshing…
         </div>
       )}
 

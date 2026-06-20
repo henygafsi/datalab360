@@ -40,6 +40,7 @@ import {
 } from '@/app/services/observability';
 import apiClient from '@/lib/api-client';
 import { dash } from '@/app/shared/ui/format';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 // Types
 import type {
@@ -129,6 +130,15 @@ function CrossModuleLineageTab() {
   const [activeView, setActiveView] = useState<LineageView>('dependency-flow');
   const [search, setSearch] = useState('');
 
+  // Action-RBAC gate (System 2): suspend/resume hit ALTER TASK on the warehouse.
+  // The backend action registry exposes these under workflow.scheduling.tasks
+  // ('suspend' / 'resume'); observability has no task-control action. Fail-open
+  // while the allow-set loads so a transient hiccup never hides admins' controls.
+  const suspendPerm = useCanPerform('workflow', 'suspend');
+  const resumePerm = useCanPerform('workflow', 'resume');
+  const canSuspend = suspendPerm.allowed || suspendPerm.loading;
+  const canResume = resumePerm.allowed || resumePerm.loading;
+
   // Lineage/access data (merged from old LineageTab)
   const [lineageData, setLineageData] = useState<any[]>([]);
   const [accessPatterns, setAccessPatterns] = useState<any[]>([]);
@@ -203,6 +213,8 @@ function CrossModuleLineageTab() {
   const enrichedTasks: any[] = taskLineageData?.tasks || [];
 
   const suspendTask = async (task: any) => {
+    if (!canSuspend) { toast.error('You lack the "suspend" permission on workflow tasks.'); return; }
+    if (!window.confirm(`Suspend task "${task.task_name}"? Its scheduled runs will stop until resumed.`)) return;
     try {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/suspend`);
       toast.success(`Task ${task.task_name} suspended`);
@@ -211,6 +223,8 @@ function CrossModuleLineageTab() {
   };
 
   const resumeTask = async (task: any) => {
+    if (!canResume) { toast.error('You lack the "resume" permission on workflow tasks.'); return; }
+    if (!window.confirm(`Resume task "${task.task_name}"? Scheduled execution will start again.`)) return;
     try {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/resume`);
       toast.success(`Task ${task.task_name} resumed`);
@@ -808,9 +822,9 @@ function CrossModuleLineageTab() {
       {!loading && activeView === 'tasks' && (
         <div className="space-y-4">
           {taskLineageLoading && (
-            <div className="flex items-center justify-center py-8">
-              <Loader size="lg" />
-            </div>
+            /* Non-blocking skeleton — keeps the tab structure visible during
+               load instead of a full-section spinner. */
+            <TableSkeleton rows={6} columns={5} />
           )}
 
           {/* Task Stats Cards */}
@@ -868,10 +882,10 @@ function CrossModuleLineageTab() {
                         <td className="py-2 px-2">
                           <div className="flex gap-1">
                             {t.state === 'started' && (
-                              <Button size="sm" variant="outline" onClick={() => suspendTask(t)}>Suspend</Button>
+                              <Button size="sm" variant="outline" disabled={!canSuspend} title={!canSuspend ? 'Requires the "suspend" permission on workflow tasks.' : undefined} onClick={() => suspendTask(t)}>Suspend</Button>
                             )}
                             {t.state === 'suspended' && (
-                              <Button size="sm" className="bg-green-600 text-white hover:bg-green-700" onClick={() => resumeTask(t)}>Resume</Button>
+                              <Button size="sm" disabled={!canResume} title={!canResume ? 'Requires the "resume" permission on workflow tasks.' : undefined} className="bg-green-600 text-white hover:bg-green-700" onClick={() => resumeTask(t)}>Resume</Button>
                             )}
                             <Button size="sm" variant="outline" onClick={() => importToWorkflow(t)}>
                               {'\u2192'} Workflow
@@ -1007,6 +1021,13 @@ function TasksLineageTab() {
   const [days] = useState(30);
   const [showGraph, setShowGraph] = useState(false);
 
+  // Action-RBAC gate (System 2) — suspend/resume map to ALTER TASK; gated under
+  // the workflow.scheduling.tasks registry actions. Fail-open while loading.
+  const suspendPerm = useCanPerform('workflow', 'suspend');
+  const resumePerm = useCanPerform('workflow', 'resume');
+  const canSuspend = suspendPerm.allowed || suspendPerm.loading;
+  const canResume = resumePerm.allowed || resumePerm.loading;
+
   const fetchTasks = useCallback(async () => {
     setTaskLineageLoading(true);
     try {
@@ -1025,6 +1046,8 @@ function TasksLineageTab() {
   const enrichedTasks: any[] = taskLineageData?.tasks || [];
 
   const suspendTask = async (task: any) => {
+    if (!canSuspend) { toast.error('You lack the "suspend" permission on workflow tasks.'); return; }
+    if (!window.confirm(`Suspend task "${task.task_name}"? Its scheduled runs will stop until resumed.`)) return;
     try {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/suspend`);
       toast.success(`Task ${task.task_name} suspended`);
@@ -1033,6 +1056,8 @@ function TasksLineageTab() {
   };
 
   const resumeTask = async (task: any) => {
+    if (!canResume) { toast.error('You lack the "resume" permission on workflow tasks.'); return; }
+    if (!window.confirm(`Resume task "${task.task_name}"? Scheduled execution will start again.`)) return;
     try {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/resume`);
       toast.success(`Task ${task.task_name} resumed`);
@@ -1126,10 +1151,10 @@ function TasksLineageTab() {
                     <td className="py-2 px-2">
                       <div className="flex gap-1">
                         {t.state === 'started' && (
-                          <Button size="sm" variant="outline" onClick={() => suspendTask(t)}>Suspend</Button>
+                          <Button size="sm" variant="outline" disabled={!canSuspend} title={!canSuspend ? 'Requires the "suspend" permission on workflow tasks.' : undefined} onClick={() => suspendTask(t)}>Suspend</Button>
                         )}
                         {t.state === 'suspended' && (
-                          <Button size="sm" className="bg-green-600 text-white hover:bg-green-700" onClick={() => resumeTask(t)}>Resume</Button>
+                          <Button size="sm" disabled={!canResume} title={!canResume ? 'Requires the "resume" permission on workflow tasks.' : undefined} className="bg-green-600 text-white hover:bg-green-700" onClick={() => resumeTask(t)}>Resume</Button>
                         )}
                         <Button size="sm" variant="outline" onClick={() => importToWorkflow(t)}>
                           {'\u2192'} Workflow

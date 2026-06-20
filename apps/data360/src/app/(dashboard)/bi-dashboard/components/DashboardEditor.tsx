@@ -440,7 +440,11 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
             width: u.w,
             height: u.h,
           }).catch(() => {
-            // silently ignore — user can refresh to re-sync
+            // Surface persistence failure so a dropped layout change isn't silent.
+            // Deduped id => one toast even if several widgets fail in one drag.
+            toast.error("Couldn't save the layout change — your edit may not persist on refresh.", {
+              id: 'bi-layout-persist',
+            });
           });
         }
       }

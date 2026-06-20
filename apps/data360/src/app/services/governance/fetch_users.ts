@@ -5,6 +5,7 @@
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { UserTableDataType } from '@/app/shared/governance/users/table';
+import { invalidateMyPermissions } from '@/hooks/useCanPerform';
 
 /**
  * Raw single-user detail as returned by GET /gouvernance/users/{username}
@@ -158,6 +159,8 @@ export async function addUser(userData: {
 export async function assignRoleToUser(username: string, roleName: string): Promise<string> {
   try {
     const response = await apiClient.post('/gouvernance/assign-role', { username, role_name: roleName });
+    // Assigning a role can change the caller's own effective permissions — refresh.
+    invalidateMyPermissions();
     return response.data as string;
   } catch (error) {
     console.error('Error assigning role:', error);

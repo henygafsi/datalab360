@@ -299,6 +299,11 @@ function IntegrationWizard({
   const [step, setStep] = useState(0);
   const [creating, setCreating] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+  // Creating a security integration is a mutating action — gate on
+  // gouvernance:create, mirroring the gated revoke sibling (fail-open while the
+  // allow-set loads). The Review-SQL step + explicit button serve as the confirm.
+  const createPerm = useCanPerform('gouvernance', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
 
   // Shared fields
   const [integrationName, setIntegrationName] = useState('');
@@ -792,7 +797,8 @@ function IntegrationWizard({
               </div>
               <button
                 onClick={handleCreate}
-                disabled={creating}
+                disabled={creating || !canCreate}
+                title={!canCreate ? 'You do not have permission to create security integrations.' : undefined}
                 className="inline-flex items-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-colors shadow-lg shadow-green-500/25"
               >
                 {creating ? (
@@ -1048,7 +1054,14 @@ function ApiKeysTab({
 
   // Assign RSA key state
   const [assigningUser, setAssigningUser] = useState<string | null>(null);
+  // Mirror the gated revoke sibling: create service user → gouvernance:create,
+  // assign RSA key → gouvernance:apply (attach a credential to a user). Fail-open
+  // while the allow-set loads. The multi-field forms serve as the confirm step.
   const canRevoke = useCanPerform('gouvernance', 'revoke');
+  const createPerm = useCanPerform('gouvernance', 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
+  const applyPerm = useCanPerform('gouvernance', 'apply');
+  const canApply = applyPerm.allowed || applyPerm.loading;
   const [rsaKey, setRsaKey] = useState('');
   const [assigning, setAssigning] = useState(false);
 
@@ -1239,7 +1252,8 @@ function ApiKeysTab({
             </button>
             <button
               onClick={handleCreate}
-              disabled={creating || !newUsername.trim()}
+              disabled={creating || !newUsername.trim() || !canCreate}
+              title={!canCreate ? 'You do not have permission to create service users.' : undefined}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
               {creating ? 'Creating...' : 'Create'}
@@ -1358,7 +1372,8 @@ function ApiKeysTab({
             </button>
             <button
               onClick={handleAssignKey}
-              disabled={assigning || !rsaKey.trim()}
+              disabled={assigning || !rsaKey.trim() || !canApply}
+              title={!canApply ? 'You do not have permission to assign RSA keys.' : undefined}
               className="px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
             >
               {assigning ? 'Assigning...' : 'Assign Key'}

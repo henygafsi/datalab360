@@ -372,13 +372,13 @@ export async function deployEvents(
   results: DeploymentResult[];
   summary: { applied: number; failed: number; skipped: number };
 }> {
-  console.warn('[deployEvents] no backend route — use deployment pipeline instead');
-  return {
-    deployment_id: '',
-    status: 'failed',
-    results: [],
-    summary: { applied: 0, failed: 0, skipped: 0 },
-  };
+  // No backend route. Do NOT fake a success response (that passes the api-health
+  // board green while testing nothing). The real pipeline is createDeployment +
+  // executeDeploymentV1(projectId, deploymentId). Callers must gate the button
+  // with useActionGate/InsightActionButton so it disables as "unavailable".
+  throw new Error(
+    '[deployEvents] not implemented — use createDeployment + executeDeploymentV1(projectId, deploymentId)'
+  );
 }
 
 // ============================================
@@ -566,8 +566,10 @@ export interface ConfigTemplate {
  */
 // TODO: backend endpoint not implemented — event-templates exist separately per project
 export async function getTemplates(): Promise<ConfigTemplate[]> {
-  console.warn('[getTemplates] no backend route');
-  return [];
+  // No backend route — config-templates are not a backend concept (event-templates
+  // exist separately, per-project). Throw rather than returning an empty array that
+  // is indistinguishable from a genuinely-empty list. Gate the UI with useActionGate.
+  throw new Error('[getTemplates] not implemented — no backend route');
 }
 
 /**
@@ -577,8 +579,8 @@ export async function getTemplates(): Promise<ConfigTemplate[]> {
 export async function saveTemplate(
   template: Omit<ConfigTemplate, 'id'>
 ): Promise<{ template_id: string; message: string }> {
-  console.warn('[saveTemplate] no backend route');
-  return { template_id: '', message: 'Backend endpoint not implemented' };
+  // No backend route. Don't fabricate a success envelope.
+  throw new Error('[saveTemplate] not implemented — no backend route');
 }
 
 /**
@@ -590,8 +592,8 @@ export async function applyTemplate(
   projectId: string,
   tables: TableReference[]
 ): Promise<{ success: boolean; applied_to: number; events_created: number }> {
-  console.warn('[applyTemplate] no backend route');
-  return { success: false, applied_to: 0, events_created: 0 };
+  // No backend route. Don't fabricate a success envelope.
+  throw new Error('[applyTemplate] not implemented — no backend route');
 }
 
 // ============================================
@@ -616,11 +618,9 @@ export interface SchemaChange {
 export async function detectSchemaChanges(
   projectId: string
 ): Promise<{ last_sync: string; changes: SchemaChange }> {
-  console.warn('[detectSchemaChanges] no backend route');
-  return {
-    last_sync: '',
-    changes: { new_tables: [], modified_tables: [], removed_tables: [] },
-  };
+  // No backend route. Don't return a fabricated "no changes" payload — that reads
+  // as a successful "schema is in sync" result when nothing was actually checked.
+  throw new Error('[detectSchemaChanges] not implemented — no backend route');
 }
 
 // ============================================
@@ -740,18 +740,11 @@ export async function getDeployment(deploymentId: string): Promise<Deployment & 
     duration_seconds: number;
   };
 }> {
-  return {
-    deployment_id: deploymentId,
-    project_id: '',
-    version: '',
-    type: 'immediate' as DeploymentType,
-    status: 'draft' as DeploymentStatus,
-    config: { immediate: false, rollback_on_error: false, notification_channels: [], approvers: [] },
-    event_ids: [],
-    created_at: '',
-    execution_log: [],
-    metrics: { total_events: 0, succeeded: 0, failed: 0, duration_seconds: 0 },
-  };
+  // No single-deployment GET route exists. Don't return a fabricated draft
+  // deployment — list deployments via listProjectDeploymentsV1 instead.
+  throw new Error(
+    '[getDeployment] not implemented — no single-deployment GET route; use listProjectDeploymentsV1(projectId)'
+  );
 }
 
 /**
@@ -771,12 +764,13 @@ export async function executeDeployment(
   status: DeploymentStatus;
   execution_started: string;
 }> {
-  console.warn('[executeDeployment] deprecated — use executeDeploymentV1(projectId, deploymentId) instead');
-  return {
-    deployment_id: deploymentId,
-    status: 'failed' as DeploymentStatus,
-    execution_started: '',
-  };
+  // This signature lacks projectId, which the registered route requires
+  // (POST /explore-design/{projectId}/deployments/{deploymentId}/execute).
+  // It cannot be wired in place. Throw instead of returning a fake "failed"
+  // envelope; callers must move to executeDeploymentV1(projectId, deploymentId).
+  throw new Error(
+    '[executeDeployment] not implemented at this signature — use executeDeploymentV1(projectId, deploymentId)'
+  );
 }
 
 /**
@@ -788,8 +782,13 @@ export async function rollbackDeployment(
   targetVersion: string,
   reason: string
 ): Promise<{ success: boolean; message: string; rollback_deployment_id?: string }> {
-  console.warn('[rollbackDeployment] no backend route — use projectsApi.rollbackProject(projectId, ...) instead');
-  return { success: false, message: 'Backend endpoint not implemented. Use projectsApi.rollbackProject instead.' };
+  // No deployment-scoped rollback route. The supported path is project-scoped
+  // (projectsApi.rollbackProject(projectId, { target_version_id })), which this
+  // deployment-id-only signature can't reach. Throw rather than report a fake
+  // failure so callers don't believe a rollback was attempted.
+  throw new Error(
+    '[rollbackDeployment] not implemented — use projectsApi.rollbackProject(projectId, { target_version_id })'
+  );
 }
 
 /**
@@ -853,8 +852,10 @@ export async function createVersion(
   changelogSummary: string,
   snapshotEvents?: boolean
 ): Promise<{ version_id: string; version: string; previous_version?: string }> {
-  console.warn('[createVersion] no backend route — versions are created via the deployment flow');
-  return { version_id: '', version: '', previous_version: undefined };
+  // No backend route — versions are created as a side effect of the deployment
+  // flow. Throw rather than return an empty version_id that callers would treat
+  // as a successfully-created version.
+  throw new Error('[createVersion] not implemented — versions are created via the deployment flow');
 }
 
 /**
@@ -870,17 +871,8 @@ export async function listVersions(projectId: string): Promise<{ versions: Versi
  */
 // TODO: backend endpoint not implemented — no single-version detail route
 export async function getVersion(versionId: string): Promise<Version & { snapshot: any }> {
-  console.warn('[getVersion] no backend route for version detail');
-  return {
-    version_id: versionId,
-    project_id: '',
-    version: '',
-    status: 'draft' as VersionStatus,
-    created_at: '',
-    created_by: '',
-    changelog: { summary: '', changes: [] },
-    snapshot: null,
-  };
+  // No single-version detail route. Don't fabricate an empty draft version.
+  throw new Error('[getVersion] not implemented — no version-detail route; list via listVersions(projectId)');
 }
 
 /**
@@ -904,12 +896,8 @@ export async function compareVersions(
     policies_removed: string[];
   };
 }> {
-  console.warn('[compareVersions] no backend route');
-  return {
-    from_version: fromVersionId,
-    to_version: toVersionId,
-    diff: { tables_added: [], tables_removed: [], tables_modified: [], policies_added: [], policies_removed: [] },
-  };
+  // No backend route. Don't return an empty diff that reads as "no differences".
+  throw new Error('[compareVersions] not implemented — no version-comparison route');
 }
 
 /**
@@ -917,8 +905,8 @@ export async function compareVersions(
  */
 // TODO: backend endpoint not implemented
 export async function publishVersion(versionId: string): Promise<{ success: boolean; published_at: string }> {
-  console.warn('[publishVersion] no backend route');
-  return { success: false, published_at: '' };
+  // No backend route. Don't fabricate a result envelope.
+  throw new Error('[publishVersion] not implemented — no backend route');
 }
 
 /**
@@ -926,8 +914,8 @@ export async function publishVersion(versionId: string): Promise<{ success: bool
  */
 // TODO: backend endpoint not implemented
 export async function archiveVersion(versionId: string): Promise<{ success: boolean; message: string }> {
-  console.warn('[archiveVersion] no backend route');
-  return { success: false, message: 'Backend endpoint not implemented' };
+  // No backend route. Don't fabricate a result envelope.
+  throw new Error('[archiveVersion] not implemented — no backend route');
 }
 
 // ============================================
@@ -976,8 +964,10 @@ export async function getPendingApprovals(): Promise<{
   pending: ApprovalRequest[];
   total: number;
 }> {
-  console.warn('[getPendingApprovals] no backend route');
-  return { pending: [], total: 0 };
+  // No backend route — the approval workflow is deployment-scoped
+  // (approve/rejectDeploymentV1). Throw rather than return an empty list that
+  // looks like "no pending approvals".
+  throw new Error('[getPendingApprovals] not implemented — approvals are deployment-scoped (approveDeploymentV1)');
 }
 
 /**
@@ -985,20 +975,8 @@ export async function getPendingApprovals(): Promise<{
  */
 // TODO: backend endpoint not implemented
 export async function getApprovalDetails(approvalId: string): Promise<ApprovalRequest> {
-  console.warn('[getApprovalDetails] no backend route');
-  return {
-    approval_request_id: approvalId,
-    project_id: '',
-    deployment_id: '',
-    version: '',
-    requested_by: '',
-    requested_at: '',
-    status: 'pending' as ApprovalStatus,
-    priority: 'low' as ApprovalPriority,
-    changes_summary: { total_events: 0, by_category: {}, high_risk_changes: 0, affected_tables: 0 },
-    approvers: [],
-    comments: [],
-  };
+  // No backend route. Don't fabricate an empty approval-request object.
+  throw new Error('[getApprovalDetails] not implemented — no backend route');
 }
 
 /**
@@ -1009,8 +987,10 @@ export async function approveRequest(
   approvalId: string,
   comment?: string
 ): Promise<{ success: boolean; deployment_status: string }> {
-  console.warn('[approveRequest] no backend route — use approveDeploymentV1 instead');
-  return { success: false, deployment_status: '' };
+  // This approval-id-only signature can't reach the registered project+deployment
+  // scoped route. Throw rather than report a fake failure; callers must use
+  // approveDeploymentV1(projectId, deploymentId).
+  throw new Error('[approveRequest] not implemented at this signature — use approveDeploymentV1(projectId, deploymentId)');
 }
 
 /**
@@ -1022,8 +1002,10 @@ export async function rejectRequest(
   comment: string,
   requiredChanges?: Array<{ type: string; table?: string; column?: string }>
 ): Promise<{ success: boolean; message: string }> {
-  console.warn('[rejectRequest] no backend route — use rejectDeploymentV1 instead');
-  return { success: false, message: 'Backend endpoint not implemented. Use rejectDeploymentV1 instead.' };
+  // This approval-id-only signature can't reach the registered project+deployment
+  // scoped route. Throw rather than report a fake failure; callers must use
+  // rejectDeploymentV1(projectId, deploymentId, reason).
+  throw new Error('[rejectRequest] not implemented at this signature — use rejectDeploymentV1(projectId, deploymentId, reason)');
 }
 
 /**
@@ -1034,8 +1016,8 @@ export async function addApprovalComment(
   approvalId: string,
   comment: string
 ): Promise<{ success: boolean; comment_id: string }> {
-  console.warn('[addApprovalComment] no backend route');
-  return { success: false, comment_id: '' };
+  // No backend route. Don't fabricate a result envelope.
+  throw new Error('[addApprovalComment] not implemented — no backend route');
 }
 
 // ============================================
@@ -1591,28 +1573,13 @@ export async function deploySchema(
   // NOTE: there is no backend route for this stub — real callers use deployWithVersion
   // (or the deployment pipeline). Guard against a missing/undefined sql_queries so the
   // health probe doesn't crash with "Cannot read properties of undefined (reading 'length')".
-  console.warn('[deploySchema] no backend route — use deployWithVersion or deployment pipeline');
-  const queryCount = request.sql_queries?.length ?? 0;
-  return {
-    status: 'failed',
-    version_name: request.version_name || 'Unknown',
-    version_number: 0,
-    executed_statements: 0,
-    failed_statements: queryCount,
-    changes_summary: {
-      tables_created: 0,
-      tables_modified: 0,
-      tables_dropped: 0,
-      columns_added: 0,
-      columns_modified: 0,
-      columns_dropped: 0,
-      constraints_added: 0,
-      constraints_dropped: 0,
-    },
-    rollback_available: false,
-    errors: ['Backend endpoint /explore-design/deploy_schema not implemented'],
-    warnings: [],
-  };
+  // DOCUMENTED DEAD STUB — there is no `/explore-design/deploy_schema` backend
+  // route. The real paths are deployWithVersion(...) and the deployment pipeline
+  // (createDeployment + executeDeploymentV1). Throw an explicit not-implemented
+  // error so this never appears to succeed; any UI surface must gate/label it.
+  throw new Error(
+    '[deploySchema] not implemented — no /explore-design/deploy_schema route; use deployWithVersion or the deployment pipeline'
+  );
 }
 
 /**

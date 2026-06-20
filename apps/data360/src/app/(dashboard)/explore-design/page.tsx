@@ -1057,6 +1057,10 @@ export default function ExploreDesignPage() {
   const [isLoadingSchemas, setIsLoadingSchemas] = useState(false);
   const [isLoadingTables, setIsLoadingTables] = useState(false);
   const [isLoadingColumns, setIsLoadingColumns] = useState(false);
+  // Distinguish a failed schema/table read from a genuinely-empty catalog so the
+  // catalog can show an inline error + Retry instead of the "No tables loaded"
+  // empty state (which silently masks the failure).
+  const [catalogLoadError, setCatalogLoadError] = useState<string | null>(null);
   const [columnsLoadError, setColumnsLoadError] = useState<null | { kind: 'timeout' | 'generic'; message: string }>(null);
   const [columnsLoadAttempt, setColumnsLoadAttempt] = useState(0);
   const [isLoadingPolicies, setIsLoadingPolicies] = useState(false);
@@ -1981,6 +1985,7 @@ export default function ExploreDesignPage() {
     let cancelled = false;
     const loadSchemas = async () => {
       setIsLoadingSchemas(true);
+      setCatalogLoadError(null);
       try {
         const schemaList = await getSchemas(selectedDatabase);
         if (cancelled) return;
@@ -1996,6 +2001,7 @@ export default function ExploreDesignPage() {
       } catch (error) {
         if (cancelled) return;
         console.error('[Explore-Design] Failed to load schemas:', error);
+        setCatalogLoadError('Failed to load schemas. Check your connection and retry.');
         toast.error('Failed to load schemas');
       } finally {
         if (!cancelled) setIsLoadingSchemas(false);
@@ -2003,7 +2009,9 @@ export default function ExploreDesignPage() {
     };
     loadSchemas();
     return () => { cancelled = true; };
-  }, [selectedDatabase]);
+    // refreshTrigger included so the catalog "Retry" button (which bumps it) also
+    // re-runs a failed schema load, not just the table load.
+  }, [selectedDatabase, refreshTrigger]);
 
   // Load tables when schemas are selected
   useEffect(() => {
@@ -2015,6 +2023,7 @@ export default function ExploreDesignPage() {
 
     const loadTables = async () => {
       setIsLoadingTables(true);
+      setCatalogLoadError(null);
       try {
         const newTables: TableItem[] = [];
 
@@ -2097,6 +2106,7 @@ export default function ExploreDesignPage() {
 
         }
       } catch (error) {
+        setCatalogLoadError('Failed to load tables. Check your connection and retry.');
         toast.error('Failed to load tables');
       } finally {
         setIsLoadingTables(false);
@@ -4243,6 +4253,24 @@ export default function ExploreDesignPage() {
                     <RefreshCw className="h-5 w-5 animate-spin text-blue-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
                   </div>
                   <span className="text-xs text-slate-400">Loading tables...</span>
+                </div>
+              ) : catalogLoadError ? (
+                <div className="flex flex-col items-center justify-center h-full text-center p-6">
+                  <div className="p-3 bg-rose-50 dark:bg-rose-900/20 rounded-xl mb-3">
+                    <Database className="h-8 w-8 text-rose-400 dark:text-rose-500" />
+                  </div>
+                  <p className="font-medium text-sm text-rose-600 dark:text-rose-400">Couldn&apos;t load the catalog</p>
+                  <p className="text-xs mt-1 text-slate-500 dark:text-slate-400 max-w-[220px]">
+                    {catalogLoadError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { setCatalogLoadError(null); setRefreshTrigger(prev => prev + 1); }}
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Retry
+                  </button>
                 </div>
               ) : catalogTables.length > 0 ? (
                 <VirtualizedTableList
