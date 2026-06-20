@@ -265,6 +265,21 @@ export async function getWorkflowCostSummary(workflowId: string) {
   return data;
 }
 
+/**
+ * Cancel a running workflow — POST /workflow/{id}/cancel.
+ * Workflow-LEVEL (not per-run): the backend suspends the scheduled task, marks
+ * any running runs as cancelled, and best-effort aborts the current session's
+ * in-flight query. Returns `{ cancelled_runs, ... }`. There is no per-run-id
+ * cancel route, so callers should phrase copy as "cancel running runs".
+ */
+export async function cancelWorkflowRun(workflowId: string) {
+  const { data } = await apiClient.post<{
+    cancelled_runs?: number;
+    [k: string]: unknown;
+  }>(API.workflow.cancelRun(workflowId));
+  return data;
+}
+
 export async function analyzeRun(workflowId: string, runId: string) {
   const { data } = await apiClient.post<{ ai_analysis: string }>(
     `${PREFIX}/${workflowId}/runs/${runId}/analyze`,
@@ -297,6 +312,18 @@ export async function suspendTask(workflowId: string) {
 export async function resumeTask(workflowId: string) {
   const { data } = await apiClient.post<{ status: string }>(
     `${PREFIX}/${workflowId}/schedule/resume`,
+  );
+  return data;
+}
+
+/**
+ * Delete (drop) the scheduled Snowflake TASK for this workflow —
+ * DELETE /workflow/{id}/schedule (DROP TASK IF EXISTS). This is a real
+ * teardown, distinct from suspend (pause), which only halts the task.
+ */
+export async function deleteSchedule(workflowId: string) {
+  const { data } = await apiClient.delete<{ state?: string; [k: string]: unknown }>(
+    API.workflow.scheduleDelete(workflowId),
   );
   return data;
 }

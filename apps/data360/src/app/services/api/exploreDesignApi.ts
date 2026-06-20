@@ -925,18 +925,15 @@ export async function getAuditTrail(
  * Wrapped in try-catch with safe fallback.
  */
 export async function listEventTemplates(params?: { category?: string }) {
-  try {
-    const { data } = await apiClient.get<EventTemplate[]>(
-      `${PREFIX}/event-templates`,
-      { params },
-    );
-    return data;
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[listEventTemplates] /event-templates not on backend; returning empty list.', error);
-    }
-    return [] as EventTemplate[];
-  }
+  // No-fake-empty: a 404/501 means the route is absent, NOT "zero templates".
+  // Rethrow it so the caller can render an honest "unavailable" state (and a
+  // `useActionGate` can self-disable) instead of a misleading empty list.
+  // Any OTHER error also rethrows so it isn't swallowed into a silent empty.
+  const { data } = await apiClient.get<EventTemplate[]>(
+    `${PREFIX}/event-templates`,
+    { params },
+  );
+  return data;
 }
 
 /**
