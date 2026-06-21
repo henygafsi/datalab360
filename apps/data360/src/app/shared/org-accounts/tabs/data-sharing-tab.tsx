@@ -21,6 +21,7 @@ import {
 import { ActionRail } from '@/app/shared/action-rail';
 import { ConfirmDestructiveDialog } from '@/components/ui/confirm-dialog';
 import { formatDate, formatBytes, formatCredits, extractApiError } from '@/app/services/org-accounts/utils';
+import { toServiceError } from '@/app/services/_errors';
 import type {
   ReaderAccount,
   Share,
@@ -103,7 +104,7 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
     } catch (e) {
       // POST /reader-accounts is not yet on the backend — degrade to an inline
       // error inside the rail rather than crashing or faking success.
-      setCreateError(extractApiError(e, 'Failed to create reader account'));
+      setCreateError(toServiceError(e, 'Failed to create reader account').message);
     } finally {
       setCreateBusy(false);
     }

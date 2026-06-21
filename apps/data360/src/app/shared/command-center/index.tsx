@@ -3971,7 +3971,7 @@ const ProjectsTab = memo(function ProjectsTab({
         onRefresh?.();
       } catch (err: any) {
         toast.error(
-          err?.response?.data?.detail || 'Failed to approve deployment'
+          getApiErrorMessage(err) || 'Failed to approve deployment'
         );
       } finally {
         setActionLoading(null);
@@ -4025,7 +4025,7 @@ const ProjectsTab = memo(function ProjectsTab({
       setRejectReason('');
       onRefresh?.();
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Failed to reject deployment');
+      toast.error(getApiErrorMessage(err) || 'Failed to reject deployment');
     } finally {
       setActionLoading(null);
     }

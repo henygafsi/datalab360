@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Input, Button, Select, Textarea } from 'rizzui';
 import toast from 'react-hot-toast';
 import apiClient from '@/lib/api-client';
+import { toServiceError } from '@/app/services/_errors';
 import { RefreshCw } from 'lucide-react';
 import DesignDockPanel from './DesignDockPanel';
 
@@ -35,7 +36,7 @@ export default function DynamicTableModal({ isOpen, onClose, sourceTable, wareho
       toast.success(`Dynamic table "${name}" created`);
       onCreated?.({ database: sourceTable?.database, schema: sourceTable?.schema, table: name });
       onClose();
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create dynamic table'); }
+    } catch (e: any) { toast.error(toServiceError(e, 'Failed to create dynamic table').message); }
     finally { setLoading(false); }
   };
 

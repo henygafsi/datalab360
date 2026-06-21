@@ -50,7 +50,7 @@ const PythonScriptConfigForm: React.FC<{
         setTestError((result.detail as any)?.message || result.message || 'Execution failed');
       }
     } catch (err: any) {
-      setTestError(err.message || 'Test failed');
+      setTestError(getApiErrorMessage(err) || 'Test failed');
     } finally {
       setIsTesting(false);
     }

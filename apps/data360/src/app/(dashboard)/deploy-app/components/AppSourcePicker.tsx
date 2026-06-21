@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { getApiErrorMessage } from '@/lib/api-client';
 import { listProjects } from '@/app/services/api/projectsApi';
 import {
   listDatabases,
@@ -462,8 +463,7 @@ function TablePeek({
         if (!cancelled) setData(d);
       })
       .catch((err) => {
-        if (!cancelled)
-          setError(err instanceof Error ? err.message : 'Preview failed');
+        if (!cancelled) setError(getApiErrorMessage(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

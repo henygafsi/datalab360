@@ -362,7 +362,7 @@ export default function AccountLifecycleMenu({
     } catch (err: unknown) {
       const e = err as { response?: { status?: number; data?: { detail?: string } } };
       const status = e?.response?.status;
-      if (status === 404 || status === 405) {
+      if (status === 404 || status === 405 || status === 501) {
         toast.error(
           `${errMessage} — endpoint not yet available on the backend (received ${status}).`,
         );
@@ -397,7 +397,7 @@ export default function AccountLifecycleMenu({
     } catch (err: unknown) {
       const e = err as { response?: { status?: number; data?: { detail?: string } } };
       const status = e?.response?.status;
-      if (status === 404 || status === 405) {
+      if (status === 404 || status === 405 || status === 501) {
         setFormError(
           `${errMessage} — this endpoint is not yet available on the backend (received ${status}).`,
         );

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Input, Button, Select, Switch } from 'rizzui';
 import toast from 'react-hot-toast';
 import apiClient from '@/lib/api-client';
+import { toServiceError } from '@/app/services/_errors';
 import { GitBranch } from 'lucide-react';
 import DesignDockPanel from './DesignDockPanel';
 
@@ -34,7 +35,7 @@ export default function StreamModal({ isOpen, onClose, sourceTable, onCreated }:
       toast.success(`Stream "${name}" created`);
       onCreated?.({ database: sourceTable?.database, schema: sourceTable?.schema, table: name });
       onClose();
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create stream'); }
+    } catch (e: any) { toast.error(toServiceError(e, 'Failed to create stream').message); }
     finally { setLoading(false); }
   };
 

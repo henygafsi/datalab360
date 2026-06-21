@@ -37,7 +37,7 @@ import {
   Lightbulb, Clock, ArrowRight, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import apiClient from '@/lib/api-client';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
@@ -323,8 +323,10 @@ function RecoRow({
     try {
       await applyRecommendation(reco.reco_id);
       onApplied();
-    } catch {
-      setErr('Apply failed');
+    } catch (err) {
+      // Surface the real backend message via the standard helper instead of a
+      // generic 'Apply failed' that swallowed all detail (permission / 404 / validation).
+      setErr(getApiErrorMessage(err));
       setApplying(false);
     }
   };

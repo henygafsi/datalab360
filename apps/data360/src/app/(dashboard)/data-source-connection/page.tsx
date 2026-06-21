@@ -2839,7 +2839,7 @@ export default function DataSourceConnectionPage() {
 
                     {/* Quick action: create an internal stage to upload files into */}
                     <div className="mb-6">
-                        <InternalStageCreator />
+                        <InternalStageCreator onCreated={loadConnections} />
                     </div>
 
                     {/* Loading skeleton for connections */}

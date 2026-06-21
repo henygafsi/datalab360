@@ -33,6 +33,7 @@ import {
   type DmfDefinition,
   type QualityCheckRunResult,
 } from '@/app/services/data-quality';
+import { toServiceError } from '@/app/services/_errors';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import EmptyState from '@/components/ui/EmptyState';
 import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
@@ -1503,8 +1504,7 @@ export default function DataQualityPage() {
         try {
           await associateDmf({ table_fqn: table, dmf_name: dmf, columns: [col], ...dbSchema });
         } catch (err) {
-          const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-          failures.push(`${col}: ${detail || (err instanceof Error ? err.message : 'failed')}`);
+          failures.push(`${col}: ${toServiceError(err, 'failed').message}`);
         }
       }
       const ok = cols.length - failures.length;

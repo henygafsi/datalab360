@@ -54,6 +54,7 @@ import {
   type WarmStatusResponse,
 } from '@/app/services/cache/admin';
 import { ErrBox } from './shared';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -429,6 +430,8 @@ function ControlsSection({ onWarmed }: { onWarmed: () => void }) {
   const [perRole, setPerRole] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [busy, setBusy] = useState<null | 'warm' | 'invalidate'>(null);
+  // A real (non-dry-run) eviction forces a cold reload → confirm first.
+  const [confirmEvict, setConfirmEvict] = useState(false);
 
   const accountTrim = account.trim();
   const canSubmit = accountTrim.length > 0 && !denied && busy == null;
@@ -481,6 +484,16 @@ function ControlsSection({ onWarmed }: { onWarmed: () => void }) {
       reportMutationError(e, 'Invalidate surface');
     } finally {
       setBusy(null);
+    }
+  };
+
+  // Dry-run runs immediately; a real eviction goes through the confirm dialog.
+  const requestInvalidate = () => {
+    if (!canSubmit) return;
+    if (dryRun) {
+      void onInvalidate();
+    } else {
+      setConfirmEvict(true);
     }
   };
 
@@ -565,7 +578,7 @@ function ControlsSection({ onWarmed }: { onWarmed: () => void }) {
           </button>
           <button
             type="button"
-            onClick={() => void onInvalidate()}
+            onClick={requestInvalidate}
             disabled={!canSubmit}
             title={
               denied
@@ -583,6 +596,19 @@ function ControlsSection({ onWarmed }: { onWarmed: () => void }) {
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmEvict}
+        destructive
+        title="Evict cache for this surface?"
+        message="This forces a cold reload — the next requests for this surface will miss the cache and re-query the warehouse. Continue?"
+        confirmLabel="Evict cache"
+        onCancel={() => setConfirmEvict(false)}
+        onConfirm={() => {
+          setConfirmEvict(false);
+          void onInvalidate();
+        }}
+      />
     </SectionCard>
   );
 }

@@ -6,6 +6,8 @@ import { HiOutlineUser } from 'react-icons/hi2';
 import { Button, Input } from 'rizzui';
 import PageHeader from '@/components/layout/PageHeader';
 import { getUserDetails, updateUser } from '@/app/services/governance/fetch_users';
+import { toServiceError } from '@/app/services/_errors';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { UserTableDataType } from '@/app/shared/governance/users/table';
 import { toast } from 'react-hot-toast';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
@@ -26,6 +28,7 @@ export default function EditUserPage() {
     displayName: '',
   });
   const [isSaving, setIsSaving] = useState(false);
+  const { allowed: canSave } = useCanPerform('gouvernance', 'create');
 
   useEffect(() => {
     if (!userId) {
@@ -73,7 +76,7 @@ export default function EditUserPage() {
       router.push('/governance/users');
     } catch (err: any) {
       console.error('Error updating user:', err);
-      const errorMessage = err.response?.data?.detail || err.message || 'Erreur lors de la mise à jour';
+      const errorMessage = toServiceError(err, 'Erreur lors de la mise à jour').message;
       toast.error(`❌ ${errorMessage}`);
     } finally {
       setIsSaving(false);
@@ -249,7 +252,7 @@ export default function EditUserPage() {
           <div className="flex items-center gap-4 pt-4 border-t">
             <Button
               onClick={handleSave}
-              disabled={isSaving || !formData.email}
+              disabled={!canSave || isSaving || !formData.email}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               {isSaving ? 'Saving...' : 'Save Changes'}

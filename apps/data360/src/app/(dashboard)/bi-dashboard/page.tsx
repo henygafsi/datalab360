@@ -5,6 +5,7 @@ import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { getApiErrorMessage } from '@/lib/api-client';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
@@ -77,8 +78,8 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
         description: description.trim() || null,
       });
       onCreated(res.project_id);
-    } catch {
-      setError('Failed to create dashboard. Please try again.');
+    } catch (err) {
+      setError(getApiErrorMessage(err));
     } finally {
       setLoading(false);
     }

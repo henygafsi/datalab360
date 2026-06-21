@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Loader2, Search, ShieldCheck, Trash2, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import EmptyState from '@/components/ui/EmptyState';
 import Pager, { usePagination } from '@/components/ui/Pager';
 import ExportButton from '@/components/ui/ExportButton';
@@ -40,6 +41,7 @@ export default function RoleGrantsPanel() {
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const { allowed: canRevoke } = useCanPerform('gouvernance', 'delete');
 
   // Debounced grant search (privilege / object-type / object-name).
   const [search, setSearch] = useState('');
@@ -253,8 +255,14 @@ export default function RoleGrantsPanel() {
                   </div>
                   <button
                     type="button"
-                    disabled={revoking === rowKey || !g.revocable}
-                    title={g.revocable ? undefined : 'Grant is missing an object type/name — cannot revoke safely'}
+                    disabled={revoking === rowKey || !g.revocable || !canRevoke}
+                    title={
+                      !canRevoke
+                        ? 'You do not have permission to revoke grants'
+                        : g.revocable
+                          ? undefined
+                          : 'Grant is missing an object type/name — cannot revoke safely'
+                    }
                     onClick={() => void revoke(g, rowKey)}
                     className={cn(
                       'inline-flex shrink-0 items-center gap-1 rounded-md border border-red-200 px-2 py-0.5 text-[10px] font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20',

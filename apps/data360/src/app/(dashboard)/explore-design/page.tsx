@@ -49,6 +49,7 @@ import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContr
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { toServiceError } from '@/app/services/_errors';
 import { isUnavailable } from '@/lib/http-status';
 import { fmtNum } from '@/app/shared/ui/format';
 import { safeLocale } from '@/lib/format-number';
@@ -3446,7 +3447,7 @@ export default function ExploreDesignPage() {
       toast.success(`Discovered ${count} potential relationships`);
     } catch (err: any) {
       toast.dismiss(toastId);
-      toast.error(err?.response?.data?.detail || 'Relationship discovery failed');
+      toast.error(toServiceError(err, 'Relationship discovery failed').message);
     }
   }, [selectedProjectId, tables]);
 
@@ -3513,7 +3514,7 @@ export default function ExploreDesignPage() {
       handleListDataEngObjects(schema, dataEngModal.type);
     } catch (err: any) {
       toast.dismiss(toastId);
-      toast.error(err?.response?.data?.detail || `${action} failed`);
+      toast.error(toServiceError(err, `${action} failed`).message);
     }
   }, [selectedDatabase, dataEngModal.schema, dataEngModal.type, handleListDataEngObjects]);
 
@@ -3544,7 +3545,7 @@ export default function ExploreDesignPage() {
       handleListDataEngObjects(schema, dataEngModal.type);
     } catch (err: any) {
       toast.dismiss(toastId);
-      toast.error(err?.response?.data?.detail || `drop failed`);
+      toast.error(toServiceError(err, 'drop failed').message);
     }
   }, [confirmDrop, selectedDatabase, dataEngModal.schema, dataEngModal.type, handleListDataEngObjects]);
 

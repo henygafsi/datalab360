@@ -3,6 +3,7 @@ import { useState, useMemo } from 'react';
 import { Input, Button, Select, Textarea, Badge } from 'rizzui';
 import toast from 'react-hot-toast';
 import apiClient from '@/lib/api-client';
+import { toServiceError } from '@/app/services/_errors';
 import {
   AlertTriangle, Clock, Database, RefreshCw, Shield, BarChart3,
   Zap, Sparkles, ChevronRight,
@@ -172,7 +173,7 @@ export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = 
       onCreated?.();
       onClose();
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail || 'Failed to create alert');
+      toast.error(toServiceError(e, 'Failed to create alert').message);
     } finally {
       setLoading(false);
     }

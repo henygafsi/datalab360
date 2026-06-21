@@ -25,6 +25,7 @@ import {
 import CustomBlockFactoryModal from './CustomBlockFactoryModal';
 import { useCustomBlocks, type CustomBlock } from './custom-blocks-store';
 import { useBackendBlocks, type BackendBlock } from './backend-blocks-store';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 interface ETLPaletteProps {
   className?: string;
@@ -281,6 +282,12 @@ const CategorySection: React.FC<{
 const ETLPalette: React.FC<ETLPaletteProps> = ({ className, projectId }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [factoryOpen, setFactoryOpen] = useState(false);
+  // Saving a custom block persists to the backend (project events API), so the
+  // "Create custom block" CTA is an Action-RBAC `create` mutation — gate it like
+  // every other persisting action in this module. Fail-open while the allow-set
+  // loads (matches useCanPerform on a hard error / the builder's own gates).
+  const createBlockPerm = useCanPerform('workflow', 'create', projectId ?? undefined);
+  const canCreateBlock = createBlockPerm.allowed || createBlockPerm.loading;
   const { blocks: customBlocks, refresh: refreshCustomBlocks } = useCustomBlocks(projectId ?? null);
   // Backend action-template catalog — extra blocks not covered statically.
   // Degrades to an empty section if the endpoint is undeployed (404).
@@ -335,12 +342,19 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className, projectId }) => {
           <button
             type="button"
             onClick={() => setFactoryOpen(true)}
+            disabled={!canCreateBlock}
             aria-label="Create custom block"
+            title={
+              canCreateBlock
+                ? 'Create a custom block'
+                : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'
+            }
             className={cn(
               'w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold',
               'bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white',
               'hover:from-purple-700 hover:to-fuchsia-700',
               'shadow-sm hover:shadow-md transition-all',
+              'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-sm',
             )}
           >
             <Sparkles className="h-4 w-4" />
