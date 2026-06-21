@@ -126,9 +126,40 @@ export function isDefect(result?: ProbeResult | null): boolean {
  * Signature of a correct rejection of fake/empty probe input:
  * "not found" / "field required" / validation phrasing / the probe markers
  * (__test_health_check__, TEST_TABLE) / object-does-not-exist / not-authorized.
+ *
+ * Each token below ONLY appears in a CORRECT-rejection message (a 4xx where the
+ * API properly refuses the probe's fake/empty/policy-blocked input), never in a
+ * genuine defect. `isExpected` consults this pattern only AFTER `isDefect` has
+ * returned false AND the status is 4xx, so even a broad token like "already exists"
+ * can never mask a 5xx / 405 / 408 / SQL_COMPILATION_ERROR — those are not-4xx or
+ * are caught by `isDefect` first.
+ *
+ * Additions (phrase → board row(s) that were slipping to 'warn'):
+ *   "should have at least"  → Pydantic list-min on empty-list probes, e.g.
+ *                             "List should have at least 1 item after validation,
+ *                             not 0" (detectPrimaryKeys([]), detectRelations([],[]),
+ *                             generateSemanticModel({tables:[]}), …). Distinct from
+ *                             the existing "must have at least" (Pydantic v1 wording).
+ *   "No fields to update"   → update/alter with an empty / no-op patch body
+ *                             (updateRole, updateUser, alterComputePool,
+ *                             alterNotebook, updateSecurityAxis, …) → 400.
+ *   "cannot be enabled or disabled" / "MFA_TOGGLE_UNSUPPORTED"
+ *                           → setUserMfa(FAKE_ID,false) → 422 correct policy
+ *                             rejection (MFA toggle unsupported for this user).
+ *   "Request must include either" / "MISSING_ZONE_OR_TABLE"
+ *                           → freshness/zone probes → 422 (companion to the
+ *                             existing "Provide (zone|table)" token).
+ *   "already exists"        → create-with-sentinel whose object already exists,
+ *                             e.g. addUser → 400 "Object '__TEST_HEALTH_CHECK__'
+ *                             already exists" (a correct duplicate rejection).
+ *   "requires role ORGADMIN"→ lifecycle-role authz rejection, e.g.
+ *                             deleteReaderAccount → 403 "requires role ORGADMIN;
+ *                             caller role is 'ACCOUNTADMIN'".
+ * Note: "confirm=true is required" (dropComputePool / dropContainerService → 422)
+ * is already covered by the existing `required\b` token — no new alternative added.
  */
 const EXPECTED_PATTERN =
-  /not found|field required|must have at least|missing required field|Input should be|does not exist|not authorized|__test_health_check__|TEST_TABLE|required\b|valid integer|valid list|valid string|Provide (zone|table)/i;
+  /not found|field required|must have at least|should have at least|missing required field|No fields to update|Input should be|does not exist|not authorized|cannot be enabled or disabled|MFA_TOGGLE_UNSUPPORTED|Request must include either|MISSING_ZONE_OR_TABLE|already exists|requires role ORGADMIN|__test_health_check__|TEST_TABLE|required\b|valid integer|valid list|valid string|Provide (zone|table)/i;
 
 /** True when the combined error text matches the fake-id / validation signature. */
 export function matchesExpectedPattern(result?: ProbeResult | null): boolean {

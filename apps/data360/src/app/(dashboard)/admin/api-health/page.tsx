@@ -666,7 +666,11 @@ const TEST_MODULES: ModuleDef[] = [
     tests: [
       { name: 'getColumnClassification', fn: () => getColumnClassification(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE) },
       { name: 'discoverRelationships', fn: () => discoverRelationships(FAKE_ID, { tables: [] }) },
-      { name: 'getSchemaHealth', fn: () => getSchemaHealth(FAKE_ID) },
+      // getSchemaHealth(projectId, { database, schema }) destructures `body.database`
+      // CLIENT-SIDE; calling it with no body threw "Cannot read properties of
+      // undefined (reading 'database')" → status:'error' → counted as a false DEFECT.
+      // Pass a valid-shaped body; the fake project id then rejects 404/422 (Expected).
+      { name: 'getSchemaHealth', fn: () => getSchemaHealth(FAKE_ID, { database: FAKE_DB, schema: FAKE_SCHEMA }) },
       { name: 'suggestColumns', fn: () => suggestColumns(FAKE_ID, { table_name: FAKE_TABLE }) },
       { name: 'checkNaming', fn: () => checkNaming(FAKE_ID, { names: [FAKE_TABLE] }) },
       { name: 'getTypeOptimization', fn: () => getTypeOptimization(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE) },
@@ -721,7 +725,12 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'createSAMLIntegration', fn: () => createSAMLIntegration({ name: FAKE_ID } as any) },
       { name: 'createServiceUser', fn: () => createServiceUser({ username: FAKE_ID } as any) },
       { name: 'assignRSAKey', fn: () => assignRSAKey({ username: FAKE_ID } as any) },
-      { name: 'revokeRSAKey', fn: () => revokeRSAKey({ username: FAKE_ID } as any) },
+      // revokeRSAKey(username: string) interpolates the username into the DELETE
+      // URL; passing an OBJECT serialized to "[object Object]" → 422 "Invalid
+      // identifier: '[object Object]'". Pass the string sentinel so it cleanly
+      // rejects (no such user/key → not found, Expected). Still a no-op mutation
+      // against a non-existent user — side-effect-free.
+      { name: 'revokeRSAKey', fn: () => revokeRSAKey(FAKE_ID) },
       { name: 'grantPermission', fn: () => grantPermission(['SELECT'], 'TABLE', FAKE_TABLE, FAKE_ID) },
       { name: 'addRole', fn: () => addRole(FAKE_ID) },
       { name: 'updateRole', fn: () => updateRole(FAKE_ID, { comment: 'test' }) },
@@ -841,7 +850,11 @@ const TEST_MODULES: ModuleDef[] = [
     tests: [
       { name: 'listProjects', fn: () => projectsApi.listProjects() },
       { name: 'getProject', fn: () => projectsApi.getProject(FAKE_ID) },
-      { name: 'createProject', fn: () => projectsApi.createProject({ name: FAKE_ID, module: 'explore-design' } as any) },
+      // POST /projects now exists (backend create route added 2026-06-21, closing the
+      // documented method gap). Probe with an empty body on purpose → 422
+      // "project_name/project_type field required" = Expected, side-effect-free
+      // (a real create would persist a junk project on every board run).
+      { name: 'createProject', fn: () => projectsApi.createProject({} as any) },
       { name: 'updateProject', fn: () => projectsApi.updateProject(FAKE_ID, { name: FAKE_ID } as any) },
       { name: 'deleteProject', fn: () => projectsApi.deleteProject(FAKE_ID) },
       { name: 'lockProject', fn: () => projectsApi.lockProject(FAKE_ID) },

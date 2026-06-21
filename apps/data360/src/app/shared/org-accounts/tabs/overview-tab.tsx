@@ -197,12 +197,16 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
   }, []);
 
   useEffect(() => {
-    const load = async () => {
+    const load = () => {
       // Reset the shared error flag once per load cycle, before any fetch, so an
       // overview-only failure keeps its banner instead of being wiped by the
-      // secondary fetches that follow.
+      // secondary fetches that run alongside.
       setLoadError(null);
-      await fetchOverview();
+      // Overview and the secondary batch are independent (secondary takes only
+      // `days`, consumes nothing from overview) — fire both concurrently so the
+      // ~11 secondary fetches don't wait on the overview call to resolve. Each
+      // section owns its own loading flag and renders its own skeleton.
+      void fetchOverview();
       fetchSecondaryData(globalDays);
     };
     load();
