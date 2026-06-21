@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { Badge, Button, Loader } from 'rizzui';
 import { PiWarningCircleBold, PiBellRingingDuotone, PiArrowsClockwise, PiCheckBold } from 'react-icons/pi';
 import toast from 'react-hot-toast';
@@ -18,6 +19,8 @@ import {
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import type { ObservabilityAlert } from '@/app/services/observability/types';
 
@@ -82,6 +85,19 @@ export default function AlertsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Real-time refresh: the observability router emits `observability_dashboard`
+  // (batch probe checks) and may emit `alerts`. Re-pull the feed on either so a
+  // colleague's batch-check / new alert reflects without a manual Refresh. Uses
+  // the global SSE atom (one shared connection) rather than a per-page stream.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevant = lastInvalidation.keys.some(
+      (k: string) => k === CACHE_KEYS.OBSERVABILITY_DASHBOARD || k === CACHE_KEYS.ALERTS,
+    );
+    if (relevant) load();
+  }, [lastInvalidation, load]);
 
   const acknowledge = useCallback(async (alert: ObservabilityAlert) => {
     const alertId = alert.id;

@@ -37,6 +37,7 @@ import {
 } from '@/app/services/cortex/ai';
 import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
 import { ConfirmDestructiveDialog, ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 type SubTab = 'compute-pools' | 'services' | 'streamlit' | 'image-repos';
 
@@ -144,6 +145,12 @@ function ComputePoolsPanel() {
     finally { if (!silent) setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Cross-user real-time: refresh (silently) when another user creates/alters a
+  // pool and the backend broadcasts the SNOWPARK_SERVICES cache-key invalidation.
+  useCacheInvalidation({
+    onInvalidate: (keys) => { if (keys.includes(CACHE_KEYS.SNOWPARK_SERVICES)) load(true); },
+  });
 
   // Same transitional auto-poll as Container Services — pools report STARTING/
   // SUSPENDING/RESUMING while they settle.
@@ -285,6 +292,12 @@ function ContainerServicesPanel() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Cross-user real-time: refresh (silently) when another user deploys/suspends/
+  // drops a service and the backend broadcasts the SNOWPARK_SERVICES cache key.
+  useCacheInvalidation({
+    onInvalidate: (keys) => { if (keys.includes(CACHE_KEYS.SNOWPARK_SERVICES)) load(true); },
+  });
 
   // Auto-poll while any service is still spinning up/down so the status badge
   // resolves on its own (was: stuck on PENDING until a manual refresh).
@@ -548,6 +561,12 @@ function StreamlitAppsPanel() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Cross-user real-time: refresh when another user creates a data app and the
+  // backend broadcasts the SNOWPARK_SERVICES cache-key invalidation.
+  useCacheInvalidation({
+    onInvalidate: (keys) => { if (keys.includes(CACHE_KEYS.SNOWPARK_SERVICES)) load(); },
+  });
+
   const handleCreate = async () => {
     if (!form.name || !form.database) { toast.error('Name and database required'); return; }
     setCreating(true);
@@ -660,6 +679,12 @@ function ImageReposPanel() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Cross-user real-time: refresh when an image repository is created elsewhere
+  // and the backend broadcasts the SNOWPARK_SERVICES cache-key invalidation.
+  useCacheInvalidation({
+    onInvalidate: (keys) => { if (keys.includes(CACHE_KEYS.SNOWPARK_SERVICES)) load(); },
+  });
 
   const copyCmd = (url: string) => {
     navigator.clipboard.writeText(`docker push ${url}/<image>:<tag>`);

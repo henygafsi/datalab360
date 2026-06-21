@@ -32,11 +32,14 @@ import {
   ThumbsUp,
   Rocket,
 } from 'lucide-react';
+import { useAtomValue } from 'jotai';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import {
   approveDeployment,
   completeDeployment,
@@ -108,6 +111,23 @@ export default function DeploymentApprovals() {
   useEffect(() => {
     void fetchRows();
   }, [fetchRows]);
+
+  // Real-time refresh (SSE): every deployment lifecycle mutation
+  // (request / approve / reject / execute / rollback / complete) fires
+  // @invalidates_cache(DEPLOYMENTS) on the backend. The /deployments/track list
+  // is itself uncached, so without this another approver's/owner's action stays
+  // invisible until a manual Refresh. Re-pull when a DEPLOYMENTS invalidation
+  // arrives over the shared SSE stream (DEPLOYMENTS alone catches every
+  // lifecycle mutation; PROJECTS is intentionally not watched to avoid spurious
+  // refetches on unrelated project edits).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    if (lastInvalidation.keys.includes(CACHE_KEYS.DEPLOYMENTS)) {
+      void fetchRows();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   const rail = useActionPanel<'request'>();
 

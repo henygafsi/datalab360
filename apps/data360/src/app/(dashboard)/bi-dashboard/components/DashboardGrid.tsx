@@ -33,6 +33,11 @@ interface DashboardGridProps {
   crossWidgetFilter?: Record<string, string>;
   onCrossWidgetFilter?: (filterKey: string, filterValue: string) => void;
   onDrillThrough?: (widget: DashboardWidget) => void;
+  /**
+   * Action-RBAC module the add/edit/delete gates resolve against. Defaults to
+   * 'bi_reporting' (BI dashboard unaffected). Forwarded to each WidgetCard.
+   */
+  rbacModule?: string;
 }
 
 /** Minimum sizes per widget type */
@@ -58,14 +63,15 @@ export default function DashboardGrid({
   crossWidgetFilter,
   onCrossWidgetFilter,
   onDrillThrough,
+  rbacModule = 'bi_reporting',
 }: DashboardGridProps) {
   // Action-RBAC gate (System 2): adding a widget hits POST /widgets which the
-  // backend gates with require_action('bi_reporting','create'). Fail-open while
+  // backend gates with require_action(rbacModule,'create'). Fail-open while
   // the allow-set loads so the button never flashes disabled; honest disabled +
   // tooltip once /my-permissions resolves to a deny.
-  const createPerm = useCanPerform('bi_reporting', 'create');
+  const createPerm = useCanPerform(rbacModule, 'create');
   const canCreate = createPerm.allowed || createPerm.loading;
-  const createDeniedReason = 'Requires the "create" permission on Business Reporting.';
+  const createDeniedReason = 'Requires the "create" permission for this module.';
 
   // Build layout from widget positions
   const layout = useMemo(
@@ -170,6 +176,7 @@ export default function DashboardGrid({
               crossWidgetFilter={crossWidgetFilter}
               onCrossWidgetFilter={onCrossWidgetFilter}
               onDrillThrough={onDrillThrough}
+              rbacModule={rbacModule}
             />
           </div>
         ))}

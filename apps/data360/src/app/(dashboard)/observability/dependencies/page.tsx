@@ -1,8 +1,12 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import DependenciesCard from '@/app/shared/observability/dependencies-card';
 import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 
 /**
  * Standalone object-dependencies route (upstream/downstream lineage + full
@@ -10,6 +14,21 @@ import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer
  * /observability/dependencies/graph. DependenciesCard owns its async states.
  */
 export default function DependencyGraphPage() {
+  // DependenciesCard is prop-less and self-fetching, so a keyed remount is the
+  // minimal way to re-pull it when the backend pushes an observability/lineage
+  // cache-invalidation (probe checks). Mirrors the main dashboard's SSE pattern
+  // via the global atom (one shared connection).
+  const [resetKey, setResetKey] = useState(0);
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevant = lastInvalidation.keys.some(
+      (k: string) =>
+        k === CACHE_KEYS.OBSERVABILITY_DASHBOARD || k === CACHE_KEYS.DATA_LINEAGE,
+    );
+    if (relevant) setResetKey((k) => k + 1);
+  }, [lastInvalidation]);
+
   return (
     <div className="@container p-4">
       <Breadcrumb
@@ -22,7 +41,7 @@ export default function DependencyGraphPage() {
         className="mb-4"
         detail="Dependencies come from the data warehouse's ACCOUNT_USAGE.OBJECT_DEPENDENCIES, which is delayed (typically up to a few hours). Newly created objects may not appear immediately."
       />
-      <DependenciesCard />
+      <DependenciesCard key={resetKey} />
     </div>
   );
 }

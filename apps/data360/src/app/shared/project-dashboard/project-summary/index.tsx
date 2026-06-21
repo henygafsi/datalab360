@@ -1,8 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { AlertTriangle, FolderOpen, RefreshCw } from 'lucide-react';
 import { Loader } from 'rizzui';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import cn from '@core/utils/class-names';
 import Table from '@core/components/table';
 import WidgetCard from '@core/components/cards/widget-card';
@@ -51,6 +54,21 @@ export default function ProjectSummary({ className }: { className?: string }) {
       ignore = true;
     };
   }, [reloadKey]);
+
+  // Real-time refresh: refetch the project list when the backend broadcasts a
+  // PROJECTS cache invalidation over SSE (another user creates/renames/deletes a
+  // project). Reads the shared single SSE connection via the provider atom — no
+  // extra connection opened. The identity ref skips the persisted mount-time
+  // value so only post-mount events trigger a refetch.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const seenInvalidationRef = useRef(lastInvalidation);
+  useEffect(() => {
+    if (lastInvalidation === seenInvalidationRef.current) return;
+    seenInvalidationRef.current = lastInvalidation;
+    if (lastInvalidation?.keys.includes(CACHE_KEYS.PROJECTS)) {
+      setReloadKey((k) => k + 1);
+    }
+  }, [lastInvalidation]);
 
   return (
     <WidgetCard

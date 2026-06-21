@@ -1256,7 +1256,7 @@ export default function ExploreDesignPage() {
   const handleRegisterActionDispatch = useCallback((dispatch: (tableId: string, action: string) => void) => {
     canvasActionDispatchRef.current = dispatch;
   }, []);
-  const [classificationDetails, setClassificationDetails] = useState<Array<{ column: string; category: string; tags?: string[]; confidence?: number; description?: string; piiRisk?: string; suggestion?: string }>>([]);
+  const [classificationDetails, setClassificationDetails] = useState<Array<{ column: string; category: string; tags?: string[]; confidence?: number | null; description?: string; piiRisk?: string; suggestion?: string }>>([]);
   // Conflict detection modal
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [currentConflict, setCurrentConflict] = useState<EventConflict | null>(null);
@@ -3399,7 +3399,10 @@ export default function ExploreDesignPage() {
         column: c.column || '',
         category: c.category || 'UNKNOWN',
         tags: c.tags || c.semantic_tags || [c.category?.toLowerCase()].filter(Boolean),
-        confidence: c.confidence ?? c.score ?? 0.85,
+        // Honest render: when the backend omits a confidence/score, keep it null
+        // so the UI shows nothing rather than fabricating a 0.85 figure (the
+        // Confidence badge is guarded by `!= null`).
+        confidence: c.confidence ?? c.score ?? null,
         description: c.description || c.explanation || `Detected as ${(c.category || 'unknown').toLowerCase().replace(/_/g, ' ')}`,
         piiRisk: c.pii_risk || c.pii_type || (c.category === 'PII_CANDIDATE' ? 'high' : undefined),
         suggestion: c.suggestion || c.recommended_action || null,

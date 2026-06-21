@@ -776,7 +776,8 @@ export async function createComputePool(params: {
   return res.data;
 }
 
-// TODO(henry-P1): method gap — FE sends PATCH /workflow/compute-pools/{}, backend only has GET (verified 2026-06-07)
+// FE sends PATCH /workflow/compute-pools/{name}; backend route added 2026-06-21
+// (api_workflow_alter_compute_pool → snowpark alter_compute_pool). Method gap closed.
 export async function alterComputePool(name: string, params: {
   min_nodes?: number;
   max_nodes?: number;

@@ -808,7 +808,7 @@ function getTabColumns(tab: string): { key: string; label: string; format?: (v: 
         { key: 'TABLE_NAME', label: 'Table' },
         { key: 'HAS_MASKING', label: 'Masking', format: (v) => v ? <span className="text-green-600 dark:text-green-400">Applied</span> : <span className="text-gray-400 dark:text-gray-300">—</span> },
         { key: 'HAS_RLS', label: 'RLS', format: (v) => v ? <span className="text-green-600 dark:text-green-400">Active</span> : <span className="text-gray-400 dark:text-gray-300">—</span> },
-        { key: 'GRANTS_COUNT', label: 'Grants', format: (v) => Number(v || 0).toLocaleString() },
+        { key: 'GRANTS_COUNT', label: 'Grants', format: (v) => v == null ? <span className="text-gray-400 dark:text-gray-300">—</span> : Number(v).toLocaleString() },
         { key: 'LAST_GRANT_AT', label: 'Last Grant' },
       ];
     case 'dmf':

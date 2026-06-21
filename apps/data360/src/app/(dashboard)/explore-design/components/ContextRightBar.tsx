@@ -21,12 +21,13 @@ import GovernancePostureCard from '@/app/shared/score-cards/GovernancePostureCar
 import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
 import IngestionBadge, { relativeTimeShort } from './IngestionBadge';
 import type { IngestionTraceEntry } from '@/app/services/explore-design/ingestionTrace';
+import GovernanceAccessPanel from './GovernanceAccessPanel';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type RightBarTab = 'actions' | 'ai' | 'quality' | 'cost' | 'history' | 'deploy' | 'help';
+export type RightBarTab = 'actions' | 'ai' | 'quality' | 'cost' | 'governance' | 'history' | 'deploy' | 'help';
 export type FocusedAction = 'policies' | 'ingestion' | 'add_column' | 'release' | null;
 
 interface ColumnInfo {
@@ -62,7 +63,7 @@ interface ClassificationResult {
   column: string;
   category: string;
   tags?: string[];
-  confidence?: number;
+  confidence?: number | null;
   description?: string;
   piiRisk?: string;
   suggestion?: string;
@@ -142,6 +143,7 @@ const TABS: { id: RightBarTab; icon: React.ElementType; label: string }[] = [
   { id: 'ai', icon: Brain, label: 'AI Assist' },
   { id: 'quality', icon: BarChart3, label: 'Quality' },
   { id: 'cost', icon: Coins, label: 'Cost & KPIs' },
+  { id: 'governance', icon: Shield, label: 'Governance' },
   { id: 'deploy', icon: Rocket, label: 'Deploy' },
   { id: 'history', icon: Clock, label: 'History' },
   { id: 'help', icon: HelpCircle, label: 'Help' },
@@ -312,6 +314,22 @@ export default function ContextRightBar({
       // — i.e. when the rollup route isn't provisioned the body is simply empty.
       id: 'cost', icon: Coins, label: 'Cost & KPIs',
       render: () => projectId ? <CostKpiPanel projectId={projectId} /> : <SelectProjectEmpty />,
+    },
+    {
+      // Read-only Governance & Access status. Mirrors the dedupe contract: the
+      // WRITE/apply path stays in the Actions tab Governance group
+      // (PoliciesCard/PolicyAssignmentPanel); this section only DISPLAYS what
+      // governance is queued/applied and which roles it affects. Its single CTA
+      // deep-links back to that Actions group (onTabChange + onFocusAction).
+      id: 'governance', icon: Shield, label: 'Governance',
+      render: () => selectedTable ? (
+        <GovernanceAccessPanel
+          table={selectedTable}
+          columns={tableColumns}
+          projectId={projectId}
+          onApplyPolicy={() => { onTabChange('actions'); onFocusAction('policies'); }}
+        />
+      ) : empty,
     },
     {
       // Deploy tab body. The page injects the embedded 8-step deployment stepper

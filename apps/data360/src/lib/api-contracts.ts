@@ -374,8 +374,8 @@ export const API = {
     // TODO(contract): no backend route for batch user-drop — only DELETE /gouvernance/drop-user
     // exists (gouvernance.py:1280). Loop drop-user client-side or add a backend batch route.
     dropUsersBatch: () => '/gouvernance/drop-users-batch',
-    enableUser: () => '/gouvernance/enable_user',
-    disableUser: () => '/gouvernance/disable_user',
+    enableUser: () => '/gouvernance/enable_user/',
+    disableUser: () => '/gouvernance/disable_user/',
     roles: () => '/gouvernance/roles',
     addRole: () => '/gouvernance/add-role',
     dropRole: () => '/gouvernance/drop-role',
@@ -400,6 +400,11 @@ export const API = {
     policiesHealth: () => '/gouvernance/policies/health',
     /** GET /gouvernance/policies/tags/list — list all governance tags (policies.ts:getTags). */
     policyTagsList: () => '/gouvernance/policies/tags/list',
+    /** GET /gouvernance/policies/objects/{db}/{schema}/{table}/policies — policies
+     *  applied to a deployed object: { row_access, masking, aggregation, tags }
+     *  (policies.ts:getTablePolicies). Empty/honest for a not-yet-deployed table. */
+    tablePolicies: (db: string, s: string, t: string) =>
+      `/gouvernance/policies/objects/${enc(db)}/${enc(s)}/${enc(t)}/policies`,
     /** POST /gouvernance/policies/classification/classify — run semantic classification on a table (dmf.ts:classifyTable). */
     classificationClassify: () => '/gouvernance/policies/classification/classify',
     /** POST /gouvernance/policies/row-access — create a row access policy (policies.ts:createRLSPolicy). */
@@ -717,6 +722,47 @@ export const API = {
      */
     apiHealthIntrospect: (queryId: string) =>
       `/admin/api-health/introspect?query_id=${enc(queryId)}`,
+    /**
+     * API-health RELEASE RUNS — persist a probe sweep as a tracked per-release
+     * "project" and read back per-run KPIs + a per-release rollup/trend.
+     * ACCOUNTADMIN-gated (backend `require_accountadmin_role`). May 404/501 until
+     * the backend route is live — the consumer degrades to an honest
+     * "not available on this backend" notice (never fabricates history).
+     */
+    apiHealth: {
+      /** POST /admin/api-health/runs — persist one sweep. Body: { release, results[] }. */
+      persistRun: () => '/admin/api-health/runs',
+      /** GET /admin/api-health/runs — per-run KPIs + per-release rollup/trend. */
+      listRuns: (release?: string, limit?: number) => {
+        const qs = new URLSearchParams();
+        if (release) qs.set('release', release);
+        if (limit != null) qs.set('limit', String(limit));
+        const q = qs.toString();
+        return `/admin/api-health/runs${q ? `?${q}` : ''}`;
+      },
+      /** GET /admin/api-health/runs/{run_id} — stored rows + summary + slowest. */
+      runDetail: (runId: string) => `/admin/api-health/runs/${enc(runId)}`,
+    },
+    /**
+     * Real-time cache governance surface (admin-only). FORWARD CONTRACT — these
+     * `/admin/cache/*` routes back the SVC-first cache architecture (see vault
+     * _TARGET_ARCHITECTURE §4.1). Until the backend ships them they 404/501, and
+     * every consumer must degrade to an HONEST "not available on this backend"
+     * notice (never fabricate coverage). Mirrors the existing CacheMetricsPanel
+     * honesty contract.
+     */
+    cache: {
+      /** GET /admin/cache/coverage — cache warmth per account/role + uncovered warm targets. */
+      coverage:          ()                              => '/admin/cache/coverage',
+      /** GET /admin/cache/svc-health — service-account health per account (alive · auth_type · fallback_enabled). */
+      svcHealth:         ()                              => '/admin/cache/svc-health',
+      /** GET /admin/cache/warm-status — background warmer snapshot (last/next cycle, per-target warm/cold/refreshed/fail). */
+      warmStatus:        ()                              => '/admin/cache/warm-status',
+      /** POST /admin/cache/warm — manual warm trigger. Body: { account, page?, module?, per_role? } (bypasses the per-role env gate). */
+      warm:              ()                              => '/admin/cache/warm',
+      /** POST /admin/cache/invalidate-surface — precise account-scoped eviction. Body: { account, page?, module?, shared_fns?, dry_run? }. */
+      invalidateSurface: ()                              => '/admin/cache/invalidate-surface',
+    },
   },
 
   /** BI Dashboard — backend: /bi-dashboard/* (modules/bi_dashboard/router.py). */

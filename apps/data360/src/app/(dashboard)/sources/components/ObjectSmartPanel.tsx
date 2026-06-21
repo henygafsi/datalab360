@@ -31,6 +31,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAtomValue } from 'jotai';
 import {
   Package, Shield, GitBranch, Zap, User, Gauge,
   Lightbulb, Clock, ArrowRight, Sparkles,
@@ -39,6 +40,8 @@ import { cn } from '@/lib/utils';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { safeNum } from '@/lib/format-number';
 import {
   applyRecommendation,
@@ -392,6 +395,40 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
   // module-level cache is usually warm), hard-deny only on a definitive allow-set.
   const applyPerm = useCanPerform('data_products', 'edit');
   const canApplyReco = applyPerm.allowed || applyPerm.loading;
+
+  // Real-time refresh (SSE): a governance edit (masking / RLS / tag) or a catalog
+  // recompute lands as a cache-invalidation event. The per-section fetches above
+  // are keyed only on the selected object, so without this the panel would show
+  // stale PII / posture / scores for the selected table until the 30-min TTL.
+  // Re-pull just the affected sections (mirrors the listing-remount on the page).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!selected || !lastInvalidation) return;
+    const keys = lastInvalidation.keys;
+    const governanceTouched = keys.some(
+      (k: string) =>
+        k === CACHE_KEYS.POLICIES ||
+        k === CACHE_KEYS.MASKING_POLICIES ||
+        k === CACHE_KEYS.ROW_ACCESS_POLICIES ||
+        k === CACHE_KEYS.GRANTS ||
+        k === CACHE_KEYS.CATALOG_OBJECTS,
+    );
+    if (governanceTouched) {
+      void governance.refetch();
+      void context.refetch();
+    }
+    const catalogTouched = keys.some(
+      (k: string) =>
+        k === CACHE_KEYS.CATALOG_OBJECTS ||
+        k === CACHE_KEYS.CATALOG_SCORES ||
+        k === CACHE_KEYS.CATALOG_RECOMMENDATIONS,
+    );
+    if (catalogTouched) {
+      void scores.refetch();
+      void recos.refetch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   // Idle state: nothing selected — keep the column footprint with a quiet hint.
   if (!selected) {

@@ -22,7 +22,13 @@ interface WidgetCardProps {
   crossWidgetFilter?: Record<string, string>;
   onCrossWidgetFilter?: (filterKey: string, filterValue: string) => void;
   onDrillThrough?: (widget: DashboardWidget) => void;
-
+  /**
+   * Action-RBAC module this card's edit/delete gates against. Defaults to
+   * 'bi_reporting' so the BI dashboard is unaffected. Other surfaces (e.g.
+   * Data Quality) pass their own module so the same grid renders under the
+   * correct permission set.
+   */
+  rbacModule?: string;
 }
 
 // ─── Number Formatting ──────────────────────────────────────────────
@@ -280,6 +286,7 @@ export default function WidgetCard({
   crossWidgetFilter,
   onCrossWidgetFilter,
   onDrillThrough,
+  rbacModule = 'bi_reporting',
 }: WidgetCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -287,9 +294,9 @@ export default function WidgetCard({
   // → require_action 'edit'); Delete hits DELETE /widgets → require_action
   // 'delete'. Fail-open while the allow-set loads; honest disabled + tooltip on
   // a resolved deny (button stays visible, never hidden).
-  const editPerm = useCanPerform('bi_reporting', 'edit');
+  const editPerm = useCanPerform(rbacModule, 'edit');
   const canEdit = editPerm.allowed || editPerm.loading;
-  const deletePerm = useCanPerform('bi_reporting', 'delete');
+  const deletePerm = useCanPerform(rbacModule, 'delete');
   const canDelete = deletePerm.allowed || deletePerm.loading;
 
   // Apply cross-widget filter to execution data (client-side)

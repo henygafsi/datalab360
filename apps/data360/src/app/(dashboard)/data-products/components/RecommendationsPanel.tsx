@@ -13,10 +13,13 @@
  * Idle→Running→Completed/Empty/Error throughout.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { AlertCircle, CheckCircle2, Lightbulb } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import EmptyState from '@/components/ui/EmptyState';
 import { InsightActionButton } from '@/app/shared/insights';
 import {
@@ -67,6 +70,21 @@ export default function RecommendationsPanel({ productId }: RecommendationsPanel
   useEffect(() => {
     void load();
   }, [load]);
+
+  // SSE cache invalidation: refresh the recommendation list when the backend
+  // busts the catalog-recommendations cache (e.g. a "recommend model" run or a
+  // recompute). Settled-state-only guard avoids the mount double-fetch
+  // (`lastInvalidationAtom` is a persistent global that stays non-null).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    if (loadState === 'idle' || loadState === 'running') return;
+    const relevant = lastInvalidation.keys.some(
+      (k: string) => k === CACHE_KEYS.CATALOG_RECOMMENDATIONS || k === CACHE_KEYS.CATALOG_PRODUCTS,
+    );
+    if (relevant) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700">

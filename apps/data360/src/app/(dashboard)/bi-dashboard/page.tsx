@@ -7,6 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { createDashboard } from '@/app/services/api/biDashboardApi';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
@@ -298,42 +299,65 @@ function BIDashboardPage() {
   // success-with-no-rows). Track the error distinctly so we can render an inline
   // error + retry instead of the misleading empty state.
   const [projectsError, setProjectsError] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+  // Monotonic request token: a stale (superseded) response is discarded so a
+  // slow in-flight fetch can't clobber a newer one — replaces the per-effect
+  // `cancelled` guard now that the fetch lives in a reusable callback.
+  const reqIdRef = useRef(0);
 
   useEffect(() => {
     trackFeatureClick('page_view', { module: 'bi_dashboard' });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    // GET /projects/unified?mine_only=false lists ALL account projects —
-    // including seeded sample dashboards (SEED_DASH_*) owned by other identities.
-    // The backend now honours `mine_only` (default true scopes to the caller's
-    // own / contributed projects, which hid every seed). The response is already
-    // in UnifiedProject shape and is cross-type, so we filter to bi_dashboard
-    // here. Real KPIs (version / deployment) come straight from the payload.
-    let cancelled = false;
-    setProjectsLoading(true);
-    setProjectsError(null);
-    getUnifiedProjects({ mine_only: false, limit: 100, offset: 0 })
-      .then((res) => {
-        if (cancelled) return;
-        const rows = Array.isArray(res?.projects) ? res.projects : [];
-        setProjects(
-          rows.filter((p) => p.type === 'bi_dashboard' && p.status !== 'deleted'),
-        );
-      })
-      .catch(() => {
-        // Surface the failure as a distinct error state (not the empty state) so
-        // a backend hiccup is honestly recoverable via Retry.
-        if (cancelled) return;
+  // GET /projects/unified?mine_only=false lists ALL account projects — including
+  // seeded sample dashboards (SEED_DASH_*) owned by other identities. The
+  // response is already in UnifiedProject shape and is cross-type, so we filter
+  // to bi_dashboard here. Real KPIs (version / deployment) come from the payload.
+  //
+  // `background:true` is the real-time refresh path (SSE invalidation): it must
+  // NOT toggle the blocking skeleton — re-blanking a populated list to pulse
+  // cards on every account-wide event would be a flicker worse than staleness.
+  // Foreground (mount / Retry) shows the skeleton and surfaces a distinct error.
+  const loadProjects = useCallback(async (opts?: { background?: boolean }) => {
+    const background = opts?.background ?? false;
+    const reqId = ++reqIdRef.current;
+    if (!background) {
+      setProjectsLoading(true);
+      setProjectsError(null);
+    }
+    try {
+      const res = await getUnifiedProjects({ mine_only: false, limit: 100, offset: 0 });
+      if (reqId !== reqIdRef.current) return; // superseded by a newer load
+      const rows = Array.isArray(res?.projects) ? res.projects : [];
+      setProjects(rows.filter((p) => p.type === 'bi_dashboard' && p.status !== 'deleted'));
+      setProjectsError(null);
+    } catch {
+      if (reqId !== reqIdRef.current) return;
+      // A background refresh must not replace a good list with an error banner —
+      // only the foreground (mount / Retry) load surfaces the distinct, honest
+      // error state (never collapse a fetch failure into the empty state).
+      if (!background) {
         setProjectsError("Couldn't load your dashboards. This is a loading error, not an empty workspace.");
-      })
-      .finally(() => {
-        if (!cancelled) setProjectsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [reloadKey]);
+      }
+    } finally {
+      if (reqId === reqIdRef.current && !background) setProjectsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  // Real-time: the project list is otherwise only fetched on mount, so a create
+  // / delete from elsewhere (or another user) would go unseen. Subscribe to the
+  // backend SSE fan-out and silently background-refresh on a PROJECTS or
+  // BI_DASHBOARDS invalidation (a BI create/delete may fire either key).
+  const handleInvalidate = useCallback((keys: string[]) => {
+    if (keys.includes(CACHE_KEYS.PROJECTS) || keys.includes(CACHE_KEYS.BI_DASHBOARDS)) {
+      loadProjects({ background: true });
+    }
+  }, [loadProjects]);
+  useCacheInvalidation({ onInvalidate: handleInvalidate });
 
   const handleCreated = useCallback((projectId: string) => {
     trackFeatureClick('bi_dashboard_created', { projectId });
@@ -419,7 +443,7 @@ function BIDashboardPage() {
               <p className="max-w-md text-sm text-red-600 dark:text-red-400">{projectsError}</p>
               <button
                 type="button"
-                onClick={() => setReloadKey((k) => k + 1)}
+                onClick={() => loadProjects()}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
               >
                 <RefreshCw className="h-3.5 w-3.5" />

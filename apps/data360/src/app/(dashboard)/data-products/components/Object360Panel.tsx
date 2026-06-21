@@ -21,6 +21,7 @@
  * confirm; nothing executes blindly. It is the object's centralized action shelf.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import {
   Activity,
   AlertCircle,
@@ -35,6 +36,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import EmptyState from '@/components/ui/EmptyState';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
 import GovernancePostureCard, { type GovernancePostureData } from '@/app/shared/score-cards/GovernancePostureCard';
@@ -210,6 +213,24 @@ function useTabData(objectId: string, tab: TabKey) {
 
 function TabBody({ objectId, tab }: { objectId: string; tab: TabKey }) {
   const { state, data, error, reload } = useTabData(objectId, tab);
+
+  // SSE cache invalidation: re-run the active section's fetch when the backend
+  // recomputes catalog object scores. The explorer routes these sections read
+  // (`/api/snowflake/explorer/objects/{id}/*`) are role-cached and busted by
+  // their own keys, so CATALOG_OBJECTS/CATALOG_SCORES is a proxy signal — it
+  // refreshes governance/quality after a recompute but is not the exact bust key
+  // for columns/audit (tracked as a deferred gap). Settled-state-only guard
+  // avoids the mount double-fetch (`lastInvalidationAtom` is a persistent global).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    if (state === 'idle' || state === 'running') return;
+    const relevant = lastInvalidation.keys.some(
+      (k: string) => k === CACHE_KEYS.CATALOG_OBJECTS || k === CACHE_KEYS.CATALOG_SCORES,
+    );
+    if (relevant) void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   if (state === 'running' || state === 'idle') {
     return (

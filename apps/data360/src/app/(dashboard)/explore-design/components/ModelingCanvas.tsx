@@ -42,6 +42,7 @@ import MappingSummaryPanel from './MappingSummaryPanel';
 import { useEventStore, createColumnMappingEvent, createTableRenameEvent } from '../stores/event-store';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { getPolicyGrantedRolesMap, type PolicyGrantedRolesMap } from '@/app/services/governance/policies';
 
 // Custom node types
 const nodeTypes = {
@@ -332,6 +333,19 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   // Use ref for context action handler (defined later in component)
   const handleNodeContextActionRef = useRef<(nodeId: string, action: string) => void>(() => {});
 
+  // Policy → granted_roles map, loaded ONCE per mount via a single unified GET
+  // (getPolicyGrantedRolesMap = one /gouvernance/policies read, NOT the 3 wrapper
+  // services). Drives the node's "policies affect N roles" badge only. Self-hides
+  // on failure (stays null → no chip, never a fabricated 0). SVC-cache-safe read.
+  const [policyRolesMap, setPolicyRolesMap] = useState<PolicyGrantedRolesMap | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getPolicyGrantedRolesMap()
+      .then((m) => { if (!cancelled) setPolicyRolesMap(m); })
+      .catch(() => { if (!cancelled) setPolicyRolesMap(null); });
+    return () => { cancelled = true; };
+  }, []);
+
   // Track dynamically created mappings (not from defaultRelationships) - declared early for useMemo dependency
   const [dynamicMappings, setDynamicMappings] = useState<Map<string, Set<string>>>(new Map());
 
@@ -471,6 +485,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     // Per-table net governance state, keyed by `${db}.${schema}.${table}`.
     const rlsByTable = new Map<string, Set<string>>();
     const tagsByTable = new Map<string, Set<string>>();
+    // Net per-column masking (col → policyName) — fixes the dead Lock-badge wire
+    // in TableNode (col.maskingPolicy was declared+rendered but never fed).
+    const maskingByTable = new Map<string, Map<string, string>>();
+    // Net aggregation policy names (for the affected-roles count only).
+    const aggByTable = new Map<string, Set<string>>();
     events.forEach((e) => {
       const t = e.target;
       if (!t?.database || !t?.schema || !t?.table) return;
@@ -481,6 +500,24 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         if (!rlsByTable.has(tableId)) rlsByTable.set(tableId, new Set<string>());
         const set = rlsByTable.get(tableId)!;
         if (e.type === 'RLS_POLICY_APPLIED') set.add(name); else set.delete(name);
+      } else if (e.type === 'AGGREGATION_POLICY_APPLIED' || e.type === 'AGGREGATION_POLICY_REMOVED') {
+        const name = e.payload?.policyName;
+        if (!name) return;
+        if (!aggByTable.has(tableId)) aggByTable.set(tableId, new Set<string>());
+        const set = aggByTable.get(tableId)!;
+        if (e.type === 'AGGREGATION_POLICY_APPLIED') set.add(name); else set.delete(name);
+      } else if (e.type === 'MASKING_POLICY_APPLIED' || e.type === 'MASKING_POLICY_REMOVED') {
+        // `payload.columns` is the GUARANTEED carrier (event-store.ts
+        // isSignificantEvent rejects masking events lacking it); `target.column`
+        // is optional. Read payload.columns first, fall back to target.column.
+        const cols: string[] = Array.isArray(e.payload?.columns) && e.payload.columns.length
+          ? (e.payload.columns as string[]) : (t.column ? [t.column] : []);
+        if (cols.length === 0) return;
+        if (!maskingByTable.has(tableId)) maskingByTable.set(tableId, new Map<string, string>());
+        const m = maskingByTable.get(tableId)!;
+        const name = e.payload?.policyName;
+        if (e.type === 'MASKING_POLICY_APPLIED') { if (name) cols.forEach((c) => m.set(c, name)); }
+        else cols.forEach((c) => m.delete(c));
       } else if (e.type === 'TAG_APPLIED' || e.type === 'TAG_REMOVED') {
         const name: string | undefined = e.payload?.tagName ?? e.payload?.tag;
         // SENSITIVE:-prefixed tags are the sensitive-column marker (event-store
@@ -497,24 +534,56 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       const next = prev.map((n) => {
         const rls = rlsByTable.get(n.id);
         const tags = tagsByTable.get(n.id);
+        const maskMap = maskingByTable.get(n.id);
         const hasRLS = !!rls && rls.size > 0;
         const tagList = tags && tags.size > 0 ? Array.from(tags) : undefined;
+
+        // affectedRoleCount: distinct roles across this table's queued policies
+        // (RLS + masking + aggregation), resolved via the single-call role map.
+        // null when the map isn't loaded OR no policies are queued → chip
+        // self-hides (TableNode renders only when > 0). Never a fabricated 0.
+        let affectedRoleCount: number | null = null;
+        if (policyRolesMap) {
+          const names = new Set<string>();
+          rls?.forEach((nm) => names.add(nm));
+          aggByTable.get(n.id)?.forEach((nm) => names.add(nm));
+          maskMap?.forEach((nm) => names.add(nm));
+          if (names.size > 0) {
+            const roles = new Set<string>();
+            names.forEach((nm) => (policyRolesMap.byName[nm] || []).forEach((r) => roles.add(r)));
+            affectedRoleCount = roles.size;
+          }
+        }
+
         const prevConfig = n.data.config;
         const sameRLS = (prevConfig?.hasRLS ?? false) === hasRLS;
         const prevTags = prevConfig?.tags;
         const sameTags =
           (prevTags?.length ?? 0) === (tagList?.length ?? 0) &&
           (prevTags ?? []).every((tg, i) => tg === tagList?.[i]);
-        if (sameRLS && sameTags) return n;
+        const sameRoleCount = (prevConfig?.affectedRoleCount ?? null) === affectedRoleCount;
+
+        // Per-column masking policy — net APPLIED/REMOVED keyed by column.
+        let colsChanged = false;
+        const nextCols = n.data.columns.map((c) => {
+          const nextMp = maskMap?.get(c.name) || undefined;
+          if ((c.maskingPolicy ?? undefined) === nextMp) return c;
+          colsChanged = true;
+          return { ...c, maskingPolicy: nextMp };
+        });
+
+        if (sameRLS && sameTags && sameRoleCount && !colsChanged) return n;
         changed = true;
         return {
           ...n,
           data: {
             ...n.data,
+            columns: colsChanged ? nextCols : n.data.columns,
             config: {
               ...prevConfig,
               hasRLS,
               tags: tagList,
+              affectedRoleCount,
               // qualityScore / rowCount intentionally left as-is (undefined) —
               // no per-table source; TableNode self-hides them as honest "—".
             },
@@ -525,7 +594,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       return changed ? next : prev;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, initialNodes]);
+  }, [events, initialNodes, policyRolesMap]);
 
   // Create edges from default relationships
   useEffect(() => {

@@ -5,6 +5,9 @@
 import { chromium } from '@playwright/test';
 
 const BASE = process.env.BASE || 'http://localhost:3000';
+const ACCOUNT = process.env.DATA360_E2E_ACCOUNT || 'HAHA';
+const USERNAME = process.env.DATA360_E2E_USER || 'HAHA';
+const PASSWORD = process.env.DATA360_E2E_PASSWORD || '';
 const routes = process.argv.slice(2);
 if (routes.length === 0) routes.push('/account-overview');
 
@@ -17,10 +20,11 @@ await p.goto(`${BASE}/signin`, { waitUntil: 'domcontentloaded', timeout: 45000 }
 await p.waitForTimeout(2000);
 let loggedIn = false;
 try {
+  if (!PASSWORD) throw new Error('DATA360_E2E_PASSWORD is required');
   await p.waitForSelector('input[name="account_name"]', { timeout: 15000 });
-  await p.fill('input[name="account_name"]', 'HAHA');
-  await p.fill('input[name="username"]', 'HAHA');
-  await p.fill('input[name="password"]', 'NewSecurePassword123!');
+  await p.fill('input[name="account_name"]', ACCOUNT);
+  await p.fill('input[name="username"]', USERNAME);
+  await p.fill('input[name="password"]', PASSWORD);
   await p.locator('input[name="password"]').press('Enter');
   await p.waitForTimeout(1500);
   if (p.url().includes('/signin')) await p.click('button[type="submit"]').catch(() => {});

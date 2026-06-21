@@ -58,6 +58,9 @@ import TableSkeleton from '@/components/ui/TableSkeleton';
 import { formatApiDetail } from '@/lib/utils';
 import { dash } from '@/app/shared/ui/format';
 import { useCanPerform, invalidateMyPermissions } from '@/hooks/useCanPerform';
+import { useAtomValue } from 'jotai';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 
 // ============= SHARED UI COMPONENTS =============
 
@@ -225,6 +228,23 @@ export default function SecurityMatrixPage() {
       loadUsers();
     }
   }, [activeTab, usersLoading, loadUsers]);
+
+  // Real-time refresh: matrix/axes/enterprise-users are @shared_cache reads that
+  // the backend SSE-invalidates (CacheKey.SECURITY_MATRIX / ENTERPRISE_USERS) on
+  // any admin's write. Without this, a second admin's edit stays stale until a
+  // manual refresh. The users tab is lazy — only refetch it once it has loaded.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const keys = lastInvalidation.keys;
+    if (keys.includes(CACHE_KEYS.SECURITY_MATRIX)) {
+      loadMatrix(true);
+      loadAxes(true);
+    }
+    if (keys.includes(CACHE_KEYS.ENTERPRISE_USERS) && usersLoadedRef.current) {
+      loadUsers();
+    }
+  }, [lastInvalidation, loadMatrix, loadAxes, loadUsers]);
 
   // ============= MATRIX INLINE EDITING =============
 

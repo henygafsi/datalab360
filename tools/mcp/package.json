@@ -1,0 +1,35 @@
+{
+  "name": "data360-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Three MCP (stdio) servers that wrap the existing Data360 audit harnesses + real backend endpoints: data360-health (API/cache probes), data360-ux (render_all + front_perf Playwright sweeps), data360-roles (RBAC persona matrix). Servers are CLIENTS of the running backend/app; they hold no SVC env.",
+  "scripts": {
+    "//note": "Install the SDK ONLY (never bare `npm install`): bare install would pull a duplicate @playwright/test + download browsers. Playwright is a peerDependency provided by the monorepo root node_modules (already installed, incl. browsers) and resolves upward at runtime.",
+    "postinstall-note": "If you ever need a clean SDK install: npm install @modelcontextprotocol/sdk@^1.29.0",
+    "start:health": "node health-server.mjs",
+    "start:ux": "node ux-server.mjs",
+    "start:roles": "node roles-server.mjs",
+    "smoke": "node smoke-list-tools.mjs"
+  },
+  "bin": {
+    "data360-mcp-health": "./health-server.mjs",
+    "data360-mcp-ux": "./ux-server.mjs",
+    "data360-mcp-roles": "./roles-server.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "peerDependencies": {
+    "@playwright/test": "^1.58.0"
+  },
+  "peerDependenciesMeta": {
+    "@playwright/test": {
+      "optional": true
+    }
+  },
+  "//playwright": "Provided by the monorepo root (/Users/datalab360/Documents/data360_pro/datalab360Front/node_modules/@playwright/test, v1.58.2 with browsers already downloaded). Declared as a peerDependency on purpose so `npm install` in this dir does NOT duplicate it. Node ESM resolution walks up from tools/mcp -> tools -> repo root to find it. Only the data360-ux server imports it.",
+  "engines": {
+    "node": ">=24"
+  }
+}

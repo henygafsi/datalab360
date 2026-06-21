@@ -24,6 +24,7 @@ import { Activity, Database, FolderKanban, Gauge, KeyRound, Lock, ShieldCheck, L
 import { cn } from '@/lib/utils';
 import AccessControlCenter from './components/AccessControlCenter';
 import CacheMetricsPanel from './components/CacheMetricsPanel';
+import CacheGovernancePanel from './components/CacheGovernancePanel';
 import AdminOverviewHeader from './components/AdminOverviewHeader';
 import RolesPermissionsPanel from './components/RolesPermissionsPanel';
 import UsageAuditPanel from './components/UsageAuditPanel';
@@ -121,7 +122,12 @@ export default function AccessCenterPage() {
       {tab === 'featureGov' && <FeatureGovernanceMatrix />}
       {tab === 'roleGovernance' && <DefaultRoleGovernancePanel />}
       {tab === 'performance' && <PerformancePanel />}
-      {tab === 'cacheCalls' && <CacheMetricsPanel />}
+      {tab === 'cacheCalls' && (
+        <div className="space-y-6">
+          <CacheGovernancePanel />
+          <CacheMetricsPanel />
+        </div>
+      )}
       {tab === 'usage' && <UsageAuditPanel />}
       {tab === 'provisioning' && <ProvisioningPanel />}
       {tab === 'projects' && <ProjectsMonitoringPanel />}

@@ -9,8 +9,11 @@ import {
   Copy, Download, Eye, EyeOff, Zap, Globe, Settings,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useAtomValue } from 'jotai';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import {
   listOAuthIntegrations,
   listApiKeys,
@@ -1606,6 +1609,19 @@ export default function OAuthManagementPage() {
     fetchIntegrations();
     fetchApiKeys();
   }, [fetchIntegrations, fetchApiKeys]);
+
+  // Real-time refresh: re-pull the relevant list when the backend broadcasts an
+  // integrations/users invalidation. NOTE: the OAuth/SAML/integration/api-key
+  // write routes do not yet emit these keys (backend gap — see deferred), so the
+  // INTEGRATIONS half is currently dormant; the USERS half does fire for user
+  // CRUD done elsewhere (the api-keys list is an ACCOUNT_USAGE.USERS inventory).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const keys = lastInvalidation.keys;
+    if (keys.includes(CACHE_KEYS.INTEGRATIONS)) fetchIntegrations();
+    if (keys.includes(CACHE_KEYS.USERS)) fetchApiKeys();
+  }, [lastInvalidation, fetchIntegrations, fetchApiKeys]);
 
   const handleRefresh = useCallback(() => {
     if (activeTab === 'integrations') fetchIntegrations();

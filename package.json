@@ -14,6 +14,8 @@
     "iso:lint": "turbo lint --filter=iso",
     "iso:build": "turbo build --filter=iso",
     "iso:start": "turbo start --filter=iso",
+    "audit:pages": "node scripts/ci/page-audit.mjs",
+    "audit:routes": "pnpm --filter iso check:routes",
     "iso:clean": "turbo clean --filter=iso",
     "starter:dev": "turbo dev --filter=starter",
     "starter:lint": "turbo lint --filter=starter",

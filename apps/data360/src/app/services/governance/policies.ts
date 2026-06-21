@@ -1748,6 +1748,69 @@ export async function getTablePolicies(
   }
 }
 
+// ============= POLICY → GRANTED-ROLES MAP (single unified read) =============
+
+/**
+ * The roles a queued/applied policy affects, keyed by policy name. Built from a
+ * SINGLE call to the unified inventory `GET /gouvernance/policies` (which already
+ * returns masking / row_access / aggregation, each carrying `granted_roles`).
+ *
+ * Why not call getMaskingPolicies()/getRLSPolicies()/getAggregationPolicies()?
+ * All three hit the SAME endpoint and slice one field out of one response — so
+ * calling all three is 3 identical GETs, and getMaskingPolicies additionally
+ * fires a /masking/batch-details POST we don't need here. This helper is the
+ * one-GET path for "which roles does policy X grant" at design time.
+ *
+ * `granted_roles` is OPTIONAL in the unified list — when a policy has none we
+ * return [] (callers must render an honest "—", never a fabricated role).
+ */
+export interface PolicyGrantedRolesMap {
+  /** policyName → granted_roles, merged across masking + row_access + aggregation. */
+  byName: Record<string, string[]>;
+  masking: Record<string, string[]>;
+  row_access: Record<string, string[]>;
+  aggregation: Record<string, string[]>;
+}
+
+export async function getPolicyGrantedRolesMap(
+  database?: string,
+  schema?: string,
+): Promise<PolicyGrantedRolesMap> {
+  const params: Record<string, string> = {
+    database: database || DEFAULTS.DATABASE,
+    schema: schema || DEFAULT_GOVERNANCE_SCHEMA,
+  };
+
+  const response = await apiClient.get<
+    StandardResponse<{
+      masking?: BackendPolicy[];
+      row_access?: BackendPolicy[];
+      aggregation?: BackendPolicy[];
+    }>
+  >(POLICIES_API, { params });
+
+  const data = response.data?.data;
+  const byName: Record<string, string[]> = {};
+  const masking: Record<string, string[]> = {};
+  const row_access: Record<string, string[]> = {};
+  const aggregation: Record<string, string[]> = {};
+
+  const ingest = (arr: BackendPolicy[] | undefined, into: Record<string, string[]>) => {
+    (Array.isArray(arr) ? arr : []).forEach((p) => {
+      if (!p?.name) return;
+      const roles = Array.isArray(p.granted_roles) ? p.granted_roles : [];
+      into[p.name] = roles;
+      byName[p.name] = roles;
+    });
+  };
+
+  ingest(data?.masking, masking);
+  ingest(data?.row_access, row_access);
+  ingest(data?.aggregation, aggregation);
+
+  return { byName, masking, row_access, aggregation };
+}
+
 /**
  * Replace an existing masking policy on a column with a new one
  * Use this when column already has a masking policy applied

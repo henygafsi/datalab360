@@ -155,7 +155,7 @@ export default function ImportTasksModal({
               {loading && graphs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-3 py-12">
                   <Loader2 className="h-7 w-7 animate-spin text-cyan-500" />
-                  <p className="text-xs text-slate-500">Scanning Snowflake for tasks…</p>
+                  <p className="text-xs text-slate-500">Scanning the data warehouse for tasks…</p>
                 </div>
               ) : error ? (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/40 dark:bg-red-900/20">
@@ -166,6 +166,15 @@ export default function ImportTasksModal({
                         Couldn't load tasks
                       </p>
                       <p className="mt-0.5 text-xs text-red-700 dark:text-red-300">{error}</p>
+                      <button
+                        type="button"
+                        onClick={() => void fetchGraphs()}
+                        disabled={loading}
+                        className="mt-2 inline-flex items-center gap-1 rounded-md border border-red-300 dark:border-red-700 px-2 py-1 text-xs font-medium text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 transition disabled:opacity-50"
+                      >
+                        <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} />
+                        Retry
+                      </button>
                     </div>
                   </div>
                 </div>

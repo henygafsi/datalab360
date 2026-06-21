@@ -135,6 +135,7 @@ import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { isAdminRole } from '@/config/constants';
 
 // Lazy-loaded new tabs
@@ -1887,6 +1888,48 @@ function CommandCenterDashboardInner() {
     fetchPlatformActivity,
     trackFeatureClick,
   ]);
+
+  // ── Real-time refresh via SSE cache-invalidation ──────────────────────────
+  // Subscribe to backend cache-invalidation events and silently reload the
+  // ACTIVE tab when an event touches data it actually renders (key→tab map
+  // below). Unlike the manual Refresh button we do NOT fire `trackFeatureClick`
+  // (these are backend-driven, not user clicks) and we do NOT null the section
+  // state (loaders refresh in place — no skeleton flash). Tabs whose data is
+  // owned by their own child component (Organization/Modules/Snowflake
+  // Objects/Snowflake Explorer) manage their own lifecycle and are not driven
+  // from here — see the deferred gap note.
+  useCacheInvalidation({
+    onInvalidate: (keys) => {
+      const TAB_KEYS: Record<string, string[]> = {
+        overview: [CACHE_KEYS.USER_ACTIVITY, CACHE_KEYS.DASHBOARD],
+        projects: [CACHE_KEYS.PROJECTS],
+        security: [
+          CACHE_KEYS.GRANTS,
+          CACHE_KEYS.SECURITY_MATRIX,
+          CACHE_KEYS.USER_ACTIVITY,
+        ],
+        'platform-activity': [CACHE_KEYS.USER_ACTIVITY],
+      };
+      const relevant = TAB_KEYS[activeTab] ?? [];
+      if (!keys.some((k) => relevant.includes(k))) return;
+      // Bust the client-side tab memo so the loader re-hits the backend.
+      tabDataCache.current = {};
+      switch (activeTab) {
+        case 'overview':
+          fetchOverview();
+          break;
+        case 'projects':
+          fetchProjects();
+          break;
+        case 'security':
+          fetchSecurityAdv();
+          break;
+        case 'platform-activity':
+          fetchPlatformActivity();
+          break;
+      }
+    },
+  });
 
   // ── Loading state ────────────────────────────────────────────────────────
   //

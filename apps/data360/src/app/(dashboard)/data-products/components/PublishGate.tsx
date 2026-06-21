@@ -15,7 +15,10 @@
  * ACCOUNTADMIN-tier; a 403/409 surfaces inline.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   AlertCircle,
   CheckCircle2,
@@ -104,6 +107,23 @@ export default function PublishGate({
   useEffect(() => {
     void loadScores();
   }, [loadScores]);
+
+  // SSE cache invalidation: re-pull the publish-gate scores when the backend
+  // recomputes catalog object scores (closes the up-to-30-min staleness window
+  // where this panel kept showing the old pass/fail until reopened). Guarded to
+  // settled states only — `lastInvalidationAtom` is a persistent global that
+  // stays non-null after the first event, so without the idle/running guard a
+  // panel mounting later in the session would double-fetch on mount.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    if (scoreState === 'idle' || scoreState === 'running') return;
+    const relevant = lastInvalidation.keys.some(
+      (k: string) => k === CACHE_KEYS.CATALOG_OBJECTS || k === CACHE_KEYS.CATALOG_SCORES,
+    );
+    if (relevant) void loadScores();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   const checks = buildChecks(obj);
   // Gate is open only when every check has a known, passing value.

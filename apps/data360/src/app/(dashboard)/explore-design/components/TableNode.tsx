@@ -7,7 +7,7 @@ import {
   Table2, Key, Shield, Lock, RefreshCw, Clock, History, Layers,
   MoreVertical, Edit2, Trash2, Eye, Link2, Copy, ArrowRight,
   ChevronDown, ChevronRight, Database, AlertTriangle, Check, Plus, Tag,
-  BarChart3
+  BarChart3, Users
 } from 'lucide-react';
 
 // Column info for the node
@@ -46,6 +46,12 @@ export interface TableNodeData {
     tags?: string[];
     qualityScore?: number | null;
     rowCount?: number | null;
+    /**
+     * Distinct count of roles affected by the policies queued on this table
+     * (derived from each queued policy's `granted_roles`). `null`/undefined →
+     * the chip self-hides (no fabricated 0), same honesty rule as quality/rows.
+     */
+    affectedRoleCount?: number | null;
   };
 }
 
@@ -207,12 +213,18 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
             {data.schema}
           </div>
           {/* Governance & Metadata Badges */}
-          {(data.config?.hasRLS || (data.config?.tags && data.config.tags.length > 0) || data.config?.qualityScore != null || data.config?.rowCount != null) && (
+          {(data.config?.hasRLS || (data.config?.tags && data.config.tags.length > 0) || data.config?.qualityScore != null || data.config?.rowCount != null || data.config?.affectedRoleCount != null) && (
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               {data.config?.hasRLS && (
                 <div className="flex items-center gap-0.5 text-[9px] text-purple-600 dark:text-purple-400" title="RLS Policy Applied">
                   <Lock className="h-2.5 w-2.5" />
                   <span>RLS</span>
+                </div>
+              )}
+              {data.config?.affectedRoleCount != null && data.config.affectedRoleCount > 0 && (
+                <div className="flex items-center gap-0.5 text-[9px] text-blue-600 dark:text-blue-400" title={`Queued policies affect ${data.config.affectedRoleCount} role(s)`}>
+                  <Users className="h-2.5 w-2.5" />
+                  <span>{data.config.affectedRoleCount} role{data.config.affectedRoleCount > 1 ? 's' : ''}</span>
                 </div>
               )}
               {data.config?.tags && data.config.tags.length > 0 && (

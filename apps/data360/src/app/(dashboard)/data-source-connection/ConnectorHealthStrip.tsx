@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { Badge, Tooltip } from 'rizzui';
 import {
   HiOutlineArrowPath,
@@ -16,6 +17,8 @@ import {
   type ConnectorHealthItem,
   type ConnectorsHealthSummary,
 } from './connectionServices';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 const STATUS_STYLES: Record<ConnectorHealthItem['status'], { dot: string; chip: string; icon: React.ElementType; label: string }> = {
   healthy: { dot: 'bg-green-500', chip: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300', icon: HiCheckCircle, label: 'Healthy' },
@@ -75,6 +78,24 @@ export default function ConnectorHealthStrip() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Real-time refresh (SSE): a stage / connector mutation (ingest, stage
+  // create/delete, upload, integration change) emits a cache-invalidation event.
+  // Re-probe health so a source that just changed state is not misreported until
+  // the 30-min TTL expires (the health GET is account-global, not warmed).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const touched = lastInvalidation.keys.some(
+      (k: string) =>
+        k === CACHE_KEYS.CONNECTORS ||
+        k === CACHE_KEYS.STAGES ||
+        k === CACHE_KEYS.CONNECTIONS ||
+        k === CACHE_KEYS.INTEGRATIONS,
+    );
+    if (touched) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   // Loading skeleton
   if (loading && !summary) {

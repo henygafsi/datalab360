@@ -831,9 +831,20 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
       {/* Error Display */}
       {error && (
         <div className="mx-4 mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-          <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
-            <AlertTriangle className="h-4 w-4" />
-            <span className="text-sm">{error}</span>
+          <div className="flex items-center justify-between gap-2 text-red-700 dark:text-red-400">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span className="text-sm break-words">{error}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1 shrink-0 rounded-md border border-red-300 dark:border-red-700 px-2 py-1 text-xs font-medium text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 transition disabled:opacity-50"
+            >
+              <RefreshCw className={cn('h-3 w-3', isRefreshing && 'animate-spin')} />
+              Retry
+            </button>
           </div>
         </div>
       )}

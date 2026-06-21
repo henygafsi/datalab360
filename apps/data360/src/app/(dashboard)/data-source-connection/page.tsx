@@ -3,7 +3,10 @@
 import { useState, useMemo, FormEvent, ChangeEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import { useAtomValue } from 'jotai';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { Input, Button, Checkbox, Text, Password, Badge, Tooltip } from 'rizzui';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
@@ -533,6 +536,21 @@ export default function DataSourceConnectionPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, canManageConnections]);
+
+  // Real-time refresh (SSE): another session's stage create/delete or an ingest
+  // emits a cache-invalidation event. Refresh the ingestion-stage list so it
+  // doesn't go stale until the 30-min TTL. Guarded by the same connect:read gate
+  // as the initial load.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    if (status !== 'authenticated' || !canManageConnections) return;
+    const touched = lastInvalidation.keys.some(
+      (k: string) => k === CACHE_KEYS.STAGES || k === CACHE_KEYS.CONNECTIONS,
+    );
+    if (touched) loadConnections();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   const browseConnection = (connection: StageConnection) => {
     setConnectedProvider('snowflake');

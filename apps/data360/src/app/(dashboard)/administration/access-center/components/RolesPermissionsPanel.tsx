@@ -25,7 +25,8 @@
  * switching roles is instant (no refetch). Honesty: explicit ALLOW → green,
  * explicit DENY → red, no-rule → muted; unresolved role → "—" / honest error.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { ChevronRight, KeyRound, Layers, ListTree, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
@@ -38,6 +39,8 @@ import {
   type D360Role,
   type RolePermissionsResponse,
 } from '@/app/services/governance/fetch_roles';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { Spinner, ErrBox, Chip, buildPermMap, keyOf, type PermMap, type PermLevel } from './shared';
 
 type Phase = 'loading' | 'ready' | 'error';
@@ -280,8 +283,8 @@ export default function RolesPermissionsPanel() {
   const [permsByRole, setPermsByRole] = useState<Map<string, RolePermissionsResponse>>(new Map());
   const [selectedRole, setSelectedRole] = useState('');
 
-  const load = useCallback(async () => {
-    setPhase('loading');
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setPhase('loading');
     setError(null);
     try {
       const [reg, rl] = await Promise.all([getActionRegistry(), getD360Roles()]);
@@ -351,6 +354,9 @@ export default function RolesPermissionsPanel() {
       setSelectedRole((cur) => cur || (maxDeny > 0 ? defaultRole : fallbackRole));
       setPhase('ready');
     } catch (e) {
+      // On a silent background refetch, keep the current matrix rather than
+      // wiping a good view on a transient failure.
+      if (opts?.silent) return;
       setError(getApiErrorMessage(e));
       setPhase('error');
     }
@@ -359,6 +365,29 @@ export default function RolesPermissionsPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Real-time refresh: role / permission / grant mutations elsewhere fire the
+  // relevant key on the shared cache-invalidation SSE stream — re-resolve the
+  // role matrix silently (preserves the selected role; no skeleton flash; no
+  // second SSE connection).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevant: string[] = [
+      CACHE_KEYS.ROLES,
+      CACHE_KEYS.GRANTS,
+      CACHE_KEYS.USER_PERMISSIONS,
+      'permissions',
+    ];
+    if (lastInvalidation.keys.some((k) => relevant.includes(k))) {
+      void loadRef.current({ silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   // Retry a single role that failed in the initial batch (without a full reload).
   const reloadRole = useCallback(async (roleName: string) => {

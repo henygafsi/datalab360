@@ -25,6 +25,19 @@ import {
 let cachePromise: Promise<MyPermissionsResponse> | null = null;
 let cacheData: MyPermissionsResponse | null = null;
 let cacheError = false;
+// SVC cache-not-ready (503 CACHE_NOT_READY) is NOT a generic hard error: we must
+// NOT fail-open (grant-all) on it, or a transient SVC-down would unlock every gated
+// button. Backend now degrades /my-permissions to the safe template instead of 503,
+// so this is defense-in-depth for any OTHER gated call that surfaces CACHE_NOT_READY.
+let cacheNotReady = false;
+
+function isCacheNotReady(e: unknown): boolean {
+  const resp = (e as { response?: { status?: number; data?: any } })?.response;
+  if (resp?.status !== 503) return false;
+  const d = resp?.data;
+  const code = d?.errorCode || d?.error_code || d?.detail?.errorCode || d?.detail?.error_code;
+  return code === 'CACHE_NOT_READY';
+}
 // Subscribers are notified whenever the cache is (re)populated or invalidated.
 const subscribers = new Set<() => void>();
 
@@ -35,6 +48,7 @@ function notify() {
 function load(): Promise<MyPermissionsResponse> {
   if (!cachePromise) {
     cacheError = false;
+    cacheNotReady = false;
     cachePromise = getMyPermissions()
       .then((res) => {
         cacheData = res;
@@ -45,6 +59,7 @@ function load(): Promise<MyPermissionsResponse> {
       .catch((e) => {
         cacheData = null;
         cacheError = true;
+        cacheNotReady = isCacheNotReady(e);
         notify();
         throw e;
       });
@@ -57,6 +72,7 @@ export function invalidateMyPermissions() {
   cachePromise = null;
   cacheData = null;
   cacheError = false;
+  cacheNotReady = false;
   notify(); // immediate re-render (mounted consumers show loading)
   void load(); // kick a fresh fetch; load() notifies again on resolve
 }
@@ -121,6 +137,11 @@ export function useCanPerform(
   const loading = cacheData == null && !cacheError;
 
   if (cacheError) {
+    if (cacheNotReady) {
+      // SVC cache not ready → DENY (do NOT fail-open). A transient SVC-down must
+      // never unlock gated buttons; the surface shows as "preparing" / disabled.
+      return { allowed: false, loading: false, error: true, d360Role: null };
+    }
     // Hard failure → fail open (don't regress admins out of their own buttons).
     return { allowed: true, loading: false, error: true, d360Role: null };
   }
