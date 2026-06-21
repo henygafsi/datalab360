@@ -359,9 +359,13 @@ export async function validateEvents(
 // ============================================
 
 /**
- * Deploy validated events
+ * Deploy validated events.
+ *
+ * Wired to the live 2-step deployment pipeline (there is no single deploy-events
+ * route): create a deployment carrying the event_ids, then execute it.
+ *   1) POST /explore-design/{projectId}/deployments           (createDeployment)
+ *   2) POST /explore-design/{projectId}/deployments/{id}/execute (executeDeploymentV1)
  */
-// TODO: backend endpoint not implemented — use the deployment pipeline (createDeployment + executeDeploymentV1)
 export async function deployEvents(
   projectId: string,
   eventIds: string[],
@@ -372,13 +376,21 @@ export async function deployEvents(
   results: DeploymentResult[];
   summary: { applied: number; failed: number; skipped: number };
 }> {
-  // No backend route. Do NOT fake a success response (that passes the api-health
-  // board green while testing nothing). The real pipeline is createDeployment +
-  // executeDeploymentV1(projectId, deploymentId). Callers must gate the button
-  // with useActionGate/InsightActionButton so it disables as "unavailable".
-  throw new Error(
-    '[deployEvents] not implemented — use createDeployment + executeDeploymentV1(projectId, deploymentId)'
-  );
+  // Step 1 — stage the deployment with the events ('staged' keeps it from
+  // auto-running so step 2 is the explicit trigger).
+  const created = await createDeployment(projectId, '1.0', 'staged', eventIds, {
+    rollback_on_error: options?.rollback_on_error ?? true,
+  });
+  // Step 2 — execute it through the registered v1 route.
+  const execResult: any = await executeDeploymentV1(projectId, created.deployment_id);
+  // Normalize the execute envelope back into this function's historical shape so
+  // existing callers keep working.
+  return {
+    deployment_id: created.deployment_id,
+    status: execResult?.status ?? 'completed',
+    results: execResult?.results ?? [],
+    summary: execResult?.summary ?? { applied: 0, failed: 0, skipped: 0 },
+  };
 }
 
 // ============================================
@@ -876,9 +888,11 @@ export async function getVersion(versionId: string): Promise<Version & { snapsho
 }
 
 /**
- * Compare two versions
+ * Compare two versions.
+ * Wired to the live route: GET /explore-design/versions/{from_version_id}/compare/{to_version_id}
+ * (lifecycle_router api_compare_versions). The earlier "no comparison route"
+ * comment was stale — the route exists with this exact signature.
  */
-// TODO: backend endpoint not implemented — no version comparison route
 export async function compareVersions(
   fromVersionId: string,
   toVersionId: string
@@ -896,8 +910,10 @@ export async function compareVersions(
     policies_removed: string[];
   };
 }> {
-  // No backend route. Don't return an empty diff that reads as "no differences".
-  throw new Error('[compareVersions] not implemented — no version-comparison route');
+  const response = await apiClient.get(
+    `${ED}/versions/${fromVersionId}/compare/${toVersionId}`,
+  );
+  return response.data;
 }
 
 /**
@@ -4595,12 +4611,25 @@ export async function checkNaming(projectId: string, data: { names: string[]; ob
 }
 
 export async function getTypeOptimization(projectId: string, database: string, schema: string, table: string) {
-  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/type-optimization`);
+  // Wired to the live route: POST /explore-design/{projectId}/ai/optimize-types.
+  // (The old GET /tables/.../ai/type-optimization path was never registered → 404.)
+  // Body model AITypeOptimizeRequest reads { database, schema_name (alias "schema"), table };
+  // populate_by_name=True so the field name `schema_name` is accepted.
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/optimize-types`, {
+    database,
+    schema_name: schema,
+    table,
+  });
   return res.data;
 }
 
 export async function getSCDRecommendation(projectId: string, database: string, schema: string, table: string) {
-  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/scd-recommendation`);
+  // Wired to the live route: POST /explore-design/{projectId}/ai/recommend-scd.
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/recommend-scd`, {
+    database,
+    schema_name: schema,
+    table,
+  });
   return res.data;
 }
 
@@ -4610,17 +4639,32 @@ export async function getWarehouseSizing(warehouse?: string) {
 }
 
 export async function getClusteringSuggestion(projectId: string, database: string, schema: string, table: string) {
-  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/clustering-suggestion`);
+  // Wired to the live route: POST /explore-design/{projectId}/ai/clustering-keys.
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/clustering-keys`, {
+    database,
+    schema_name: schema,
+    table,
+  });
   return res.data;
 }
 
 export async function getMaterializationStrategy(projectId: string, database: string, schema: string, table: string) {
-  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/materialization-strategy`);
+  // Wired to the live route: POST /explore-design/{projectId}/ai/materialization.
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/materialization`, {
+    database,
+    schema_name: schema,
+    table,
+  });
   return res.data;
 }
 
 export async function getIngestionRecommendation(projectId: string, database: string, schema: string, table: string) {
-  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/ingestion-recommendation`);
+  // Wired to the live route: POST /explore-design/{projectId}/ai/ingestion-mode.
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/ingestion-mode`, {
+    database,
+    schema_name: schema,
+    table,
+  });
   return res.data;
 }
 

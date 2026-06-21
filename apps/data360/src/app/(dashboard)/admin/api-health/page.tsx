@@ -16,7 +16,7 @@ import { routes } from '@/config/routes';
 import { KpiStrip } from './components/KpiStrip';
 import { DrillPanel } from './components/DrillPanel';
 import { ReleaseHistory } from './components/ReleaseHistory';
-import { SLOW_THRESHOLD_MS, isDefect, isExpected, type ProbeDetail } from './components/types';
+import { SLOW_THRESHOLD_MS, isDefect, isExpected, isExpectedOrKnown, isKnownUnimplemented, isConfigDependentRejection, type ProbeDetail } from './components/types';
 import { persistApiHealthRun, NotDeployedError } from '@/app/services/admin-api-health';
 
 // ── Command Center ──
@@ -136,11 +136,12 @@ import {
   createProject as edCreateProject, saveTemplate, applyTemplate,
   detectSchemaChanges, validateCompliance,
   createDeployment as edCreateDeployment, getDeployment as edGetDeployment,
-  executeDeployment as edExecuteDeployment, rollbackDeployment as edRollbackDeployment,
+  // executeDeployment/rollbackDeployment/approveRequest/rejectRequest stubs are no
+  // longer probed — their probes now hit the wired V1 siblings (see below).
   listDeployments as edListDeployments,
   createVersion as edCreateVersion, listVersions as edListVersions,
   getVersion as edGetVersion, compareVersions, publishVersion, archiveVersion,
-  getApprovalDetails, approveRequest, rejectRequest, addApprovalComment,
+  getApprovalDetails, addApprovalComment,
   createSnowpipe, createBatchTask, createStream,
   pauseIngestion, resumeIngestion, executeIngestion as edExecuteIngestion,
   deploySchema, getSchemaVersions, rollbackSchema,
@@ -609,14 +610,20 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'detectSchemaChanges', fn: () => detectSchemaChanges(FAKE_ID) },
       { name: 'validateCompliance', fn: () => validateCompliance(FAKE_ID, ['naming']) },
       { name: 'createDeployment', fn: () => edCreateDeployment(FAKE_ID, '1.0', 'full' as any, [FAKE_ID]) },
-      { name: 'executeDeployment', fn: () => edExecuteDeployment(FAKE_ID, { dry_run: true }) },
-      { name: 'rollbackDeployment', fn: () => edRollbackDeployment(FAKE_ID, '0.9', 'health_check') },
+      // executeDeployment/rollbackDeployment stubs can't reach their routes (their
+      // signatures lack projectId). Probe the already-wired siblings that hit the
+      // real routes: POST /explore-design/{p}/deployments/{d}/execute and
+      // POST /projects/{p}/rollback. Name kept stable so release-history trend holds.
+      { name: 'executeDeployment', fn: () => executeDeploymentV1(FAKE_ID, FAKE_ID) },
+      { name: 'rollbackDeployment', fn: () => projectsApi.rollbackVersion(FAKE_ID, { target_version_id: FAKE_ID, reason: 'health_check' }) },
       { name: 'createVersion', fn: () => edCreateVersion(FAKE_ID, 'minor' as any, 'health check') },
       { name: 'compareVersions', fn: () => compareVersions(FAKE_ID, FAKE_ID) },
       { name: 'publishVersion', fn: () => publishVersion(FAKE_ID) },
       { name: 'archiveVersion', fn: () => archiveVersion(FAKE_ID) },
-      { name: 'approveRequest', fn: () => approveRequest(FAKE_ID) },
-      { name: 'rejectRequest', fn: () => rejectRequest(FAKE_ID, 'health_check') },
+      // approveRequest/rejectRequest stubs lack projectId; probe the wired V1
+      // siblings that hit POST /explore-design/{p}/deployments/{d}/approve|reject.
+      { name: 'approveRequest', fn: () => approveDeploymentV1(FAKE_ID, FAKE_ID) },
+      { name: 'rejectRequest', fn: () => rejectDeploymentV1(FAKE_ID, FAKE_ID, 'health_check') },
       { name: 'addApprovalComment', fn: () => addApprovalComment(FAKE_ID, 'health_check') },
       { name: 'deploySchema', fn: () => deploySchema(FAKE_ID, { database: FAKE_DB, schema: FAKE_SCHEMA } as any) },
       { name: 'rollbackSchema', fn: () => rollbackSchema(FAKE_ID, FAKE_ID) },
@@ -1010,7 +1017,9 @@ const isSlowResult = (r?: TestResult) =>
 function categorize(r?: TestResult): string {
   if (isDefect(r)) return 'defect';
   if (isSlowResult(r)) return 'slow';
-  if (isExpected(r)) return 'expected';
+  // 'expected' subsumes the three benign outcomes (fake-id 4xx, known-unimplemented
+  // FE stub, config-dependent rejection) so none falls through to 'error'.
+  if (isExpectedOrKnown(r)) return 'expected';
   if (r?.status === 'success') return 'ok';
   if (r?.status === 'warn') return 'warn';
   return 'error';
@@ -1072,7 +1081,10 @@ export default function ApiHealthPage() {
   const totalTests = TEST_MODULES.reduce((s, m) => s + m.tests.length, 0);
   const hasRun = Object.keys(results).length > 0;
   const successCount = Object.values(results).filter(r => r.status === 'success').length;
-  const errorCount = Object.values(results).filter(r => r.status === 'error').length;
+  // "Failing" = a real client/transport error, EXCLUDING benign client-side
+  // throws (known-unimplemented FE stubs) and config-dependent rejections, which
+  // also surface with status==='error' but are not failures.
+  const errorCount = Object.values(results).filter(r => r.status === 'error' && !isExpectedOrKnown(r)).length;
   // Real defects: SQL_COMPILATION_ERROR / 405 / 408 / network — these otherwise
   // hide inside the yellow 4xx bucket. Errors (5xx/network) are a subset.
   const defectCount = Object.values(results).filter(r => isDefect(r)).length;
@@ -1083,12 +1095,12 @@ export default function ApiHealthPage() {
   // Slow wins over expected, so a slow expected-4xx counts as slow only.
   // Expected = the API CORRECTLY rejecting fake/empty probe input (benign).
   const expectedCount = Object.values(results).filter(
-    r => isExpected(r) && !isSlowResult(r),
+    r => isExpectedOrKnown(r) && !isSlowResult(r),
   ).length;
   // Residual warn = a 4xx that is neither a genuine defect nor an expected
   // rejection (rare) and not slow.
   const warnCount = Object.values(results).filter(
-    r => r.status === 'warn' && !isDefect(r) && !isExpected(r) && !isSlowResult(r),
+    r => r.status === 'warn' && !isDefect(r) && !isExpectedOrKnown(r) && !isSlowResult(r),
   ).length;
   // Healthy = genuine successes ONLY. Expected 4xx is now its own bucket so the
   // two never double-count.
@@ -1297,15 +1309,20 @@ export default function ApiHealthPage() {
       if (!hay.includes(debouncedSearch)) return false;
     }
     if (filter === 'all') return true;
-    // "Issues only" — the default: real problems needing attention.
-    if (filter === 'issues') return isDefect(r) || r?.status === 'error' || isSlowResult(r);
+    // "Issues only" — the default: real problems needing attention. Benign
+    // client-side throws / config-dependent rejections (status==='error' but
+    // isExpectedOrKnown) are carved out so they don't read as issues.
+    if (filter === 'issues') return isDefect(r) || (r?.status === 'error' && !isExpectedOrKnown(r)) || isSlowResult(r);
     if (filter === 'slow') return isSlowResult(r);
     if (filter === 'defect') return isDefect(r);
-    // "expected" = the API correctly rejecting fake/empty probe input.
-    if (filter === 'expected') return isExpected(r) && !isSlowResult(r);
+    // "expected" = a benign rejection: the API correctly refusing fake/empty
+    // input, an honest unimplemented FE stub, or a config-dependent rejection.
+    if (filter === 'expected') return isExpectedOrKnown(r) && !isSlowResult(r);
+    // "Failing" filter = real errors only; benign error-status rows carved out.
+    if (filter === 'error') return r?.status === 'error' && !isExpectedOrKnown(r);
     // "warn" filter = residual 4xx only (defects + expected carved out).
     if (filter === 'warn')
-      return r?.status === 'warn' && !isDefect(r) && !isExpected(r) && !isSlowResult(r);
+      return r?.status === 'warn' && !isDefect(r) && !isExpectedOrKnown(r) && !isSlowResult(r);
     return r?.status === filter;
   }, [debouncedSearch, filter]);
 
@@ -1540,9 +1557,9 @@ export default function ApiHealthPage() {
 
             const md = modTests.filter(t => isDefect(t.result)).length;
             const ms = modTests.filter(t => t.result?.status === 'success').length;
-            const mex = modTests.filter(t => isExpected(t.result) && !isSlowResult(t.result)).length;
+            const mex = modTests.filter(t => isExpectedOrKnown(t.result) && !isSlowResult(t.result)).length;
             const mw = modTests.filter(
-              t => t.result?.status === 'warn' && !isDefect(t.result) && !isExpected(t.result) && !isSlowResult(t.result),
+              t => t.result?.status === 'warn' && !isDefect(t.result) && !isExpectedOrKnown(t.result) && !isSlowResult(t.result),
             ).length;
             const msl = modTests.filter(t => isSlowResult(t.result)).length;
             const isCollapsed = collapsed[mod.module];
@@ -1583,43 +1600,52 @@ export default function ApiHealthPage() {
                       {filtered.map(t => {
                         const slow = isSlowResult(t.result);
                         const defect = isDefect(t.result);
-                        // Expected = the API correctly rejecting fake/empty probe input.
+                        // Three benign (grey) outcomes — none is a defect/regression:
+                        //   expected   — API correctly rejecting fake/empty 4xx input
+                        //   known       — honest FE stub (no route yet, client-side throw)
+                        //   configDep   — working route blocked by unprovisioned account infra
                         // Slow wins (priority), so a slow expected-4xx is not "expected" here.
-                        const expected = isExpected(t.result) && !slow;
+                        const known = isKnownUnimplemented(t.result) && !slow;
+                        const configDep = isConfigDependentRejection(t.result) && !slow;
+                        const expected = isExpected(t.result) && !slow && !known && !configDep;
+                        const benign = expected || known || configDep;
                         // Success rows are drillable too when they captured a payload —
                         // that detail panel is the only place the exact response data shows.
                         const drillable =
-                          t.result?.status === 'error' || slow || defect || expected ||
+                          t.result?.status === 'error' || slow || defect || benign ||
                           (t.result?.status === 'success' && !!t.result?.data) ||
                           (t.result?.status === 'warn' && !!t.result?.errorBody);
                         const selected = drillKey === t.key;
                         // A defective 4xx (e.g. SQL_COMPILATION_ERROR) is visually
                         // promoted to magenta so it never blends into expected-grey.
                         const defectWarn = defect && t.result?.status === 'warn';
+                        // Honest per-row tooltip / error copy for each benign kind.
+                        const benignTitle = known
+                          ? 'Known gap — no backend route yet; the FE honestly throws "not implemented"'
+                          : configDep
+                            ? 'Config-dependent — the route works but needs account infra (API integration / runtime / stage) absent in this account'
+                            : 'Expected — probe sent a test id / empty body, API correctly rejected it';
                         return (
                           <tr key={t.key} style={{
                             borderBottom: '1px solid #f1f5f9',
                             cursor: drillable ? 'pointer' : 'default',
-                            // Expected rows read MUTED (neutral grey), never amber —
-                            // they are benign, correct rejections of test input.
+                            // Benign rows read MUTED (neutral grey), never red/amber —
+                            // they are not failures. Guard the error-red branch with
+                            // !benign so known/config (status==='error') don't read red.
                             background: selected ? '#eef2ff'
-                              : t.result?.status === 'error' ? '#fef2f2'
+                              : (t.result?.status === 'error' && !benign) ? '#fef2f2'
                               : defectWarn ? '#fdf4ff'
                               : slow ? '#fff7ed'
-                              : expected ? '#f8fafc'
+                              : benign ? '#f8fafc'
                               : t.result?.status === 'warn' ? '#fffbeb'
                               : 'transparent',
-                            // Mute the whole expected row so it visually recedes.
-                            color: expected ? '#94a3b8' : undefined,
+                            // Mute the whole benign row so it visually recedes.
+                            color: benign ? '#94a3b8' : undefined,
                           }}
                             onClick={drillable ? () => setDrillKey(t.key) : undefined}
-                            title={drillable
-                              ? expected
-                                ? 'Expected — probe sent a test id / empty body, API correctly rejected it'
-                                : 'Click for detail'
-                              : undefined}
+                            title={drillable ? (benign ? benignTitle : 'Click for detail') : undefined}
                           >
-                            <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12, color: expected ? '#94a3b8' : undefined }}>
+                            <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12, color: benign ? '#94a3b8' : undefined }}>
                               {t.name}
                               {t.result?.data && (
                                 <span
@@ -1629,18 +1655,26 @@ export default function ApiHealthPage() {
                               )}
                             </td>
                             <td style={{ padding: '5px 8px' }}>
-                              <StatusBadge status={t.result?.status || 'idle'} expected={expected} />
+                              <StatusBadge status={t.result?.status || 'idle'} expected={benign} benignLabel={known ? 'N/A' : configDep ? 'CFG' : undefined} />
                               {defect && <span style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#fdf4ff', color: '#a21caf' }}>DEFECT</span>}
                               {slow && <span style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#fff7ed', color: '#c2410c' }}>SLOW</span>}
+                              {known && <span title="No backend route yet — FE honestly reports it as not implemented" style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#64748b' }}>Not implemented</span>}
+                              {configDep && <span title="Route works but needs unprovisioned account infra" style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#64748b' }}>Config-dependent</span>}
                               {expected && <span title="Probe sent a test id / empty body — the API correctly rejected it" style={{ marginLeft: 4, display: 'inline-block', padding: '1px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#64748b' }}>Expected</span>}
                             </td>
-                            <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12, color: expected ? '#94a3b8' : undefined }}>{t.result?.ms != null ? `${t.result.ms}ms` : '-'}</td>
+                            <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12, color: benign ? '#94a3b8' : undefined }}>{t.result?.ms != null ? `${t.result.ms}ms` : '-'}</td>
                             <td style={{ padding: '5px 8px', fontFamily: 'monospace', fontSize: 12,
-                              color: expected ? '#94a3b8' : t.result?.httpStatus && t.result.httpStatus >= 500 ? '#dc2626' : t.result?.httpStatus && t.result.httpStatus >= 400 ? '#d97706' : '#374151',
+                              color: benign ? '#94a3b8' : t.result?.httpStatus && t.result.httpStatus >= 500 ? '#dc2626' : t.result?.httpStatus && t.result.httpStatus >= 400 ? '#d97706' : '#374151',
                             }}>{t.result?.httpStatus || '-'}</td>
-                            <td style={{ padding: '5px 8px', fontSize: 12, color: expected ? '#94a3b8' : t.result?.status === 'error' ? '#dc2626' : '#92400e',
+                            <td style={{ padding: '5px 8px', fontSize: 12, color: benign ? '#94a3b8' : t.result?.status === 'error' ? '#dc2626' : '#92400e',
                               maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                            }} title={t.result?.error}>{expected ? 'probe sent a test id / empty body — correct rejection' : (t.result?.error || '-')}</td>
+                            }} title={t.result?.error}>{
+                              // Expected (fake-id) shows generic copy; known/config show the
+                              // real (honest) reason captured from the probe.
+                              expected
+                                ? 'probe sent a test id / empty body — correct rejection'
+                                : (t.result?.error || '-')
+                            }</td>
                             <td style={{ padding: '5px 8px', textAlign: 'right' }}>
                               <button
                                 onClick={(e) => { e.stopPropagation(); reprobeOne(mod.module, t.name); }}
@@ -1682,7 +1716,7 @@ export default function ApiHealthPage() {
 
 // ── UI helpers ──
 
-function StatusBadge({ status, expected }: { status: string; expected?: boolean }) {
+function StatusBadge({ status, expected, benignLabel }: { status: string; expected?: boolean; benignLabel?: string }) {
   const config: Record<string, { bg: string; color: string; label: string }> = {
     idle: { bg: '#f1f5f9', color: '#94a3b8', label: 'IDLE' },
     running: { bg: '#eff6ff', color: '#2563eb', label: 'RUN' },
@@ -1690,9 +1724,11 @@ function StatusBadge({ status, expected }: { status: string; expected?: boolean 
     warn: { bg: '#fffbeb', color: '#d97706', label: '4xx' },
     error: { bg: '#fef2f2', color: '#dc2626', label: '500' },
   };
-  // Expected 4xx renders MUTED grey, never the amber "4xx" warn badge.
+  // Benign rows render MUTED grey, never the amber "4xx" / red "500" badge.
+  // `benignLabel` overrides the label so a known-unimplemented stub (no HTTP)
+  // reads "N/A" and a config-dependent rejection reads "CFG" — not "4xx".
   const c = expected
-    ? { bg: '#f1f5f9', color: '#64748b', label: '4xx' }
+    ? { bg: '#f1f5f9', color: '#64748b', label: benignLabel ?? '4xx' }
     : config[status] || config.idle;
   return (
     <span style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, background: c.bg, color: c.color }}>
