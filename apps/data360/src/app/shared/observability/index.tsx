@@ -38,7 +38,7 @@ import {
   getCrossModuleLineage,
   getLineageWithTasks,
 } from '@/app/services/observability';
-import apiClient from '@/lib/api-client';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { dash } from '@/app/shared/ui/format';
 import { useCanPerform } from '@/hooks/useCanPerform';
 
@@ -152,7 +152,7 @@ function CrossModuleLineageTab() {
       const raw = r.data || r.lineage || r || [];
       setLineageData(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load lineage');
+      toast.error(getApiErrorMessage(err));
     } finally {
       setLineageLoading(false);
     }
@@ -166,7 +166,7 @@ function CrossModuleLineageTab() {
       const rawAccess = r2.data || r2.patterns || r2 || [];
       setAccessPatterns(Array.isArray(rawAccess) ? rawAccess : []);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load access patterns');
+      toast.error(getApiErrorMessage(err));
     } finally {
       setLineageLoading(false);
     }
@@ -178,7 +178,7 @@ function CrossModuleLineageTab() {
       const result = await getCrossModuleLineage({ days, database: dbFilter || undefined });
       setData(result);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load cross-module lineage');
+      toast.error(getApiErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -204,7 +204,7 @@ function CrossModuleLineageTab() {
       setTaskLineageLoading(true);
       getLineageWithTasks({ days, database: dbFilter || undefined })
         .then((result) => setTaskLineageData(result))
-        .catch((err: any) => toast.error(err?.message || 'Failed to load task lineage'))
+        .catch((err: any) => toast.error(getApiErrorMessage(err)))
         .finally(() => setTaskLineageLoading(false));
     }
   }, [activeView, days, dbFilter, taskLineageData, taskLineageLoading]);
@@ -219,7 +219,7 @@ function CrossModuleLineageTab() {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/suspend`);
       toast.success(`Task ${task.task_name} suspended`);
       setTaskLineageData(null); // trigger reload
-    } catch { toast.error('Suspend failed'); }
+    } catch (err) { toast.error(getApiErrorMessage(err)); }
   };
 
   const resumeTask = async (task: any) => {
@@ -229,7 +229,7 @@ function CrossModuleLineageTab() {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/resume`);
       toast.success(`Task ${task.task_name} resumed`);
       setTaskLineageData(null); // trigger reload
-    } catch { toast.error('Resume failed'); }
+    } catch (err) { toast.error(getApiErrorMessage(err)); }
   };
 
   const importToWorkflow = (task: any) => {
@@ -1034,7 +1034,7 @@ function TasksLineageTab() {
       const result = await getLineageWithTasks({ days });
       setTaskLineageData(result);
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to load tasks');
+      toast.error(getApiErrorMessage(err));
     } finally {
       setTaskLineageLoading(false);
     }
@@ -1052,7 +1052,7 @@ function TasksLineageTab() {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/suspend`);
       toast.success(`Task ${task.task_name} suspended`);
       fetchTasks();
-    } catch { toast.error('Suspend failed'); }
+    } catch (err) { toast.error(getApiErrorMessage(err)); }
   };
 
   const resumeTask = async (task: any) => {
@@ -1062,7 +1062,7 @@ function TasksLineageTab() {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/resume`);
       toast.success(`Task ${task.task_name} resumed`);
       fetchTasks();
-    } catch { toast.error('Resume failed'); }
+    } catch (err) { toast.error(getApiErrorMessage(err)); }
   };
 
   const importToWorkflow = (task: any) => {
@@ -1430,10 +1430,10 @@ export default function ObservabilityDashboard() {
       setGdprReport(gdpr);
       setSoc2Report(soc2);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to load compliance data';
+      const msg = getApiErrorMessage(err);
       console.error('Failed to fetch compliance data:', err);
       setError(msg);
-      toast.error('Failed to load compliance data');
+      toast.error(msg);
     } finally {
       setLoadingStates((prev) => ({ ...prev, compliance: false }));
     }

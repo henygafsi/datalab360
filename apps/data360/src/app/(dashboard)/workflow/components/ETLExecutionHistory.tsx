@@ -984,6 +984,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                       onToggleExpected={() => toggleExpectedFailure(run.run_id)}
                       onKill={() => setKillTarget(run)}
                       canKill={canCancel}
+                      canRerun={canCancel}
                       onCopyId={() => void handleCopyRunId(run.run_id)}
                     />
                   </div>

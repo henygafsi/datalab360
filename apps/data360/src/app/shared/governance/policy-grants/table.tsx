@@ -17,6 +17,7 @@ import TablePagination from '@core/components/table/pagination';
 import TableFooter from '@core/components/table/footer';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   getRLSPolicies,
   getNetworkPolicies,
@@ -183,6 +184,11 @@ export default function PolicyGrantsTable() {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<PolicyGrant | null>(null);
   const [activeTab, setActiveTab] = useState<PolicyType | 'all'>('all');
+
+  // Action-RBAC gate: launching the policy-to-role grant flow is a mutating
+  // action. Fail-open while the allow-set loads (no flash of disabled).
+  const { allowed: canGrant, loading: permLoading } = useCanPerform('gouvernance', 'grant');
+  const canAssign = canGrant || permLoading;
 
   const fetchPolicies = useCallback(async () => {
     setLoading(true);
@@ -536,6 +542,12 @@ export default function PolicyGrantsTable() {
         </div>
         <Button
           onClick={() => setShowAssignModal(true)}
+          disabled={!canAssign}
+          title={
+            !canAssign
+              ? 'You lack the "grant" permission on governance. Ask an administrator to grant it.'
+              : undefined
+          }
           className="bg-gradient-to-r from-violet-500 to-purple-600 text-white"
         >
           <HiOutlinePlus className="mr-2 h-4 w-4" />

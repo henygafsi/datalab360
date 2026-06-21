@@ -44,6 +44,8 @@ export interface RunActionsMenuProps {
   onKill: () => void;
   /** RBAC gate for the workflow-level cancel (execute permission). */
   canKill?: boolean;
+  /** RBAC gate for re-executing the workflow (execute permission). */
+  canRerun?: boolean;
   onCopyId: () => void;
 }
 
@@ -71,6 +73,7 @@ const RunActionsMenu: React.FC<RunActionsMenuProps> = ({
   onToggleExpected,
   onKill,
   canKill = true,
+  canRerun = true,
   onCopyId,
 }) => {
   const [open, setOpen] = React.useState(false);
@@ -87,8 +90,12 @@ const RunActionsMenu: React.FC<RunActionsMenuProps> = ({
       label: 'Re-run with same inputs',
       icon: RotateCcw,
       onClick: onRerunSame,
-      disabled: isRunning,
-      title: isRunning ? 'Run is still in progress' : undefined,
+      disabled: isRunning || !canRerun,
+      title: !canRerun
+        ? "You don't have permission to re-run this workflow"
+        : isRunning
+          ? 'Run is still in progress'
+          : undefined,
     },
     {
       key: 'rerun-overrides',

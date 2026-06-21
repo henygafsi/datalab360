@@ -9,6 +9,7 @@ import { PolicyGrant } from './table';
 import { getRoles } from '@/app/services/governance/fetch_roles';
 import { assignPolicyToRoles } from '@/app/services/governance/policies';
 import RightTabPanel from '@/app/shared/governance/right-tab-panel';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 interface AssignPolicyModalProps {
   policy: PolicyGrant | null;
@@ -51,6 +52,12 @@ export default function AssignPolicyModal({
   const [rolesError, setRolesError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState('roles');
+
+  // Action-RBAC gate: assigning a policy to roles is a mutating grant. Fail-open
+  // while the allow-set loads (no flash of disabled), mirroring the masking /
+  // aggregation policy gating.
+  const { allowed, loading: permLoading } = useCanPerform('gouvernance', 'grant');
+  const canGrant = allowed || permLoading;
 
   // Fetch available roles whenever a policy is selected
   useEffect(() => {
@@ -238,7 +245,12 @@ export default function AssignPolicyModal({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={saving || loading || !policy}
+            disabled={saving || loading || !policy || !canGrant}
+            title={
+              !canGrant
+                ? 'You lack the "grant" permission on governance. Ask an administrator to grant it.'
+                : undefined
+            }
             className="bg-gradient-to-r from-violet-500 to-purple-600 text-white"
           >
             {saving ? 'Saving...' : 'Save Changes'}

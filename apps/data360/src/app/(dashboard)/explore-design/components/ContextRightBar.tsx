@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isUnavailable } from '@/lib/http-status';
+import { toServiceError } from '@/app/services/_errors';
 import RightTabPanel, { type RightTabSection, type QuickAction } from '@/app/shared/governance/right-tab-panel';
 import toast from 'react-hot-toast';
 import { useCanPerform } from '@/hooks/useCanPerform';
@@ -705,7 +706,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
               const sCount = streams.status === 'fulfilled' ? (streams.value?.streams?.length || 0) : 0;
               const dCount = dynTables.status === 'fulfilled' ? (dynTables.value?.dynamic_tables?.length || 0) : 0;
               toast.success(`Found ${sCount} streams, ${dCount} dynamic tables in ${table.schema}`);
-            } catch { toast.error('Detection failed'); } finally { setDetectingPipes(false); }
+            } catch (e: any) { toast.error(toServiceError(e, 'Detection failed').message); } finally { setDetectingPipes(false); }
           }} />
         </div>
         {/* Add as data-product asset vs. link to project — two distinct flows
@@ -773,7 +774,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
                 const { listSnowflakeStageFiles } = await import('@/app/(dashboard)/data-source-connection/connectionServices');
                 const res = await listSnowflakeStageFiles(table.table);
                 toast.success(`${res?.files?.length || 0} files in stage`);
-              } catch { toast.error('Failed to list stage files'); } finally { setListingFiles(false); }
+              } catch (e: any) { toast.error(toServiceError(e, 'Failed to list stage files').message); } finally { setListingFiles(false); }
             }} />
             <ActionBtn label="Create SFTP" icon={Plus} disabled={!canWrite} onClick={() => {
               if (!canWrite) { toast.error('Insufficient permissions'); return; }
@@ -809,7 +810,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
                 const api = await import('@/app/services/api/exploreDesignApi');
                 const res = await api.sqlDiff(projectId || '', { database: table.database, schema_name: table.schema, event_ids: [] });
                 toast.success(`DDL: ${res?.diffs?.length || 0} changes found`);
-              } catch { toast.error('DDL diff not available — no pending changes'); } finally { setLoadingDdl(false); }
+              } catch (e: any) { toast.error(toServiceError(e, 'DDL diff not available — no pending changes').message); } finally { setLoadingDdl(false); }
             }} />
             <ActionBtn label="Refresh view" icon={RefreshCw} disabled={!canExecute} onClick={() => {
               onAddEvent({ type: 'VIEW_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
@@ -851,7 +852,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
                 const { getStreamData } = await import('@/app/services/explore-design/de-objects');
                 const data = await getStreamData(table.table, table.database, table.schema);
                 toast.success(`Stream has ${data?.rows?.length || 0} pending changes`);
-              } catch { toast.error('Failed to read stream'); }
+              } catch (e: any) { toast.error(toServiceError(e, 'Failed to read stream').message); }
             }} />
             <ActionBtn label="Drop stream" icon={AlertTriangle} disabled={!canApprove} onClick={() => {
               onAddEvent({ type: 'STREAM_DROP_REQUEST', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { approval_required: true } });
@@ -901,7 +902,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
               const res = await api.enhancedImpactAnalysis(projectId || '', { database: table.database, schema: table.schema, table: table.table });
               const count = res?.impacts?.length || 0;
               toast.success(`Impact: ${count} downstream objects, risk ${res?.risk_score ?? 0}/100`);
-            } catch { toast.error('Impact analysis failed'); }
+            } catch (e: any) { toast.error(toServiceError(e, 'Impact analysis failed').message); }
           }} />
         </div>
       </div>
@@ -1013,7 +1014,7 @@ function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAd
                 const { getTableProfile } = await import('@/app/services/explore-design/de-objects');
                 const res = await getTableProfile(table.database, table.schema, table.table);
                 toast.success(`Profile: ${res?.row_count || 0} rows, ${res?.column_count || 0} cols, quality ${res?.overall_quality_score ?? '—'}%`);
-              } catch { toast.error('Profiling failed — check table access'); }
+              } catch (e: any) { toast.error(toServiceError(e, 'Profiling failed — check table access').message); }
             }} />
           )}
           <ActionBtn label="Review impact" icon={Eye} onClick={async () => {
@@ -1022,7 +1023,7 @@ function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAd
               const res = await api.enhancedImpactAnalysis(projectId || '', { database: table.database, schema: table.schema, table: table.table });
               const count = res?.impacts?.length || 0;
               toast.success(`Impact: ${count} downstream objects, risk ${res?.risk_score ?? 0}/100`);
-            } catch { toast.error('Impact analysis failed'); }
+            } catch (e: any) { toast.error(toServiceError(e, 'Impact analysis failed').message); }
           }} />
         </div>
         <p className="text-[10px] text-slate-400">
@@ -1044,7 +1045,7 @@ function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAd
               const api = await import('@/app/services/api/exploreDesignApi');
               const res = await api.sqlDiff(projectId || '', { database: table.database, schema_name: table.schema, event_ids: [] });
               toast.success(`DDL: ${res?.diffs?.length || 0} changes found`);
-            } catch { toast.error('DDL diff not available — no pending changes'); } finally { setLoadingDdl(false); }
+            } catch (e: any) { toast.error(toServiceError(e, 'DDL diff not available — no pending changes').message); } finally { setLoadingDdl(false); }
           }} />
         </div>
       )}
@@ -1060,7 +1061,7 @@ function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAd
               const { getStreamData } = await import('@/app/services/explore-design/de-objects');
               const data = await getStreamData(table.table, table.database, table.schema);
               toast.success(`Stream has ${data?.rows?.length || 0} pending changes`);
-            } catch { toast.error('Failed to read stream'); }
+            } catch (e: any) { toast.error(toServiceError(e, 'Failed to read stream').message); }
           }} />
         </div>
       )}
@@ -1078,7 +1079,7 @@ function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAd
               const { listSnowflakeStageFiles } = await import('@/app/(dashboard)/data-source-connection/connectionServices');
               const res = await listSnowflakeStageFiles(table.table);
               toast.success(`${res?.files?.length || 0} files in stage`);
-            } catch { toast.error('Failed to list stage files'); } finally { setListingFiles(false); }
+            } catch (e: any) { toast.error(toServiceError(e, 'Failed to list stage files').message); } finally { setListingFiles(false); }
           }} />
         </div>
       )}
@@ -1438,7 +1439,7 @@ function QualityPanel({ table, columns, projectId, profileData, onAddEvent, inge
             const { getTableProfile } = await import('@/app/services/explore-design/de-objects');
             const res = await getTableProfile(table.database, table.schema, table.table);
             toast.success(`Profile: ${res?.row_count || 0} rows, ${res?.column_count || 0} cols, quality ${res?.overall_quality_score ?? '—'}%`);
-          } catch { toast.error('Profiling failed — check table access'); }
+          } catch (e: any) { toast.error(toServiceError(e, 'Profiling failed — check table access').message); }
         }} fullWidth />
         {/* "Set up monitoring" (not "Add DQ rule") until QUALITY_GATE_SET emits a
             real ADD DATA METRIC FUNCTION in deployment-utils. Today the SQL

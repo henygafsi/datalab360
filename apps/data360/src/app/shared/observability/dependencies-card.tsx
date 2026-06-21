@@ -11,6 +11,7 @@ import {
   PiArrowsLeftRight,
 } from 'react-icons/pi';
 import { getObjectDependencies, getDependencyGraph } from '@/app/services/observability';
+import { getApiErrorMessage } from '@/lib/api-client';
 
 export default function DependenciesCard() {
   const [objectName, setObjectName] = useState('');
@@ -41,7 +42,7 @@ export default function DependenciesCard() {
       const deps = result.dependencies ?? result.data ?? result;
       setDependencies(Array.isArray(deps) ? deps : []);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load dependencies');
+      toast.error(getApiErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -57,7 +58,7 @@ export default function DependenciesCard() {
       });
       setGraph(result.data || result);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load dependency graph');
+      toast.error(getApiErrorMessage(err));
     } finally {
       setGraphLoading(false);
     }
