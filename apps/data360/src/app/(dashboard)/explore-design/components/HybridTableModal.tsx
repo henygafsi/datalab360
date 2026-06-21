@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Input, Button, Switch } from 'rizzui';
 import toast from 'react-hot-toast';
 import apiClient from '@/lib/api-client';
+import { toServiceError } from '@/app/services/_errors';
 import { Layers, Plus, Trash2 } from 'lucide-react';
 import DesignDockPanel from './DesignDockPanel';
 
@@ -49,7 +50,7 @@ export default function HybridTableModal({ isOpen, onClose, context, onCreated }
       toast.success(`Hybrid table "${name}" created`);
       onCreated?.({ database: context?.database, schema: context?.schema, table: name });
       onClose();
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create hybrid table'); }
+    } catch (e: any) { toast.error(toServiceError(e, 'Failed to create hybrid table').message); }
     finally { setLoading(false); }
   };
 

@@ -3,6 +3,7 @@
  * Used by: shared/gouvernance/user-grants/table.tsx
  */
 import apiClient from '@/lib/api-client';
+import { invalidateMyPermissions } from '@/hooks/useCanPerform';
 
 /**
  * Grant lineage for a single role (who granted it + when), as exposed by the
@@ -83,5 +84,8 @@ export async function updateUserRoles(username: string, roles: string[]) {
     `/gouvernance/users/${encodeURIComponent(username)}/roles`,
     { roles }
   );
+  // Re-assigning a user's roles can change the caller's own effective allow-set
+  // (e.g. editing self) — refresh, mirroring assignRoleToUser.
+  invalidateMyPermissions();
   return response.data;
 }

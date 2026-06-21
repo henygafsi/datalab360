@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { getApiErrorMessage } from '@/lib/api-client';
 import { listProjects } from '@/app/services/api/projectsApi';
 import {
   listDatabases,
@@ -224,17 +225,24 @@ function DatasetTriple({ value, onChange, compact }: DatasetTripleProps) {
   const [dbLoading, setDbLoading] = useState(false);
   const [scLoading, setScLoading] = useState(false);
   const [tbLoading, setTbLoading] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
+  const [scError, setScError] = useState<string | null>(null);
+  const [tbError, setTbError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setDbLoading(true);
+    setDbError(null);
     listDatabases()
       .then((dbs) => {
         if (cancelled) return;
         setDatabases(dbs.map((d) => d.name || String(d)));
       })
-      .catch(() => {
-        if (!cancelled) setDatabases([]);
+      .catch((err) => {
+        if (!cancelled) {
+          setDatabases([]);
+          setDbError(err instanceof Error ? err.message : 'Failed to load databases');
+        }
       })
       .finally(() => {
         if (!cancelled) setDbLoading(false);
@@ -247,17 +255,22 @@ function DatasetTriple({ value, onChange, compact }: DatasetTripleProps) {
   useEffect(() => {
     if (!value.database) {
       setSchemas([]);
+      setScError(null);
       return;
     }
     let cancelled = false;
     setScLoading(true);
+    setScError(null);
     listSchemas(value.database)
       .then((scs) => {
         if (cancelled) return;
         setSchemas(scs.map((s) => s.name || String(s)));
       })
-      .catch(() => {
-        if (!cancelled) setSchemas([]);
+      .catch((err) => {
+        if (!cancelled) {
+          setSchemas([]);
+          setScError(err instanceof Error ? err.message : 'Failed to load schemas');
+        }
       })
       .finally(() => {
         if (!cancelled) setScLoading(false);
@@ -270,17 +283,22 @@ function DatasetTriple({ value, onChange, compact }: DatasetTripleProps) {
   useEffect(() => {
     if (!value.database || !value.schema) {
       setTables([]);
+      setTbError(null);
       return;
     }
     let cancelled = false;
     setTbLoading(true);
+    setTbError(null);
     listTables(value.database, value.schema)
       .then((tbs) => {
         if (cancelled) return;
         setTables(tbs.map((t) => t.name || String(t)));
       })
-      .catch(() => {
-        if (!cancelled) setTables([]);
+      .catch((err) => {
+        if (!cancelled) {
+          setTables([]);
+          setTbError(err instanceof Error ? err.message : 'Failed to load tables');
+        }
       })
       .finally(() => {
         if (!cancelled) setTbLoading(false);
@@ -300,6 +318,7 @@ function DatasetTriple({ value, onChange, compact }: DatasetTripleProps) {
       <TripleSelect
         label="Database"
         loading={dbLoading}
+        error={dbError}
         options={databases}
         value={value.database || ''}
         onChange={(v) =>
@@ -309,6 +328,7 @@ function DatasetTriple({ value, onChange, compact }: DatasetTripleProps) {
       <TripleSelect
         label="Schema"
         loading={scLoading}
+        error={scError}
         disabled={!value.database}
         options={schemas}
         value={value.schema || ''}
@@ -317,6 +337,7 @@ function DatasetTriple({ value, onChange, compact }: DatasetTripleProps) {
       <TripleSelect
         label="Table"
         loading={tbLoading}
+        error={tbError}
         disabled={!value.schema}
         options={tables}
         value={value.table || ''}
@@ -329,6 +350,7 @@ function DatasetTriple({ value, onChange, compact }: DatasetTripleProps) {
 function TripleSelect({
   label,
   loading,
+  error,
   disabled,
   options,
   value,
@@ -336,6 +358,7 @@ function TripleSelect({
 }: {
   label: string;
   loading?: boolean;
+  error?: string | null;
   disabled?: boolean;
   options: string[];
   value: string;
@@ -352,6 +375,7 @@ function TripleSelect({
           className={cn(
             'w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100',
             (disabled || loading) && 'cursor-not-allowed opacity-60',
+            error && 'border-amber-300 dark:border-amber-900/60',
           )}
         >
           <option value="">{loading ? 'Loading…' : `— ${label.toLowerCase()} —`}</option>
@@ -362,6 +386,12 @@ function TripleSelect({
           ))}
         </select>
       </div>
+      {error && (
+        <span className="flex items-start gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+          <AlertCircle className="mt-0.5 h-2.5 w-2.5 shrink-0" />
+          <span className="break-words">{error}</span>
+        </span>
+      )}
     </label>
   );
 }
@@ -433,8 +463,7 @@ function TablePeek({
         if (!cancelled) setData(d);
       })
       .catch((err) => {
-        if (!cancelled)
-          setError(err instanceof Error ? err.message : 'Preview failed');
+        if (!cancelled) setError(getApiErrorMessage(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

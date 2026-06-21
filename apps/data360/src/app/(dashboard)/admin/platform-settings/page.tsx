@@ -25,6 +25,7 @@ import {
 import type { PlatformConfigEntry } from '@/app/services/observability/types';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 /** Render a config value (object/array/scalar) as an editable string. */
 function valueToString(value: unknown): string {
@@ -125,6 +126,15 @@ export default function PlatformSettingsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Real-time refresh: the PUT/reset writes fire CacheKey.OBSERVABILITY_DASHBOARD
+  // (the same key this GET is cached under), so subscribe and reload when another
+  // admin edits/resets the platform config — not just after our own write.
+  useCacheInvalidation({
+    onInvalidate: (keys) => {
+      if (keys.includes(CACHE_KEYS.OBSERVABILITY_DASHBOARD)) void load();
+    },
+  });
 
   const saveRow = useCallback(
     async (entry: PlatformConfigEntry) => {

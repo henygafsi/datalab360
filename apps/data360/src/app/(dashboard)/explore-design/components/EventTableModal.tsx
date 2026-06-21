@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Input, Button, Switch } from 'rizzui';
 import toast from 'react-hot-toast';
 import apiClient from '@/lib/api-client';
+import { toServiceError } from '@/app/services/_errors';
 import { Bell } from 'lucide-react';
 import DesignDockPanel from './DesignDockPanel';
 
@@ -32,7 +33,7 @@ export default function EventTableModal({ isOpen, onClose, context, onCreated }:
       toast.success(`Event table "${name}" created`);
       onCreated?.({ database: context?.database, schema: context?.schema, table: name });
       onClose();
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Failed to create event table'); }
+    } catch (e: any) { toast.error(toServiceError(e, 'Failed to create event table').message); }
     finally { setLoading(false); }
   };
 

@@ -8,9 +8,12 @@ import {
   ChevronRight, FileCode, Variable,
 } from 'lucide-react';
 import DesignDockPanel from './DesignDockPanel';
+import { DeploymentUnavailableNote } from './DeploymentUnavailableNote';
 import { toast } from 'react-hot-toast';
 import { listEventTemplates, applyEventTemplate } from '@/app/services/api/exploreDesignApi';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { isUnavailable } from '@/lib/http-status';
+import { useActionGate } from '@/app/shared/insights/useActionGate';
 import type { EventTemplate, ApplyEventTemplateResult } from '@/app/services/api/types';
 
 interface EventTemplatePickerModalProps {
@@ -35,15 +38,32 @@ const EventTemplatePickerModal: React.FC<EventTemplatePickerModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState<EventTemplate | null>(null);
   const [variableOverrides, setVariableOverrides] = useState<Record<string, string>>({});
-  const [isApplying, setIsApplying] = useState(false);
+  // `unavailable` = the event-templates routes are absent on this backend (404/501).
+  // Distinct from "genuinely no templates" so the UI never masquerades a backend
+  // gap as an empty list. The apply CTA below is `useActionGate`-gated and also
+  // self-disables on a runtime 404/501 — no redeploy needed when the route ships.
+  const [unavailable, setUnavailable] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const applyGate = useActionGate<ApplyEventTemplateResult>({
+    successToast: undefined,
+  });
+  const isApplying = applyGate.pending;
 
   const fetchTemplates = useCallback(async () => {
     setIsLoading(true);
+    setUnavailable(false);
+    setLoadError(null);
     try {
       const result = await listEventTemplates();
       setTemplates(result);
     } catch (err) {
-      toast.error(getApiErrorMessage(err) || 'Failed to load templates');
+      if (isUnavailable(err)) {
+        setUnavailable(true);
+      } else {
+        const msg = getApiErrorMessage(err) || 'Failed to load templates';
+        setLoadError(msg);
+        toast.error(msg);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -93,21 +113,25 @@ const EventTemplatePickerModal: React.FC<EventTemplatePickerModalProps> = ({
 
   const handleApply = async () => {
     if (!selectedTemplate) return;
-    setIsApplying(true);
-    try {
-      const result = await applyEventTemplate(projectId, {
+    // Gate the mutation: a 404/501 flips `applyGate.unavailable` and disables the
+    // button (no fake-success, no error-toast-on-every-click); a real error surfaces.
+    const result = await applyGate.run(() =>
+      applyEventTemplate(projectId, {
         template_id: selectedTemplate.template_id,
         target_database: targetDatabase,
         target_schema: targetSchema,
         variable_overrides: Object.keys(variableOverrides).length > 0 ? variableOverrides : undefined,
-      });
+      }),
+    );
+    if (result) {
       toast.success(`Applied template: ${result.events_created} events created`);
       onApplied?.(result);
       onClose();
-    } catch (err) {
-      toast.error(getApiErrorMessage(err) || 'Failed to apply template');
-    } finally {
-      setIsApplying(false);
+    } else if (applyGate.unavailable) {
+      // The apply route is absent on this backend — reflect it in the picker.
+      setUnavailable(true);
+    } else if (applyGate.error) {
+      toast.error(applyGate.error || 'Failed to apply template');
     }
   };
 
@@ -124,6 +148,19 @@ const EventTemplatePickerModal: React.FC<EventTemplatePickerModalProps> = ({
         </div>
       }
     >
+      {unavailable ? (
+        <DeploymentUnavailableNote
+          title="Event templates are not available on this backend"
+          description="The event-template catalog and apply routes aren't deployed here yet. This button will light up automatically once the backend ships them — no action needed from you."
+          endpoints={[
+            { endpoint: 'GET /explore-design/event-templates', status: 'absent (404)' },
+            { endpoint: 'POST /explore-design/{projectId}/event-templates/apply', status: 'absent (404)' },
+          ]}
+          error={applyGate.error || loadError || undefined}
+          onRetry={fetchTemplates}
+          retrying={isLoading}
+        />
+      ) : (
       <div>
         {/* Search */}
         <Input
@@ -258,7 +295,7 @@ const EventTemplatePickerModal: React.FC<EventTemplatePickerModalProps> = ({
                 <Button
                   className="w-full gap-1.5"
                   onClick={handleApply}
-                  disabled={isApplying}
+                  disabled={isApplying || applyGate.unavailable}
                 >
                   {isApplying ? (
                     <>
@@ -281,6 +318,7 @@ const EventTemplatePickerModal: React.FC<EventTemplatePickerModalProps> = ({
           </div>
         </div>
       </div>
+      )}
     </DesignDockPanel>
   );
 };

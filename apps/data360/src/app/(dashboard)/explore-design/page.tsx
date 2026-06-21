@@ -49,6 +49,7 @@ import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContr
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { toServiceError } from '@/app/services/_errors';
 import { isUnavailable } from '@/lib/http-status';
 import { fmtNum } from '@/app/shared/ui/format';
 import { safeLocale } from '@/lib/format-number';
@@ -1057,6 +1058,10 @@ export default function ExploreDesignPage() {
   const [isLoadingSchemas, setIsLoadingSchemas] = useState(false);
   const [isLoadingTables, setIsLoadingTables] = useState(false);
   const [isLoadingColumns, setIsLoadingColumns] = useState(false);
+  // Distinguish a failed schema/table read from a genuinely-empty catalog so the
+  // catalog can show an inline error + Retry instead of the "No tables loaded"
+  // empty state (which silently masks the failure).
+  const [catalogLoadError, setCatalogLoadError] = useState<string | null>(null);
   const [columnsLoadError, setColumnsLoadError] = useState<null | { kind: 'timeout' | 'generic'; message: string }>(null);
   const [columnsLoadAttempt, setColumnsLoadAttempt] = useState(0);
   const [isLoadingPolicies, setIsLoadingPolicies] = useState(false);
@@ -1252,7 +1257,7 @@ export default function ExploreDesignPage() {
   const handleRegisterActionDispatch = useCallback((dispatch: (tableId: string, action: string) => void) => {
     canvasActionDispatchRef.current = dispatch;
   }, []);
-  const [classificationDetails, setClassificationDetails] = useState<Array<{ column: string; category: string; tags?: string[]; confidence?: number; description?: string; piiRisk?: string; suggestion?: string }>>([]);
+  const [classificationDetails, setClassificationDetails] = useState<Array<{ column: string; category: string; tags?: string[]; confidence?: number | null; description?: string; piiRisk?: string; suggestion?: string }>>([]);
   // Conflict detection modal
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [currentConflict, setCurrentConflict] = useState<EventConflict | null>(null);
@@ -1981,6 +1986,7 @@ export default function ExploreDesignPage() {
     let cancelled = false;
     const loadSchemas = async () => {
       setIsLoadingSchemas(true);
+      setCatalogLoadError(null);
       try {
         const schemaList = await getSchemas(selectedDatabase);
         if (cancelled) return;
@@ -1996,6 +2002,7 @@ export default function ExploreDesignPage() {
       } catch (error) {
         if (cancelled) return;
         console.error('[Explore-Design] Failed to load schemas:', error);
+        setCatalogLoadError('Failed to load schemas. Check your connection and retry.');
         toast.error('Failed to load schemas');
       } finally {
         if (!cancelled) setIsLoadingSchemas(false);
@@ -2003,7 +2010,9 @@ export default function ExploreDesignPage() {
     };
     loadSchemas();
     return () => { cancelled = true; };
-  }, [selectedDatabase]);
+    // refreshTrigger included so the catalog "Retry" button (which bumps it) also
+    // re-runs a failed schema load, not just the table load.
+  }, [selectedDatabase, refreshTrigger]);
 
   // Load tables when schemas are selected
   useEffect(() => {
@@ -2015,12 +2024,29 @@ export default function ExploreDesignPage() {
 
     const loadTables = async () => {
       setIsLoadingTables(true);
+      setCatalogLoadError(null);
       try {
         const newTables: TableItem[] = [];
 
-        // Iterate over schema->database map entries
-        for (const [schemaName, dbName] of Array.from(selectedSchemas.entries())) {
-          const tableList = await getTables(dbName, schemaName);
+        // Fetch each schema's table list concurrently — the per-schema reads are
+        // independent (one doesn't consume another's result), so wait for max(...)
+        // not sum(...). allSettled keeps one slow/failed schema from blocking the
+        // rest; results stay in schema order to preserve the prior list ordering.
+        const schemaEntries = Array.from(selectedSchemas.entries());
+        const tableListResults = await Promise.allSettled(
+          schemaEntries.map(([schemaName, dbName]) => getTables(dbName, schemaName)),
+        );
+        // Preserve the prior error semantics: a failed schema read used to throw
+        // into the outer catch and surface catalogLoadError. With allSettled the
+        // healthy schemas still render, but if any rejected we keep that signal
+        // visible (never let a failed fetch masquerade as "fewer tables").
+        const anyRejected = tableListResults.some((r) => r.status === 'rejected');
+        if (anyRejected) {
+          setCatalogLoadError('Some schemas failed to load tables. Check your connection and retry.');
+        }
+        schemaEntries.forEach(([schemaName, dbName], i) => {
+          const r = tableListResults[i];
+          const tableList = r.status === 'fulfilled' ? r.value : null;
           if (tableList) {
             tableList.forEach((tableName: string) => {
               const tableId = `${dbName}.${schemaName}.${tableName}`;
@@ -2038,7 +2064,7 @@ export default function ExploreDesignPage() {
               });
             });
           }
-        }
+        });
 
         // Merge with existing tables: keep target/DWH tables, add new schema tables
         setTables(prev => {
@@ -2097,6 +2123,7 @@ export default function ExploreDesignPage() {
 
         }
       } catch (error) {
+        setCatalogLoadError('Failed to load tables. Check your connection and retry.');
         toast.error('Failed to load tables');
       } finally {
         setIsLoadingTables(false);
@@ -2586,15 +2613,17 @@ export default function ExploreDesignPage() {
 
         await loadProjectEvents({ projectId, events: backendEvents });
 
-        // Load DDL actions from backend (for awareness / logging only)
-        // All events stay pending — DDL execution happens later in the deployment modal
-        try {
-          const ddlResponse = await listDDLActions(projectId);
-          const ddlActions = ddlResponse.actions || [];
-          void ddlActions; // loaded for awareness only
-        } catch (ddlErr) {
-          console.warn('[handleProjectSelect] Failed to load DDL actions:', ddlErr);
-        }
+        // Load DDL actions from backend (for awareness / logging only).
+        // Result is discarded (events stay pending — DDL execution happens later
+        // in the deployment modal), so fire it WITHOUT awaiting: it overlaps the
+        // schema-restore waterfall below instead of serializing in front of it.
+        void listDDLActions(projectId)
+          .then((ddlResponse) => {
+            void (ddlResponse.actions || []); // loaded for awareness only
+          })
+          .catch((ddlErr) => {
+            console.warn('[handleProjectSelect] Failed to load DDL actions:', ddlErr);
+          });
 
         // Load saved column mappings from backend (legacy fallback for pre-event mappings)
         /**try {
@@ -3371,7 +3400,10 @@ export default function ExploreDesignPage() {
         column: c.column || '',
         category: c.category || 'UNKNOWN',
         tags: c.tags || c.semantic_tags || [c.category?.toLowerCase()].filter(Boolean),
-        confidence: c.confidence ?? c.score ?? 0.85,
+        // Honest render: when the backend omits a confidence/score, keep it null
+        // so the UI shows nothing rather than fabricating a 0.85 figure (the
+        // Confidence badge is guarded by `!= null`).
+        confidence: c.confidence ?? c.score ?? null,
         description: c.description || c.explanation || `Detected as ${(c.category || 'unknown').toLowerCase().replace(/_/g, ' ')}`,
         piiRisk: c.pii_risk || c.pii_type || (c.category === 'PII_CANDIDATE' ? 'high' : undefined),
         suggestion: c.suggestion || c.recommended_action || null,
@@ -3415,7 +3447,7 @@ export default function ExploreDesignPage() {
       toast.success(`Discovered ${count} potential relationships`);
     } catch (err: any) {
       toast.dismiss(toastId);
-      toast.error(err?.response?.data?.detail || 'Relationship discovery failed');
+      toast.error(toServiceError(err, 'Relationship discovery failed').message);
     }
   }, [selectedProjectId, tables]);
 
@@ -3482,7 +3514,7 @@ export default function ExploreDesignPage() {
       handleListDataEngObjects(schema, dataEngModal.type);
     } catch (err: any) {
       toast.dismiss(toastId);
-      toast.error(err?.response?.data?.detail || `${action} failed`);
+      toast.error(toServiceError(err, `${action} failed`).message);
     }
   }, [selectedDatabase, dataEngModal.schema, dataEngModal.type, handleListDataEngObjects]);
 
@@ -3513,7 +3545,7 @@ export default function ExploreDesignPage() {
       handleListDataEngObjects(schema, dataEngModal.type);
     } catch (err: any) {
       toast.dismiss(toastId);
-      toast.error(err?.response?.data?.detail || `drop failed`);
+      toast.error(toServiceError(err, 'drop failed').message);
     }
   }, [confirmDrop, selectedDatabase, dataEngModal.schema, dataEngModal.type, handleListDataEngObjects]);
 
@@ -4243,6 +4275,24 @@ export default function ExploreDesignPage() {
                     <RefreshCw className="h-5 w-5 animate-spin text-blue-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
                   </div>
                   <span className="text-xs text-slate-400">Loading tables...</span>
+                </div>
+              ) : catalogLoadError ? (
+                <div className="flex flex-col items-center justify-center h-full text-center p-6">
+                  <div className="p-3 bg-rose-50 dark:bg-rose-900/20 rounded-xl mb-3">
+                    <Database className="h-8 w-8 text-rose-400 dark:text-rose-500" />
+                  </div>
+                  <p className="font-medium text-sm text-rose-600 dark:text-rose-400">Couldn&apos;t load the catalog</p>
+                  <p className="text-xs mt-1 text-slate-500 dark:text-slate-400 max-w-[220px]">
+                    {catalogLoadError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { setCatalogLoadError(null); setRefreshTrigger(prev => prev + 1); }}
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Retry
+                  </button>
                 </div>
               ) : catalogTables.length > 0 ? (
                 <VirtualizedTableList

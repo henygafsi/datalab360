@@ -143,8 +143,10 @@ export default function AccountsTable({
 
     // Apply sorting
     result.sort((a, b) => {
-      let aVal: string | number = '';
-      let bVal: string | number = '';
+      // `null` = missing credits/storage (no data loaded) — sorted last in BOTH
+      // directions rather than coerced to 0 and mixed in with real values.
+      let aVal: string | number | null = '';
+      let bVal: string | number | null = '';
 
       switch (sortField) {
         case 'account_name':
@@ -168,14 +170,21 @@ export default function AccountsTable({
           bVal = b.created_on || '';
           break;
         case 'credits':
-          aVal = creditUsage[a.account_name] || 0;
-          bVal = creditUsage[b.account_name] || 0;
+          aVal = creditUsage[a.account_name] ?? null;
+          bVal = creditUsage[b.account_name] ?? null;
           break;
         case 'storage':
-          aVal = storageUsage[a.account_name] || 0;
-          bVal = storageUsage[b.account_name] || 0;
+          aVal = storageUsage[a.account_name] ?? null;
+          bVal = storageUsage[b.account_name] ?? null;
           break;
       }
+
+      // Nulls (missing values) always sort last, independent of direction.
+      const aMissing = aVal == null;
+      const bMissing = bVal == null;
+      if (aMissing && bMissing) return 0;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
 
       if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;

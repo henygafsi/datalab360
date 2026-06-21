@@ -1,6 +1,7 @@
 // src/app/services/data-source-connection/connectionServices.ts
 
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import { AxiosError } from 'axios';
 
 interface ApiResponse {
@@ -63,7 +64,7 @@ export async function setupAzureStorageIntegration(
     url: string
 ): Promise<AzureStorageIntegrationResponse> {
     try {
-        const response = await apiClient.post('/connect/azure/storage_integration', {
+        const response = await apiClient.post(API.connect.azureStorageIntegration(), {
             integration_name, tenant_id, url,
         });
         const data = response.data;
@@ -84,7 +85,7 @@ export async function setupAzureNotificationIntegration(
     queue_url: string
 ): Promise<ApiResponse> {
     try {
-        const response = await apiClient.post('/connect/azure/notification_integration', {
+        const response = await apiClient.post(API.connect.azureNotificationIntegration(), {
             integration_name, tenant_id, queue_url,
         });
         return { message: response.data };
@@ -99,7 +100,7 @@ export async function setupAzureSnowpipe(
     queue_url: string
 ): Promise<ApiResponse> {
     try {
-        const response = await apiClient.post('/connect/azure/snowpipe', {
+        const response = await apiClient.post(API.connect.azureSnowpipe(), {
             integration_name, tenant_id, queue_url,
         });
         return { message: response.data };
@@ -117,7 +118,7 @@ export async function createAzureStage(
     notification_integration?: string | null
 ): Promise<ApiResponse> {
     try {
-        const response = await apiClient.post('/connect/azure/stage', {
+        const response = await apiClient.post(API.connect.azureStage(), {
             stage_name,
             url,
             integration_name,
@@ -145,7 +146,7 @@ export async function setupAwsStorageIntegration(
     aws_role_arn: string,
 ): Promise<AwsStorageIntegrationResponse> {
     try {
-        const response = await apiClient.post('/connect/aws/storage_integration', {
+        const response = await apiClient.post(API.connect.awsStorageIntegration(), {
             integration_name, bucket_name, aws_role_arn,
         });
         const data = response.data;
@@ -167,7 +168,7 @@ export async function createAwsStage(
     auto_update: boolean
 ): Promise<ApiResponse> {
     try {
-        const response = await apiClient.post('/connect/aws/stage', {
+        const response = await apiClient.post(API.connect.createAwsStage(), {
             stage_name, bucket_name, integration_name, load_data, auto_update,
         });
         return { message: response.data };
@@ -191,7 +192,7 @@ export async function patchStorageIntegration(
 ): Promise<ApiResponse> {
     try {
         const response = await apiClient.patch(
-            `/connect/integration/${encodeURIComponent(integration_name)}`,
+            API.connect.patchIntegration(integration_name),
             updates,
         );
         return { message: response.data.message || 'Storage integration updated.' };
@@ -213,7 +214,7 @@ export async function setupGcsStorageIntegration(
     bucket_name: string
 ): Promise<GcsStorageIntegrationResponse> {
     try {
-        const response = await apiClient.post('/connect/gcs/storage_integration', {
+        const response = await apiClient.post(API.connect.gcsStorageIntegration(), {
             integration_name, bucket_name,
         });
         const data = response.data;
@@ -237,7 +238,7 @@ export async function createGcsStage(
     prefix?: string | null
 ): Promise<ApiResponse> {
     try {
-        const response = await apiClient.post('/connect/gcs/stage', {
+        const response = await apiClient.post(API.connect.createGcsStage(), {
             stage_name,
             bucket_name,
             integration_name,
@@ -262,7 +263,7 @@ export async function setupGcsNotificationIntegration(
     gcp_pubsub_subscription_name: string
 ): Promise<GcsNotificationIntegrationResponse> {
     try {
-        const response = await apiClient.post('/connect/gcs/notification_integration', {
+        const response = await apiClient.post(API.connect.gcsNotificationIntegration(), {
             integration_name, gcp_pubsub_subscription_name,
         });
         const data = response.data;
@@ -281,7 +282,7 @@ export async function setupGcsNotificationIntegration(
 
 export async function createInternalStage(stage_name: string): Promise<ApiResponse> {
     try {
-        const response = await apiClient.post('/connect/stages/internal', { stage_name });
+        const response = await apiClient.post(API.connect.createInternalStage(), { stage_name });
         return { message: response.data.message ?? `Internal stage '${stage_name}' created. You can upload files to it.` };
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Failed to create internal stage'));
@@ -297,7 +298,7 @@ export async function connectSnowflakeDatalake(
     datalake_role: string
 ): Promise<ApiResponse> {
     try {
-        const response = await apiClient.post('/connect/snowflake_lake/datalake/connect', {
+        const response = await apiClient.post(API.connect.datalakeConnect(), {
             datalake_username,
             datalake_password,
             datalake_account,
@@ -311,7 +312,7 @@ export async function connectSnowflakeDatalake(
 
 export async function listSnowflakeStages(): Promise<any> {
     try {
-        const response = await apiClient.get('/connect/stages');
+        const response = await apiClient.get(API.connect.listStages());
         const raw = response.data;
         // Normalize: always return { stages: [...] } for backward compat
         // Backend may return { data: [...], pagination: {...} } (paginated) or { stages: [...] }
@@ -332,7 +333,7 @@ export async function listSnowflakeStageFiles(
         const params: Record<string, string> = {};
         if (opts?.path) params.path = opts.path;
         if (opts?.sort) params.sort = opts.sort;
-        const response = await apiClient.get(`/connect/stages/${stageName}/files`, { params });
+        const response = await apiClient.get(API.connect.listStageFiles(stageName), { params });
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Failed to list stage files'));
@@ -342,7 +343,7 @@ export async function listSnowflakeStageFiles(
 // --- Common Integration Details ---
 export async function getIntegrationDetails(integration_name: string): Promise<AzureIntegrationDetailsResponse> {
     try {
-        const response = await apiClient.get('/connect/integration', {
+        const response = await apiClient.get(API.connect.integrationDetails(), {
             params: { integration_name },
         });
         return response.data as AzureIntegrationDetailsResponse;
@@ -373,7 +374,7 @@ export async function previewStageFile(
 ): Promise<StageFilePreviewResponse> {
     try {
         const response = await apiClient.get(
-            `/connect/stages/${stageName}/files/${encodeURIComponent(filePath)}/preview`,
+            API.connect.previewStageFile(stageName, filePath),
             { params: { limit, offset } },
         );
         return response.data;
@@ -384,7 +385,7 @@ export async function previewStageFile(
 
 export async function getStageGrants(stageName: string): Promise<{ stage_name: string; grants: any[]; count: number }> {
     try {
-        const response = await apiClient.get(`/connect/stages/${stageName}/grants`);
+        const response = await apiClient.get(API.connect.stageGrants(stageName));
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Failed to load stage grants'));
@@ -397,7 +398,7 @@ export async function downloadStageFile(
 ): Promise<void> {
     try {
         const response = await apiClient.get(
-            `/connect/stages/${stageName}/files/${encodeURIComponent(filePath)}/download`,
+            API.connect.downloadStageFile(stageName, filePath),
             { responseType: 'blob' },
         );
 
@@ -445,7 +446,7 @@ export async function uploadStageFile(
         if (path) params.path = path;
 
         const response = await apiClient.post(
-            `/connect/stages/${stageName}/upload`,
+            API.connect.uploadToStage(stageName),
             formData,
             {
                 params,
@@ -464,7 +465,7 @@ export async function deleteStageFile(
 ): Promise<any> {
     try {
         const response = await apiClient.delete(
-            `/connect/stages/${stageName}/files/${encodeURIComponent(filePath)}`,
+            API.connect.deleteStageFile(stageName, filePath),
         );
         return response.data;
     } catch (error) {
@@ -485,7 +486,7 @@ export interface ConnectorInfo {
 
 export async function listConnectors(): Promise<{ connectors: ConnectorInfo[] }> {
     try {
-        const response = await apiClient.get('/connect/connectors');
+        const response = await apiClient.get(API.connect.listConnectors());
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Failed to list connectors'));
@@ -558,7 +559,7 @@ function healthNum(v: unknown): number {
  */
 export async function getConnectorsHealth(): Promise<ConnectorsHealthSummary> {
     try {
-        const response = await apiClient.get('/connect/connectors/health');
+        const response = await apiClient.get(API.connect.connectorsHealth());
         const raw = (response.data ?? {}) as Record<string, unknown>;
 
         const stages = Array.isArray(raw.stages) ? (raw.stages as Record<string, unknown>[]) : [];
@@ -657,7 +658,7 @@ export async function postgresIngest(body: {
     tables?: string[];
 }): Promise<{ message: string; tables?: number }> {
     try {
-        const response = await apiClient.post('/connect/postgres/ingest', {
+        const response = await apiClient.post(API.connect.postgresIngest(), {
             port: 5432, password: '', ...body,
         });
         return response.data;
@@ -676,7 +677,7 @@ export async function mysqlIngest(body: {
     tables?: string[];
 }): Promise<{ message: string }> {
     try {
-        const response = await apiClient.post('/connect/mysql/ingest', {
+        const response = await apiClient.post(API.connect.mysqlIngest(), {
             port: 3306, password: '', ...body,
         });
         return response.data;
@@ -688,7 +689,7 @@ export async function mysqlIngest(body: {
 // --- Databricks ---
 export async function databricksTest(body: { host: string; http_path: string; access_token: string }): Promise<{ ok: boolean }> {
     try {
-        const response = await apiClient.post('/connect/databricks/test', body);
+        const response = await apiClient.post(API.connect.databricksTest(), body);
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Databricks connection failed'));
@@ -697,7 +698,7 @@ export async function databricksTest(body: { host: string; http_path: string; ac
 
 export async function databricksCatalogs(body: { host: string; http_path: string; access_token: string }): Promise<{ catalogs: string[] }> {
     try {
-        const response = await apiClient.post('/connect/databricks/catalogs', body);
+        const response = await apiClient.post(API.connect.databricksCatalogs(), body);
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Failed to list catalogs'));
@@ -709,7 +710,7 @@ export async function databricksSchemas(
     catalog: string
 ): Promise<{ schemas: string[] }> {
     try {
-        const response = await apiClient.post('/connect/databricks/schemas', body, {
+        const response = await apiClient.post(API.connect.databricksSchemas(), body, {
             params: { catalog },
         });
         return response.data;
@@ -724,7 +725,7 @@ export async function databricksTables(
     schema_name: string
 ): Promise<{ tables: string[] }> {
     try {
-        const response = await apiClient.post('/connect/databricks/tables', body, {
+        const response = await apiClient.post(API.connect.databricksTables(), body, {
             params: { catalog, schema_name },
         });
         return response.data;
@@ -742,7 +743,7 @@ export async function databricksIngest(body: {
     tables?: string[];
 }): Promise<{ message: string; tables?: { table: string; rows: number }[] }> {
     try {
-        const response = await apiClient.post('/connect/databricks/ingest', body, { timeout: 600000 });
+        const response = await apiClient.post(API.connect.databricksIngest(), body, { timeout: 600000 });
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Databricks ingest failed'));
@@ -762,7 +763,7 @@ export async function oracleTest(body: {
     connect_string?: string;
 }): Promise<{ ok: boolean; version?: string; table_count?: number; tables?: string[]; connection_mode?: string; latency_ms?: number }> {
     try {
-        const response = await apiClient.post('/connect/oracle/test', {
+        const response = await apiClient.post(API.connect.oracleTest(), {
             port: 1522, password: '', connection_mode: 'tls', ...body,
         });
         return response.data;
@@ -784,7 +785,7 @@ export async function oracleIngest(body: {
     tables?: string[];
 }): Promise<{ message: string; tables_count?: number; rows_total?: number; connector_id?: string; tables?: { name: string; rows: number }[] }> {
     try {
-        const response = await apiClient.post('/connect/oracle/ingest', {
+        const response = await apiClient.post(API.connect.oracleIngest(), {
             port: 1522, password: '', connection_mode: 'tls', ...body,
         });
         return response.data;
@@ -795,7 +796,7 @@ export async function oracleIngest(body: {
 
 export async function oracleSampleStage(): Promise<{ message: string; stage?: string; target_schema?: string; tables?: { name: string; rows: number; file: string }[]; total_rows?: number }> {
     try {
-        const response = await apiClient.post('/connect/oracle/sample-stage');
+        const response = await apiClient.post(API.connect.oracleSampleStage());
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Sample stage load failed'));
@@ -805,7 +806,7 @@ export async function oracleSampleStage(): Promise<{ message: string; stage?: st
 // --- Iceberg ---
 export async function icebergTest(body: { uri: string; warehouse?: string; credential?: string }): Promise<{ ok: boolean }> {
     try {
-        const response = await apiClient.post('/connect/iceberg/test', body);
+        const response = await apiClient.post(API.connect.icebergTest(), body);
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Iceberg connection failed'));
@@ -814,7 +815,7 @@ export async function icebergTest(body: { uri: string; warehouse?: string; crede
 
 export async function icebergNamespaces(body: { uri: string; warehouse?: string; credential?: string }): Promise<{ namespaces: string[] }> {
     try {
-        const response = await apiClient.post('/connect/iceberg/namespaces', body);
+        const response = await apiClient.post(API.connect.icebergNamespaces(), body);
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Failed to list namespaces'));
@@ -826,7 +827,7 @@ export async function icebergTables(
     namespace: string
 ): Promise<{ tables: string[] }> {
     try {
-        const response = await apiClient.post('/connect/iceberg/tables', body, {
+        const response = await apiClient.post(API.connect.icebergTables(), body, {
             params: { namespace },
         });
         return response.data;
@@ -843,7 +844,7 @@ export async function icebergIngest(body: {
     tables?: string[];
 }): Promise<{ message: string; tables?: { table: string; rows: number }[] }> {
     try {
-        const response = await apiClient.post('/connect/iceberg/ingest', body);
+        const response = await apiClient.post(API.connect.icebergIngest(), body);
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Iceberg ingest failed'));

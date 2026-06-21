@@ -37,7 +37,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ETLPalette from './components/ETLPalette';
 import ETLConfigSidebar from './components/ETLConfigSidebar';
 import ScheduleManager from './components/ScheduleManager';
-import WorkflowProjectGate from './components/WorkflowProjectGate';
 // WorkflowProjectBar's operational tabs (Usage / Cost / Governance) were folded
 // into the single WorkflowSmartPanel rail — the standalone second rail is gone.
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
@@ -72,7 +71,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 // Workflow API services
 import * as workflowApi from '@/app/services/api/workflowApi';
-import { listProjects, listContributors } from '@/app/services/api/projectsApi';
+import { listProjects, listContributors, deleteProject } from '@/app/services/api/projectsApi';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { useAtomValue } from 'jotai';
@@ -1991,22 +1990,21 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const executeDeletePipeline = useCallback(async () => {
     if (!activeWorkflowId) return;
     setConfirmDeletePipeline(false);
+    const t = toast.loading('Deleting workflow…');
     try {
-      // Delete all steps to effectively clear the workflow
-      const existing = await workflowApi.listSteps(activeWorkflowId);
-      for (const step of existing.steps || []) {
-        await workflowApi.deleteStep(activeWorkflowId, step.step_id).catch((err: any) => {
-          if (err?.response?.status !== 404) throw err;
-        });
-      }
+      // A workflow IS a project row (workflow_id === project_id), so the real
+      // soft-delete is DELETE /projects/{id}. This replaces the former
+      // step-clear loop, which only emptied the canvas and overstated the
+      // outcome as "deleted" while the project row survived.
+      await deleteProject(activeWorkflowId);
       await loadWorkflows();
       handleNewPipeline();
-      toast.success('Workflow deleted');
+      toast.success('Workflow deleted', { id: t });
     } catch (error) {
       console.error('Failed to delete workflow:', error);
-      toast.error('Failed to delete workflow');
+      toast.error(getApiErrorMessage(error) || 'Failed to delete workflow', { id: t });
     }
-  }, [activeWorkflowId, handleNewPipeline]);
+  }, [activeWorkflowId, handleNewPipeline, loadWorkflows]);
 
   // ============================================
   // RESULTS PREVIEW
@@ -2090,7 +2088,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
           if (response.status === 'completed' || response.status === 'success') {
             setPhase('execute', { phase: 'completed' });
-            toast.success(`Executed successfully! ${response.rows_affected || 0} rows affected`);
+            toast.success(
+              response.rows_affected != null
+                ? `Executed successfully! ${response.rows_affected} rows affected`
+                : 'Executed successfully!',
+            );
             // Auto-load destination table preview
             loadResultsPreview();
           } else if (response.status === 'failed' || response.status === 'partial_failure') {
@@ -2762,29 +2764,6 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   const joinInputColumns = useMemo(() => getJoinInputColumns(), [getJoinInputColumns]);
 
-  // Project-gate selector callback — declared BEFORE any early returns so
-  // React's rules-of-hooks aren't violated when the gate renders.
-  const handleGateSelect = useCallback(
-    (workflowId: string, workflowName: string) => {
-      projectGateDismissedRef.current = true;
-      const wf = workflows.find((w) => w.id === workflowId);
-      if (wf) {
-        handleLoadPipeline(wf);
-      } else {
-        // Newly-created workflow may not be in the list yet — set directly
-        setActiveWorkflowId(workflowId);
-        setActiveWorkflowName(workflowName);
-        setPipelineName(workflowName);
-        setUserRole('owner');
-        setNodes([]);
-        setEdges([]);
-        setIsDirty(false);
-        loadWorkflows();
-      }
-    },
-    [workflows, handleLoadPipeline, setNodes, setEdges, loadWorkflows],
-  );
-
   // UnifiedProjectWizard handoff — branches on the explicit build mode.
   //   manual   → land on the empty canvas (default).
   //   ai       → open GuidedAiWorkflowWizard pre-seeded with the description.
@@ -3078,21 +3057,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       <div aria-live="polite" aria-atomic="true" className="sr-only" role="status">
         {shortcutAnnounce}
       </div>
-      {/* Project Gate: blocks the canvas until a workflow project is selected.
-          Mount it only while the gate is open — the parent-side equivalent of
-          `enabled: isOpen` on its internal listProjects query. Without this guard
-          the gate stays mounted with isOpen=false and re-fires a DUPLICATE
-          listProjects on every load (the active gate is ProjectGatePanel, fed by
-          the shared `workflows` query). NB: the early return at ~line 2883 makes
-          `showProjectGate` always false here, so this branch is currently inert —
-          which is exactly why the duplicate fetch had no visible payoff. */}
-      {showProjectGate && (
-        <WorkflowProjectGate
-          isOpen={showProjectGate}
-          onSelect={handleGateSelect}
-          onCreated={handleProjectCreated}
-        />
-      )}
+      {/* The active project gate is ProjectGatePanel, rendered via the early
+          return above when `showProjectGate` is true. The legacy modal
+          WorkflowProjectGate that used to sit here was unreachable dead code
+          (this branch only runs after that early return, where showProjectGate
+          is necessarily false) and re-fired a duplicate listProjects query, so
+          it has been removed. */}
       {/* Unified creation flow — also reachable from the main canvas. */}
       <UnifiedProjectWizard
         open={showCreateWizard}
@@ -4296,10 +4266,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             (Box icon). Selecting a node on the canvas routes the panel there. */}
       </div>
 
-      {/* Loading overlay */}
-      {isLoading && (
-        <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 flex items-center justify-center z-50">
-          <Loader size="lg" />
+      {/* Refetch indicator — non-blocking. The very first load is handled by the
+          page-level full-screen state above (isLoading && workflows.length === 0).
+          On every subsequent refetch we keep the canvas interactive and show only
+          a subtle corner badge so background syncs never block editing. */}
+      {isLoading && workflows.length > 0 && (
+        <div className="absolute top-3 right-3 z-50 flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm backdrop-blur-sm pointer-events-none dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-300">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+          Refreshing…
         </div>
       )}
 

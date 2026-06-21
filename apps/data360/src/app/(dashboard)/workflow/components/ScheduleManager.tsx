@@ -173,8 +173,27 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
 
     try {
       if (schedule) {
-        // Update existing: resume or suspend the task
-        if (formData.is_active) {
+        // Determine whether the cron actually changed. If so, re-cron via
+        // POST /schedule (backend uses CREATE OR REPLACE TASK — a true upsert),
+        // not just suspend/resume which would silently ignore the cron edit.
+        const nextCron = isCustom ? formData.custom_cron.trim() : undefined;
+        const cronChanged =
+          (isCustom && nextCron !== schedule.cron_expression) ||
+          (!isCustom &&
+            cronExpressionToChoice(schedule.cron_expression) !== formData.cron_choice);
+
+        if (cronChanged) {
+          await workflowApi.scheduleWorkflow(pipelineId, {
+            cron_choice: isCustom ? undefined : formData.cron_choice,
+            custom_cron: isCustom ? nextCron : undefined,
+            warehouse: 'COMPUTE_WH',
+          });
+          // CREATE OR REPLACE recreates the task in the started state; honour
+          // the active toggle afterwards.
+          if (!formData.is_active) {
+            await workflowApi.suspendTask(pipelineId);
+          }
+        } else if (formData.is_active) {
           await workflowApi.resumeTask(pipelineId);
         } else {
           await workflowApi.suspendTask(pipelineId);
@@ -507,7 +526,10 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
     if (!pipelineId) return;
     setConfirmDeleteSchedule(null);
     try {
-      await workflowApi.suspendTask(pipelineId);
+      // Real teardown — DELETE /workflow/{id}/schedule drops the Snowflake TASK
+      // (DROP TASK IF EXISTS). Previously this only suspended the task while
+      // claiming "deleted", which left the schedule live but paused.
+      await workflowApi.deleteSchedule(pipelineId);
       toast.success('Schedule deleted');
       loadSchedules();
       onScheduleChange?.();

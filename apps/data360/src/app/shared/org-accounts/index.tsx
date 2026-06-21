@@ -16,8 +16,11 @@ import {
   PiShareNetworkDuotone,
   PiWarningCircleDuotone,
 } from 'react-icons/pi';
+import { useAtomValue } from 'jotai';
 import { getDashboardOverview } from '@/app/services/org-accounts/hooks';
 import { extractApiError } from '@/app/services/org-accounts/utils';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 // Tab components (lazy per-tab data fetching)
 import OverviewTab from './tabs/overview-tab';
@@ -41,6 +44,21 @@ const TABS = [
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
+
+// Org-accounts cache keys the backend broadcasts over SSE when this dashboard's
+// account-global (@shared_cache) data is mutated (e.g. account drop, reader
+// create/drop, share changes). Any of these → re-run the active tab's fetch.
+const ORG_CACHE_KEYS: ReadonlySet<string> = new Set([
+  CACHE_KEYS.ORG_ACCOUNTS,
+  CACHE_KEYS.ORG_ACCOUNTS_DASHBOARD,
+  CACHE_KEYS.ORG_CREDITS,
+  CACHE_KEYS.ORG_STORAGE,
+  CACHE_KEYS.ORG_LOGINS,
+  CACHE_KEYS.ORG_HEALTH,
+  CACHE_KEYS.ORG_ALERTS,
+  CACHE_KEYS.READER_ACCOUNTS,
+  CACHE_KEYS.DATA_SHARES,
+]);
 
 export default function OrgAccountsDashboard() {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
@@ -81,6 +99,22 @@ export default function OrgAccountsDashboard() {
   }, []);
 
   useEffect(() => () => { if (refreshTimer.current) clearInterval(refreshTimer.current); }, []);
+
+  // Real-time refresh: when the backend broadcasts an org-accounts cache
+  // invalidation over SSE (e.g. another admin drops an account or creates a
+  // reader), re-run the active tab's fetch by bumping refreshKey. Reads the
+  // shared single SSE connection via the provider atom — no extra connection is
+  // opened here. The identity ref skips the persisted mount-time value so we
+  // only react to events that arrive after mount.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const seenInvalidationRef = useRef(lastInvalidation);
+  useEffect(() => {
+    if (lastInvalidation === seenInvalidationRef.current) return;
+    seenInvalidationRef.current = lastInvalidation;
+    if (lastInvalidation?.keys.some((k) => ORG_CACHE_KEYS.has(k))) {
+      setRefreshKey((k) => k + 1);
+    }
+  }, [lastInvalidation]);
 
   const renderTabContent = () => {
     switch (activeTab) {

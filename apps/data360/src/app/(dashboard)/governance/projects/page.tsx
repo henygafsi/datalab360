@@ -118,6 +118,9 @@ type FilterTab = 'all' | 'explore_design' | 'workflow';
 interface ProjectWithMembers extends Project {
   contributors: Contributor[];
   loadingMembers: boolean;
+  // True when the contributor fetch failed — lets the row show an inline retry
+  // instead of silently rendering "0 members".
+  membersError?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,7 +195,13 @@ function ProjectRow({
           </div>
           <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
             {owner && <span>Owner: {owner.username}</span>}
-            <span>{memberCount} member{memberCount !== 1 ? 's' : ''}</span>
+            {/* On a contributor-fetch error, don't render a misleading "0 members"
+                — say so explicitly (the expanded panel offers a retry). */}
+            {project.membersError ? (
+              <span className="text-red-500 dark:text-red-400">members unavailable</span>
+            ) : (
+              <span>{memberCount} member{memberCount !== 1 ? 's' : ''}</span>
+            )}
             {project.created_at && (
               <span>Created {formatDistanceToNow(new Date(project.created_at), { addSuffix: true })}</span>
             )}
@@ -318,6 +327,15 @@ function ProjectRow({
             <div className="flex items-center justify-center py-4 gap-2 text-xs text-slate-400">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Loading members...
+            </div>
+          ) : project.membersError ? (
+            <div role="alert" className="flex items-center justify-between gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/10">
+              <span className="text-xs text-red-700 dark:text-red-300">
+                Couldn&apos;t load members for this project.
+              </span>
+              <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={onRefreshMembers}>
+                Retry
+              </Button>
             </div>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
@@ -491,9 +509,11 @@ function ProjectsGovernancePageInner() {
         projectList.map(async (p) => {
           try {
             const contribs = await listContributors(p.project_id);
-            return { ...p, contributors: contribs, loadingMembers: false };
+            return { ...p, contributors: contribs, loadingMembers: false, membersError: false };
           } catch {
-            return { ...p, contributors: [], loadingMembers: false };
+            // Don't collapse a load failure into "0 members" — flag it so the row
+            // can offer a retry.
+            return { ...p, contributors: [], loadingMembers: false, membersError: true };
           }
         }),
       );
@@ -512,17 +532,17 @@ function ProjectsGovernancePageInner() {
   // Refresh a single project's members
   const refreshMembers = useCallback(async (projectId: string) => {
     setProjects((prev) =>
-      prev.map((p) => (p.project_id === projectId ? { ...p, loadingMembers: true } : p)),
+      prev.map((p) => (p.project_id === projectId ? { ...p, loadingMembers: true, membersError: false } : p)),
     );
     try {
       const contribs = await listContributors(projectId);
       setProjects((prev) =>
-        prev.map((p) => (p.project_id === projectId ? { ...p, contributors: contribs, loadingMembers: false } : p)),
+        prev.map((p) => (p.project_id === projectId ? { ...p, contributors: contribs, loadingMembers: false, membersError: false } : p)),
       );
     } catch (err) {
       toast.error(getApiErrorMessage(err));
       setProjects((prev) =>
-        prev.map((p) => (p.project_id === projectId ? { ...p, loadingMembers: false } : p)),
+        prev.map((p) => (p.project_id === projectId ? { ...p, loadingMembers: false, membersError: true } : p)),
       );
     }
   }, []);
@@ -596,6 +616,9 @@ function ProjectsGovernancePageInner() {
 
   // Pending deployments
   const [pendingDeploys, setPendingDeploys] = useState<any[]>([]);
+  // Distinguish "no pending approvals" (empty) from "couldn't load them" (error)
+  // so a fetch failure shows an inline retry, not a silently-hidden section.
+  const [pendingError, setPendingError] = useState(false);
   const [deployActionLoading, setDeployActionLoading] = useState<string | null>(null);
   const [rejectModal, setRejectModal] = useState<{ projectId: string; deploymentId: string; projectName: string } | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -604,8 +627,14 @@ function ProjectsGovernancePageInner() {
     try {
       const overview = await getProjectsOverview({ days: 90 });
       setPendingDeploys(Array.isArray(overview?.pending_approvals) ? overview.pending_approvals : []);
-    } catch {
-      // Silently fail — non-critical
+      setPendingError(false);
+    } catch (err: any) {
+      // Match the app's error convention: a 404/501 means the overview route
+      // isn't provisioned on this backend — stay quiet (no scary banner). Only a
+      // real failure (5xx/network) surfaces an inline error + retry, so genuine
+      // pending approvals are never silently hidden.
+      const status = err?.response?.status;
+      setPendingError(status !== 404 && status !== 501);
     }
   }, []);
 
@@ -689,6 +718,23 @@ function ProjectsGovernancePageInner() {
         }
       />
 
+      {/* Pending-approvals load error — shown regardless of list length so a
+          failed fetch can't hide pending approvals behind an empty section. */}
+      {pendingError && !loading && (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 dark:border-red-800/50 bg-red-50/60 dark:bg-red-900/10 p-4 flex items-center justify-between gap-4"
+        >
+          <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-300">
+            <X className="h-4 w-4 shrink-0" />
+            Couldn&apos;t load pending deployment approvals. Some approvals may not be shown.
+          </div>
+          <Button size="sm" variant="outline" className="shrink-0" onClick={fetchPendingDeploys}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Pending Deployments */}
       {pendingDeploys.length > 0 && (
         <div className="rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-900/10 p-5">
@@ -734,7 +780,8 @@ function ProjectsGovernancePageInner() {
                     </button>
                     <button
                       onClick={() => isRejecting ? closeReject() : setRejectModal({ projectId: d.project_id, deploymentId: d.deployment_id, projectName: d.project_name })}
-                      disabled={deployActionLoading === d.deployment_id}
+                      disabled={deployActionLoading === d.deployment_id || (!canApprove.allowed && !canApprove.loading)}
+                      title={(!canApprove.allowed && !canApprove.loading) ? 'You do not have permission to reject deployments.' : undefined}
                       aria-expanded={isRejecting}
                       className={cn(
                         'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 flex items-center gap-1',

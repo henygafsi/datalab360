@@ -14,8 +14,10 @@ import {
   HiOutlinePencilSquare,
   HiOutlineTrash,
   HiOutlineSparkles,
+  HiOutlineTableCells,
 } from 'react-icons/hi2';
 import GrantsTable from '@/app/shared/governance/grants/table';
+import GrantMatrixPanel from '@/app/shared/governance/grant-matrix/panel';
 import UserGrantsTable from '@/app/shared/governance/user-grants/table';
 import PolicyGrantsTable from '@/app/shared/governance/policy-grants/table';
 import StageGrantsTable from '@/app/shared/governance/stage-grants/table';
@@ -36,14 +38,14 @@ import {
   type D360Role,
   type D360RoleTemplate,
 } from '@/app/services/governance/fetch_roles';
-import { useCanPerform } from '@/hooks/useCanPerform';
+import { useCanPerform, invalidateMyPermissions } from '@/hooks/useCanPerform';
 import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
 import PermissionGate from '@/components/ui/PermissionGate';
 import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
 
 type AsyncStatus = 'idle' | 'running' | 'completed' | 'error';
 
-type TabType = 'role-grants' | 'user-grants' | 'policy-grants' | 'stage-grants' | 'd360-roles' | 'source-product-grants';
+type TabType = 'role-grants' | 'grant-matrix' | 'user-grants' | 'policy-grants' | 'stage-grants' | 'd360-roles' | 'source-product-grants';
 
 function SourceProductGrantsPanel() {
   const [sources, setSources] = useState<any[]>([]);
@@ -86,6 +88,9 @@ function SourceProductGrantsPanel() {
           role_name: grantRole.trim(),
         },
       });
+      // A new privilege can change the caller's own effective access — refresh
+      // the cached action allow-set so gated controls re-resolve.
+      invalidateMyPermissions();
       setFeedback({
         type: 'success',
         text: `Granted ${grantPrivilege} on ${grantObjectType} ${grantTarget.trim()} to ${grantRole.trim()}.`,
@@ -336,6 +341,8 @@ function D360RolesPanel() {
         });
         setFeedback({ type: 'success', text: `Role "${form.role_name.trim()}" created.` });
       }
+      // Creating/editing a D360 role can change the caller's own allow-set — refresh.
+      invalidateMyPermissions();
       close();
       await reload();
     } catch (err: any) {
@@ -350,6 +357,8 @@ function D360RolesPanel() {
     setDeleting(true);
     try {
       await deleteD360Role(deleteTarget.role_name);
+      // Deleting a D360 role can change the caller's own allow-set — refresh.
+      invalidateMyPermissions();
       setFeedback({ type: 'success', text: `Role "${deleteTarget.role_name}" deleted.` });
       setDeleteTarget(null);
       await reload();
@@ -684,6 +693,23 @@ export default function GrantsManagementPage() {
             </button>
             <button
               role="tab"
+              aria-selected={activeTab === 'grant-matrix'}
+              aria-controls="tabpanel-grant-matrix"
+              onClick={() => setActiveTab('grant-matrix')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
+                activeTab === 'grant-matrix'
+                  ? 'border-b-2 border-indigo-600 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <HiOutlineTableCells className="h-4 w-4" />
+              Grant Matrix
+              <Badge className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400">
+                Privileges
+              </Badge>
+            </button>
+            <button
+              role="tab"
               aria-selected={activeTab === 'user-grants'}
               aria-controls="tabpanel-user-grants"
               onClick={() => setActiveTab('user-grants')}
@@ -787,6 +813,8 @@ export default function GrantsManagementPage() {
             </div>
             <GrantsTable />
           </div>
+        ) : activeTab === 'grant-matrix' ? (
+          <GrantMatrixPanel />
         ) : activeTab === 'user-grants' ? (
           <div role="tabpanel" id="tabpanel-user-grants" aria-labelledby="tab-user-grants">
             <div className="mb-4">

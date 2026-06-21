@@ -57,7 +57,10 @@ import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import { formatApiDetail } from '@/lib/utils';
 import { dash } from '@/app/shared/ui/format';
-import { useCanPerform } from '@/hooks/useCanPerform';
+import { useCanPerform, invalidateMyPermissions } from '@/hooks/useCanPerform';
+import { useAtomValue } from 'jotai';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 
 // ============= SHARED UI COMPONENTS =============
 
@@ -226,6 +229,23 @@ export default function SecurityMatrixPage() {
     }
   }, [activeTab, usersLoading, loadUsers]);
 
+  // Real-time refresh: matrix/axes/enterprise-users are @shared_cache reads that
+  // the backend SSE-invalidates (CacheKey.SECURITY_MATRIX / ENTERPRISE_USERS) on
+  // any admin's write. Without this, a second admin's edit stays stale until a
+  // manual refresh. The users tab is lazy — only refetch it once it has loaded.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const keys = lastInvalidation.keys;
+    if (keys.includes(CACHE_KEYS.SECURITY_MATRIX)) {
+      loadMatrix(true);
+      loadAxes(true);
+    }
+    if (keys.includes(CACHE_KEYS.ENTERPRISE_USERS) && usersLoadedRef.current) {
+      loadUsers();
+    }
+  }, [lastInvalidation, loadMatrix, loadAxes, loadUsers]);
+
   // ============= MATRIX INLINE EDITING =============
 
   const handleMatrixCellChange = useCallback((rowId: number, field: string, value: string | null) => {
@@ -264,6 +284,8 @@ export default function SecurityMatrixPage() {
       });
 
       await batchUpdateSecurityMatrix({ updates });
+      // Matrix edits change role→scope mappings — refresh the cached allow-set.
+      invalidateMyPermissions();
       toast.success(`Saved ${updates.length} changes`);
       setDirtyMatrixRows(new Map());
       loadMatrix(true);
@@ -280,6 +302,7 @@ export default function SecurityMatrixPage() {
     setConfirmAction(null);
     try {
       await deleteSecurityMatrixEntry(row.id);
+      invalidateMyPermissions();
       toast.success('Entry deleted');
       setDirtyMatrixRows((prev) => { const next = new Map(prev); next.delete(row.id); return next; });
       loadMatrix(true);
@@ -302,6 +325,7 @@ export default function SecurityMatrixPage() {
         },
         access_level: matrixForm.access_level,
       });
+      invalidateMyPermissions();
       toast.success('Entry added');
       setShowAddMatrixModal(false);
       setMatrixForm({ role_name: '', region_id: '', store_id: '', department_id: '', product_category: '', customer_segment: '', access_level: 'READ' });

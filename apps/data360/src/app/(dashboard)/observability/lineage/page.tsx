@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { PiWarningCircleBold } from 'react-icons/pi';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
@@ -12,6 +13,8 @@ import {
   isRouteNotDeployed,
 } from '@/app/services/observability';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 
 /**
  * Standalone data-lineage route (column/table lineage canvas + access patterns).
@@ -25,9 +28,14 @@ export default function LineagePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notDeployed, setNotDeployed] = useState(false);
+  // Last params each loader ran with, so an SSE cache-invalidation can re-pull
+  // with the user's current selection (lineage is param-driven by the canvas).
+  const lastLineageParamsRef = useRef<{ database?: string; table?: string; days: number } | null>(null);
+  const lastAccessDaysRef = useRef<number | null>(null);
 
   const onLoadLineage = useCallback(
     async (params: { database?: string; table?: string; days: number }) => {
+      lastLineageParamsRef.current = params;
       setLoading(true);
       setError(null);
       setNotDeployed(false);
@@ -51,6 +59,7 @@ export default function LineagePage() {
   );
 
   const onLoadAccess = useCallback(async (days: number) => {
+    lastAccessDaysRef.current = days;
     setLoading(true);
     setError(null);
     setNotDeployed(false);
@@ -70,6 +79,22 @@ export default function LineagePage() {
       setLoading(false);
     }
   }, []);
+
+  // Real-time refresh: when the backend pushes an observability/lineage cache-
+  // invalidation, re-run whichever loaders the user has already triggered (with
+  // their last selection). No-op until the first load, since lineage is param-
+  // driven by the canvas. Uses the global SSE atom (one shared connection).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevant = lastInvalidation.keys.some(
+      (k: string) =>
+        k === CACHE_KEYS.OBSERVABILITY_DASHBOARD || k === CACHE_KEYS.DATA_LINEAGE,
+    );
+    if (!relevant) return;
+    if (lastLineageParamsRef.current) onLoadLineage(lastLineageParamsRef.current);
+    if (lastAccessDaysRef.current != null) onLoadAccess(lastAccessDaysRef.current);
+  }, [lastInvalidation, onLoadLineage, onLoadAccess]);
 
   return (
     <div className="@container p-4">

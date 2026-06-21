@@ -1,6 +1,7 @@
 import { AxiosError } from 'axios';
 import apiClient from '@/lib/api-client';
 import { API_CONTRACTS } from '@/lib/api-contracts';
+import { toServiceError } from '@/app/services/_errors';
 
 export interface UserProfile {
   username: string;
@@ -72,30 +73,7 @@ export const updateProfile = async (data: UpdateProfileData): Promise<UserProfil
       throw new Error('Invalid response from server');
     }
   } catch (error: any) {
-    const axiosError = error as AxiosError<{
-      detail?: string | { detail?: string; error_code?: string; message?: string };
-      message?: string;
-    }>;
-
-    const data = axiosError.response?.data;
-    if (data?.message && typeof data.message === 'string') {
-      throw new Error(data.message);
-    }
-    if (data?.detail) {
-      const detail = data.detail;
-      if (typeof detail === 'string') {
-        throw new Error(detail);
-      }
-      if (typeof detail === 'object' && detail !== null && 'detail' in detail) {
-        throw new Error((detail as { detail: string }).detail);
-      }
-    }
-
-    if (axiosError.message) {
-      throw new Error(axiosError.message);
-    }
-
-    throw new Error('An error occurred while updating profile.');
+    throw toServiceError(error, 'Failed to update profile');
   }
 };
 

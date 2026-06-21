@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { Badge, Button, Input, Loader, Select } from 'rizzui';
 import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold } from 'react-icons/pi';
 import { Plus } from 'lucide-react';
@@ -29,6 +30,8 @@ import type {
 import { getResourceMonitors } from '@/app/services/org-accounts/hooks';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 
 // ---------------------------------------------------------------------------
 // Create Resource Monitor — docked right-tab panel (no centered overlay; the
@@ -280,6 +283,21 @@ export default function BudgetPage() {
     loadCost();
     loadMonitors();
   }, [loadCost, loadMonitors]);
+
+  // Real-time refresh: re-pull cost + monitors when the backend pushes an
+  // observability/cost cache-invalidation (probe checks, warehouse/storage
+  // metering refresh). Uses the global SSE atom (one shared connection).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevant = lastInvalidation.keys.some(
+      (k: string) =>
+        k === CACHE_KEYS.OBSERVABILITY_DASHBOARD ||
+        k === CACHE_KEYS.WAREHOUSE_USAGE ||
+        k === CACHE_KEYS.STORAGE_METRICS,
+    );
+    if (relevant) refresh();
+  }, [lastInvalidation, refresh]);
 
   return (
     <div className="@container p-4">

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   PlayCircle,
   CheckCircle,
@@ -21,8 +22,6 @@ import {
   Check,
   Sparkles,
   Coins,
-  Beaker,
-  Lock,
   Info,
   ShieldCheck,
 } from 'lucide-react';
@@ -201,6 +200,13 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   const [rerunningId, setRerunningId] = useState<string | null>(null);
   const [killTarget, setKillTarget] = useState<WorkflowRun | null>(null);
 
+  // Cancel is a real execution-class mutation (suspends the task + aborts the
+  // in-flight query), so it must be RBAC-gated exactly like Run in the
+  // SmartPanel. Fail-open while the allow-set loads (matches useCanPerform's
+  // own convention) so a slow permissions fetch never hides the control.
+  const cancelPerm = useCanPerform('workflow', 'execute', pipelineId ?? undefined);
+  const canCancel = cancelPerm.allowed || cancelPerm.loading;
+
   // Polling is paused once it runs continuously past MAX_POLL_AGE_MS for the
   // same set of running runs — guards against runs stuck in `running` forever.
   const [pollingPaused, setPollingPaused] = useState(false);
@@ -218,6 +224,21 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
     fetchRunsFn,
     { cacheKeys: [CACHE_KEYS.WORKFLOWS, CACHE_KEYS.RUNS], enabled: !!pipelineId, initialData: null }
   );
+
+  // Real credit total — GET /workflow/{id}/cost-summary (ACCOUNT_USAGE-backed,
+  // server-cached ~30min). This is a WORKFLOW-level aggregate (no per-run join
+  // key on the run rows), so it only replaces the cumulative banner total; the
+  // per-run column stays an explicitly-labeled estimate. Best-effort: on any
+  // failure the banner falls back to the client estimate, never a fake 0.
+  const fetchCostFn = useCallback(
+    () => workflowApi.getWorkflowCostSummary(pipelineId!),
+    [pipelineId],
+  );
+  const { data: costSummary } = useCacheAwareQuery(fetchCostFn, {
+    cacheKeys: [CACHE_KEYS.WORKFLOWS],
+    enabled: !!pipelineId,
+    initialData: null,
+  });
 
   // SSE-first refresh: when the cache-stream is connected, run-status updates
   // arrive as WORKFLOWS-key invalidations (handled by useCacheAwareQuery above),
@@ -490,15 +511,42 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   // ============================================
 
   const handleKillConfirm = useCallback(
-    async ({ reason: _reason }: { reason?: string }) => {
-      // Backend endpoint does not exist yet — toast and close.
-      toast(
-        'Kill endpoint not yet available — see the Backend Gap card on the row.',
-        { icon: 'ℹ️', duration: 5000 },
-      );
-      setKillTarget(null);
+    async (_args: { reason?: string }) => {
+      if (!pipelineId) {
+        setKillTarget(null);
+        return;
+      }
+      // Real route: POST /workflow/{id}/cancel — workflow-LEVEL cancel (suspends
+      // the scheduled task + marks running runs cancelled + aborts the in-flight
+      // query). There is no per-run-id kill route, so the reason field is not
+      // sent and the copy is phrased honestly ("cancel running runs").
+      const t = toast.loading('Cancelling running runs…');
+      try {
+        const res = await workflowApi.cancelWorkflowRun(pipelineId);
+        const n = res?.cancelled_runs;
+        toast.success(
+          typeof n === 'number'
+            ? `Cancellation requested — ${n} run${n === 1 ? '' : 's'} cancelled`
+            : 'Cancellation requested',
+          { id: t },
+        );
+        setKillTarget(null);
+        window.setTimeout(() => void refetch(), 600);
+      } catch (err: unknown) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 404 || status === 501) {
+          toast(
+            'Cancel is not available on this backend yet.',
+            { id: t, icon: 'ℹ️', duration: 5000 },
+          );
+        } else {
+          const msg = err instanceof Error ? err.message : 'Unknown error';
+          toast.error(`Cancel failed: ${msg}`, { id: t });
+        }
+        setKillTarget(null);
+      }
     },
-    [],
+    [pipelineId, refetch],
   );
 
   const handleCopyRunId = useCallback(async (runId: string) => {
@@ -656,23 +704,48 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
       {/* Weekly cumulative cost banner */}
       {allRuns.length > 0 && (
         <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-amber-50/60 px-3 py-2 text-xs dark:border-slate-700 dark:bg-amber-900/10">
-          <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
-            <Coins className="h-3.5 w-3.5" />
-            <span>
-              This workflow used{' '}
-              <span className="font-semibold">
-                ~{formatCredits(weeklyCost.total)} credits
-              </span>{' '}
-              this week ({weeklyCost.runCount} runs)
-            </span>
-          </div>
-          <span
-            title="Estimated from steps_results[].rows_affected. Real /workflow/{id}/cost-summary endpoint pending."
-            className="inline-flex items-center gap-1 text-amber-700/80 dark:text-amber-300/80"
-          >
-            <Info className="h-3 w-3" />
-            estimate
-          </span>
+          {costSummary && costSummary.credits != null ? (
+            <>
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+                <Coins className="h-3.5 w-3.5" />
+                <span>
+                  This workflow used{' '}
+                  <span className="font-semibold">
+                    {formatCredits(costSummary.credits)} credits
+                  </span>{' '}
+                  over the last {costSummary.lookback_days ?? 30} days
+                  {costSummary.task_runs != null && ` (${costSummary.task_runs} task runs)`}
+                </span>
+              </div>
+              <span
+                title="Credit attribution from ACCOUNT_USAGE.QUERY_ATTRIBUTION_HISTORY (root-aware), cached server-side. Falls back to warehouse-metered upper bound when attribution is unavailable."
+                className="inline-flex items-center gap-1 text-amber-700/80 dark:text-amber-300/80"
+              >
+                <ShieldCheck className="h-3 w-3" />
+                attributed
+              </span>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+                <Coins className="h-3.5 w-3.5" />
+                <span>
+                  This workflow used{' '}
+                  <span className="font-semibold">
+                    ~{formatCredits(weeklyCost.total)} credits
+                  </span>{' '}
+                  this week ({weeklyCost.runCount} runs)
+                </span>
+              </div>
+              <span
+                title="Estimated from steps_results[].rows_affected — falls back here when the credit-attribution summary is unavailable."
+                className="inline-flex items-center gap-1 text-amber-700/80 dark:text-amber-300/80"
+              >
+                <Info className="h-3 w-3" />
+                estimate
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -758,9 +831,20 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
       {/* Error Display */}
       {error && (
         <div className="mx-4 mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-          <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
-            <AlertTriangle className="h-4 w-4" />
-            <span className="text-sm">{error}</span>
+          <div className="flex items-center justify-between gap-2 text-red-700 dark:text-red-400">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span className="text-sm break-words">{error}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1 shrink-0 rounded-md border border-red-300 dark:border-red-700 px-2 py-1 text-xs font-medium text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 transition disabled:opacity-50"
+            >
+              <RefreshCw className={cn('h-3 w-3', isRefreshing && 'animate-spin')} />
+              Retry
+            </button>
           </div>
         </div>
       )}
@@ -870,8 +954,8 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                     <span
                       title={
                         cost === null
-                          ? 'Per-run cost API coming soon'
-                          : 'Estimated credits — replace once /workflow/{id}/cost-summary lands'
+                          ? 'No per-run credit estimate available for this run'
+                          : 'Estimated from this run’s steps_results[].rows_affected. Real credit attribution is workflow-level (cost-summary) — run rows carry no query_id to join per-run, so this stays an estimate.'
                       }
                       className={cn(
                         'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
@@ -899,6 +983,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                       onCompare={() => handleCompare(run)}
                       onToggleExpected={() => toggleExpectedFailure(run.run_id)}
                       onKill={() => setKillTarget(run)}
+                      canKill={canCancel}
                       onCopyId={() => void handleCopyRunId(run.run_id)}
                     />
                   </div>
@@ -1097,59 +1182,35 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
           onOpenChange={(o) => {
             if (!o) setKillTarget(null);
           }}
-          title="Kill running execution?"
+          title="Cancel running runs?"
           tier="hard"
           resourceLabel="run"
           resourceName={killTarget.run_id}
           requireReason={false}
-          irreversibleNote="Partial step results will be preserved when the backend endpoint lands."
-          confirmLabel="Kill run"
+          irreversibleNote="Already-completed steps keep their results; in-flight steps are marked cancelled."
+          confirmLabel="Cancel runs"
           body={
             <div className="space-y-3">
               <p>
-                You are about to abort run{' '}
-                <code className="font-mono text-[11px]">#{killTarget.run_id.slice(-8)}</code>.
-                In-flight steps will be marked as cancelled.
+                This stops <strong>all running runs</strong> of this workflow (not just{' '}
+                <code className="font-mono text-[11px]">#{killTarget.run_id.slice(-8)}</code>).
+                The scheduled task is suspended and the in-flight query is aborted
+                where possible.
               </p>
 
-              {/* Inline backend gap card */}
-              <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 dark:border-violet-900/40 dark:bg-violet-900/20">
+              {/* Scope note — cancel is workflow-level, not per-run */}
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-900/20">
                 <div className="flex items-center gap-2">
-                  <Lock className="h-3 w-3 text-violet-500" />
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300">
-                    Backend gap — UX target
+                  <Info className="h-3 w-3 text-amber-500" />
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                    Workflow-level cancel
                   </p>
                 </div>
-                <dl className="mt-2 space-y-1.5 text-[11px]">
-                  <div className="grid grid-cols-[80px_1fr] gap-2">
-                    <dt className="font-semibold text-violet-700 dark:text-violet-300">Endpoint</dt>
-                    <dd className="font-mono text-slate-800 dark:text-slate-200">
-                      POST /workflow/{'{id}'}/runs/{'{runId}'}/kill
-                    </dd>
-                  </div>
-                  <div className="grid grid-cols-[80px_1fr] gap-2">
-                    <dt className="font-semibold text-violet-700 dark:text-violet-300">Body</dt>
-                    <dd className="font-mono text-slate-800 dark:text-slate-200">{`{ reason?: string }`}</dd>
-                  </div>
-                  <div className="grid grid-cols-[80px_1fr] gap-2">
-                    <dt className="font-semibold text-violet-700 dark:text-violet-300">Returns</dt>
-                    <dd className="font-mono text-slate-800 dark:text-slate-200">
-                      {'{ killed_at, partial_results? }'}
-                    </dd>
-                  </div>
-                  <div className="grid grid-cols-[80px_1fr] gap-2">
-                    <dt className="font-semibold text-violet-700 dark:text-violet-300">Why</dt>
-                    <dd className="text-slate-700 dark:text-slate-300">
-                      Superadmins need to stop runaway runs without restarting the worker.
-                    </dd>
-                  </div>
-                </dl>
-                <div className="mt-2 flex items-center gap-2 rounded bg-violet-100 px-2 py-1 dark:bg-violet-900/40">
-                  <Beaker className="h-3 w-3 text-violet-600 dark:text-violet-300" />
-                  <span className="text-[10px] text-violet-800 dark:text-violet-200">
-                    Until this lands, confirming will toast a notice and refresh the runs list.
-                  </span>
-                </div>
+                <p className="mt-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+                  The platform cancels at the workflow level — there is no per-run
+                  cancel. Any run currently in <em>running</em> state will be
+                  marked cancelled, and the schedule is suspended.
+                </p>
               </div>
             </div>
           }

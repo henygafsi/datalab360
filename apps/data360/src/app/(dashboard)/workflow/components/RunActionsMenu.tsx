@@ -42,6 +42,8 @@ export interface RunActionsMenuProps {
   onCompare: () => void;
   onToggleExpected: () => void;
   onKill: () => void;
+  /** RBAC gate for the workflow-level cancel (execute permission). */
+  canKill?: boolean;
   onCopyId: () => void;
 }
 
@@ -68,6 +70,7 @@ const RunActionsMenu: React.FC<RunActionsMenuProps> = ({
   onCompare,
   onToggleExpected,
   onKill,
+  canKill = true,
   onCopyId,
 }) => {
   const [open, setOpen] = React.useState(false);
@@ -89,11 +92,13 @@ const RunActionsMenu: React.FC<RunActionsMenuProps> = ({
     },
     {
       key: 'rerun-overrides',
-      label: 'Re-run with overrides…',
+      label: 'Re-run with overrides (coming soon)',
       icon: Sliders,
       onClick: onRerunOverrides,
-      disabled: isRunning || !hasInputs,
-      title: !hasInputs ? 'This run had no overridable inputs' : undefined,
+      // Override editor is not built yet (no backend contract to probe), so the
+      // item is hard-disabled rather than presenting as actionable.
+      disabled: true,
+      title: 'Parameter override editor is not available yet',
     },
     {
       key: 'compare',
@@ -114,12 +119,16 @@ const RunActionsMenu: React.FC<RunActionsMenuProps> = ({
     },
     {
       key: 'kill',
-      label: 'Kill this run',
+      label: 'Cancel running runs',
       icon: Square,
       onClick: onKill,
       hidden: !isRunning,
+      disabled: !canKill,
       destructive: true,
       dividerBefore: true,
+      title: canKill
+        ? 'Cancels all running runs of this workflow (workflow-level)'
+        : "You don't have permission to cancel runs",
     },
     {
       key: 'copy',

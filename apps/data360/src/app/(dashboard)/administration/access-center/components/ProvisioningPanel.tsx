@@ -8,7 +8,8 @@
  * rendered as a single honest, paginated AuditTable. A user with no roles shows
  * "—" (never a fabricated 0). Read-only roster — no mutations, nothing gated.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { UserCog } from 'lucide-react';
 import { getApiErrorMessage } from '@/lib/api-client';
 import AuditTable, { type Row } from '@/app/shared/command-center/AuditTable';
@@ -16,6 +17,8 @@ import {
   getUsersWithRolesAndModules,
   type UserGrantTableData,
 } from '@/app/services/governance/user_roles';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { Spinner, ErrBox, Chip } from './shared';
 
 type Phase = 'loading' | 'ready' | 'error';
@@ -25,14 +28,17 @@ export default function ProvisioningPanel() {
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<UserGrantTableData[]>([]);
 
-  const load = useCallback(async () => {
-    setPhase('loading');
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setPhase('loading');
     setError(null);
     try {
       const res = await getUsersWithRolesAndModules();
       setUsers(res);
       setPhase('ready');
     } catch (e) {
+      // On a silent background refetch, keep the current roster rather than
+      // replacing a good view with an error box on a transient failure.
+      if (opts?.silent) return;
       setError(getApiErrorMessage(e));
       setPhase('error');
     }
@@ -41,6 +47,28 @@ export default function ProvisioningPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Real-time refresh: provisioning / role grants elsewhere fire USERS (the
+  // /gouvernance/users-with-roles invalidation key) or permission keys — refetch
+  // the roster silently via the shared SSE stream (no new connection).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevant: string[] = [
+      CACHE_KEYS.USERS,
+      CACHE_KEYS.ROLES,
+      CACHE_KEYS.USER_PERMISSIONS,
+      'permissions',
+    ];
+    if (lastInvalidation.keys.some((k) => relevant.includes(k))) {
+      void loadRef.current({ silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   const rows: Row[] = useMemo(
     () =>

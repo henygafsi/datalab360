@@ -562,49 +562,49 @@ function SnowflakeExplorerTab() {
           <KpiCard
             icon={<Box className="w-4 h-4" />}
             label="Objects"
-            value={summary.objects ?? 0}
+            value={summary.objects ?? '—'}
             accent="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
           />
           <KpiCard
             icon={<Database className="w-4 h-4" />}
             label="Databases"
-            value={summary.databases ?? 0}
+            value={summary.databases ?? '—'}
             accent="bg-sky-100 dark:bg-sky-900/30 text-sky-600 dark:text-sky-400"
           />
           <KpiCard
             icon={<FolderOpen className="w-4 h-4" />}
             label="Schemas"
-            value={summary.schemas ?? 0}
+            value={summary.schemas ?? '—'}
             accent="bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400"
           />
           <KpiCard
             icon={<Table2 className="w-4 h-4" />}
             label="Tables"
-            value={summary.tables ?? 0}
+            value={summary.tables ?? '—'}
             accent="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400"
           />
           <KpiCard
             icon={<Eye className="w-4 h-4" />}
             label="Views"
-            value={summary.views ?? 0}
+            value={summary.views ?? '—'}
             accent="bg-cyan-100 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400"
           />
           <KpiCard
             icon={<ShieldAlert className="w-4 h-4" />}
             label="Sensitive"
-            value={summary.sensitive_objects ?? 0}
+            value={summary.sensitive_objects ?? '—'}
             accent="bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400"
           />
           <KpiCard
             icon={<Clock className="w-4 h-4" />}
             label="Unused 90d"
-            value={summary.unused_objects_90d ?? 0}
+            value={summary.unused_objects_90d ?? '—'}
             accent="bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400"
           />
           <KpiCard
             icon={<AlertTriangle className="w-4 h-4" />}
             label="Critical risks"
-            value={summary.critical_risks ?? 0}
+            value={summary.critical_risks ?? '—'}
             accent="bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
           />
           <KpiCard

@@ -15,7 +15,10 @@
  * ACCOUNTADMIN-tier; a 403/409 surfaces inline.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   AlertCircle,
   CheckCircle2,
@@ -26,6 +29,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { getApiErrorMessage } from '@/lib/api-client';
 import {
   getObject360,
@@ -83,6 +87,7 @@ export default function PublishGate({
   const [publishState, setPublishState] = useState<AsyncState>('idle');
   const [publishError, setPublishError] = useState<string | null>(null);
   const [published, setPublished] = useState(status === 'PUBLISHED');
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const loadScores = useCallback(async () => {
     if (!objectId) return;
@@ -104,6 +109,23 @@ export default function PublishGate({
   useEffect(() => {
     void loadScores();
   }, [loadScores]);
+
+  // SSE cache invalidation: re-pull the publish-gate scores when the backend
+  // recomputes catalog object scores (closes the up-to-30-min staleness window
+  // where this panel kept showing the old pass/fail until reopened). Guarded to
+  // settled states only — `lastInvalidationAtom` is a persistent global that
+  // stays non-null after the first event, so without the idle/running guard a
+  // panel mounting later in the session would double-fetch on mount.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    if (scoreState === 'idle' || scoreState === 'running') return;
+    const relevant = lastInvalidation.keys.some(
+      (k: string) => k === CACHE_KEYS.CATALOG_OBJECTS || k === CACHE_KEYS.CATALOG_SCORES,
+    );
+    if (relevant) void loadScores();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   const checks = buildChecks(obj);
   // Gate is open only when every check has a known, passing value.
@@ -216,7 +238,7 @@ export default function PublishGate({
               !canPublish
             }
             title={!canPublish ? 'You lack the "publish" permission on data products. Ask an administrator to grant it.' : undefined}
-            onClick={() => void doPublish()}
+            onClick={() => setConfirmOpen(true)}
             className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {publishState === 'running' ? (
@@ -235,6 +257,19 @@ export default function PublishGate({
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Publish this product?"
+        message="It creates a data share and grants subscribers access."
+        confirmLabel="Publish"
+        destructive={false}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          void doPublish();
+        }}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   );
 }

@@ -19,7 +19,8 @@
  * a banner states this, so an empty stored matrix for them is not read as "no
  * access". A second view rolls the same data up to module × role coverage.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { Info, KeyRound, ListTree, ShieldCheck, Grid3x3 } from 'lucide-react';
 import { getApiErrorMessage } from '@/lib/api-client';
 import AuditTable, { type Row } from '@/app/shared/command-center/AuditTable';
@@ -30,6 +31,8 @@ import {
   type ActionRegistryResponse,
   type D360Role,
 } from '@/app/services/governance/fetch_roles';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { buildPermMap, keyOf, Spinner, ErrBox, Chip, type PermMap } from './shared';
 
 type Phase = 'loading' | 'ready' | 'error';
@@ -78,8 +81,8 @@ export default function DefaultRoleGovernancePanel() {
   const [registry, setRegistry] = useState<ActionRegistryResponse | null>(null);
   const [resolved, setResolved] = useState<ResolvedRole[]>([]);
 
-  const load = useCallback(async () => {
-    setPhase('loading');
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setPhase('loading');
     setError(null);
     try {
       const [reg, d360Roles] = await Promise.all([getActionRegistry(), getD360Roles()]);
@@ -129,6 +132,9 @@ export default function DefaultRoleGovernancePanel() {
       setResolved(out);
       setPhase('ready');
     } catch (e) {
+      // On a silent background refetch, keep the current matrix rather than
+      // wiping a good view on a transient failure.
+      if (opts?.silent) return;
       setError(getApiErrorMessage(e));
       setPhase('error');
     }
@@ -137,6 +143,29 @@ export default function DefaultRoleGovernancePanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Real-time refresh: role / permission / grant mutations elsewhere fire the
+  // relevant key on the shared cache-invalidation SSE stream — re-resolve the
+  // default-role governance matrix silently (no skeleton flash; no second SSE
+  // connection).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevant: string[] = [
+      CACHE_KEYS.ROLES,
+      CACHE_KEYS.GRANTS,
+      CACHE_KEYS.USER_PERMISSIONS,
+      'permissions',
+    ];
+    if (lastInvalidation.keys.some((k) => relevant.includes(k))) {
+      void loadRef.current({ silent: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   const labelOf = useCallback(
     (k: string): string => registry?.modules?.[k] || registry?.registry?.[k]?.label || k,

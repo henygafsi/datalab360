@@ -28,6 +28,8 @@ interface ApprovalDetailModalProps {
   onApprove: () => void;
   onReject: () => void;
   isActionLoading: boolean;
+  /** Action-RBAC gate — when false, the Approve button is hidden (Reject stays). */
+  canApprove?: boolean;
 }
 
 function relativeTime(ts: string | null): string {
@@ -44,7 +46,7 @@ function relativeTime(ts: string | null): string {
 export default function ApprovalDetailModal({
   isOpen, onClose, projectId, projectName, projectType,
   deploymentId, requestedBy, requestedAt,
-  onApprove, onReject, isActionLoading,
+  onApprove, onReject, isActionLoading, canApprove = true,
 }: ApprovalDetailModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,10 +138,12 @@ export default function ApprovalDetailModal({
                 className="bg-red-600 hover:bg-red-700 text-white">
                 <X className="h-3.5 w-3.5 mr-1" />Reject
               </Button>
-              <Button size="sm" onClick={onApprove} disabled={isActionLoading}
-                className="bg-green-600 hover:bg-green-700 text-white">
-                <Check className="h-3.5 w-3.5 mr-1" />Approve
-              </Button>
+              {canApprove && (
+                <Button size="sm" onClick={onApprove} disabled={isActionLoading}
+                  className="bg-green-600 hover:bg-green-700 text-white">
+                  <Check className="h-3.5 w-3.5 mr-1" />Approve
+                </Button>
+              )}
             </div>
           </div>
         </div>

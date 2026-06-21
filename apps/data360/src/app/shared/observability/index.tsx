@@ -40,6 +40,7 @@ import {
 } from '@/app/services/observability';
 import apiClient from '@/lib/api-client';
 import { dash } from '@/app/shared/ui/format';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 // Types
 import type {
@@ -70,7 +71,7 @@ const tabs: TabItem[] = [
   { id: 'compliance', label: 'Compliance', icon: PiShieldCheckDuotone, description: 'GDPR & SOC 2 reports' },
   { id: 'tasks-lineage', label: 'Tasks & Lineage', icon: PiClockCounterClockwise, description: 'Snowflake tasks, dependencies & lineage graph' },
   { id: 'cross-module', label: 'Cross-Modules & Objects', icon: PiGitBranch, description: 'Lineage, dependencies & module explorer' },
-  { id: 'impact-analysis', label: 'Impact Analysis', icon: PiWarningCircleBold, description: 'Assess change impact before modifying tables, columns, or policies' },
+  { id: 'impact-analysis', label: 'Impact Analysis', icon: PiWarningCircleBold, description: 'Estimate change impact before modifying tables, columns, or policies (preview)' },
 ];
 
 // ── Domain icon mapping ──
@@ -128,6 +129,15 @@ function CrossModuleLineageTab() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [activeView, setActiveView] = useState<LineageView>('dependency-flow');
   const [search, setSearch] = useState('');
+
+  // Action-RBAC gate (System 2): suspend/resume hit ALTER TASK on the warehouse.
+  // The backend action registry exposes these under workflow.scheduling.tasks
+  // ('suspend' / 'resume'); observability has no task-control action. Fail-open
+  // while the allow-set loads so a transient hiccup never hides admins' controls.
+  const suspendPerm = useCanPerform('workflow', 'suspend');
+  const resumePerm = useCanPerform('workflow', 'resume');
+  const canSuspend = suspendPerm.allowed || suspendPerm.loading;
+  const canResume = resumePerm.allowed || resumePerm.loading;
 
   // Lineage/access data (merged from old LineageTab)
   const [lineageData, setLineageData] = useState<any[]>([]);
@@ -203,6 +213,8 @@ function CrossModuleLineageTab() {
   const enrichedTasks: any[] = taskLineageData?.tasks || [];
 
   const suspendTask = async (task: any) => {
+    if (!canSuspend) { toast.error('You lack the "suspend" permission on workflow tasks.'); return; }
+    if (!window.confirm(`Suspend task "${task.task_name}"? Its scheduled runs will stop until resumed.`)) return;
     try {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/suspend`);
       toast.success(`Task ${task.task_name} suspended`);
@@ -211,6 +223,8 @@ function CrossModuleLineageTab() {
   };
 
   const resumeTask = async (task: any) => {
+    if (!canResume) { toast.error('You lack the "resume" permission on workflow tasks.'); return; }
+    if (!window.confirm(`Resume task "${task.task_name}"? Scheduled execution will start again.`)) return;
     try {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/resume`);
       toast.success(`Task ${task.task_name} resumed`);
@@ -808,9 +822,9 @@ function CrossModuleLineageTab() {
       {!loading && activeView === 'tasks' && (
         <div className="space-y-4">
           {taskLineageLoading && (
-            <div className="flex items-center justify-center py-8">
-              <Loader size="lg" />
-            </div>
+            /* Non-blocking skeleton — keeps the tab structure visible during
+               load instead of a full-section spinner. */
+            <TableSkeleton rows={6} columns={5} />
           )}
 
           {/* Task Stats Cards */}
@@ -868,10 +882,10 @@ function CrossModuleLineageTab() {
                         <td className="py-2 px-2">
                           <div className="flex gap-1">
                             {t.state === 'started' && (
-                              <Button size="sm" variant="outline" onClick={() => suspendTask(t)}>Suspend</Button>
+                              <Button size="sm" variant="outline" disabled={!canSuspend} title={!canSuspend ? 'Requires the "suspend" permission on workflow tasks.' : undefined} onClick={() => suspendTask(t)}>Suspend</Button>
                             )}
                             {t.state === 'suspended' && (
-                              <Button size="sm" className="bg-green-600 text-white hover:bg-green-700" onClick={() => resumeTask(t)}>Resume</Button>
+                              <Button size="sm" disabled={!canResume} title={!canResume ? 'Requires the "resume" permission on workflow tasks.' : undefined} className="bg-green-600 text-white hover:bg-green-700" onClick={() => resumeTask(t)}>Resume</Button>
                             )}
                             <Button size="sm" variant="outline" onClick={() => importToWorkflow(t)}>
                               {'\u2192'} Workflow
@@ -1007,6 +1021,13 @@ function TasksLineageTab() {
   const [days] = useState(30);
   const [showGraph, setShowGraph] = useState(false);
 
+  // Action-RBAC gate (System 2) — suspend/resume map to ALTER TASK; gated under
+  // the workflow.scheduling.tasks registry actions. Fail-open while loading.
+  const suspendPerm = useCanPerform('workflow', 'suspend');
+  const resumePerm = useCanPerform('workflow', 'resume');
+  const canSuspend = suspendPerm.allowed || suspendPerm.loading;
+  const canResume = resumePerm.allowed || resumePerm.loading;
+
   const fetchTasks = useCallback(async () => {
     setTaskLineageLoading(true);
     try {
@@ -1025,6 +1046,8 @@ function TasksLineageTab() {
   const enrichedTasks: any[] = taskLineageData?.tasks || [];
 
   const suspendTask = async (task: any) => {
+    if (!canSuspend) { toast.error('You lack the "suspend" permission on workflow tasks.'); return; }
+    if (!window.confirm(`Suspend task "${task.task_name}"? Its scheduled runs will stop until resumed.`)) return;
     try {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/suspend`);
       toast.success(`Task ${task.task_name} suspended`);
@@ -1033,6 +1056,8 @@ function TasksLineageTab() {
   };
 
   const resumeTask = async (task: any) => {
+    if (!canResume) { toast.error('You lack the "resume" permission on workflow tasks.'); return; }
+    if (!window.confirm(`Resume task "${task.task_name}"? Scheduled execution will start again.`)) return;
     try {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/resume`);
       toast.success(`Task ${task.task_name} resumed`);
@@ -1126,10 +1151,10 @@ function TasksLineageTab() {
                     <td className="py-2 px-2">
                       <div className="flex gap-1">
                         {t.state === 'started' && (
-                          <Button size="sm" variant="outline" onClick={() => suspendTask(t)}>Suspend</Button>
+                          <Button size="sm" variant="outline" disabled={!canSuspend} title={!canSuspend ? 'Requires the "suspend" permission on workflow tasks.' : undefined} onClick={() => suspendTask(t)}>Suspend</Button>
                         )}
                         {t.state === 'suspended' && (
-                          <Button size="sm" className="bg-green-600 text-white hover:bg-green-700" onClick={() => resumeTask(t)}>Resume</Button>
+                          <Button size="sm" disabled={!canResume} title={!canResume ? 'Requires the "resume" permission on workflow tasks.' : undefined} className="bg-green-600 text-white hover:bg-green-700" onClick={() => resumeTask(t)}>Resume</Button>
                         )}
                         <Button size="sm" variant="outline" onClick={() => importToWorkflow(t)}>
                           {'\u2192'} Workflow
@@ -1170,17 +1195,21 @@ function ImpactAnalysisTab() {
     setImpactLoading(true);
     setImpactResult(null);
     try {
-      // Fetch downstream lineage for the specified object
-      const lineageRes = await apiClient.get('/observability/lineage', {
-        params: { database: impactDb, schema: impactSchema, table: impactObject, days: 30 },
-      });
+      // Fetch lineage (required) and object dependencies (supplementary) concurrently
+      // so the analysis waits for the slower of the two, not their sum. deps keeps its
+      // own inline catch so its failure stays non-blocking; a lineage failure still
+      // rejects the Promise.all → outer catch (behavior preserved — not allSettled).
+      const [lineageRes, depsRes] = await Promise.all([
+        apiClient.get('/observability/lineage', {
+          params: { database: impactDb, schema: impactSchema, table: impactObject, days: 30 },
+        }),
+        apiClient.get('/observability/dependencies', {
+          params: { database: impactDb },
+        }).catch(() => ({ data: { dependencies: [] } })),
+      ]);
       const lineageData = lineageRes.data?.data || lineageRes.data?.lineage || lineageRes.data || [];
       const rows = Array.isArray(lineageData) ? lineageData : [];
 
-      // Fetch object dependencies
-      const depsRes = await apiClient.get('/observability/dependencies', {
-        params: { database: impactDb },
-      }).catch(() => ({ data: { dependencies: [] } }));
       const deps = depsRes.data?.dependencies || depsRes.data?.data || [];
       const depsArr = Array.isArray(deps) ? deps : [];
 
@@ -1235,8 +1264,11 @@ function ImpactAnalysisTab() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Change Impact Analysis</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Assess the blast radius of schema changes, column drops, or policy modifications before applying them.</p>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Change Impact Analysis
+            <span className="ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Estimate</span>
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Estimate the blast radius of schema changes, column drops, or policy modifications before applying them.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -1248,6 +1280,17 @@ function ImpactAnalysisTab() {
             {impactLoading ? 'Analyzing...' : 'Analyze Change'}
           </button>
         </div>
+      </div>
+
+      {/* Honest framing — this is a derived estimate, not an authoritative impact report. */}
+      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+        <PiWarningCircleBold className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          Preview estimate. Figures are derived from the lineage &amp; object-dependency feeds (delayed up to a few
+          hours) and approximate the blast radius — they are <span className="font-semibold">not a guaranteed list</span> of
+          everything a change will break. The change-type cards below are guidance only and do not alter the computed
+          figures. Always confirm against the source object before applying a change.
+        </span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1307,7 +1350,7 @@ function ImpactAnalysisTab() {
           <EmptyState
             icon={PiTreeStructureDuotone}
             title="No analysis run yet"
-            description='Select an object and click "Analyze Change" to see downstream dependencies, affected queries, and impacted users.'
+            description='Select an object and click "Analyze Change" for an estimated blast radius — downstream dependencies, affected queries, and impacted users derived from lineage.'
           />
         ) : (
           <div className="space-y-0">
@@ -1337,19 +1380,19 @@ function ImpactAnalysisTab() {
 
         <div className="border-t border-gray-200 dark:border-gray-700 grid grid-cols-1 md:grid-cols-4 divide-x divide-gray-200 dark:divide-gray-700">
           <div className="px-4 py-3 text-center">
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Downstream Tables</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Downstream Tables (est.)</p>
             <p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{impactResult?.downstreamTables ?? '—'}</p>
           </div>
           <div className="px-4 py-3 text-center">
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Affected Queries</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Affected Queries (est.)</p>
             <p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{impactResult?.affectedQueries ?? '—'}</p>
           </div>
           <div className="px-4 py-3 text-center">
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Impacted Users</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Impacted Users (est.)</p>
             <p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{impactResult?.impactedUsers ?? '—'}</p>
           </div>
           <div className="px-4 py-3 text-center">
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Risk Level</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Risk Level (est.)</p>
             <p className={cn('text-lg font-bold mt-1', impactResult ? riskColor(impactResult.riskLevel) : 'text-gray-900 dark:text-white')}>{impactResult?.riskLevel ?? '—'}</p>
           </div>
         </div>
@@ -1361,7 +1404,6 @@ function ImpactAnalysisTab() {
 export default function ObservabilityDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [, startTabTransition] = useTransition();
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Data states
@@ -1394,18 +1436,13 @@ export default function ObservabilityDashboard() {
       toast.error('Failed to load compliance data');
     } finally {
       setLoadingStates((prev) => ({ ...prev, compliance: false }));
-      setIsLoading(false);
     }
   }, []);
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4 py-4">
-        <TableSkeleton rows={6} columns={4} />
-      </div>
-    );
-  }
-
+  // No shell-level loading gate: the default tab (Health & Insights) self-fetches
+  // and renders its own per-section skeletons immediately. Compliance streams into
+  // its own tab (ComplianceCard owns its skeleton via loadingStates.compliance), so
+  // first paint is never blocked on the compliance fetch the landing view doesn't use.
   return (
     <div className="@container">
       {/* Header */}

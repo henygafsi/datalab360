@@ -15,6 +15,7 @@
  * error. No fake zeros — missing counts render "—".
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import {
   AlertCircle,
   CheckCircle2,
@@ -27,6 +28,8 @@ import {
 import { cn } from '@/lib/utils';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import EmptyState from '@/components/ui/EmptyState';
 import {
   createCatalogKpi,
@@ -94,6 +97,21 @@ export default function KpiLifecyclePanel({ productId }: KpiLifecyclePanelProps)
   useEffect(() => {
     void load();
   }, [load]);
+
+  // SSE cache invalidation: refresh the KPI list when the backend busts the
+  // catalog-KPI cache (validate / generate / create from another session or the
+  // recompute pipeline). Settled-state-only guard avoids the mount double-fetch
+  // (`lastInvalidationAtom` is a persistent global that stays non-null).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    if (loadState === 'idle' || loadState === 'running') return;
+    const relevant = lastInvalidation.keys.some(
+      (k: string) => k === CACHE_KEYS.CATALOG_KPIS || k === CACHE_KEYS.CATALOG_PRODUCTS,
+    );
+    if (relevant) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   const run = useCallback(
     async (key: string, fn: () => Promise<unknown>) => {

@@ -369,7 +369,7 @@ export default function AccountCreationWizard({
     } catch (err: unknown) {
       const e = err as { response?: { status?: number; data?: { detail?: string } } };
       const status = e?.response?.status;
-      if (status === 404 || status === 405) {
+      if (status === 404 || status === 405 || status === 501) {
         setBackendGap({
           endpoint: 'POST /org-accounts/accounts',
           payload: JSON.stringify(payload, null, 2),

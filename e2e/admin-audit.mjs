@@ -4,10 +4,13 @@
 import { chromium } from '@playwright/test';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
-const BASE = 'http://localhost:3000';
-const USER = 'HAHA';
-const PASS = 'NewSecurePassword123!';
-const ACCOUNT_CANDIDATES = ['HAHA', 'uchsfvb-HAHA', 'uchsfvb.HAHA'];
+const BASE = process.env.BASE || 'http://localhost:3000';
+const USER = process.env.DATA360_E2E_USER || 'HAHA';
+const PASS = process.env.DATA360_E2E_PASSWORD || '';
+const ACCOUNT_CANDIDATES = (process.env.DATA360_E2E_ACCOUNT_CANDIDATES || process.env.DATA360_E2E_ACCOUNT || 'HAHA')
+  .split(',')
+  .map((v) => v.trim())
+  .filter(Boolean);
 const OUT = 'e2e/admin-audit';
 mkdirSync(OUT, { recursive: true });
 
@@ -33,7 +36,7 @@ page.on('response', async (res) => {
   } catch {
     /* ignore */
   }
-  api.push({ tab: currentTab, status: res.status(), url: url.replace('http://api.datalab360.io', ''), snippet });
+  api.push({ tab: currentTab, status: res.status(), url: url.replace('https://api.datalab360.io', ''), snippet });
 });
 
 // ── authenticated via saved storageState (e2e/.auth/state.json) ──

@@ -21,6 +21,10 @@ import {
 import apiClient from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { setDmfThreshold, type DmfThresholdPayload } from '@/app/services/data-quality';
+import { useAtomValue } from 'jotai';
+import ErrorDisplay from '@/components/ui/ErrorDisplay';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 
 const PREFIX = '/gouvernance/policies';
 
@@ -146,6 +150,9 @@ export default function DMFContent() {
   const canCreatePolicy = createPerm.allowed || createPerm.loading;
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // Distinguish a real load failure from a resolved-empty list so the UI shows an
+  // inline error+retry instead of a misleading "No Data Metric Functions found".
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [database, setDatabase] = useState('');
   const [schema, setSchema] = useState('');
 
@@ -216,6 +223,7 @@ export default function DMFContent() {
 
   const loadItems = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const result = await listDMFs(database || undefined, schema || undefined);
       // Backend returns { dmfs: [...], count: N }. Some proxies wrap in StandardResponse
@@ -228,7 +236,9 @@ export default function DMFContent() {
         result;
       setItems(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
-      toast.error(errorMessage(err, 'Failed to load DMFs'));
+      const msg = errorMessage(err, 'Failed to load DMFs');
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -250,6 +260,20 @@ export default function DMFContent() {
   }, []);
 
   useEffect(() => { loadItems(); loadRefs(); }, [loadItems, loadRefs]);
+
+  // Real-time: the DMF list is SSE-invalidated via CacheKey.POLICIES (and
+  // DMF_RESULTS) on create/drop/associate. Every sibling policy tab already
+  // refreshes on POLICIES (via useCacheAwareQuery); subscribe here too so another
+  // admin's change — or this user's own mutation broadcast — refreshes the list.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const keys = lastInvalidation.keys;
+    if (keys.includes(CACHE_KEYS.POLICIES) || keys.includes(CACHE_KEYS.DMF_RESULTS)) {
+      loadItems();
+      loadRefs();
+    }
+  }, [lastInvalidation, loadItems, loadRefs]);
 
   // Load columns for the Associate modal whenever the target table changes.
   useEffect(() => {
@@ -570,6 +594,8 @@ export default function DMFContent() {
       {/* Items list */}
       {loading ? (
         <div className="flex justify-center py-16"><Loader variant="spinner" size="lg" /></div>
+      ) : loadError ? (
+        <ErrorDisplay error={loadError} onRetry={() => void loadItems()} context="general" />
       ) : items.length === 0 ? (
         <div className="text-center py-16">
           <PiChartLineUp className="w-12 h-12 text-slate-300 mx-auto mb-4" />

@@ -5,6 +5,7 @@
 import apiClient from '@/lib/api-client';
 import { GrantTableDataType } from '@/app/shared/governance/grants/table';
 import { getRoles } from '@/app/services/governance/fetch_roles';
+import { invalidateMyPermissions } from '@/hooks/useCanPerform';
 
 /**
  * Fetches permissions/grants from the backend.
@@ -135,6 +136,8 @@ export async function grantPermission(
     params.append('role_name', role_name);
 
     const response = await apiClient.post(`/gouvernance/grant-permission?${params.toString()}`);
+    // A privilege change can alter what the caller may do — refresh the allow-set.
+    invalidateMyPermissions();
     return response.data;
   } catch (error: any) {
     console.error('Error granting permission:', error.response?.data || error.message);
@@ -161,6 +164,8 @@ export async function revokePermission(
     params.append('role_name', role_name);
 
     const response = await apiClient.post(`/gouvernance/revoke-permission?${params.toString()}`);
+    // A privilege change can alter what the caller may do — refresh the allow-set.
+    invalidateMyPermissions();
     return response.data;
   } catch (error: any) {
     console.error('Error revoking permission:', error.response?.data || error.message);

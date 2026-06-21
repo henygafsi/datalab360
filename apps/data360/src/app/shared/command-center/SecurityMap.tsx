@@ -19,8 +19,9 @@
  * and live in their own left-hand cluster (not downstream of objects).
  *
  * Resilient: the three sources are fetched independently — a failed/slow source
- * degrades only its layer. All three empty → a clearly-labelled SAMPLE graph so
- * the view is never blank. Top-N capping per column keeps the graph legible.
+ * degrades only its layer. When no live relationship exists we show an HONEST
+ * empty/unavailable state (clean account vs. all-sources-down) — never a
+ * fabricated sample graph. Top-N capping per column keeps the graph legible.
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -33,6 +34,7 @@ import ReactFlow, {
   type Edge,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+import { ShieldOff } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import {
@@ -57,8 +59,7 @@ type Kind =
   | 'rls'
   | 'network'
   | 'coverage'
-  | 'header'
-  | 'sample';
+  | 'header';
 
 const KIND_STYLE: Record<Kind, React.CSSProperties> = {
   user: { background: '#eff6ff', border: '1px solid #3b82f6', color: '#1e3a8a' },
@@ -70,7 +71,6 @@ const KIND_STYLE: Record<Kind, React.CSSProperties> = {
   network: { background: '#ecfeff', border: '1px solid #06b6d4', color: '#155e75' },
   coverage: { background: '#f8fafc', border: '1px dashed #94a3b8', color: '#334155' },
   header: { background: 'transparent', border: 'none', color: '#64748b', fontWeight: 700, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' },
-  sample: { background: '#f1f5f9', border: '1px dashed #cbd5e1', color: '#475569' },
 };
 
 const MINIMAP_COLOR: Record<string, string> = {
@@ -83,7 +83,6 @@ const MINIMAP_COLOR: Record<string, string> = {
   network: '#06b6d4',
   coverage: '#94a3b8',
   header: '#e2e8f0',
-  sample: '#cbd5e1',
 };
 
 const base: React.CSSProperties = { borderRadius: 8, padding: '6px 9px', fontSize: 11, width: 184, lineHeight: 1.25 };
@@ -348,39 +347,6 @@ function buildLiveGraph(
   };
 }
 
-// ── Sample graph (only when ALL live sources are unavailable) ─────────────────
-function buildSampleGraph(): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = [];
-  const edges: Edge[] = [];
-  const users = ['ANALYST_A', 'ENGINEER_B', 'STEWARD_C'];
-  const roles = ['REPORTING', 'ENGINEERING', 'GOVERNANCE'];
-  const objects = ['CUSTOMERS', 'ORDERS', 'PAYMENTS'];
-
-  nodes.push(colHeader('s-h-users', COL.users, 'Users'));
-  users.forEach((u, i) => nodes.push(mkNode(`su:${u}`, 'sample', COL.users, TOP + i * ROW_GAP, nodeLabel(u, 'sample'))));
-  nodes.push(colHeader('s-h-roles', COL.roles, 'Roles'));
-  roles.forEach((r, i) => nodes.push(mkNode(`sr:${r}`, 'sample', COL.roles, TOP + i * ROW_GAP, nodeLabel(r, 'sample'))));
-  nodes.push(colHeader('s-h-obj', COL.objects, 'Objects'));
-  objects.forEach((o, i) => nodes.push(mkNode(`so:${o}`, 'sample', COL.objects, TOP + i * ROW_GAP, nodeLabel(o, 'sample'))));
-  nodes.push(colHeader('s-h-gov', COL.coverage, 'Governed data'));
-  nodes.push(mkNode('scov', 'coverage', COL.coverage, TOP, nodeLabel('Governed tables', 'sample')));
-  nodes.push(mkNode('sp:m', 'masking', COL.policies, TOP, nodeLabel('Masking policies', 'sample'), 168));
-  nodes.push(mkNode('sp:r', 'rls', COL.policies, TOP + ROW_GAP, nodeLabel('Row-access policies', 'sample'), 168));
-
-  const edge = (id: string, s: string, t: string, color: string, dashed = false): Edge => ({
-    id, source: s, target: t, markerEnd: { type: MarkerType.ArrowClosed, color }, style: { stroke: color, strokeDasharray: dashed ? '4 3' : undefined, strokeWidth: 1.25 },
-  });
-  edges.push(edge('se1', 'su:ANALYST_A', 'sr:REPORTING', '#94a3b8'));
-  edges.push(edge('se2', 'su:ENGINEER_B', 'sr:ENGINEERING', '#94a3b8'));
-  edges.push(edge('se3', 'su:STEWARD_C', 'sr:GOVERNANCE', '#94a3b8'));
-  edges.push(edge('se4', 'sr:REPORTING', 'so:CUSTOMERS', '#94a3b8'));
-  edges.push(edge('se5', 'sr:ENGINEERING', 'so:ORDERS', '#94a3b8'));
-  edges.push(edge('se6', 'sr:GOVERNANCE', 'so:PAYMENTS', '#94a3b8'));
-  edges.push(edge('se7', 'scov', 'sp:m', '#94a3b8', true));
-  edges.push(edge('se8', 'scov', 'sp:r', '#94a3b8', true));
-  return { nodes, edges };
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function SecurityMap({ days = 30 }: { days?: number }) {
   const [loading, setLoading] = useState(true);
@@ -432,15 +398,23 @@ export default function SecurityMap({ days = 30 }: { days?: number }) {
 
   // A live graph is "real" if it has at least one spine relationship to show.
   const hasLive = live.nodes.some((n) => (n.data as { kind?: Kind })?.kind !== 'header');
-  const sample = useMemo(() => (hasLive ? null : buildSampleGraph()), [hasLive]);
-  const isSample = !hasLive;
-
-  const nodes = isSample ? sample!.nodes : live.nodes;
-  const edges = isSample ? sample!.edges : live.edges;
 
   // Degraded banner: which live sources fell over.
   const securityDown = src.security === 'error';
   const objectsDown = src.objects === 'error';
+  const rolesDown = src.roles === 'error';
+
+  // When there's no live graph, distinguish two honest states instead of
+  // fabricating a sample graph (which read as real data):
+  //   • allErrored → every source failed → "sources unavailable" message
+  //   • else       → sources answered but the account has no mappable grants
+  //                  (clean account) → "no applied security to map" empty state
+  // We NEVER render an invented users/roles/objects graph.
+  const allErrored = rolesDown && objectsDown && securityDown;
+  const showPlaceholder = !loading && !hasLive;
+
+  const nodes = live.nodes;
+  const edges = live.edges;
 
   return (
     <div>
@@ -457,23 +431,19 @@ export default function SecurityMap({ days = 30 }: { days?: number }) {
           <span className="ml-2 h-px w-4 bg-indigo-500" /> access
           <span className="ml-2 h-px w-4 border-t border-dashed border-slate-400" /> coverage
         </span>
-        {!isSample && (
+        {hasLive && !loading && (
           <span className="ml-auto inline-flex flex-wrap items-center gap-1.5">
-            {!loading && (
-              <>
-                <Pill tone="slate">
-                  {`users ${live.caps.users[0]}/${live.caps.users[1]} · roles ${live.caps.roles[0]}/${live.caps.roles[1]} · objects ${live.caps.objects[0]}/${live.caps.objects[1]}`}
-                </Pill>
-                {live.grantsTruncated && <Pill tone="amber">grants: 100 most-recent</Pill>}
-                {securityDown && <Pill tone="amber">grants & policies unavailable</Pill>}
-                {objectsDown && <Pill tone="amber">object usage unavailable</Pill>}
-              </>
-            )}
+            <Pill tone="slate">
+              {`users ${live.caps.users[0]}/${live.caps.users[1]} · roles ${live.caps.roles[0]}/${live.caps.roles[1]} · objects ${live.caps.objects[0]}/${live.caps.objects[1]}`}
+            </Pill>
+            {live.grantsTruncated && <Pill tone="amber">grants: 100 most-recent</Pill>}
+            {securityDown && <Pill tone="amber">grants & policies unavailable</Pill>}
+            {objectsDown && <Pill tone="amber">object usage unavailable</Pill>}
           </span>
         )}
-        {isSample && !loading && (
+        {showPlaceholder && (
           <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-            Sample data — live security sources unavailable
+            {allErrored ? 'Security sources unavailable' : 'No applied security to map'}
           </span>
         )}
       </div>
@@ -481,6 +451,18 @@ export default function SecurityMap({ days = 30 }: { days?: number }) {
       <div className="h-[460px] w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900">
         {loading ? (
           <div className="flex h-full items-center justify-center text-xs text-gray-400">Mapping applied security…</div>
+        ) : showPlaceholder ? (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <ShieldOff className="h-7 w-7 text-gray-300 dark:text-gray-600" />
+            <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+              {allErrored ? 'Security sources unavailable' : 'No applied security relationships to map'}
+            </p>
+            <p className="max-w-md text-xs text-gray-400 dark:text-gray-500">
+              {allErrored
+                ? 'Role hierarchy, object access and security audit sources all failed to load. The map will populate once they are reachable (edition / privilege).'
+                : 'This account exposes no user→role grants or role→object access via ACCOUNT_USAGE yet. The map populates as grants and policies are applied — no sample data is shown.'}
+            </p>
+          </div>
         ) : (
           <ReactFlow
             nodes={nodes}

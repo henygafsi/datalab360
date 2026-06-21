@@ -55,11 +55,12 @@ function fmtScore(v: number | null): string {
 // Inline per-object goal-axis KPIs (DQ · GOV · COST · PERF). Module scope.
 // ---------------------------------------------------------------------------
 function InlineKpis({
-  kpis, loading, refreshing, onDryRun, canDryRun, dryRunDeniedReason,
+  kpis, loading, refreshing, error, onDryRun, canDryRun, dryRunDeniedReason,
 }: {
   kpis?: NodeKpis;
   loading: boolean;
   refreshing: boolean;
+  error?: string;
   onDryRun: () => void;
   canDryRun: boolean;
   dryRunDeniedReason: string;
@@ -97,6 +98,16 @@ function InlineKpis({
           : <RefreshCw className="h-2.5 w-2.5" />}
         dry-run
       </button>
+      {error && (
+        <span
+          role="alert"
+          className="inline-flex items-center gap-0.5 text-[9px] font-medium text-rose-600 dark:text-rose-400"
+          title={`Dry-run failed — scores may be stale: ${error}`}
+        >
+          <AlertTriangle className="h-2.5 w-2.5" />
+          refresh failed
+        </span>
+      )}
     </div>
   );
 }
@@ -213,6 +224,9 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
   const [kpisByFqn, setKpisByFqn] = useState<Record<string, NodeKpis>>({});
   const [loadingFqns, setLoadingFqns] = useState<Set<string>>(() => new Set());
   const [refreshingFqns, setRefreshingFqns] = useState<Set<string>>(() => new Set());
+  // Per-object dry-run errors — surfaced inline next to the node instead of
+  // being swallowed (which left stale KPIs with no signal the refresh failed).
+  const [dryRunErrors, setDryRunErrors] = useState<Record<string, string>>({});
 
   // System-2 Action-RBAC gate for the per-object "dry-run" score recompute (a
   // catalog-state mutation). `data_products`/`edit` is the registry key for
@@ -279,11 +293,19 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
   const handleDryRun = useCallback(async (database: string, schema: string, table: string) => {
     const fqn = `${database}.${schema}.${table}`;
     setRefreshingFqns((prev) => new Set(prev).add(fqn));
+    setDryRunErrors((prev) => {
+      if (!(fqn in prev)) return prev;
+      const next = { ...prev };
+      delete next[fqn];
+      return next;
+    });
     try {
       const k = await dryRunRefreshNodeKpis(database, schema, table);
       setKpisByFqn((prev) => ({ ...prev, [fqn]: k }));
-    } catch {
-      // keep prior state
+    } catch (err) {
+      // Keep prior KPIs but surface the failure inline so the stale state is
+      // not mistaken for a fresh successful refresh.
+      setDryRunErrors((prev) => ({ ...prev, [fqn]: getApiErrorMessage(err) }));
     } finally {
       setRefreshingFqns((prev) => {
         const next = new Set(prev);
@@ -540,6 +562,7 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
                               kpis={kpisByFqn[tableFqn]}
                               loading={loadingFqns.has(tableFqn)}
                               refreshing={refreshingFqns.has(tableFqn)}
+                              error={dryRunErrors[tableFqn]}
                               onDryRun={() => handleDryRun(db.name, schemaNode.name, tableNode.name)}
                               canDryRun={canDryRun}
                               dryRunDeniedReason={dryRunDeniedReason}

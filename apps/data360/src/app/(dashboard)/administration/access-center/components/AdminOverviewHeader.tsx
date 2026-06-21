@@ -14,8 +14,11 @@
  * not-deployed degrades to an honest "—". Read-only overview — nothing gated;
  * the nav cards are plain navigation (each target has its own gate).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import Link from 'next/link';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   ArrowRight,
   Boxes,
@@ -101,6 +104,31 @@ export default function AdminOverviewHeader() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Real-time refresh: when another admin mutates users / roles / grants /
+  // permissions, the shared cache-invalidation SSE stream fires the relevant
+  // key — re-run the best-effort feeds (load() has no loading phase, so this
+  // refreshes silently with no skeleton flash). Reads the shared provider atom,
+  // so it does NOT open a second SSE connection.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevant: string[] = [
+      CACHE_KEYS.USERS,
+      CACHE_KEYS.ROLES,
+      CACHE_KEYS.GRANTS,
+      CACHE_KEYS.USER_PERMISSIONS,
+      'permissions',
+    ];
+    if (lastInvalidation.keys.some((k) => relevant.includes(k))) {
+      void loadRef.current();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   // ── Derived KPIs (honest "—" when the feed didn't resolve) ──────────────────
   const systemRoles = roles?.filter((r) => r.is_system).length ?? 0;

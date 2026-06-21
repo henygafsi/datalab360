@@ -15,7 +15,9 @@ import toast from 'react-hot-toast';
 import { routes } from '@/config/routes';
 import { KpiStrip } from './components/KpiStrip';
 import { DrillPanel } from './components/DrillPanel';
+import { ReleaseHistory } from './components/ReleaseHistory';
 import { SLOW_THRESHOLD_MS, isDefect, isExpected, type ProbeDetail } from './components/types';
+import { persistApiHealthRun, NotDeployedError } from '@/app/services/admin-api-health';
 
 // ── Command Center ──
 import {
@@ -988,6 +990,29 @@ type TestResult = {
 const isSlowResult = (r?: TestResult) =>
   !!r && (r.status === 'success' || r.status === 'warn') && r.ms != null && r.ms >= SLOW_THRESHOLD_MS;
 
+// Single honest category per endpoint (priority defect > slow > expected > warn
+// > ok). Persisted so the per-release rollup can track DEFECTS (the real signal)
+// instead of raw 4xx, which is dominated by benign probe rejections. isDefect
+// already subsumes status==='error' (5xx/network).
+function categorize(r?: TestResult): string {
+  if (isDefect(r)) return 'defect';
+  if (isSlowResult(r)) return 'slow';
+  if (isExpected(r)) return 'expected';
+  if (r?.status === 'success') return 'ok';
+  if (r?.status === 'warn') return 'warn';
+  return 'error';
+}
+
+// p50/p95 over reachable (success/warn) probes only — error timeouts would skew.
+function percentile(sortedMs: number[], q: number): number | null {
+  if (sortedMs.length === 0) return null;
+  if (sortedMs.length === 1) return sortedMs[0];
+  const pos = q * (sortedMs.length - 1);
+  const lo = Math.floor(pos);
+  const hi = Math.min(lo + 1, sortedMs.length - 1);
+  return Math.round(sortedMs[lo] + (sortedMs[hi] - sortedMs[lo]) * (pos - lo));
+}
+
 type ResultsMap = Record<string, TestResult>;
 
 // ── Persistence ──
@@ -1018,6 +1043,10 @@ export default function ApiHealthPage() {
   const [drillKey, setDrillKey] = useState<string | null>(null);
   const [reprobingKey, setReprobingKey] = useState<string | null>(null);
   const [staleBannerDismissed, setStaleBannerDismissed] = useState(false);
+  // Release-run persistence: save the current sweep as a tracked per-release run.
+  const [release, setRelease] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const router = useRouter();
   const abortRef = useRef(false);
 
@@ -1058,6 +1087,20 @@ export default function ApiHealthPage() {
   const avgLatencyMs = timed.length
     ? Math.round(timed.reduce((s, r) => s + (r.ms || 0), 0) / timed.length)
     : null;
+  // Latency percentiles + honest success rate (genuine OK over total probed;
+  // expected 4xx are NOT counted as success — they are benign rejections).
+  const sortedTimed = timed.map(r => r.ms as number).sort((a, b) => a - b);
+  const p50Ms = hasRun ? percentile(sortedTimed, 0.5) : null;
+  const p95Ms = hasRun ? percentile(sortedTimed, 0.95) : null;
+  const probedCount = Object.keys(results).length;
+  const successRate = hasRun && probedCount > 0 ? successCount / probedCount : null;
+  // Raw HTTP buckets — independent of the honest defect/expected split.
+  const raw4xxCount = Object.values(results).filter(
+    r => r.httpStatus != null && r.httpStatus >= 400 && r.httpStatus < 500,
+  ).length;
+  const raw5xxCount = Object.values(results).filter(
+    r => r.httpStatus != null && r.httpStatus >= 500,
+  ).length;
 
   // Stale-session detection: a 500 whose body mentions an insufficient-privilege
   // / role / access-control failure means the browser session is running as a
@@ -1191,6 +1234,47 @@ export default function ApiHealthPage() {
     a.click(); URL.revokeObjectURL(url);
   }, [results]);
 
+  // Save the current sweep as a tracked release run. Trims each row to the
+  // KPI-relevant fields (no large data/errorBody snapshots) and stamps the honest
+  // category so the backend rollup tracks defects, not raw 4xx.
+  const saveRun = useCallback(async () => {
+    const rel = release.trim();
+    if (!rel) { toast.error('Enter a release / version label first'); return; }
+    const rows: any[] = [];
+    for (const mod of TEST_MODULES) {
+      for (const test of mod.tests) {
+        const r = results[`${mod.module}::${test.name}`];
+        if (!r || r.status === 'idle' || r.status === 'running') continue;
+        rows.push({
+          endpoint: test.name,
+          module: mod.module,
+          method: r.method,
+          path: r.url,
+          status: r.status,
+          category: categorize(r),
+          http_status: r.httpStatus ?? null,
+          time_ms: r.ms ?? null,
+          error: r.error ? String(r.error).slice(0, 4000) : undefined,
+        });
+      }
+    }
+    if (rows.length === 0) { toast.error('Run a probe before saving'); return; }
+    setSaving(true);
+    try {
+      const res = await persistApiHealthRun(rel, rows);
+      toast.success(`Saved ${res.persisted ?? rows.length} results to release “${res.release ?? rel}”`);
+      setHistoryRefreshKey(k => k + 1);
+    } catch (e: any) {
+      if (e instanceof NotDeployedError) {
+        toast.error('Run persistence is not available on this backend yet.');
+      } else {
+        toast.error(e?.message || 'Failed to save run');
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [release, results]);
+
   const toggle = (mod: string) => setCollapsed(p => ({ ...p, [mod]: !p[mod] }));
 
   // Combined status + search predicate, reused for rendering and "X of Y".
@@ -1278,6 +1362,11 @@ export default function ApiHealthPage() {
         failing={hasRun ? errorCount : null}
         slow={hasRun ? slowCount : null}
         avgLatencyMs={avgLatencyMs}
+        successRate={successRate}
+        p50Ms={p50Ms}
+        p95Ms={p95Ms}
+        raw4xx={hasRun ? raw4xxCount : null}
+        raw5xx={hasRun ? raw5xxCount : null}
       />
 
       {/* Controls */}
@@ -1310,6 +1399,34 @@ export default function ApiHealthPage() {
             last run: {new Date(lastRunAt).toLocaleString()}
           </span>
         )}
+
+        {/* Save the current sweep as a tracked per-release run. The page is an
+            admin-only route AND the backend endpoint is ACCOUNTADMIN-gated
+            (require_accountadmin_role) — that pair is the honest enforcement;
+            api-health is not in the d360-roles permission set, so a useCanPerform
+            gate here would always return true and add no real check. */}
+        <input
+          type="text"
+          value={release}
+          onChange={(e) => setRelease(e.target.value)}
+          placeholder="Release / version (e.g. 2026.06.21)"
+          disabled={running || saving}
+          style={{
+            padding: '7px 12px', borderRadius: 6, border: '1px solid #d1d5db',
+            fontSize: 13, width: 220, color: '#374151',
+          }}
+        />
+        <button
+          onClick={saveRun}
+          disabled={!hasRun || running || saving || !release.trim()}
+          title={!hasRun ? 'Run a probe first' : 'Persist this sweep as a tracked release run'}
+          style={{
+            padding: '8px 16px', borderRadius: 6, border: 'none',
+            cursor: (!hasRun || running || saving || !release.trim()) ? 'not-allowed' : 'pointer',
+            background: (!hasRun || running || saving || !release.trim()) ? '#94a3b8' : '#0f766e',
+            color: '#fff', fontWeight: 600, fontSize: 14,
+          }}
+        >{saving ? 'Saving…' : 'Save as release run'}</button>
 
         {/* Search over module / function / route */}
         <input
@@ -1543,6 +1660,9 @@ export default function ApiHealthPage() {
           />
         )}
       </div>
+
+      {/* Per-release KPI history & trend (persisted runs) */}
+      <ReleaseHistory refreshKey={historyRefreshKey} />
     </div>
   );
 }

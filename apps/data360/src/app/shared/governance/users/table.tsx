@@ -19,6 +19,7 @@ import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from 'react-hot-toast';
+import { toServiceError } from '@/app/services/_errors';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 
 // Define the UserTableDataType based on your frontend needs, including first and last name
@@ -83,7 +84,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) {
                 await refetch();
               } catch (error: any) {
                 // console.error('Error deleting user:', error);
-                const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+                const errorMessage = toServiceError(error, 'Operation failed').message;
                 toast.error(`❌ Erreur lors de la suppression de l'utilisateur: ${errorMessage}`);
                 await refetch();
               }
@@ -113,7 +114,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) {
                 await refetch();
               } catch (error: any) {
                 // console.error('Error deleting multiple users:', error);
-                const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+                const errorMessage = toServiceError(error, 'Operation failed').message;
                 toast.error(`❌ Erreur lors de la suppression multiple: ${errorMessage}`);
                 await refetch();
               }
@@ -140,7 +141,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) {
                 await refetch();
               } catch (error: any) {
                 // console.error('Error toggling user status:', error);
-                const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+                const errorMessage = toServiceError(error, 'Operation failed').message;
                 toast.error(`❌ Erreur lors de l'opération: ${errorMessage}`);
                 await refetch();
               }

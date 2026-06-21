@@ -71,6 +71,7 @@ import {
 } from '@/app/services/governance';
 import { getUsersWithRolesAndModules, type UserGrantTableData } from '@/app/services/governance/user_roles';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { toast } from '@/hooks/use-toast';
 
 type AsyncState = 'idle' | 'running' | 'done' | 'error';
@@ -1042,6 +1043,20 @@ function AccessTab() {
       });
     }
   }, [pendingCell, view, picked, loadEffective]);
+
+  // Real-time refresh: GUI-permission upserts fire CacheKey.GRANTS and role/user
+  // changes fire CacheKey.USERS (the keys these GETs are cached under). Subscribe
+  // so another admin's edit reflects here without a manual reload — not just after
+  // our own optimistic write. Hook is above the early returns (rules-of-hooks).
+  useCacheInvalidation({
+    onInvalidate: (keys) => {
+      if (keys.includes(CACHE_KEYS.GRANTS)) {
+        permsFetch.reload();
+        if (picked) void loadEffective(picked);
+      }
+      if (keys.includes(CACHE_KEYS.USERS)) usersFetch.reload();
+    },
+  });
 
   if (permsFetch.state === 'running' || permsFetch.state === 'idle') return <Loading rows={8} />;
   if (permsFetch.state === 'error')

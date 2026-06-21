@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { Badge, Button, Input, Loader, Select } from 'rizzui';
 import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold } from 'react-icons/pi';
 import { Plus } from 'lucide-react';
@@ -14,6 +15,8 @@ import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/rig
 import { getSloTracking, isRouteNotDeployed } from '@/app/services/observability';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { safeNum } from '@/lib/format-number';
 import type { SloRecord } from '@/app/services/observability/types';
 
@@ -238,6 +241,18 @@ export default function SloPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Real-time refresh: re-pull SLO tracking when the backend pushes an
+  // observability cache-invalidation (batch probe checks). Uses the global SSE
+  // atom (one shared connection) rather than a per-page stream.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevant = lastInvalidation.keys.some(
+      (k: string) => k === CACHE_KEYS.OBSERVABILITY_DASHBOARD,
+    );
+    if (relevant) load();
+  }, [lastInvalidation, load]);
 
   return (
     <div className="@container p-4">

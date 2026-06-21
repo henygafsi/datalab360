@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "data360-health": {
+      "command": "node",
+      "args": [
+        "/Users/datalab360/Documents/data360_pro/datalab360Front/tools/mcp/health-server.mjs"
+      ],
+      "env": {
+        "API_BASE": "http://127.0.0.1:8000"
+      }
+    },
+    "data360-ux": {
+      "command": "node",
+      "args": [
+        "/Users/datalab360/Documents/data360_pro/datalab360Front/tools/mcp/ux-server.mjs"
+      ],
+      "env": {
+        "APP_BASE": "http://localhost:3000",
+        "API_BASE": "http://127.0.0.1:8000"
+      }
+    },
+    "data360-roles": {
+      "command": "node",
+      "args": [
+        "/Users/datalab360/Documents/data360_pro/datalab360Front/tools/mcp/roles-server.mjs"
+      ],
+      "env": {
+        "API_BASE": "http://127.0.0.1:8000"
+      }
+    }
+  }
+}

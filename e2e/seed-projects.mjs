@@ -18,7 +18,7 @@ import { chromium } from '@playwright/test';
 
 const BASE = 'http://localhost:3000';
 const PROXY = `${BASE}/api-proxy`;
-const DIRECT = 'http://api.datalab360.io';
+const DIRECT = process.env.DATA360_DIRECT_API_URL || 'https://api.datalab360.io';
 const DB = 'CP_DATA360';
 const SCHEMA = 'EVENT_STORE';
 

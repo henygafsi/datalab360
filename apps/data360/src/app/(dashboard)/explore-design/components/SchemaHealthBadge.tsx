@@ -19,7 +19,7 @@ export default function SchemaHealthBadge({
   onLoad,
 }: SchemaHealthBadgeProps) {
   const [health, setHealth] = useState<{
-    score: number;
+    score: number | null;
     explanation: string;
   } | null>(null);
 
@@ -31,12 +31,17 @@ export default function SchemaHealthBadge({
       api
         .getSchemaHealth(projectId, { database, schema })
         .then((data) => {
-          const score = Math.round(data.overall_score ?? 0);
+          // No-fake-0: a missing overall_score is "not scored", not a 0/100 health.
+          // Render "—" rather than fabricating a perfect-fail score.
+          const raw = data.overall_score;
+          const score = raw == null || Number.isNaN(raw) ? null : Math.round(raw);
+          const fmtSub = (v: number | null | undefined) =>
+            v == null || Number.isNaN(v) ? '—' : Math.round(v);
           const explanation =
             data.recommendations?.[0] ??
-            `Completeness ${Math.round(data.sub_scores?.completeness?.score ?? 0)} · Naming ${Math.round(data.sub_scores?.naming?.score ?? 0)} · Types ${Math.round(data.sub_scores?.type_efficiency?.score ?? 0)}`;
+            `Completeness ${fmtSub(data.sub_scores?.completeness?.score)} · Naming ${fmtSub(data.sub_scores?.naming?.score)} · Types ${fmtSub(data.sub_scores?.type_efficiency?.score)}`;
           setHealth({ score, explanation });
-          onLoad?.(score);
+          if (score != null) onLoad?.(score);
         })
         .catch(() => {});
     });
@@ -44,10 +49,12 @@ export default function SchemaHealthBadge({
 
   if (!health) return null;
 
-  const color =
-    health.score >= 80
+  const scored = health.score != null;
+  const color = !scored
+    ? 'secondary'
+    : health.score! >= 80
       ? 'success'
-      : health.score >= 60
+      : health.score! >= 60
         ? 'warning'
         : 'danger';
 
@@ -56,7 +63,7 @@ export default function SchemaHealthBadge({
       content={
         <div className="max-w-xs">
           <Text className="font-medium text-white mb-1">
-            Schema Health: {health.score}/100
+            Schema Health: {scored ? `${health.score}/100` : 'not scored'}
           </Text>
           <Text className="text-xs text-gray-300">{health.explanation}</Text>
         </div>
@@ -68,7 +75,7 @@ export default function SchemaHealthBadge({
         className="cursor-pointer flex items-center gap-1"
       >
         <Activity className="w-3 h-3" />
-        Health: {health.score}
+        Health: {scored ? health.score : '—'}
       </Badge>
     </Tooltip>
   );

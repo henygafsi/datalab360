@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useAtomValue } from 'jotai';
 import { AlertTriangle, Inbox, MousePointerClick, RefreshCw } from 'lucide-react';
 import { Box, Flex, Loader, Text } from 'rizzui';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import SimpleBar from 'simplebar-react';
 import cn from '@core/utils/class-names';
 import { replaceUnderscoreDash } from '@core/utils/replace-underscore-dash';
@@ -64,6 +67,22 @@ export default function RecentActivities({ className }: { className?: string }) 
       ignore = true;
     };
   }, [projectId, reloadKey]);
+
+  // Real-time refresh: refetch the selected project's event log when the backend
+  // broadcasts a PROJECT_EVENTS cache invalidation over SSE (a new event is
+  // recorded for this project). Reads the shared single SSE connection via the
+  // provider atom — no extra connection opened. The identity ref skips the
+  // persisted mount-time value so only post-mount events trigger a refetch; the
+  // fetch effect above no-ops when no project is selected.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const seenInvalidationRef = useRef(lastInvalidation);
+  useEffect(() => {
+    if (lastInvalidation === seenInvalidationRef.current) return;
+    seenInvalidationRef.current = lastInvalidation;
+    if (lastInvalidation?.keys.includes(CACHE_KEYS.PROJECT_EVENTS)) {
+      setReloadKey((k) => k + 1);
+    }
+  }, [lastInvalidation]);
 
   return (
     <WidgetCard

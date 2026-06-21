@@ -1,0 +1,6 @@
+# Per-persona Playwright storageState — carries live session tokens. NEVER commit.
+.state/
+# Per-persona render screenshots produced by the ux-server tools.
+.shots/
+# Local install artifacts
+node_modules/

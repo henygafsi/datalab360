@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { Badge, Tooltip } from 'rizzui';
 import {
   HiOutlineArrowPath,
@@ -16,6 +17,8 @@ import {
   type ConnectorHealthItem,
   type ConnectorsHealthSummary,
 } from './connectionServices';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 const STATUS_STYLES: Record<ConnectorHealthItem['status'], { dot: string; chip: string; icon: React.ElementType; label: string }> = {
   healthy: { dot: 'bg-green-500', chip: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300', icon: HiCheckCircle, label: 'Healthy' },
@@ -31,15 +34,18 @@ const DOT_PRIORITY: Record<ConnectorHealthItem['status'], number> = {
 };
 const MAX_DOTS = 18;
 
+// Honesty rule: a missing / non-positive metric is undetermined, not a real 0 —
+// render an em-dash rather than a fabricated "0" / "0 B" (the roll-up coerces
+// absent ACCOUNT_USAGE fields to 0, so 0 here means "not reported", not "zero").
 const formatNumber = (n: number): string => {
-  if (!n) return '0';
+  if (!n || n <= 0) return '—';
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
 };
 
 const formatBytes = (bytes: number): string => {
-  if (!bytes || bytes <= 0) return '0 B';
+  if (!bytes || bytes <= 0) return '—';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
@@ -72,6 +78,24 @@ export default function ConnectorHealthStrip() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Real-time refresh (SSE): a stage / connector mutation (ingest, stage
+  // create/delete, upload, integration change) emits a cache-invalidation event.
+  // Re-probe health so a source that just changed state is not misreported until
+  // the 30-min TTL expires (the health GET is account-global, not warmed).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const touched = lastInvalidation.keys.some(
+      (k: string) =>
+        k === CACHE_KEYS.CONNECTORS ||
+        k === CACHE_KEYS.STAGES ||
+        k === CACHE_KEYS.CONNECTIONS ||
+        k === CACHE_KEYS.INTEGRATIONS,
+    );
+    if (touched) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   // Loading skeleton
   if (loading && !summary) {
