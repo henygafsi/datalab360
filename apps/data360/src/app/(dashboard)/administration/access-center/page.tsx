@@ -20,7 +20,7 @@
  */
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Activity, Database, FolderKanban, Gauge, KeyRound, Lock, ShieldCheck, ListTree, ToggleRight, UserCog, type LucideIcon } from 'lucide-react';
+import { Activity, Database, FolderKanban, Gauge, Inbox, KeyRound, Lock, ShieldCheck, ListTree, ToggleRight, UserCog, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import AccessControlCenter from './components/AccessControlCenter';
 import CacheMetricsPanel from './components/CacheMetricsPanel';
@@ -33,6 +33,7 @@ import PerformancePanel from './components/PerformancePanel';
 import DefaultRoleGovernancePanel from './components/DefaultRoleGovernancePanel';
 import ProjectsMonitoringPanel from './components/ProjectsMonitoringPanel';
 import FeatureGovernanceMatrix from '../feature-governance/FeatureGovernanceMatrix';
+import AccessRequestInboxPanel from './components/AccessRequestInboxPanel';
 
 type TabId =
   | 'access'
@@ -43,7 +44,8 @@ type TabId =
   | 'cacheCalls'
   | 'usage'
   | 'provisioning'
-  | 'projects';
+  | 'projects'
+  | 'accessRequests';
 
 const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: 'access', label: 'Access Control', icon: Lock },
@@ -55,6 +57,7 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id: 'usage', label: 'Usage & Audit', icon: Activity },
   { id: 'provisioning', label: 'Provisioning', icon: UserCog },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
+  { id: 'accessRequests', label: 'Access Requests', icon: Inbox },
 ];
 
 const TAB_IDS = TABS.map((t) => t.id);
@@ -131,6 +134,7 @@ export default function AccessCenterPage() {
       {tab === 'usage' && <UsageAuditPanel />}
       {tab === 'provisioning' && <ProvisioningPanel />}
       {tab === 'projects' && <ProjectsMonitoringPanel />}
+      {tab === 'accessRequests' && <AccessRequestInboxPanel />}
     </div>
   );
 }

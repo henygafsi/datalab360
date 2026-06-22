@@ -10,6 +10,7 @@ import {
   Wand2, Eye, Info,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { toServiceError } from '@/app/services/_errors';
 import { useEventStore, EventType } from '../stores/event-store';
 import DesignDockPanel from './DesignDockPanel';
 
@@ -238,8 +239,8 @@ const SelfServeIngestionModal: React.FC<SelfServeIngestionModalProps> = ({
           toast.success(`Auto-mapped ${autoMapped.length} column(s) by name`);
         }
       }
-    } catch {
-      toast.error('Failed to load column metadata');
+    } catch (e: any) {
+      toast.error(toServiceError(e, 'Failed to load column metadata').message);
     } finally {
       setIsLoadingColumns(false);
     }
@@ -344,8 +345,8 @@ const SelfServeIngestionModal: React.FC<SelfServeIngestionModalProps> = ({
 
       toast.success(`Ingestion configured: ${mappings.length} mapping(s) from ${sourceTable.table} → ${targetTable.table}`);
       onClose();
-    } catch {
-      toast.error('Failed to create ingestion events');
+    } catch (e: any) {
+      toast.error(toServiceError(e, 'Failed to create ingestion events').message);
     } finally {
       setIsSubmitting(false);
     }

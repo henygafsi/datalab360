@@ -22,6 +22,7 @@ import { ActionRail } from '@/app/shared/action-rail';
 import { ConfirmDestructiveDialog } from '@/components/ui/confirm-dialog';
 import { formatDate, formatBytes, formatCredits, extractApiError } from '@/app/services/org-accounts/utils';
 import { toServiceError } from '@/app/services/_errors';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import type {
   ReaderAccount,
   Share,
@@ -61,6 +62,16 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
   const [form, setForm] = useState({ name: '', admin_name: '', admin_password: '', comment: '' });
   const [dropTarget, setDropTarget] = useState<ReaderAccount | null>(null);
   const [dropBusy, setDropBusy] = useState(false);
+
+  // ── Action-RBAC gating ─────────────────────────────────────────────────
+  // Reader create/drop are real org_accounts mutations (createReaderAccount /
+  // deleteReaderAccount). The action-registry module key is `org_accounts`
+  // (underscore) — NOT the route slug "org-accounts". Keep the buttons enabled
+  // while the allow-set loads (fail-open) so there's no flash of a disabled CTA.
+  const { allowed: canCreate, loading: createPermLoading } = useCanPerform('org_accounts', 'create');
+  const { allowed: canDrop, loading: dropPermLoading } = useCanPerform('org_accounts', 'delete');
+  const createDenied = !canCreate && !createPermLoading;
+  const dropDenied = !canDrop && !dropPermLoading;
 
   useEffect(() => {
     setLoading(true);
@@ -252,8 +263,10 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
             <Text className="font-semibold text-gray-900 dark:text-white">Reader Accounts</Text>
             <button
               type="button"
-              onClick={() => { resetCreateForm(); setCreateOpen(true); }}
-              className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/30"
+              disabled={createDenied}
+              title={createDenied ? 'You lack the "create" permission on Client Accounts. Ask an administrator to grant it.' : undefined}
+              onClick={() => { if (createDenied) return; resetCreateForm(); setCreateOpen(true); }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/30"
             >
               <Plus className="h-3.5 w-3.5" /> New reader
             </button>
@@ -281,9 +294,11 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
                     <td className="px-4 py-2 text-right">
                       <button
                         type="button"
-                        onClick={() => setDropTarget(r)}
+                        disabled={dropDenied}
+                        onClick={() => { if (dropDenied) return; setDropTarget(r); }}
                         aria-label={`Drop reader account ${r.name}`}
-                        className="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                        title={dropDenied ? 'You lack the "delete" permission on Client Accounts. Ask an administrator to grant it.' : undefined}
+                        className="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-950/40"
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Drop
                       </button>

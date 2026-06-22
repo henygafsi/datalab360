@@ -1,10 +1,18 @@
 'use client';
 
-import { useState, Component, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, Component, type ReactNode } from 'react';
 import { PiWarningCircleBold, PiChartLineUp, PiShieldCheck, PiBuildings } from 'react-icons/pi';
+import { Inbox, Loader2 } from 'lucide-react';
 import CommandCenterDashboard from '@/app/shared/command-center';
 import OnboardingTour from '@/app/shared/onboarding-tour';
 import Breadcrumb from '@/components/ui/Breadcrumb';
+import { useAuth } from '@/hooks/useAuth';
+import {
+  getInbox,
+  getMyRequests,
+  getAllRequests,
+  type AccessRequest,
+} from '@/app/services/access-requests';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -55,6 +63,141 @@ class AccountOverviewErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   }
 }
 
+// ── Access Requests compact widget ───────────────────────────────────────────
+// Self-contained: catches its own errors, never surfaces them to the parent.
+// Admin users see the full inbox (pending queue) + all-requests audit table.
+// Non-admins see their own submissions.
+
+const ADMIN_ROLES = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'];
+
+function fmtDateShort(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'short' });
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
+function AccessRequestsWidget() {
+  const { role: authRole } = useAuth();
+  const isAdmin = ADMIN_ROLES.includes((authRole ?? '').toUpperCase());
+
+  const [kpiCount, setKpiCount] = useState<number | null>(null);
+  const [rows, setRows] = useState<AccessRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  // On any error we degrade silently — never surface to error boundary
+  const [degraded, setDegraded] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setDegraded(false);
+    try {
+      // KPI: admin = inbox count (pending queue); non-admin = my submissions count
+      const kpiFetch = isAdmin ? getInbox() : getMyRequests();
+      // Table: admin = /all (last 10); non-admin = /mine (last 10)
+      const tableFetch = isAdmin ? getAllRequests() : getMyRequests();
+
+      const [kpiRes, tableRes] = await Promise.all([kpiFetch, tableFetch]);
+      setKpiCount(kpiRes.count ?? (kpiRes.requests?.length ?? null));
+      const sorted = (tableRes.requests ?? []).slice().sort((a, b) =>
+        (b.CREATED_AT ?? '').localeCompare(a.CREATED_AT ?? ''),
+      );
+      setRows(sorted.slice(0, 10));
+    } catch {
+      setDegraded(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [isAdmin]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  if (degraded && !loading) return null; // silent degrade — never crash
+
+  return (
+    <section className="mx-4 mb-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/50">
+      {/* Section header + KPI */}
+      <div className="mb-3 flex items-center gap-2">
+        <Inbox className="h-4 w-4 text-[hsl(var(--primary))]" />
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+          {isAdmin ? 'Access Requests — Pending Inbox' : 'Access Requests — My Requests'}
+        </h2>
+        {loading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+        ) : (
+          <span
+            className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+            title={isAdmin ? 'Pending requests awaiting approval' : 'Total submissions'}
+          >
+            {kpiCount != null ? kpiCount.toLocaleString() : '—'} pending
+          </span>
+        )}
+      </div>
+
+      {/* Recent requests table */}
+      {loading ? (
+        <div className="flex items-center justify-center py-6">
+          <Loader2 className="h-5 w-5 animate-spin text-slate-300" />
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="py-4 text-center text-[12px] text-slate-400">
+          {isAdmin ? 'No pending access requests.' : 'You have not submitted any access requests.'}
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                {isAdmin && <th className="pb-1.5 pr-3">Requester</th>}
+                <th className="pb-1.5 pr-3">Asset</th>
+                <th className="pb-1.5 pr-3">Privilege</th>
+                <th className="pb-1.5 pr-3">Status</th>
+                <th className="pb-1.5">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr
+                  key={r.REQUEST_ID}
+                  className="border-b border-slate-50 text-slate-700 dark:border-slate-800/50 dark:text-slate-300"
+                >
+                  {isAdmin && (
+                    <td className="py-1.5 pr-3 font-medium">
+                      {r.REQUESTER ?? '—'}
+                    </td>
+                  )}
+                  <td
+                    className="max-w-[200px] truncate py-1.5 pr-3 font-mono text-[10px] text-slate-600 dark:text-slate-400"
+                    title={r.ASSET_FQN ?? undefined}
+                  >
+                    {r.ASSET_FQN ?? '—'}
+                  </td>
+                  <td className="py-1.5 pr-3 font-semibold">{r.PRIVILEGE ?? '—'}</td>
+                  <td className="py-1.5 pr-3">
+                    <span
+                      className={
+                        r.STATUS?.toLowerCase() === 'approved'
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : r.STATUS?.toLowerCase() === 'denied'
+                            ? 'text-red-500 dark:text-red-400'
+                            : 'text-amber-600 dark:text-amber-400'
+                      }
+                    >
+                      {r.STATUS ?? '—'}
+                    </span>
+                  </td>
+                  <td className="py-1.5 text-slate-400">{fmtDateShort(r.CREATED_AT)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 const RELATED_MODULES = [
   { href: '/observability', label: 'Observability', sublabel: 'Monitoring', Icon: PiChartLineUp },
   { href: '/governance', label: 'Governance', sublabel: 'Security', Icon: PiShieldCheck },
@@ -84,6 +227,7 @@ export default function AccountOverviewPage() {
       {/* Cross-tab "Cost & Metering" + "Explore related" footer removed — it was
           empty for this org and repeated under every tab. The account ADN axes
           rating now lives in the Snowflake Objects overview where it belongs. */}
+      <AccessRequestsWidget />
       <OnboardingTour />
     </AccountOverviewErrorBoundary>
   );

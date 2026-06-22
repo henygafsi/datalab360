@@ -1025,6 +1025,27 @@ export const API = {
   },
 
   /**
+   * Access Requests — backend: /access-requests/* (modules/access_requests/router.py).
+   * Badge-based data-access request flow: any authenticated user may submit;
+   * owners and admins approve/deny via the inbox.
+   */
+  accessRequests: {
+    /** POST /access-requests — submit a new access request.
+     *  body: { asset_fqn, asset_type ('TABLE'|'VIEW'|'DATA_PRODUCT'), privilege ('SELECT'|'REFERENCES'), reason? } */
+    create: () => '/access-requests',
+    /** GET /access-requests/mine — requests submitted by the caller. */
+    mine: () => '/access-requests/mine',
+    /** GET /access-requests/inbox — requests awaiting the caller's approval; admins see all pending. */
+    inbox: () => '/access-requests/inbox',
+    /** GET /access-requests/all — full audit log (account-admin only). */
+    all: () => '/access-requests/all',
+    /** POST /access-requests/{id}/approve — approve a pending request. body: { note? } */
+    approve: (id: string) => `/access-requests/${enc(id)}/approve`,
+    /** POST /access-requests/{id}/deny — deny a pending request. body: { note? } */
+    deny: (id: string) => `/access-requests/${enc(id)}/deny`,
+  },
+
+  /**
    * Administration — platform admin surfaces under /administration/*.
    * `performance.*` is the per-account, multi-axis Performance page contract
    * (backend built in parallel; FE degrades quietly on 404 — "not deployed yet").

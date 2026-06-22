@@ -1546,7 +1546,7 @@ export default function DataQualityPage() {
       setDmfDefs(null);
       void loadDmfDefs();
     } catch (err) {
-      setDmfActionError(err instanceof Error ? err.message : 'Failed to create custom DMF');
+      setDmfActionError(toServiceError(err, 'Failed to create custom DMF').message);
     } finally {
       setDmfSubmitting(false);
     }
@@ -1582,7 +1582,7 @@ export default function DataQualityPage() {
       setDmfActionNotice(`Schedule set on ${table}: ${clause}`);
       setTimeout(() => loadTabData('dmf', true), 2000);
     } catch (err) {
-      setDmfActionError(err instanceof Error ? err.message : 'Failed to set DMF schedule');
+      setDmfActionError(toServiceError(err, 'Failed to set DMF schedule').message);
     } finally {
       setDmfSubmitting(false);
     }
@@ -1616,7 +1616,7 @@ export default function DataQualityPage() {
       });
       setThResult(result);
     } catch (err) {
-      setThError(err instanceof Error ? err.message : 'Quality check failed');
+      setThError(toServiceError(err, 'Quality check failed').message);
     } finally {
       setThRunning(false);
     }

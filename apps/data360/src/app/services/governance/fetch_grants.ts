@@ -8,39 +8,85 @@ import { getRoles } from '@/app/services/governance/fetch_roles';
 import { invalidateMyPermissions } from '@/hooks/useCanPerform';
 
 /**
- * Fetches permissions/grants from the backend.
- * This is an aggregation based on available roles and their grants.
+ * Shape of the batched grants matrix returned by `GET /gouvernance/grants-matrix`.
+ * `grants` maps each role to its raw `SHOW GRANTS` rows (same shape `normalizeGrant`
+ * already accepts). `partial`/`skipped_roles` flag roles the backend skipped under its
+ * read budget so we never present an incomplete grid as authoritative.
+ */
+interface GrantsMatrixResponse {
+  grants: Record<string, unknown[]>;
+  partial?: boolean;
+  skipped_roles?: string[];
+  note?: string | null;
+}
+
+/**
+ * Fold a `role -> grant-rows` map into the GrantTableDataType[] matrix the UI renders
+ * (one row per "privilege on object", carrying the set of roles that hold it).
+ */
+function aggregateGrants(grantsMap: Map<string, Set<string>>): GrantTableDataType[] {
+  return Array.from(grantsMap.entries()).map(([grantIdentifier, rolesSet]) => ({
+    id: grantIdentifier,
+    name: grantIdentifier,
+    roles: Array.from(rolesSet).sort(),
+  }));
+}
+
+/**
+ * Fetches permissions/grants from the backend as a single aggregated matrix.
+ *
+ * Primary path is the batched `GET /gouvernance/grants-matrix` (one request, all roles
+ * resolved server-side under a wall-clock budget). This replaced the previous N+1 that
+ * looped `getGrantsForRole` once per role (N sequential HTTP round-trips ≈ 38s cold).
+ * If the batch endpoint isn't live yet (404/501 on an un-migrated backend) we fall back
+ * to the per-role loop so the panel still renders — no redeploy gate.
  * @returns A promise that resolves to an array of GrantTableDataType.
  */
 export async function getPermissions(): Promise<GrantTableDataType[]> {
   try {
-    const allRoles = await getRoles();
     const grantsMap = new Map<string, Set<string>>();
+    const add = (roleName: string, grants: RoleGrant[]) => {
+      for (const g of grants) {
+        const objectDetails = [g.granted_on, g.name].filter(Boolean).join(' ') || 'GLOBAL';
+        const fullGrantIdentifier = `${g.privilege || 'GRANT'} on ${objectDetails}`;
+        if (!grantsMap.has(fullGrantIdentifier)) {
+          grantsMap.set(fullGrantIdentifier, new Set<string>());
+        }
+        grantsMap.get(fullGrantIdentifier)?.add(roleName);
+      }
+    };
 
+    // Primary: one batched request.
+    let matrix: GrantsMatrixResponse | null = null;
+    try {
+      const response = await apiClient.get('/gouvernance/grants-matrix');
+      matrix = response.data as GrantsMatrixResponse;
+    } catch (batchError: any) {
+      // Endpoint not deployed yet (or transient) — fall through to the per-role loop.
+      console.warn('grants-matrix unavailable, falling back to per-role:', batchError?.message);
+    }
+
+    if (matrix && matrix.grants && typeof matrix.grants === 'object') {
+      for (const [roleName, rawGrants] of Object.entries(matrix.grants)) {
+        const roleGrants = (Array.isArray(rawGrants) ? rawGrants : []).map(normalizeGrant);
+        add(roleName, roleGrants);
+      }
+      return aggregateGrants(grantsMap);
+    }
+
+    // Fallback: legacy N+1 per-role loop (only when the batch endpoint is absent).
+    const allRoles = await getRoles();
     for (const roleData of allRoles) {
       const roleName = roleData.role;
       try {
         const roleGrants = await getRolesForGrantsMatrix(roleName);
-        for (const g of roleGrants) {
-          const objectDetails = [g.granted_on, g.name].filter(Boolean).join(' ') || 'GLOBAL';
-          const fullGrantIdentifier = `${g.privilege || 'GRANT'} on ${objectDetails}`;
-          if (!grantsMap.has(fullGrantIdentifier)) {
-            grantsMap.set(fullGrantIdentifier, new Set<string>());
-          }
-          grantsMap.get(fullGrantIdentifier)?.add(roleName);
-        }
+        add(roleName, roleGrants);
       } catch (roleError: any) {
         console.warn(`Could not fetch grants for role "${roleName}":`, roleError.message);
       }
     }
 
-    const mappedPermissions: GrantTableDataType[] = Array.from(grantsMap.entries()).map(([grantIdentifier, rolesSet]) => ({
-      id: grantIdentifier,
-      name: grantIdentifier,
-      roles: Array.from(rolesSet).sort(),
-    }));
-
-    return mappedPermissions;
+    return aggregateGrants(grantsMap);
   } catch (error) {
     console.error('Error fetching aggregated permissions:', error);
     throw error;

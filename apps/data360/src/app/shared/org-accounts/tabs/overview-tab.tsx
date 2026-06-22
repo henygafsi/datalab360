@@ -54,6 +54,7 @@ import {
   WarehouseUsageChart,
 } from '../charts';
 import { safeToFixed } from '@/lib/format-number';
+import { extractApiError } from '@/app/services/org-accounts/utils';
 
 interface OverviewTabProps {
   refreshKey: number;
@@ -113,8 +114,12 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
       setAccounts(Array.isArray(data.accounts) ? data.accounts : []);
     } catch (error) {
       console.error('Failed to fetch overview:', error);
-      toast.error('Failed to load dashboard');
-      setLoadError(LOAD_ERROR_MSG);
+      // Surface the real backend detail (permission/404/…) instead of a static
+      // string. Keep-first so an overview failure isn't overwritten by a later
+      // secondary-fetch error sharing the same banner.
+      const msg = extractApiError(error, LOAD_ERROR_MSG);
+      toast.error(msg);
+      setLoadError((prev) => prev ?? msg);
     } finally {
       setOverviewLoading(false);
     }
@@ -134,7 +139,7 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
 
     getDashboardUsage()
       .then((data) => setUsageData(data))
-      .catch((e) => { console.error('Failed to fetch usage:', e); setLoadError(LOAD_ERROR_MSG); })
+      .catch((e) => { console.error('Failed to fetch usage:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
       .finally(() => setUsageLoading(false));
 
     getDashboardTrends(days)
@@ -142,7 +147,7 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
         setCreditTrends(Array.isArray(data.credits) ? data.credits : []);
         setStorageTrends(Array.isArray(data.storage) ? data.storage : []);
       })
-      .catch((e) => { console.error('Failed to fetch trends:', e); setLoadError(LOAD_ERROR_MSG); })
+      .catch((e) => { console.error('Failed to fetch trends:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
       .finally(() => setTrendsLoading(false));
 
     getAlerts(days)
@@ -150,59 +155,63 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
         setAlerts(Array.isArray(data.alerts) ? data.alerts : []);
         setAlertsData(data);
       })
-      .catch((e) => { console.error('Failed to fetch alerts:', e); setLoadError(LOAD_ERROR_MSG); })
+      .catch((e) => { console.error('Failed to fetch alerts:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
       .finally(() => setAlertsLoading(false));
 
     getHealth()
       .then((data) => setHealthScores(Array.isArray(data.health_scores) ? data.health_scores : []))
-      .catch((e) => { console.error('Failed to fetch health:', e); setHealthScores([]); setLoadError(LOAD_ERROR_MSG); })
+      .catch((e) => { console.error('Failed to fetch health:', e); setHealthScores([]); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
       .finally(() => setHealthLoading(false));
 
     getTopConsumers(days, 10)
       .then((data) => setTopConsumers(Array.isArray(data.top_consumers) ? data.top_consumers : []))
-      .catch((e) => { console.error('Failed to fetch top consumers:', e); setLoadError(LOAD_ERROR_MSG); })
+      .catch((e) => { console.error('Failed to fetch top consumers:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
       .finally(() => setTopConsumersLoading(false));
 
     getCredits(days)
       .then((data) => setCreditAccounts(Array.isArray(data.accounts) ? data.accounts : []))
-      .catch((e) => { console.error('Failed to fetch credits:', e); setLoadError(LOAD_ERROR_MSG); });
+      .catch((e) => { console.error('Failed to fetch credits:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); });
 
     getStorage()
       .then((data) => setStorageAccounts(Array.isArray(data.accounts) ? data.accounts : []))
-      .catch((e) => { console.error('Failed to fetch storage:', e); setLoadError(LOAD_ERROR_MSG); });
+      .catch((e) => { console.error('Failed to fetch storage:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); });
 
     getDataTransfer(days)
       .then((data) => {
         setDataTransfers(Array.isArray(data.transfers) ? data.transfers : []);
         setDataTransferTotalBytes(data.total_bytes || 0);
       })
-      .catch((e) => { console.error('Failed to fetch data transfer:', e); setLoadError(LOAD_ERROR_MSG); })
+      .catch((e) => { console.error('Failed to fetch data transfer:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
       .finally(() => setDataTransferLoading(false));
 
     getWarehouses(days)
       .then((data) => setWarehouses(Array.isArray(data.warehouses) ? data.warehouses : []))
-      .catch((e) => { console.error('Failed to fetch warehouses:', e); setLoadError(LOAD_ERROR_MSG); })
+      .catch((e) => { console.error('Failed to fetch warehouses:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
       .finally(() => setWarehousesLoading(false));
 
     // New endpoints
     getOrgEvents(days)
       .then((data) => setEvents(Array.isArray(data.events) ? data.events.slice(0, 5) : []))
-      .catch((e) => { console.error('Failed to fetch events:', e); setLoadError(LOAD_ERROR_MSG); })
+      .catch((e) => { console.error('Failed to fetch events:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
       .finally(() => setEventsLoading(false));
 
     getResourceMonitors()
       .then((data) => setResourceMonitors(Array.isArray(data.monitors) ? data.monitors : []))
-      .catch((e) => { console.error('Failed to fetch resource monitors:', e); setLoadError(LOAD_ERROR_MSG); })
+      .catch((e) => { console.error('Failed to fetch resource monitors:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
       .finally(() => setResourceMonitorsLoading(false));
   }, []);
 
   useEffect(() => {
-    const load = async () => {
+    const load = () => {
       // Reset the shared error flag once per load cycle, before any fetch, so an
       // overview-only failure keeps its banner instead of being wiped by the
-      // secondary fetches that follow.
+      // secondary fetches that run alongside.
       setLoadError(null);
-      await fetchOverview();
+      // Overview and the secondary batch are independent (secondary takes only
+      // `days`, consumes nothing from overview) — fire both concurrently so the
+      // ~11 secondary fetches don't wait on the overview call to resolve. Each
+      // section owns its own loading flag and renders its own skeleton.
+      void fetchOverview();
       fetchSecondaryData(globalDays);
     };
     load();

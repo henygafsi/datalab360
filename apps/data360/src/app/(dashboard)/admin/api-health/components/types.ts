@@ -103,13 +103,70 @@ export function parseErrorBody(raw?: string | null): ParsedError {
   };
 }
 
+// ════════════════════════════════════════════════════════════
+// Known-unimplemented — an FE service stub that deliberately throws
+// CLIENT-SIDE because the backend route genuinely does not exist yet. These
+// are HONEST sentinels (the FE labels them "[fn] not implemented — no backend
+// route") thrown synchronously with NO HTTP round-trip, so they carry no
+// httpStatus. They are a known-gap signal, NOT a defect/regression.
+//
+// Safety: the `httpStatus == null` guard means a real 501/5xx (which carries a
+// status) can NEVER match — so this can't mask a genuine backend failure. And a
+// genuine client-side crash (TypeError / "Network Error" / timeout) won't match
+// the "not implemented" marker. So the pattern only catches the intentional FE
+// stubs, by their own self-description, and never enumerates function names.
+// ════════════════════════════════════════════════════════════
+const KNOWN_UNIMPLEMENTED_PATTERN = /not implemented/i;
+
+export function isKnownUnimplemented(result?: ProbeResult | null): boolean {
+  if (!result) return false;
+  // Only a synchronous client-side throw (no HTTP response) qualifies.
+  if (result.status !== 'error') return false;
+  if (result.httpStatus != null) return false;
+  const text = `${result.error ?? ''} ${result.errorBody ?? ''}`;
+  return KNOWN_UNIMPLEMENTED_PATTERN.test(text);
+}
+
+// ════════════════════════════════════════════════════════════
+// Config-dependent rejection — the route EXISTS and EXECUTES, but cannot
+// succeed in the probe environment because it needs account-level infrastructure
+// the test identity/account lacks (a configured API integration, a notebook
+// runtime, a real stage). These surface as execution-time errors — and one
+// (createGitRepository) arrives as a SQL_COMPILATION_ERROR / 5xx that `isDefect`
+// would otherwise flag. They are NOT code defects: the correct outcome is a clean
+// rejection, so they classify as benign (grey), like an expected validation 4xx.
+//
+// Surgical by design — a NARROW allowlist of the exact execution-time messages,
+// so genuine SQL_COMPILATION_ERRORs elsewhere stay defects (DEFECT_CODES is
+// untouched).
+//   "Missing option(s): [API_INTEGRATION]" → createGitRepository (no API
+//                                             integration configured in account)
+//   "NOTEBOOK_RUNTIME_REQUIRED"            → executeNotebook (no notebook runtime)
+//   "STAGE_NOT_FOUND"                      → createStreamlitApp (no real stage)
+// ════════════════════════════════════════════════════════════
+const CONFIG_DEPENDENT_REJECTION_PATTERN =
+  /Missing option\(s\): \[API_INTEGRATION\]|NOTEBOOK_RUNTIME_REQUIRED|STAGE_NOT_FOUND/i;
+
+export function isConfigDependentRejection(result?: ProbeResult | null): boolean {
+  if (!result) return false;
+  const text = `${result.error ?? ''} ${result.errorBody ?? ''}`;
+  return CONFIG_DEPENDENT_REJECTION_PATTERN.test(text);
+}
+
 /**
  * True when a probe surfaced a GENUINE defect (vs an expected validation 4xx).
  * Rule: status==='error' (5xx/network) OR httpStatus 405/408 OR the parsed
  * error code is a known compilation/cancellation failure.
+ *
+ * Carve-outs FIRST (so neither can ever be miscounted as a defect):
+ *  - known-unimplemented: an honest FE stub that never hit the network.
+ *  - config-dependent rejection: a route that works but needs unprovisioned
+ *    account infra (incl. createGitRepository's SQL_COMPILATION_ERROR).
  */
 export function isDefect(result?: ProbeResult | null): boolean {
   if (!result) return false;
+  if (isKnownUnimplemented(result)) return false;
+  if (isConfigDependentRejection(result)) return false;
   if (result.status === 'error') return true;
   if (result.httpStatus === 405 || result.httpStatus === 408) return true;
   const { code } = parseErrorBody(result.errorBody ?? result.error);
@@ -126,9 +183,40 @@ export function isDefect(result?: ProbeResult | null): boolean {
  * Signature of a correct rejection of fake/empty probe input:
  * "not found" / "field required" / validation phrasing / the probe markers
  * (__test_health_check__, TEST_TABLE) / object-does-not-exist / not-authorized.
+ *
+ * Each token below ONLY appears in a CORRECT-rejection message (a 4xx where the
+ * API properly refuses the probe's fake/empty/policy-blocked input), never in a
+ * genuine defect. `isExpected` consults this pattern only AFTER `isDefect` has
+ * returned false AND the status is 4xx, so even a broad token like "already exists"
+ * can never mask a 5xx / 405 / 408 / SQL_COMPILATION_ERROR — those are not-4xx or
+ * are caught by `isDefect` first.
+ *
+ * Additions (phrase → board row(s) that were slipping to 'warn'):
+ *   "should have at least"  → Pydantic list-min on empty-list probes, e.g.
+ *                             "List should have at least 1 item after validation,
+ *                             not 0" (detectPrimaryKeys([]), detectRelations([],[]),
+ *                             generateSemanticModel({tables:[]}), …). Distinct from
+ *                             the existing "must have at least" (Pydantic v1 wording).
+ *   "No fields to update"   → update/alter with an empty / no-op patch body
+ *                             (updateRole, updateUser, alterComputePool,
+ *                             alterNotebook, updateSecurityAxis, …) → 400.
+ *   "cannot be enabled or disabled" / "MFA_TOGGLE_UNSUPPORTED"
+ *                           → setUserMfa(FAKE_ID,false) → 422 correct policy
+ *                             rejection (MFA toggle unsupported for this user).
+ *   "Request must include either" / "MISSING_ZONE_OR_TABLE"
+ *                           → freshness/zone probes → 422 (companion to the
+ *                             existing "Provide (zone|table)" token).
+ *   "already exists"        → create-with-sentinel whose object already exists,
+ *                             e.g. addUser → 400 "Object '__TEST_HEALTH_CHECK__'
+ *                             already exists" (a correct duplicate rejection).
+ *   "requires role ORGADMIN"→ lifecycle-role authz rejection, e.g.
+ *                             deleteReaderAccount → 403 "requires role ORGADMIN;
+ *                             caller role is 'ACCOUNTADMIN'".
+ * Note: "confirm=true is required" (dropComputePool / dropContainerService → 422)
+ * is already covered by the existing `required\b` token — no new alternative added.
  */
 const EXPECTED_PATTERN =
-  /not found|field required|must have at least|missing required field|Input should be|does not exist|not authorized|__test_health_check__|TEST_TABLE|required\b|valid integer|valid list|valid string|Provide (zone|table)/i;
+  /not found|field required|must have at least|should have at least|missing required field|No fields to update|Input should be|does not exist|not authorized|cannot be enabled or disabled|MFA_TOGGLE_UNSUPPORTED|Request must include either|MISSING_ZONE_OR_TABLE|already exists|requires role ORGADMIN|__test_health_check__|TEST_TABLE|required\b|valid integer|valid list|valid string|Provide (zone|table)/i;
 
 /** True when the combined error text matches the fake-id / validation signature. */
 export function matchesExpectedPattern(result?: ProbeResult | null): boolean {
@@ -150,6 +238,20 @@ export function isExpected(result?: ProbeResult | null): boolean {
   if (!(code != null && code >= 400 && code < 500)) return false;
   if (isDefect(result)) return false;
   return matchesExpectedPattern(result);
+}
+
+/**
+ * The unified "benign / not-an-issue" predicate the board uses for the grey
+ * bucket. Folds together the THREE non-failure outcomes so counts, filters,
+ * coloring, and the per-release rollup treat them identically:
+ *   1) isExpected               — the API correctly rejecting fake/empty 4xx input
+ *   2) isKnownUnimplemented      — an honest FE stub for a route that doesn't exist
+ *   3) isConfigDependentRejection — a working route blocked by unprovisioned infra
+ * None of these is a defect or a regression; all read grey, never red/amber.
+ * (Per-row microcopy still distinguishes them — see page.tsx.)
+ */
+export function isExpectedOrKnown(result?: ProbeResult | null): boolean {
+  return isExpected(result) || isKnownUnimplemented(result) || isConfigDependentRejection(result);
 }
 
 /**

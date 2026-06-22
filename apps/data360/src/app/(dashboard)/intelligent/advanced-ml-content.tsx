@@ -836,6 +836,12 @@ function DocumentAISection() {
   // sibling semantic-models 'create'). Fail-open while the allow-set loads.
   const createPerm = useCanPerform('cortex', 'create');
   const canCreate = createPerm.allowed || createPerm.loading;
+  // Running an extraction (Document AI predict) is an AI-inference action — it
+  // maps to cortex:generate, the same gate the sibling ClassificationSection
+  // predict uses. Fail-open while the allow-set loads so the control never
+  // flashes disabled.
+  const generatePerm = useCanPerform('cortex', 'generate');
+  const canPredict = generatePerm.allowed || generatePerm.loading;
 
   const fetchDocModels = useCallback(async () => {
     const result = await listDocumentAIModels();
@@ -923,7 +929,7 @@ function DocumentAISection() {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Document AI Models</h3>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { setShowPredict((v) => !v); setPredictError(null); }} className="gap-2" aria-expanded={showPredict}>
+          <Button variant="outline" onClick={() => { setShowPredict((v) => !v); setPredictError(null); }} disabled={!canPredict} title={!canPredict ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2" aria-expanded={showPredict}>
             <PiEye className="w-4 h-4" /> Extract from Document
           </Button>
           <Button onClick={() => { setShowCreate((v) => !v); setCreateError(null); }} disabled={!canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2 bg-red-600 text-white hover:bg-red-700" aria-expanded={showCreate}>
@@ -983,7 +989,7 @@ function DocumentAISection() {
           {predictError && <InlineError message={predictError} onDismiss={() => setPredictError(null)} />}
           <div className="flex justify-end gap-3 pt-1">
             <Button variant="outline" size="sm" onClick={() => { setShowPredict(false); setPredictError(null); }}>Cancel</Button>
-            <Button size="sm" onClick={handlePredict} disabled={predicting} className="bg-red-600 text-white hover:bg-red-700">
+            <Button size="sm" onClick={handlePredict} disabled={predicting || !canPredict} title={!canPredict ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined} className="bg-red-600 text-white hover:bg-red-700">
               {predicting ? <Loader variant="spinner" size="sm" /> : 'Extract'}
             </Button>
           </div>
@@ -1066,7 +1072,7 @@ function DocumentAISection() {
                 onChange={(e) => setSaveTarget(e.target.value)}
                 className="flex-1"
               />
-              <Button onClick={handleSaveToTable} disabled={saving || !saveTarget} className="gap-2 bg-green-600 text-white hover:bg-green-700 whitespace-nowrap">
+              <Button onClick={handleSaveToTable} disabled={saving || !saveTarget || !canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2 bg-green-600 text-white hover:bg-green-700 whitespace-nowrap">
                 {saving ? <Loader variant="spinner" size="sm" /> : <><PiDatabase className="w-4 h-4" /> Save to Table</>}
               </Button>
             </div>
@@ -1094,6 +1100,12 @@ function TopInsightsSection() {
   // sibling semantic-models 'create'). Fail-open while the allow-set loads.
   const createPerm = useCanPerform('cortex', 'create');
   const canCreate = createPerm.allowed || createPerm.loading;
+  // Running an analysis is an AI-inference action over data — it maps to
+  // cortex:generate, the same gate the sibling ClassificationSection predict
+  // uses. Fail-open while the allow-set loads so the control never flashes
+  // disabled.
+  const generatePerm = useCanPerform('cortex', 'generate');
+  const canAnalyze = generatePerm.allowed || generatePerm.loading;
 
   const fetchInstances = useCallback(async () => {
     const result = await listTopInsights();
@@ -1148,7 +1160,7 @@ function TopInsightsSection() {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Top Insights / Contribution Explorer</h3>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { setShowAnalyze((v) => !v); setAnalyzeError(null); }} className="gap-2" aria-expanded={showAnalyze}>
+          <Button variant="outline" onClick={() => { setShowAnalyze((v) => !v); setAnalyzeError(null); }} disabled={!canAnalyze} title={!canAnalyze ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2" aria-expanded={showAnalyze}>
             <PiTrendUp className="w-4 h-4" /> Analyze
           </Button>
           <Button onClick={() => { setShowCreate((v) => !v); setCreateError(null); }} disabled={!canCreate} title={!canCreate ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined} className="gap-2 bg-green-600 text-white hover:bg-green-700" aria-expanded={showCreate}>
@@ -1187,7 +1199,7 @@ function TopInsightsSection() {
           {analyzeError && <InlineError message={analyzeError} onDismiss={() => setAnalyzeError(null)} />}
           <div className="flex justify-end gap-3 pt-1">
             <Button variant="outline" size="sm" onClick={() => { setShowAnalyze(false); setAnalyzeError(null); }}>Cancel</Button>
-            <Button size="sm" onClick={handleAnalyze} disabled={analyzing} className="bg-green-600 text-white hover:bg-green-700">
+            <Button size="sm" onClick={handleAnalyze} disabled={analyzing || !canAnalyze} title={!canAnalyze ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined} className="bg-green-600 text-white hover:bg-green-700">
               {analyzing ? <Loader variant="spinner" size="sm" /> : 'Analyze'}
             </Button>
           </div>

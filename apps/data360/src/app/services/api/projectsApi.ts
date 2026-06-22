@@ -77,7 +77,8 @@ export async function getProject(projectId: string) {
 }
 
 export async function createProject(body: CreateProjectRequest) {
-  // TODO(henry-P1): method gap — FE sends POST /projects, backend only has GET /projects (verified 2026-06-07)
+  // POST /projects (unified-CRUD create) added on the backend 2026-06-21 — method gap closed.
+  // Idempotent server-side (same project_name+project_type+owner returns the existing project).
   const { data } = await apiClient.post<CreateProjectResponse>(PREFIX, body);
   return data;
 }

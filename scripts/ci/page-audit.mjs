@@ -72,11 +72,12 @@ async function signIn(page) {
     await page.locator('input[name="account_name"]').fill(account, { timeout: 20_000 });
     await page.locator('input[name="username"]').fill(username);
     await page.locator('input[name="password"]').fill(password);
-    await page.locator('input[name="password"]').press('Enter');
-    await page.waitForTimeout(1500);
-    if (page.url().includes('/signin')) {
-      await page.locator('button[type="submit"]').click().catch(() => {});
-    }
+    // Click the submit button — pressing Enter does NOT submit this react-hook-form
+    // (the custom Input components don't propagate Enter to form submit), which
+    // previously left the audit stuck on /signin and falsely "passing" signin shells.
+    await page.locator('button[type="submit"]').first().click().catch(async () => {
+      await page.locator('input[name="password"]').press('Enter').catch(() => {});
+    });
     const ok = await page
       .waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 45_000 })
       .then(() => true)
