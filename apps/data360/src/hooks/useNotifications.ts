@@ -91,14 +91,23 @@ export function useUnreadBadge() {
   // the timer fires it. That was the spam bug.
   useEffect(() => {
     if (deadRef.current) return;
-    const timer = window.setInterval(refresh, currentInterval);
+    // Don't poll the unread badge while the tab is hidden; resume on return.
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void refresh();
+    }, currentInterval);
     const listener = () => {
       void refresh();
     };
     _badgeListeners.push(listener);
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && !document.hidden) void refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       window.clearInterval(timer);
       _badgeListeners = _badgeListeners.filter((l) => l !== listener);
+      document.removeEventListener('visibilitychange', onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);

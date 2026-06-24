@@ -86,10 +86,19 @@ export default function StatusPill() {
     };
 
     check();
-    const id = setInterval(check, POLL_INTERVAL_MS);
+    // Pause the /health liveness poll while the tab is hidden; re-check on return.
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      check();
+    }, POLL_INTERVAL_MS);
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && !document.hidden) check();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
       clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
 

@@ -91,13 +91,26 @@ export function useActiveDeployments() {
   // every time the interval changed, causing the 404 spam.
   useEffect(() => {
     if (deadRef.current) return;
+    // Skip the tick while the tab is hidden — the header chip isn't visible, so
+    // there's no reason to poll /deployments/track in the background. Resume
+    // (with an immediate refresh) when the tab becomes visible again.
     const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       void refresh();
     }, currentInterval);
     intervalRef.current = id;
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && !document.hidden) void refresh();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisible);
+    }
     return () => {
       clearInterval(id);
       intervalRef.current = null;
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisible);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
