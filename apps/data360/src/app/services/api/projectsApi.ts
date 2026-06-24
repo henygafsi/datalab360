@@ -329,18 +329,23 @@ export async function addContributor(projectId: string, body: AddContributorRequ
 }
 
 /** DELETE /projects/{id}/contributors/{username} is NOT wired in the router
- *  (service function exists but no route). Degrades gracefully on 404. */
+ *  (service function exists but no route). Returns a structured result so the
+ *  caller can distinguish success from a missing route vs a hard error. */
 export async function removeContributor(
   projectId: string,
   username: string,
-): Promise<{ status: string; username: string }> {
+): Promise<{ status: string; username: string; reason?: string }> {
   try {
     const { data } = await apiClient.delete<{ status: string; username: string }>(
       `${PREFIX}/${projectId}/contributors/${username}`,
     );
     return data;
-  } catch {
-    return { status: 'noop', username };
+  } catch (err: unknown) {
+    const httpStatus = (err as { response?: { status?: number } })?.response?.status;
+    if (httpStatus === 404) {
+      return { status: 'unavailable', reason: 'route not deployed', username };
+    }
+    return { status: 'error', username };
   }
 }
 

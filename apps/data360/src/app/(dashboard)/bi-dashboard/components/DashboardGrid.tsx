@@ -28,6 +28,8 @@ interface DashboardGridProps {
   onConfigureWidget: (widget: DashboardWidget) => void;
   onDeleteWidget: (widgetId: string) => void;
   onExecuteSingleWidget: (widget: DashboardWidget) => void;
+  /** Clone a widget into a new one on the same page (POST /widgets). Optional. */
+  onDuplicateWidget?: (widget: DashboardWidget) => void;
   onAddWidget: () => void;
   onLayoutChange: (updates: { widget_id: string; x: number; y: number; w: number; h: number }[]) => void;
   crossWidgetFilter?: Record<string, string>;
@@ -58,6 +60,7 @@ export default function DashboardGrid({
   onConfigureWidget,
   onDeleteWidget,
   onExecuteSingleWidget,
+  onDuplicateWidget,
   onAddWidget,
   onLayoutChange,
   crossWidgetFilter,
@@ -173,6 +176,7 @@ export default function DashboardGrid({
               onConfigure={onConfigureWidget}
               onDelete={onDeleteWidget}
               onExecuteSingle={onExecuteSingleWidget}
+              onDuplicate={onDuplicateWidget}
               crossWidgetFilter={crossWidgetFilter}
               onCrossWidgetFilter={onCrossWidgetFilter}
               onDrillThrough={onDrillThrough}

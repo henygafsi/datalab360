@@ -11,10 +11,18 @@
  * would run in the owning module. We surface that verbatim and mark the reco as
  * applied — we never render a fake "executed/done" for work that didn't happen.
  * Idle→Running→Completed/Empty/Error throughout.
+ *
+ * AI generation: the consume side (list/apply) is wired here, but recommendations
+ * only exist once an AI pass has analyzed the product. The "Generate" control
+ * triggers that pass (`recommendProductModel` → POST /catalog/products/{id}/
+ * recommend-model, which QUEUES a Cortex proposal). Because it is queued, we do
+ * NOT fabricate immediate results: we toast "queued", reload the list (new recos
+ * may already be persisted), and the SSE invalidation below refreshes again when
+ * the pass lands. Gated on data_products:edit (it mutates the product's AI layer).
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useAtomValue } from 'jotai';
-import { AlertCircle, CheckCircle2, Lightbulb } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Lightbulb, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { getApiErrorMessage } from '@/lib/api-client';
@@ -25,9 +33,13 @@ import { InsightActionButton } from '@/app/shared/insights';
 import {
   applyRecommendation,
   getCatalogRecommendations,
+  recommendProductModel,
   type ApplyRecoResponse,
   type Recommendation,
 } from '@/app/services/catalog';
+
+const EDIT_DENIED_HINT =
+  'You lack the "edit" permission on data products. Ask an administrator to grant it.';
 
 type AsyncState = 'idle' | 'running' | 'done' | 'error';
 
@@ -38,6 +50,33 @@ const SEVERITY_TINT: Record<string, string> = {
   low: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
   info: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
 };
+
+/**
+ * Map a recommendation onto display fields using the REAL wire columns first.
+ *
+ * The backend (`AI_RECOMMENDATIONS` SELECT) aliases its columns as
+ * `feature` / `rationale` / `estimated_savings_usd` — NOT the legacy
+ * `title` / `explanation` / `expected_gain` that an earlier version of this
+ * panel read directly. Reading the legacy names alone rendered blank cards at
+ * runtime. We prefer the populated names and fall back to the legacy ones so
+ * both old and new backends display, and never show an empty headline.
+ */
+function recoDisplay(r: Recommendation): {
+  headline: string;
+  body: string | null;
+  gain: string | null;
+  action: string | null;
+} {
+  const headline = (r.title || r.feature || 'Recommendation').trim();
+  const body = (r.rationale || r.explanation || '').trim() || null;
+  const savings = r.estimated_savings_usd;
+  const gain =
+    savings != null && Number.isFinite(savings)
+      ? `Est. savings: $${Math.round(savings).toLocaleString()}`
+      : (r.expected_gain || '').trim() || null;
+  const action = (r.proposed_action || '').trim() || null;
+  return { headline, body, gain, action };
+}
 
 export interface RecommendationsPanelProps {
   productId: string;
@@ -86,12 +125,34 @@ export default function RecommendationsPanel({ productId }: RecommendationsPanel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastInvalidation]);
 
+  // AI generation trigger — shared by the header and the empty state. A queued
+  // Cortex pass: toast "queued", then reload (recos may already be persisted);
+  // SSE refreshes again when the pass lands. `capable={canEdit}` renders an
+  // honest disabled chip (with the reason) when the caller lacks edit.
+  const generateBtn = (
+    <InsightActionButton
+      label="Generate"
+      icon={Sparkles}
+      size="sm"
+      variant="subtle"
+      capable={canEdit}
+      pingBell
+      successToast="AI analysis queued - recommendations will appear when ready"
+      unavailableHint={canEdit ? 'Not available on this backend yet' : EDIT_DENIED_HINT}
+      onAction={() => recommendProductModel(productId)}
+      onDone={() => void load()}
+    />
+  );
+
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-      <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
-        <Lightbulb className="h-3.5 w-3.5" />
-        Recommendations
-      </h4>
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+          <Lightbulb className="h-3.5 w-3.5" />
+          Recommendations
+        </h4>
+        {generateBtn}
+      </div>
 
       {loadState === 'running' || loadState === 'idle' ? (
         <div className="space-y-1.5" aria-hidden="true">
@@ -110,11 +171,18 @@ export default function RecommendationsPanel({ productId }: RecommendationsPanel
           </div>
         </div>
       ) : recos.length === 0 ? (
-        <EmptyState icon={Lightbulb} compact title="No recommendations" />
+        <EmptyState
+          icon={Lightbulb}
+          compact
+          title="No recommendations"
+          description="Run an AI analysis to surface optimization and governance recommendations for this product."
+          action={generateBtn}
+        />
       ) : (
         <ul className="space-y-2">
           {recos.map((r) => {
             const result = applied[r.reco_id];
+            const d = recoDisplay(r);
             return (
               <li
                 key={r.reco_id}
@@ -123,25 +191,32 @@ export default function RecommendationsPanel({ productId }: RecommendationsPanel
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-[11px] font-medium text-slate-800 dark:text-slate-200">
-                      {r.title}
+                      {d.headline}
                     </p>
-                    {r.explanation && (
-                      <p className="mt-0.5 text-[10px] text-slate-500">{r.explanation}</p>
+                    {d.body && (
+                      <p className="mt-0.5 text-[10px] text-slate-500">{d.body}</p>
                     )}
-                    {r.expected_gain && (
+                    {d.action && (
+                      <p className="mt-0.5 text-[10px] text-slate-600 dark:text-slate-300">
+                        Proposed: {d.action}
+                      </p>
+                    )}
+                    {d.gain && (
                       <p className="mt-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">
-                        Expected gain: {r.expected_gain}
+                        {d.gain}
                       </p>
                     )}
                   </div>
-                  <span
-                    className={cn(
-                      'shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase',
-                      SEVERITY_TINT[r.severity?.toLowerCase()] ?? SEVERITY_TINT.low,
-                    )}
-                  >
-                    {r.severity}
-                  </span>
+                  {r.severity && (
+                    <span
+                      className={cn(
+                        'shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase',
+                        SEVERITY_TINT[r.severity.toLowerCase()] ?? SEVERITY_TINT.low,
+                      )}
+                    >
+                      {r.severity}
+                    </span>
+                  )}
                 </div>
 
                 {result ? (

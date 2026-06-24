@@ -221,7 +221,12 @@ export async function getColumnClassification(
 }
 
 export interface DiscoverRelationshipsBody {
-  tables: Array<{ database?: string; schema?: string; table_name?: string; [key: string]: unknown }>;
+  // Backend AIRelationshipDiscoverRequest requires top-level database + schema
+  // (one scope per call); `tables` is an optional list of bare table NAMES within
+  // that scope. Sending an array of {db,schema,table} objects 400s ("database: Field required").
+  database: string;
+  schema: string;
+  tables?: string[];
   existing_relations?: unknown[];
 }
 

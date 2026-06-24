@@ -139,6 +139,9 @@ export const CACHE_KEYS = {
   TABLE_OWNERSHIP: 'table_ownership',
   GOVERNANCE_RATE: 'governance_rate',
 
+  // ── Access Requests ───────────────────────────────────────────────────
+  ACCESS_REQUESTS: 'access_requests',
+
   // ── Legacy (kept for backward compat, no backend equivalent) ──────────
   CHARTS: 'charts',
   ACTIVITY: 'activity',

@@ -949,7 +949,7 @@ export default function GuidedAiWorkflowWizard({
     // Backend may return the snowflake QUERY_CANCELLED payload as the
     // message — detect it and re-classify so the UI shows a friendlier
     // "warehouse timed out" banner.
-    const msg = result.message ?? 'Cortex error';
+    const msg = result.message ?? 'AI error';
     if (/QUERY_CANCELLED|timeout|cancel/i.test(msg)) {
       throw new Error('TIMEOUT');
     }
@@ -1155,7 +1155,7 @@ export default function GuidedAiWorkflowWizard({
       workflow: null,
       step: 7,
     }));
-    setLiveAnnounce('Cortex is thinking — generating workflow blocks.');
+    setLiveAnnounce('AI is thinking — generating workflow blocks.');
 
     const optionLabel =
       DEFAULT_OPTIONS.find((o) => o.id === state.selectedOption)?.title ?? 'Best balance';
@@ -1251,7 +1251,7 @@ export default function GuidedAiWorkflowWizard({
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // Network/timeout: drop to fallback so the user is not blocked.
-      applyFallback(msg === 'TIMEOUT' ? 'Cortex timed out' : 'Cortex unreachable');
+      applyFallback(msg === 'TIMEOUT' ? 'AI timed out' : 'AI unreachable');
     } finally {
       setBusy(false);
     }
@@ -1458,14 +1458,14 @@ export default function GuidedAiWorkflowWizard({
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
                       {aiError.kind === 'timeout'
-                        ? 'Cortex took too long'
+                        ? 'AI took too long'
                         : aiError.kind === 'parse'
                           ? "AI returned something we couldn't parse"
                           : 'AI call failed'}
                     </p>
                     <p className="mt-0.5 text-[11px] text-amber-800 dark:text-amber-300">
                       {aiError.kind === 'timeout'
-                        ? 'The Snowflake Cortex warehouse cancelled the query (15s SQL limit). Try a shorter description, a less complex workflow, or retry — sometimes the second attempt lands faster.'
+                        ? 'The AI engine timed out (15s limit). Try a shorter description, a less complex workflow, or retry — sometimes the second attempt lands faster.'
                         : aiError.kind === 'parse'
                           ? "The model's response wasn't valid JSON. Tweak the description or just retry."
                           : aiError.message}
@@ -1863,7 +1863,7 @@ function TopBar({
               setCachedCount(0);
             }}
             className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-rose-600 dark:hover:bg-slate-800 dark:hover:text-rose-300"
-            title={`Clear ${cachedCount} cached AI response${cachedCount === 1 ? '' : 's'} — forces fresh Cortex calls on the next run.`}
+            title={`Clear ${cachedCount} cached AI response${cachedCount === 1 ? '' : 's'} — forces fresh AI calls on the next run.`}
             aria-label="Clear AI cache"
           >
             <Trash2 className="h-3 w-3" />
@@ -2626,7 +2626,7 @@ function Step7Skeleton({ labels }: { labels: string[] }) {
   // Always show at least 4 boxes; cap at 6 to avoid overflow.
   const cells = labels.length >= 4 ? labels.slice(0, 6) : [
     ...labels,
-    ...Array(Math.max(0, 4 - labels.length)).fill('Cortex is thinking…'),
+    ...Array(Math.max(0, 4 - labels.length)).fill('AI is thinking…'),
   ];
 
   return (
@@ -2637,7 +2637,7 @@ function Step7Skeleton({ labels }: { labels: string[] }) {
         </p>
         <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
           <Loader2 className="h-2.5 w-2.5 animate-spin" />
-          Cortex is thinking…
+          AI is thinking…
         </span>
       </div>
       <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 dark:text-white">

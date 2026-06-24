@@ -260,7 +260,7 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
       }
 
       // Fallback: Cortex-based suggestion (original implementation)
-      const prompt = `You are a Snowflake data warehouse expert. Given the table name "${name}"${tablePurpose ? ` (purpose: ${TABLE_PURPOSES.find(p => p.value === tablePurpose)?.label ?? tablePurpose})` : ''}, suggest the most common columns for this table. Return ONLY a valid JSON array (no markdown, no explanation) of objects with these exact fields: "name" (UPPER_SNAKE_CASE string), "dataType" (Snowflake SQL type e.g. VARCHAR(200), NUMBER(38,0), TIMESTAMP_LTZ, DECIMAL(12,2), BOOLEAN, DATE), "nullable" (boolean), "primaryKey" (boolean). Include a primary key column first. Suggest 6-12 columns.`;
+      const prompt = `You are a data warehouse expert. Given the table name "${name}"${tablePurpose ? ` (purpose: ${TABLE_PURPOSES.find(p => p.value === tablePurpose)?.label ?? tablePurpose})` : ''}, suggest the most common columns for this table. Return ONLY a valid JSON array (no markdown, no explanation) of objects with these exact fields: "name" (UPPER_SNAKE_CASE string), "dataType" (SQL type e.g. VARCHAR(200), NUMBER(38,0), TIMESTAMP_LTZ, DECIMAL(12,2), BOOLEAN, DATE), "nullable" (boolean), "primaryKey" (boolean). Include a primary key column first. Suggest 6-12 columns.`;
 
       const res = await getCortexRecommend({ error_context: prompt });
       const text = res?.response || '';
@@ -775,7 +775,7 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
-              <span className="hidden sm:inline">Suggest Columns</span>
+              <span className="hidden sm:inline">{aiLoading ? 'Suggesting...' : 'Suggest Columns'}</span>
             </Button>
           </div>
           {tableNameErrors.tableName && (
@@ -842,7 +842,7 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
               <Select
                 label="Catalog"
                 options={[
-                  { value: 'SNOWFLAKE', label: 'SNOWFLAKE (managed)' },
+                  { value: 'SNOWFLAKE', label: 'Managed (default)' },
                   { value: 'GLUE', label: 'AWS Glue' },
                   { value: 'OBJECT_STORE', label: 'Object Store' },
                 ]}

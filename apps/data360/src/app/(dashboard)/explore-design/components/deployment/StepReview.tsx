@@ -14,9 +14,11 @@ import {
   EVENT_PRIORITY, generateSnowflakeSQL, formatEventType, getEventSummary,
   generateDeploymentScript, generateRollbackScript,
 } from './deployment-utils';
+import SchemaHealthInline from './SchemaHealthInline';
+import RelationshipDiscoveryInline from './RelationshipDiscoveryInline';
 
 export default function StepReview() {
-  const { events, pendingEvents, projectId, database } = useDeploymentContext();
+  const { events, pendingEvents, projectId, database, schemas } = useDeploymentContext();
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
   const [showSQL, setShowSQL] = useState(false);
   const [showRollback, setShowRollback] = useState(false);
@@ -76,6 +78,16 @@ export default function StepReview() {
   }, [pendingEvents, projectId, database, sqlOverrides]);
 
   const allRollbackSQL = useMemo(() => generateRollbackScript(pendingEvents, projectId), [pendingEvents, projectId]);
+
+  // Distinct table names on the plan — scopes the AI relationship-discovery scan
+  // to exactly the tables being deployed (instead of the whole schema).
+  const scopedTables = useMemo(() => {
+    const set = new Set<string>();
+    ddlPendingEvents.forEach((e) => {
+      if (e.target?.table) set.add(e.target.table);
+    });
+    return Array.from(set);
+  }, [ddlPendingEvents]);
 
   const toggleExpand = (id: string) => {
     setExpandedEvents(prev => {
@@ -155,6 +167,21 @@ export default function StepReview() {
           <span className="text-xs text-slate-400">Schema: {schemaCount} | Ingestion: {ingestionCount}</span>
         </div>
       </div>
+
+      {/* AI Schema Health — inline, on-demand scan of the target schema before
+          deploy (completeness / naming / type-efficiency + concrete fixes).
+          Docked panel, not a popup. */}
+      <SchemaHealthInline projectId={projectId} database={database} schemas={schemas} />
+
+      {/* AI Relationship Discovery — inline, on-demand FK inference across the
+          tables on this plan. Each suggestion ships a ready-to-paste FK statement
+          you can drop into the per-event SQL editor below. Docked, not a popup. */}
+      <RelationshipDiscoveryInline
+        projectId={projectId}
+        database={database}
+        schemas={schemas}
+        scopedTables={scopedTables}
+      />
 
       {/* Event Groups */}
       {eventsByTable.length === 0 ? (
@@ -277,10 +304,10 @@ export default function StepReview() {
           {showSQL ? 'Hide' : 'Show'} Full SQL
         </Button>
         <Button variant="outline" size="sm" onClick={() => handleDownload(allSQL, 'deploy')} className="gap-1.5">
-          <Download className="h-3.5 w-3.5" /> Deploy Script
+          <Download className="h-3.5 w-3.5" /> Download deploy SQL
         </Button>
-        <Button variant="outline" size="sm" onClick={() => handleDownload(allRollbackSQL, 'rollback')} className="gap-1.5">
-          <Download className="h-3.5 w-3.5" /> Rollback Script
+        <Button variant="outline" size="sm" onClick={() => handleDownload(allRollbackSQL, 'rollback')} className="gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-900/50 dark:hover:bg-amber-900/20">
+          <Download className="h-3.5 w-3.5" /> Download rollback SQL
         </Button>
         <Button variant="outline" size="sm" onClick={handleCopy} className="gap-1.5">
           <Copy className="h-3.5 w-3.5" /> Copy SQL

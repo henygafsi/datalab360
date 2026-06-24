@@ -99,7 +99,7 @@ const CATEGORIES: { value: CustomBlockCategory; label: string; description: stri
   { value: 'transform', label: 'Transform', description: 'Operate on upstream rows' },
   { value: 'source', label: 'Source', description: 'Entry point — no input port' },
   { value: 'destination', label: 'Destination', description: 'Terminal node — no output' },
-  { value: 'ai', label: 'AI Function', description: 'LLM / Cortex inline call' },
+  { value: 'ai', label: 'AI Function', description: 'LLM / AI inline call' },
   { value: 'ml', label: 'ML Training', description: 'Train or score a model' },
 ];
 

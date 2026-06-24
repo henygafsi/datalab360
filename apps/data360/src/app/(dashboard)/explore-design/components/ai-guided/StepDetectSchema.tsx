@@ -163,7 +163,7 @@ const StepDetectSchema: React.FC<StepDetectSchemaProps> = ({
     <div className="flex flex-wrap items-center gap-1.5">
       {fromCache && (
         <span
-          title="These detections were served instantly from a recent cache. Retry to re-run against Cortex."
+          title="These detections were served instantly from a recent cache. Retry to re-run AI detection."
           className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
         >
           <DatabaseZap className="h-2.5 w-2.5" />
@@ -383,7 +383,7 @@ const TableCard: React.FC<TableCardProps> = ({
       </span>
       {table.usedHeuristic && (
         <span
-          title="Cortex was unreachable — these columns were classified by name heuristics."
+          title="AI classification was unavailable — these columns were classified by name heuristics."
           className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
         >
           <WifiOff className="h-2.5 w-2.5" />

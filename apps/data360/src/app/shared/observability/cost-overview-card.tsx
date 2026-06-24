@@ -18,6 +18,14 @@ interface CostOverviewCardProps {
 // Backend sends numeric fields as strings ("1234.5") → the declared `number`
 // type is a lie at runtime. Coerce + guard so .toFixed never crashes; a
 // missing/non-numeric value renders "—" (no fake $0).
+
+const CHART_TOOLTIP_STYLE = {
+  backgroundColor: '#1F2937',
+  border: '1px solid #374151',
+  borderRadius: '8px',
+  color: '#F9FAFB',
+  fontSize: '12px',
+};
 function formatCurrency(value: number | string | undefined | null): string {
   const n = Number(value);
   if (value == null || value === '' || !Number.isFinite(n)) return '—';
@@ -134,7 +142,7 @@ export default function CostOverviewCard({
           </Text>
         </div>
         <Text className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          Estimated from this account&apos;s Snowflake per-credit rate (computed server-side). Credits consumed are the source of truth.
+          Estimated from this account&apos;s data warehouse per-credit rate (computed server-side). Credits consumed are the source of truth.
         </Text>
       </div>
 
@@ -167,11 +175,7 @@ export default function CostOverviewCard({
                 />
                 <Tooltip
                   formatter={(value: number) => [formatCredits(value), 'Credits']}
-                  contentStyle={{
-                    backgroundColor: '#fff',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                  }}
+                  contentStyle={CHART_TOOLTIP_STYLE}
                 />
                 <Area
                   type="monotone"

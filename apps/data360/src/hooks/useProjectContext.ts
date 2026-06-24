@@ -47,8 +47,12 @@ const lastProjectNamesAtom = atomWithStorage<Record<string, string>>(
   {},
 );
 
-/** Current active project — in-memory only (set on mount or user selection) */
-const activeProjectAtom = atom<ActiveProject | null>(null);
+/**
+ * Current active project keyed by module — in-memory only (set on mount or
+ * user selection). Keying by module prevents last-write-wins clobber when two
+ * modules (e.g. explore_design + workflow) are mounted simultaneously.
+ */
+const activeProjectAtom = atom<Record<string, ActiveProject | null>>({});
 
 /** Track whether backend sync has been attempted this session */
 const backendSyncedAtom = atom<boolean>(false);
@@ -60,9 +64,12 @@ const backendSyncedAtom = atom<boolean>(false);
 export function useProjectContext(module: string) {
   const [lastProjects, setLastProjects] = useAtom(lastProjectsAtom);
   const [lastNames, setLastNames] = useAtom(lastProjectNamesAtom);
-  const [activeProject, setActiveProject] = useAtom(activeProjectAtom);
+  const [activeProjectMap, setActiveProjectMap] = useAtom(activeProjectAtom);
   const [backendSynced, setBackendSynced] = useAtom(backendSyncedAtom);
   const syncAttempted = useRef(false);
+
+  /** Active project for THIS module only — other modules' selections are unaffected. */
+  const activeProject: ActiveProject | null = activeProjectMap[module] ?? null;
 
   const lastProjectId = lastProjects[module] || null;
   const lastProjectName = lastNames[module] || null;
@@ -73,21 +80,21 @@ export function useProjectContext(module: string) {
   const selectProject = useCallback(
     (projectId: string, projectName: string, projectType?: string) => {
       const pType = projectType || module;
-      setActiveProject({ id: projectId, name: projectName, type: pType });
+      setActiveProjectMap((prev) => ({ ...prev, [module]: { id: projectId, name: projectName, type: pType } }));
       setLastProjects((prev) => ({ ...prev, [module]: projectId }));
       setLastNames((prev) => ({ ...prev, [module]: projectName }));
       // Fire-and-forget backend notification
       apiSetLastUsed(module, projectId).catch(() => {});
     },
-    [module, setActiveProject, setLastProjects, setLastNames],
+    [module, setActiveProjectMap, setLastProjects, setLastNames],
   );
 
   // -----------------------------------------------------------------------
   // Clear active project (e.g. when navigating away)
   // -----------------------------------------------------------------------
   const clearProject = useCallback(() => {
-    setActiveProject(null);
-  }, [setActiveProject]);
+    setActiveProjectMap((prev) => ({ ...prev, [module]: null }));
+  }, [module, setActiveProjectMap]);
 
   // -----------------------------------------------------------------------
   // On first mount: try to restore from localStorage, fallback to backend

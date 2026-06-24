@@ -92,7 +92,7 @@ function getStatusColor(status: string): string {
     active: 'text-green-500 bg-green-50 dark:bg-green-900/20',
     inactive: 'text-slate-500 bg-slate-50 dark:bg-slate-900/20',
   };
-  return colors[status] || 'text-slate-500 bg-slate-50';
+  return colors[status] || 'text-slate-500 bg-slate-50 dark:bg-slate-800/20 dark:text-slate-400';
 }
 
 // Map a cron expression (from API response) back to a preset, or null if custom

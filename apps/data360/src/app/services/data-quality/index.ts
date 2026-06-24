@@ -51,12 +51,20 @@ export interface DmfSuggestResponse {
 /**
  * Run a built-in DMF check against a table's columns
  * POST /data-quality/projects/{project_id}/dmf-check
+ *
+ * Backend declares all three fields as FastAPI Query() params (not body).
+ * `columns` must be a comma-separated string; the `string[]` in the request
+ * type is joined here. Guarded against callers that pass columns as `undefined`
+ * (e.g. the api-health test harness which uses `as any`).
  */
 export async function runBuiltinDmfCheck(projectId: string, request: RunBuiltinDmfCheckRequest) {
-  const { data } = await apiClient.post(API.dataQuality.projectDmfCheck(projectId), {
-    table: request.table,
-    columns: request.columns,
-    dmf_name: request.dmf_name,
+  const columnsCsv = Array.isArray(request.columns) ? request.columns.join(',') : String(request.columns ?? '');
+  const { data } = await apiClient.post(API.dataQuality.projectDmfCheck(projectId), null, {
+    params: {
+      table: request.table,
+      columns: columnsCsv,
+      dmf_name: request.dmf_name,
+    },
   });
   return data;
 }
@@ -95,6 +103,40 @@ export async function suggestDmfs(
     params: queryParams,
   });
   return data;
+}
+
+/**
+ * Suggest DMFs for a single table WITHOUT a Data Quality project in scope.
+ * POST /data-quality/dmf/suggest  (documented in _NEW_CAPABILITIES.md)
+ *
+ * The project-scoped {@link suggestDmfs} (GET /projects/{id}/dmf-suggest) needs a
+ * DQ project; this table-scoped variant lets a power user get AI suggestions for
+ * any table they have selected. The backend declares the table via Query()/body;
+ * we pass both `table` and `table_name` (plus db/schema) so the call validates
+ * regardless of the exact parameter name, and FastAPI ignores the unused one.
+ *
+ * TODO: lift to api-contracts as API.dataQuality.dmfSuggestPost once the shared
+ * contract file is editable (parallel-edit guard this round).
+ */
+const DQ_DMF_SUGGEST_POST = '/data-quality/dmf/suggest';
+
+export async function suggestDmfsForTable(
+  tableFqn: string,
+  opts?: { database?: string; schema?: string },
+): Promise<DmfSuggestResponse> {
+  const { data } = await apiClient.post(DQ_DMF_SUGGEST_POST, null, {
+    params: {
+      table: tableFqn,
+      table_name: tableFqn,
+      ...(opts?.database ? { database: opts.database } : {}),
+      ...(opts?.schema ? { schema: opts.schema } : {}),
+    },
+  });
+  const suggestions = data?.suggestions ?? data?.data?.suggestions ?? data?.data ?? data ?? [];
+  return {
+    suggestions: Array.isArray(suggestions) ? (suggestions as DmfSuggestion[]) : [],
+    table_name: data?.table_name ?? tableFqn,
+  };
 }
 
 // =============================================================================
@@ -451,6 +493,71 @@ export async function getDmfReferences(table_name: string): Promise<DmfReference
     params: { table_name },
   });
   return data?.references || data?.data || data || [];
+}
+
+// -----------------------------------------------------------------------------
+// DMF CRUD — Read-detail (describe) + Delete (drop). These complete the DMF
+// lifecycle: list(create) → associate/schedule → INSPECT → DROP. The two routes
+// below are already exercised by services/governance/dmf.ts against the live
+// backend; we re-declare the bare paths here as LOCAL consts so the data-quality
+// module owns its own contract surface (parallel-edit guard — api-contracts.ts
+// is off-limits this round). Routes may 404 until the policies router is
+// deployed — callers must degrade to an inline error, never fake success.
+// TODO: lift to api-contracts as API.gouvernance.policyDmfDetails / policyDmfDelete.
+// -----------------------------------------------------------------------------
+const DQ_DMF_DETAILS = (name: string) => `/gouvernance/policies/dmf/${encodeURIComponent(name)}/details`;
+const DQ_DMF_DELETE = (name: string) => `/gouvernance/policies/dmf/${encodeURIComponent(name)}`;
+
+export interface DmfDetails {
+  name?: string;
+  table_args?: string;
+  expression?: string;
+  body?: string;
+  comment?: string;
+  created_on?: string;
+  owner?: string;
+  database?: string;
+  schema?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Inspect a DMF's definition (table-arg signature + SQL expression + comment).
+ * GET /gouvernance/policies/dmf/{name}/details
+ *
+ * `name` is the BARE metric name; the home db/schema are passed as query params.
+ * Custom DMFs default to CP_DATA360.GOUVERNANCE (where the builder creates them).
+ */
+export async function describeDmf(
+  name: string,
+  opts?: { database?: string; schema?: string },
+): Promise<DmfDetails> {
+  const { data } = await apiClient.get(DQ_DMF_DETAILS(name), {
+    params: {
+      database: opts?.database || 'CP_DATA360',
+      schema: opts?.schema || 'GOUVERNANCE',
+    },
+  });
+  return (data?.details || data?.data || data || {}) as DmfDetails;
+}
+
+/**
+ * Drop a custom DMF definition. DELETE /gouvernance/policies/dmf/{name}
+ *
+ * The backend errors if the DMF is still associated with any table, so the UI
+ * should disassociate first (Manage panel). `name` is the bare metric name.
+ */
+export async function deleteCustomDmf(
+  name: string,
+  opts?: { database?: string; schema?: string },
+): Promise<unknown> {
+  const { data } = await apiClient.delete(DQ_DMF_DELETE(name), {
+    params: {
+      database: opts?.database || 'CP_DATA360',
+      schema: opts?.schema || 'GOUVERNANCE',
+    },
+  });
+  return data;
 }
 
 // Local report service removed (reports-local.ts deleted — was unused)

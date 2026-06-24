@@ -134,6 +134,7 @@ function ComputePoolsPanel() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: '', min_nodes: 1, max_nodes: 1, instance_family: 'CPU_X64_XS', auto_suspend_secs: 300, comment: '' });
   const [creating, setCreating] = useState(false);
+  const [busyPool, setBusyPool] = useState<string | null>(null);
 
   const errMsg = (e: any) => e?.response?.data?.detail || e?.message || 'Failed';
   // `silent` polls refresh state in place without flashing the skeleton.
@@ -171,10 +172,12 @@ function ComputePoolsPanel() {
 
   const handleToggle = async (pool: ComputePool) => {
     const suspended = (pool.state || '').toUpperCase() === 'SUSPENDED';
+    setBusyPool(pool.name);
     try {
       suspended ? await resumePool(pool.name) : await suspendPool(pool.name);
       toast.success(`${pool.name} ${suspended ? 'resumed' : 'suspended'}`); load();
     } catch (e: any) { toast.error(errMsg(e)); }
+    finally { setBusyPool(null); }
   };
 
   const activePools = pools.filter(p => (p.state || '').toUpperCase() === 'ACTIVE').length;
@@ -183,9 +186,9 @@ function ComputePoolsPanel() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex gap-3">
-          <KPIBadge label="Total Pools" value={pools.length} />
-          <KPIBadge label="Active" value={activePools} />
-          <KPIBadge label="Total Nodes" value={pools.reduce((sum, p) => sum + (Number(p.max_nodes) || 0), 0)} />
+          <KPIBadge label="Total Pools" value={loading ? '—' : pools.length} />
+          <KPIBadge label="Active" value={loading ? '—' : activePools} />
+          <KPIBadge label="Total Nodes" value={loading ? '—' : pools.reduce((sum, p) => sum + (Number(p.max_nodes) || 0), 0)} />
         </div>
         <div className="flex gap-2">
           <RefreshBtn loading={loading} onClick={() => load()} />
@@ -247,10 +250,11 @@ function ComputePoolsPanel() {
                     variant="outline"
                     size="sm"
                     className="gap-1"
+                    disabled={busyPool === p.name}
                     onClick={() => handleToggle(p)}
                     deniedReason="Requires the manage-compute-pools permission on Intelligence → Container Apps."
                   >
-                    {(p.state || '').toUpperCase() === 'SUSPENDED' ? <><PiPlay className="w-3.5 h-3.5" /> Resume</> : <><PiPause className="w-3.5 h-3.5" /> Suspend</>}
+                    {busyPool === p.name ? <><PiArrowsClockwise className="w-3.5 h-3.5 animate-spin" /> Working…</> : (p.state || '').toUpperCase() === 'SUSPENDED' ? <><PiPlay className="w-3.5 h-3.5" /> Resume</> : <><PiPause className="w-3.5 h-3.5" /> Suspend</>}
                   </PermissionGatedButton>
                 </td>
               </tr>
@@ -365,7 +369,7 @@ function ContainerServicesPanel() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <KPIBadge label="Total Services" value={services.length} />
+        <KPIBadge label="Total Services" value={loading ? '—' : services.length} />
         <div className="flex gap-2">
           <RefreshBtn loading={loading} onClick={() => load()} />
           <PermissionGatedButton
@@ -582,7 +586,7 @@ function StreamlitAppsPanel() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex gap-3">
-          <KPIBadge label="Total Apps" value={apps.length} />
+          <KPIBadge label="Total Apps" value={loading ? '—' : apps.length} />
         </div>
         <div className="flex gap-2">
           <RefreshBtn loading={loading} onClick={() => load()} />
@@ -694,7 +698,7 @@ function ImageReposPanel() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <KPIBadge label="Repositories" value={repos.length} />
+        <KPIBadge label="Repositories" value={loading ? '—' : repos.length} />
         <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><PiArrowsClockwise className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></Button>
       </div>
 

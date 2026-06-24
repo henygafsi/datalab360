@@ -16,7 +16,9 @@ import { routes } from '@/config/routes';
 import { KpiStrip } from './components/KpiStrip';
 import { DrillPanel } from './components/DrillPanel';
 import { ReleaseHistory } from './components/ReleaseHistory';
-import { SLOW_THRESHOLD_MS, isDefect, isExpected, isExpectedOrKnown, isKnownUnimplemented, isConfigDependentRejection, type ProbeDetail } from './components/types';
+import { EndpointHistory } from './components/EndpointHistory';
+import { ProbeVsProd, type ProbeRow } from './components/ProbeVsProd';
+import { SLOW_THRESHOLD_MS, isDefect, isExpected, isExpectedOrKnown, isKnownUnimplemented, isConfigDependentRejection, parseErrorBody, type ProbeDetail } from './components/types';
 import { persistApiHealthRun, NotDeployedError } from '@/app/services/admin-api-health';
 
 // ── Command Center ──
@@ -803,8 +805,8 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'getDMFReferences', fn: () => getDMFReferences(FAKE_TABLE) },
       { name: 'createDMF', fn: () => createDMF({ name: FAKE_ID } as any) },
       { name: 'deleteDMF', fn: () => deleteDMF(FAKE_ID) },
-      { name: 'associateDMF', fn: () => associateDMF({ dmf_name: FAKE_ID, table_name: FAKE_TABLE } as any) },
-      { name: 'disassociateDMF', fn: () => disassociateDMF({ dmf_name: FAKE_ID, table_name: FAKE_TABLE } as any) },
+      { name: 'associateDMF', fn: () => associateDMF({ table_fqn: `${FAKE_DB}.${FAKE_SCHEMA}.${FAKE_TABLE}`, dmf_name: FAKE_ID, columns: ['ID'] } as any) },
+      { name: 'disassociateDMF', fn: () => disassociateDMF({ table_fqn: `${FAKE_DB}.${FAKE_SCHEMA}.${FAKE_TABLE}`, dmf_name: FAKE_ID, columns: ['ID'] } as any) },
       { name: 'setDMFSchedule', fn: () => setDMFSchedule({ dmf_name: FAKE_ID, schedule: '5 MINUTE' } as any) },
       { name: 'classifyTable', fn: () => classifyTable({ table_name: FAKE_TABLE } as any) },
       { name: 'extractSemanticCategories', fn: () => extractSemanticCategories({ table_name: FAKE_TABLE } as any) },
@@ -1270,6 +1272,15 @@ export default function ApiHealthPage() {
       for (const test of mod.tests) {
         const r = results[`${mod.module}::${test.name}`];
         if (!r || r.status === 'idle' || r.status === 'running') continue;
+        // Capture the warehouse query id so per-endpoint history can drill
+        // QUERY_HISTORY without a live re-probe. A query id rides on either a
+        // failing error body OR a successful payload (some endpoints echo it) —
+        // try both, same as the live DrillPanel.
+        const queryId =
+          parseErrorBody(r.errorBody ?? r.error).queryId || parseErrorBody(r.data).queryId;
+        // Persist the lossless body (capped) too, so the id survives on read-back
+        // even if the backend doesn't echo the dedicated query_id column.
+        const errorBody = r.errorBody ? String(r.errorBody).slice(0, 4000) : undefined;
         rows.push({
           endpoint: test.name,
           module: mod.module,
@@ -1280,6 +1291,8 @@ export default function ApiHealthPage() {
           http_status: r.httpStatus ?? null,
           time_ms: r.ms ?? null,
           error: r.error ? String(r.error).slice(0, 4000) : undefined,
+          error_body: errorBody,
+          query_id: queryId ?? null,
         });
       }
     }
@@ -1299,6 +1312,30 @@ export default function ApiHealthPage() {
       setSaving(false);
     }
   }, [release, results]);
+
+  // Flatten the live probe map into rows the production cross-reference can join
+  // on (method + path). Skips idle/running/url-less probes — only completed,
+  // addressable calls can be matched against the activity log.
+  const probeRows = useMemo<ProbeRow[]>(() => {
+    const out: ProbeRow[] = [];
+    for (const [key, r] of Object.entries(results)) {
+      if (!r || r.status === 'idle' || r.status === 'running' || !r.url) continue;
+      const sep = key.indexOf('::');
+      const module = sep >= 0 ? key.slice(0, sep) : key;
+      const name = sep >= 0 ? key.slice(sep + 2) : key;
+      out.push({
+        module,
+        name,
+        method: r.method,
+        url: r.url,
+        status: r.status,
+        ms: r.ms ?? null,
+        httpStatus: r.httpStatus ?? null,
+        category: categorize(r),
+      });
+    }
+    return out;
+  }, [results]);
 
   const toggle = (mod: string) => setCollapsed(p => ({ ...p, [mod]: !p[mod] }));
 
@@ -1710,6 +1747,15 @@ export default function ApiHealthPage() {
 
       {/* Per-release KPI history & trend (persisted runs) */}
       <ReleaseHistory refreshKey={historyRefreshKey} />
+
+      {/* Per-endpoint test-tracing across persisted runs (status/latency/HTTP +
+          QUERY_HISTORY drill). Bumps with the same key so saving a run refreshes it. */}
+      <EndpointHistory refreshKey={historyRefreshKey} />
+
+      {/* Probe vs production — join this sweep against real activity-log traffic
+          (requests / error-rate / p95) so a probe verdict can be confirmed or
+          contradicted by live usage. Reuses the existing by-endpoint telemetry. */}
+      <ProbeVsProd probeRows={probeRows} refreshKey={historyRefreshKey} />
     </div>
   );
 }

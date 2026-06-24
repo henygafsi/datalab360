@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-table';
 import { exportToCSV } from '@core/utils/export-to-csv';
 import { getRoles, updateGrants, type RoleGrantData } from '@/app/services/governance/grants';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import TablePagination from '@core/components/table/pagination';
 import TableFooter from '@core/components/table/footer';
 import Filters from './filters';
@@ -336,6 +337,10 @@ function EditModal({
   const [selectedModules, setSelectedModules] = useState<string[]>(initialModules);
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('modules');
+  // System 2 Action-RBAC: editing a role's module grants maps to gouvernance:grant.
+  // Fail-open while the allow-set loads so there's no flash of a disabled CTA.
+  const { allowed: canGrant, loading: permLoading } = useCanPerform('gouvernance', 'grant');
+  const grantDenied = !canGrant && !permLoading;
 
   const toggleModule = (module: ModuleConfig) => {
     const apiName = module.apiName;
@@ -545,7 +550,12 @@ function EditModal({
             Cancel
           </Button>
           <Button
-            disabled={saving}
+            disabled={saving || grantDenied}
+            title={
+              grantDenied
+                ? 'You lack the "grant" permission on governance. Ask an administrator to grant it.'
+                : undefined
+            }
             onClick={handleSave}
             className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:from-blue-600 hover:to-indigo-700"
           >

@@ -102,6 +102,9 @@ export default function ObservabilityPage() {
         <a href="/observability/dependencies" className="text-blue-600 hover:underline dark:text-blue-400">
           Dependencies
         </a>
+        <a href="/observability/freshness" className="text-blue-600 hover:underline dark:text-blue-400">
+          Freshness Probes
+        </a>
         <a href="/observability/budget" className="text-blue-600 hover:underline dark:text-blue-400">
           Budget & Resource Monitors
         </a>

@@ -167,8 +167,28 @@ apiClient.interceptors.response.use(
 
     // 503 = endpoint/infra (e.g. SESSION_NOT_IN_PROCESS) → do NOT redirect, show message
     if (status === 503) {
-      const data = error.response?.data as { error_code?: string; detail?: string; hint?: string } | undefined;
-      const message = typeof data?.detail === 'string' ? data.detail : (data?.detail as any)?.detail ?? 'Service temporarily unavailable.';
+      const data = error.response?.data as { error_code?: string; detail?: any; hint?: string } | undefined;
+      const d = data?.detail;
+      // The 503 detail may be a string OR an object. For the analytics
+      // service-cache states (CACHE_NOT_READY / svc_connect_failed) the backend
+      // sends an object {errorCode, error_code, account, reason}. Surface an
+      // honest, SPECIFIC "warming" message — this is a transient infra state
+      // (the account's service-account cache is provisioning), not a permission
+      // or data error — so pages can show a recoverable "warming" state and
+      // retry instead of a generic failure. (Previously this fell through to a
+      // vague "Service temporarily unavailable.")
+      const code =
+        (d && typeof d === 'object' ? d.error_code || d.errorCode : undefined) || data?.error_code;
+      let message: string;
+      if (code === 'CACHE_NOT_READY' || (d && typeof d === 'object' && d.reason === 'svc_connect_failed')) {
+        message =
+          'Live analytics are warming up — the data cache is being provisioned for your account. This usually clears on its own; please retry shortly.';
+      } else {
+        message =
+          typeof d === 'string'
+            ? d
+            : (d && typeof d === 'object' ? d.detail : undefined) ?? 'Service temporarily unavailable.';
+      }
       return Promise.reject(new ServerError(message, error));
     }
 

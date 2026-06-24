@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAtomValue } from 'jotai';
 import { Badge, Button } from 'rizzui';
 import {
@@ -24,13 +25,21 @@ import {
   getCatalogScores,
   type CatalogScoresResponse,
 } from '@/app/services/catalog';
+import {
+  listProjects,
+  listDeployments,
+} from '@/app/services/api/projectsApi';
 import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { toast } from '@/hooks/use-toast';
 import Object360Panel from './components/Object360Panel';
 import KpiLifecyclePanel from './components/KpiLifecyclePanel';
 import PublishGate from './components/PublishGate';
+import ProductLifecycleActions from './components/ProductLifecycleActions';
+import ProductActivityPanel from './components/ProductActivityPanel';
 import RecommendationsPanel from './components/RecommendationsPanel';
+import ManageAccessButton from '@/app/shared/governance/ManageAccessButton';
 
 /** Render a missing/unknown numeric value as an em-dash, never a fake 0. */
 function fmtNum(v: number | null | undefined): string {
@@ -94,6 +103,17 @@ function DataProductsPage() {
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [object360Fqn, setObject360Fqn] = useState<{ fqn: string; title: string } | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('');
+
+  // URL-param prefill: ?source_table=DB.SCHEMA.TABLE or ?fqn=DB.SCHEMA.TABLE
+  // Lets catalog / explore-design / sources deep-link here with a table pre-selected.
+  const searchParams = useSearchParams();
+  const initialFqn = (searchParams.get('source_table') || searchParams.get('fqn') || '').trim();
+
+  // Auto-open the create form on mount when a prefill FQN is supplied via URL params.
+  // Runs whenever initialFqn changes (stable on a normal page load).
+  useEffect(() => {
+    if (initialFqn) setShowCreate(true);
+  }, [initialFqn]);
   const [catalogScores, setCatalogScores] = useState<CatalogScoresResponse | null>(null);
   const [scoresError, setScoresError] = useState<string | null>(null);
 
@@ -170,6 +190,7 @@ function DataProductsPage() {
           ? { ...p, CONSUMERS: res.consumers ?? (p.CONSUMERS ?? 0) + 1 }
           : p
       ));
+      toast({ title: 'Subscribed', description: res.name ? `Access granted to "${res.name}".` : 'Subscription confirmed.' });
     } catch (err) {
       setSubscribeError({ id: productId, message: getApiErrorMessage(err) });
     } finally {
@@ -265,6 +286,7 @@ function DataProductsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <ManageAccessButton module="data-products" page="data-products" objectLabel="Product Portfolio" />
             <Button
               variant="outline" size="sm" className="gap-1.5"
               onClick={() => { void fetchProducts(); void fetchScores(); }}
@@ -342,7 +364,7 @@ function DataProductsPage() {
         {/* Product List */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {showCreate && (
-            <CreateForm onSubmit={handleCreate} onCancel={() => setShowCreate(false)} />
+            <CreateForm onSubmit={handleCreate} onCancel={() => setShowCreate(false)} initialFqn={initialFqn} />
           )}
 
           {loading ? (
@@ -441,18 +463,66 @@ function DataProductsPage() {
 function CreateForm({
   onSubmit,
   onCancel,
+  initialFqn,
 }: {
   onSubmit: (d: CreateDataProductRequest) => Promise<string | null>;
   onCancel: () => void;
+  /** Optional pre-filled table FQN (from URL params or calling context). */
+  initialFqn?: string;
 }) {
   const [name, setName] = useState('');
-  const [tableFqn, setTableFqn] = useState('');
+  // Seed from caller context (URL params, catalog, explore-design hand-off).
+  // useState only uses the initializer on the first render — user edits are
+  // preserved as normal state from that point forward.
+  const [tableFqn, setTableFqn] = useState(initialFqn || '');
   const [description, setDescription] = useState('');
   const [sla, setSla] = useState(24);
   const [qualityThreshold, setQualityThreshold] = useState(90);
   const [tagsStr, setTagsStr] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // --- Explore-project picker (optional provenance) ---
+  const [exploreProjects, setExploreProjects] = useState<Array<{ project_id: string; project_name: string }>>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [selectedExploreProjectId, setSelectedExploreProjectId] = useState('');
+  const [fqnHintLoading, setFqnHintLoading] = useState(false);
+
+  // Fetch explore projects once on form mount (silent on error — picker is optional)
+  useEffect(() => {
+    let cancelled = false;
+    setProjectsLoading(true);
+    listProjects({ project_type: 'explore_design' })
+      .then((res) => { if (!cancelled) setExploreProjects(res.projects ?? []); })
+      .catch(() => { /* picker degrades gracefully */ })
+      .finally(() => { if (!cancelled) setProjectsLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // On explore-project pick: try to prefill table_fqn from the latest deployment config.
+  // Falls back silently — the FQN text input is always the canonical field.
+  const handleExploreProjectPick = useCallback(async (projectId: string) => {
+    setSelectedExploreProjectId(projectId);
+    if (!projectId) return;
+    setFqnHintLoading(true);
+    try {
+      const res = await listDeployments(projectId, { limit: 5 });
+      for (const d of res.deployments ?? []) {
+        const cfg = (d.config ?? {}) as Record<string, unknown>;
+        const db = String(cfg.target_database ?? '');
+        const sc = String(cfg.target_schema ?? '');
+        const tbl = String(cfg.target_table ?? '');
+        if (db && sc && tbl) {
+          setTableFqn(`${db}.${sc}.${tbl}`);
+          break;
+        }
+      }
+    } catch {
+      // silent — user types the FQN manually
+    } finally {
+      setFqnHintLoading(false);
+    }
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (!name.trim() || !tableFqn.trim()) {
@@ -481,6 +551,29 @@ function CreateForm({
         </h3>
         <button onClick={onCancel} aria-label="Cancel" className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"><X className="h-4 w-4 text-gray-500" /></button>
       </div>
+      {/* Optional: link this product to an Explore project (prefills table_fqn) */}
+      {(exploreProjects.length > 0 || projectsLoading) && (
+        <div className="flex items-center gap-2">
+          <Layers className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+          <label htmlFor="explore-project-picker" className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
+            From Explore project
+          </label>
+          <select
+            id="explore-project-picker"
+            aria-label="From Explore project (optional)"
+            value={selectedExploreProjectId}
+            disabled={projectsLoading || fqnHintLoading}
+            onChange={(e) => void handleExploreProjectPick(e.target.value)}
+            className="flex-1 px-2 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+          >
+            <option value="">— optional —</option>
+            {exploreProjects.map((p) => (
+              <option key={p.project_id} value={p.project_id}>{p.project_name}</option>
+            ))}
+          </select>
+          {fqnHintLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400 shrink-0" />}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <input className="col-span-1 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Product Name *" aria-label="Product name" value={name} onChange={(e) => setName(e.target.value)} />
         <input className="col-span-1 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="DB.SCHEMA.TABLE *" aria-label="Table FQN" value={tableFqn} onChange={(e) => setTableFqn(e.target.value)} />
@@ -617,6 +710,15 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
         >
           <Eye className="h-3 w-3" />Details
         </Button>
+        {/* Deep-link back to Explore & Design with this product's backing table pre-selected */}
+        <a
+          href={product.TABLE_FQN ? `/explore-design?table=${encodeURIComponent(product.TABLE_FQN)}` : '/explore-design'}
+          onClick={(e) => e.stopPropagation()}
+          title={product.TABLE_FQN ? `View source: ${product.TABLE_FQN}` : 'Open Explore & Design'}
+          className="inline-flex items-center h-7 text-xs gap-1 px-2 rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 font-medium"
+        >
+          <Layers className="h-3 w-3" />Explore
+        </a>
         <Button
           size="sm"
           className="h-7 text-xs gap-1 px-2 bg-blue-600 hover:bg-blue-700 text-white"
@@ -720,10 +822,11 @@ function ProductDetailPanel({
           <Boxes className="h-3 w-3" />Object 360
         </button>
         <a
-          href="/explore-design"
+          href={product.TABLE_FQN ? `/explore-design?table=${encodeURIComponent(product.TABLE_FQN)}` : '/explore-design'}
           className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-xs font-medium px-3 py-2"
+          title={product.TABLE_FQN ? `View ${product.TABLE_FQN} in Explore & Design` : 'Open Explore & Design'}
         >
-          <Layers className="h-3 w-3" />Explore
+          <Layers className="h-3 w-3" />View in Explore
         </a>
       </div>
 
@@ -735,11 +838,25 @@ function ProductDetailPanel({
         onPublished={onPublished}
       />
 
+      {/* Lifecycle actions — Refresh (POST /refresh) + Subscribers (GET /consumers
+          + subscribe) + Lineage (GET /lineage); Publish/Subscribe-on-card live
+          above. onChanged refetches the portfolio so counts/freshness stay live. */}
+      <ProductLifecycleActions
+        productId={product.PRODUCT_ID}
+        productName={product.NAME}
+        isPublished={product.is_published ?? (product.STATUS || '').toUpperCase() === 'PUBLISHED'}
+        onChanged={onPublished}
+      />
+
       {/* KPI lifecycle */}
       <KpiLifecyclePanel productId={product.PRODUCT_ID} />
 
       {/* Recommendations (apply → surfaces suggested follow-up call) */}
       <RecommendationsPanel productId={product.PRODUCT_ID} />
+
+      {/* Lifecycle event timeline — read-only audit trail of publish/subscribe/
+          refresh/KPI actions (GET /catalog/events?product_id=...). */}
+      <ProductActivityPanel productId={product.PRODUCT_ID} />
     </div>
   );
 }

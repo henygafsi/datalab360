@@ -69,7 +69,7 @@ interface TabItem {
 const tabs: TabItem[] = [
   { id: 'overview', label: 'Health & Insights', icon: PiHeartbeatDuotone, description: 'Health score, KPIs, security, performance & activity' },
   { id: 'compliance', label: 'Compliance', icon: PiShieldCheckDuotone, description: 'GDPR & SOC 2 reports' },
-  { id: 'tasks-lineage', label: 'Tasks & Lineage', icon: PiClockCounterClockwise, description: 'Snowflake tasks, dependencies & lineage graph' },
+  { id: 'tasks-lineage', label: 'Tasks & Lineage', icon: PiClockCounterClockwise, description: 'Scheduled tasks, dependencies & lineage graph' },
   { id: 'cross-module', label: 'Cross-Modules & Objects', icon: PiGitBranch, description: 'Lineage, dependencies & module explorer' },
   { id: 'impact-analysis', label: 'Impact Analysis', icon: PiWarningCircleBold, description: 'Estimate change impact before modifying tables, columns, or policies (preview)' },
 ];
@@ -218,7 +218,8 @@ function CrossModuleLineageTab() {
     try {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/suspend`);
       toast.success(`Task ${task.task_name} suspended`);
-      setTaskLineageData(null); // trigger reload
+      setTaskLineageData(null); // trigger task-list reload
+      fetchData(); // also refresh the lineage graph (task states change)
     } catch (err) { toast.error(getApiErrorMessage(err)); }
   };
 
@@ -228,7 +229,8 @@ function CrossModuleLineageTab() {
     try {
       await apiClient.post(`/connect/tasks/${task.fqn || task.task_name}/resume`);
       toast.success(`Task ${task.task_name} resumed`);
-      setTaskLineageData(null); // trigger reload
+      setTaskLineageData(null); // trigger task-list reload
+      fetchData(); // also refresh the lineage graph (task states change)
     } catch (err) { toast.error(getApiErrorMessage(err)); }
   };
 
@@ -457,7 +459,7 @@ function CrossModuleLineageTab() {
                         <div><span className="text-gray-500 dark:text-gray-400">Event Types:</span> <span className="text-gray-800 dark:text-gray-200 font-medium">{mod.event_types}</span></div>
                         <div><span className="text-gray-500 dark:text-gray-400">Actions:</span> <span className="text-gray-800 dark:text-gray-200 font-medium">{mod.actions}</span></div>
                         <div><span className="text-gray-500 dark:text-gray-400">Last Activity:</span> <span className="text-gray-800 dark:text-gray-200">{mod.last_activity?.split('T')[0] || '—'}</span></div>
-                        <div><span className="text-gray-500 dark:text-gray-400">Success Rate:</span> <span className="text-emerald-600 dark:text-emerald-400 font-medium">{mod.total_events > 0 ? ((mod.success_count / mod.total_events) * 100).toFixed(0) : 0}%</span></div>
+                        <div><span className="text-gray-500 dark:text-gray-400">Success Rate:</span> <span className="text-emerald-600 dark:text-emerald-400 font-medium">{mod.total_events > 0 ? `${((mod.success_count / mod.total_events) * 100).toFixed(0)}%` : '—'}</span></div>
                       </div>
                       {/* Users */}
                       {mod.users?.length > 0 && (
@@ -762,6 +764,16 @@ function CrossModuleLineageTab() {
                             </div>
                           </div>
                         )}
+                        {/* Open in Explore deep-link — TABLE/VIEW with full db.schema.name */}
+                        {(node.domain === 'TABLE' || node.domain === 'VIEW') && node.database && node.schema && node.name && (
+                          <a
+                            href={`/explore-design?intent=model&from=observability&table=${encodeURIComponent(`${node.database}.${node.schema}.${node.name}`)}`}
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded px-2 py-1 border border-indigo-200 dark:border-indigo-800 transition-colors self-start"
+                          >
+                            <PiMagnifyingGlass className="w-3 h-3" />
+                            Open in Explore &amp; Design
+                          </a>
+                        )}
                       </div>
                     )}
                   </div>
@@ -853,7 +865,7 @@ function CrossModuleLineageTab() {
           {!taskLineageLoading && enrichedTasks.length > 0 && (
             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
               <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-                Snowflake Tasks ({enrichedTasks.length})
+                Scheduled Tasks ({enrichedTasks.length})
               </h4>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -944,7 +956,7 @@ function CrossModuleLineageTab() {
           )}
 
           {!taskLineageLoading && enrichedTasks.length === 0 && !data?.tasks && (
-            <div className="text-center py-8 text-gray-500 dark:text-gray-400">No tasks found. Tasks will appear here when Snowflake tasks are configured.</div>
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">No tasks found. Tasks will appear here when scheduled tasks are configured.</div>
           )}
         </div>
       )}
@@ -1122,7 +1134,7 @@ function TasksLineageTab() {
       {enrichedTasks.length > 0 ? (
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
           <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">
-            Snowflake Tasks ({enrichedTasks.length})
+            Scheduled Tasks ({enrichedTasks.length})
           </h4>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -1169,7 +1181,7 @@ function TasksLineageTab() {
         </div>
       ) : (
         <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-          No tasks found. Tasks will appear here when Snowflake tasks are configured.
+          No tasks found. Tasks will appear here when scheduled tasks are configured.
         </div>
       )}
     </div>

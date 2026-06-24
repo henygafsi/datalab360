@@ -217,7 +217,7 @@ function KpiPopover({ card, unavailable }: { card: ScoreCard | null; unavailable
       <div className="pr-5">
         <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">Score cards</p>
         <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-          Per-project scores aren’t provisioned on this backend yet.
+          Per-project scores aren't provisioned on this backend yet.
         </p>
       </div>
     );
@@ -236,7 +236,7 @@ function KpiPopover({ card, unavailable }: { card: ScoreCard | null; unavailable
         </span>
       )}
       {card.status === 'error' && (
-        <p className="mt-1 text-[11px] text-red-500">Couldn’t compute this score.</p>
+        <p className="mt-1 text-[11px] text-red-500">Couldn't compute this score.</p>
       )}
       {card.status === 'not_computed' && !accountScoped && (
         <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Not computed for this project yet.</p>
@@ -259,7 +259,7 @@ function UsagePopover({ cost, unavailable }: { cost: DashboardCost | null; unava
       <div className="pr-5">
         <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">Usage</p>
         <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-          {unavailable ? 'Usage telemetry isn’t provisioned on this backend yet.' : 'No usage data.'}
+          {unavailable ? "Usage telemetry isn't provisioned on this backend yet." : 'No usage data.'}
         </p>
       </div>
     );
@@ -276,7 +276,7 @@ function UsagePopover({ cost, unavailable }: { cost: DashboardCost | null; unava
         <Row k="Last rendered" v={ra?.last_rendered ? new Date(ra.last_rendered).toLocaleDateString() : '—'} />
       </dl>
       <p className="mt-2 text-[10px] italic leading-snug text-gray-400 dark:text-gray-500">
-        Credits aren’t attributable per dashboard on a shared warehouse — renders are the honest usage proxy.
+        Credits aren't attributable per dashboard on a shared warehouse — renders are the honest usage proxy.
       </p>
     </div>
   );

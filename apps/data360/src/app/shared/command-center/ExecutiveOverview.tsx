@@ -106,7 +106,7 @@ export default function ExecutiveOverview({ days = 30, onNavigateTab }: { days?:
           </span>
         )}
         <button onClick={() => onNavigateTab?.('snowflake-accounts')} className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline">
-          Comptes Snowflake <ArrowUpRight className="h-3 w-3" />
+          Comptes connectés <ArrowUpRight className="h-3 w-3" />
         </button>
       </div>
 

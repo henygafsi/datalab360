@@ -364,7 +364,7 @@ export default function RLSPoliciesContent() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">Granted Objects</p>
-              <p className="text-3xl font-bold text-green-600">{stats.grantedObjects}</p>
+              <p className="text-3xl font-bold text-green-600 dark:text-green-400">{stats.grantedObjects}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-100 to-emerald-100 dark:from-green-900/30 dark:to-emerald-900/30 flex items-center justify-center">
               <HiOutlineCircleStack className="w-6 h-6 text-green-600 dark:text-green-400" />
@@ -376,7 +376,7 @@ export default function RLSPoliciesContent() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">Granted Roles</p>
-              <p className="text-3xl font-bold text-slate-600">{stats.grantedRoles}</p>
+              <p className="text-3xl font-bold text-slate-600 dark:text-slate-200">{stats.grantedRoles}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center">
               <HiOutlineUserGroup className="w-6 h-6 text-slate-600 dark:text-slate-400" />

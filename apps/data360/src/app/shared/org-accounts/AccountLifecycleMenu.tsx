@@ -135,6 +135,8 @@ interface MenuItem {
   endpoint?: string;
   /** Disabled for reasons OTHER than missing backend (e.g. role). */
   disabled?: boolean;
+  /** Honest tooltip explaining why a disabled item cannot be used. */
+  disabledReason?: string;
   /** Visual separator AFTER this item. */
   divider?: boolean;
 }
@@ -156,14 +158,18 @@ function buildItems(
     items.push({ key: 'view', label: 'View details', Icon: Eye });
   }
 
-  // Edit — orgadmin + accountadmin only.
+  // Edit — orgadmin + accountadmin only. Rendered DISABLED: renaming an account
+  // or changing its comment is a cross-account ALTER, which the warehouse does
+  // not permit remotely (verified against the backend — it returns a SQL error).
+  // The action must be performed from within the target account itself.
   if (role === 'orgadmin' || role === 'accountadmin' || role === 'qa') {
     items.push({
       key: 'edit',
       label: 'Edit account',
       Icon: Pencil,
-      beta: true,
-      endpoint: 'PATCH /org-accounts/accounts/{name}',
+      disabled: true,
+      disabledReason:
+        'Account rename and comment changes must be made from within the target account — cross-account ALTER is not permitted.',
     });
   }
 
@@ -523,7 +529,13 @@ export default function AccountLifecycleMenu({
                           : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800',
                         (isDisabled || isBusy) && 'cursor-not-allowed opacity-60',
                       )}
-                      title={isBeta ? `Backend endpoint coming soon — ${item.endpoint}` : undefined}
+                      title={
+                        item.disabledReason
+                          ? item.disabledReason
+                          : isBeta
+                            ? `Backend endpoint coming soon — ${item.endpoint}`
+                            : undefined
+                      }
                     >
                       {isBusy ? (
                         <Loader2 className="h-4 w-4 shrink-0 animate-spin" />

@@ -74,7 +74,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) {
           setConfirmState({
             open: true,
             title: 'Delete User',
-            message: `Are you sure you want to delete the user "${row.name}"? This action is irreversible and will remove the user from Snowflake.`,
+            message: `Are you sure you want to delete the user "${row.name}"? This action is irreversible and will remove the user from the data warehouse.`,
             onConfirm: async () => {
               setConfirmState(s => ({ ...s, open: false }));
               try {

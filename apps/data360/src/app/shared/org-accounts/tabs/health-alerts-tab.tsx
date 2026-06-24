@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Text, Badge, Tooltip } from 'rizzui';
 import cn from '@core/utils/class-names';
+import { Plus } from 'lucide-react';
 import {
   PiWarningDuotone,
   PiTrendUpDuotone,
@@ -10,7 +11,11 @@ import {
   PiGaugeDuotone,
   PiLockKeyDuotone,
   PiWarningCircleDuotone,
+  PiClockCounterClockwiseDuotone,
+  PiMagnifyingGlassDuotone,
 } from 'react-icons/pi';
+import { useCanPerform } from '@/hooks/useCanPerform';
+import ResourceMonitorCreateRail from '../ResourceMonitorCreateRail';
 import {
   getHealth,
   getAlerts,
@@ -18,6 +23,9 @@ import {
   getResourceMonitors,
   getFailedLogins,
   getAccountHealthScore,
+  getQueryAuditHistory,
+  getLoginAuditHistory,
+  getAccessAuditHistory,
 } from '@/app/services/org-accounts/hooks';
 import { formatCredits, formatDate, extractApiError } from '@/app/services/org-accounts/utils';
 import { safeToFixed } from '@/lib/format-number';
@@ -28,6 +36,8 @@ import type {
   DateRange,
   FailedLogin,
   AccountHealthScoreResponse,
+  QueryAuditResponse,
+  LoginAuditResponse,
 } from '@/app/services/org-accounts/types';
 
 import HealthOverview from '../health-overview';
@@ -107,9 +117,22 @@ export default function HealthAlertsTab({ refreshKey }: HealthAlertsTabProps) {
   const [resourceMonitors, setResourceMonitors] = useState<ResourceMonitor[]>([]);
   const [failedLogins, setFailedLogins] = useState<FailedLogin[]>([]);
   const [compositeHealth, setCompositeHealth] = useState<AccountHealthScoreResponse | null>(null);
+  const [queryAudit, setQueryAudit] = useState<QueryAuditResponse['queries']>([]);
+  const [loginAudit, setLoginAudit] = useState<LoginAuditResponse['logins']>([]);
+  const [accessAudit, setAccessAudit] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
+  // Bumped after a resource monitor is created so the whole tab re-fetches and
+  // the new monitor shows up immediately (no full page refresh needed).
+  const [localRefresh, setLocalRefresh] = useState(0);
+
+  // Resource-monitor create is an `org_accounts` create action. Parent owns the
+  // permission gate; the rail itself is presentation-only. Fail-open while the
+  // allow-set loads so the control doesn't flash disabled.
+  const { allowed: canCreateRm, loading: rmPermLoading } = useCanPerform('org_accounts', 'create');
+  const rmCreateDenied = !canCreateRm && !rmPermLoading;
+  const [rmCreateOpen, setRmCreateOpen] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -126,16 +149,22 @@ export default function HealthAlertsTab({ refreshKey }: HealthAlertsTabProps) {
       guard(getResourceMonitors()),
       guard(getFailedLogins(days)),
       guard(getAccountHealthScore()),
-    ]).then(([healthData, alertsData, anomalyData, monitorData, failedData, healthScoreData]) => {
+      guard(getQueryAuditHistory({ days, limit: 100 })),
+      guard(getLoginAuditHistory({ days, limit: 100 })),
+      guard(getAccessAuditHistory({ days, limit: 100 })),
+    ]).then(([healthData, alertsData, anomalyData, monitorData, failedData, healthScoreData, queryAuditData, loginAuditData, accessAuditData]) => {
       if (healthData) setHealthScores(Array.isArray(healthData.health_scores) ? healthData.health_scores : []);
       if (alertsData) setAlerts(Array.isArray(alertsData.alerts) ? alertsData.alerts : []);
       if (anomalyData) setAnomalies(Array.isArray(anomalyData.anomalies) ? anomalyData.anomalies : []);
       if (monitorData) setResourceMonitors(Array.isArray(monitorData.monitors) ? (monitorData.monitors as ResourceMonitor[]) : []);
       if (failedData) setFailedLogins(Array.isArray(failedData.failed_logins) ? failedData.failed_logins : []);
       if (healthScoreData && typeof healthScoreData.health_score === 'number') setCompositeHealth(healthScoreData);
+      if (queryAuditData) setQueryAudit(Array.isArray(queryAuditData.queries) ? queryAuditData.queries : []);
+      if (loginAuditData) setLoginAudit(Array.isArray(loginAuditData.logins) ? loginAuditData.logins : []);
+      if (accessAuditData) setAccessAudit(Array.isArray(accessAuditData.access_records) ? accessAuditData.access_records : []);
       setError(firstError);
     }).finally(() => setLoading(false));
-  }, [refreshKey, dateRange]);
+  }, [refreshKey, dateRange, localRefresh]);
 
   if (loading) {
     return (
@@ -367,6 +396,15 @@ export default function HealthAlertsTab({ refreshKey }: HealthAlertsTabProps) {
                 <Badge variant="flat" color="secondary" className="text-xs">{resourceMonitors.length}</Badge>
               )}
             </div>
+            <button
+              type="button"
+              disabled={rmCreateDenied}
+              title={rmCreateDenied ? 'You lack the "create" permission on Client Accounts. Ask an administrator to grant it.' : 'Create a spend-cap resource monitor'}
+              onClick={() => { if (!rmCreateDenied) setRmCreateOpen(true); }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/30"
+            >
+              <Plus className="h-3.5 w-3.5" /> New monitor
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
@@ -524,6 +562,185 @@ export default function HealthAlertsTab({ refreshKey }: HealthAlertsTabProps) {
             </table>
           )}
         </div>
+      </div>
+
+      {/* ================================================================ */}
+      {/* Audit History — query + login audit trail (account-scoped)       */}
+      {/* ================================================================ */}
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <PiMagnifyingGlassDuotone className="h-5 w-5 text-blue-500" />
+            <Text className="font-semibold text-gray-900 dark:text-white">Query Audit History</Text>
+            {queryAudit.length > 0 && (
+              <Badge variant="flat" color="info" className="text-xs">{queryAudit.length}</Badge>
+            )}
+          </div>
+        </div>
+        <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+          {queryAudit.length === 0 ? (
+            <div className="p-8 text-center">
+              <PiMagnifyingGlassDuotone className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+              <Text className="text-gray-500">No query audit records</Text>
+              <Text className="text-sm text-gray-400">No queries recorded in this period, or the audit endpoint is unavailable</Text>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/50">
+                <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">User</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Warehouse</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Status</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Duration</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {queryAudit.map((q, i) => (
+                  <tr key={`${q.QUERY_ID}-${i}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <td className="px-4 py-2"><Text className="text-sm text-gray-900 dark:text-white">{q.START_TIME ? formatDate(q.START_TIME) : '—'}</Text></td>
+                    <td className="px-4 py-2"><Text className="text-sm text-gray-900 dark:text-white">{q.USER_NAME || '—'}</Text></td>
+                    <td className="px-4 py-2"><Badge variant="flat" color="primary" className="text-xs">{(q.QUERY_TYPE || 'OTHER').replace(/_/g, ' ')}</Badge></td>
+                    <td className="px-4 py-2"><Text className="text-sm text-gray-600 dark:text-gray-300">{q.WAREHOUSE_NAME || '—'}</Text></td>
+                    <td className="px-4 py-2">
+                      <Badge variant="flat" color={q.EXECUTION_STATUS === 'SUCCESS' ? 'success' : q.EXECUTION_STATUS === 'FAIL' ? 'danger' : 'secondary'} className="text-xs">
+                        {q.EXECUTION_STATUS || '—'}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-2 text-right"><Text className="text-sm text-gray-600 dark:text-gray-300">{q.TOTAL_ELAPSED_TIME != null ? `${safeToFixed(q.TOTAL_ELAPSED_TIME / 1000, 2)}s` : '—'}</Text></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <PiClockCounterClockwiseDuotone className="h-5 w-5 text-violet-500" />
+            <Text className="font-semibold text-gray-900 dark:text-white">Login Audit History</Text>
+            {loginAudit.length > 0 && (
+              <Badge variant="flat" color="secondary" className="text-xs">{loginAudit.length}</Badge>
+            )}
+          </div>
+        </div>
+        <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+          {loginAudit.length === 0 ? (
+            <div className="p-8 text-center">
+              <PiClockCounterClockwiseDuotone className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+              <Text className="text-gray-500">No login audit records</Text>
+              <Text className="text-sm text-gray-400">No logins recorded in this period, or the audit endpoint is unavailable</Text>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/50">
+                <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">User</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Client IP</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Client</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Result</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {loginAudit.map((l, i) => {
+                  const ok = String(l.IS_SUCCESS).toUpperCase() === 'YES' || String(l.IS_SUCCESS).toUpperCase() === 'TRUE';
+                  return (
+                    <tr key={`${l.USER_NAME}-${l.EVENT_TIMESTAMP}-${i}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                      <td className="px-4 py-2"><Text className="text-sm text-gray-900 dark:text-white">{l.EVENT_TIMESTAMP ? formatDate(l.EVENT_TIMESTAMP) : '—'}</Text></td>
+                      <td className="px-4 py-2"><Text className="text-sm text-gray-900 dark:text-white">{l.USER_NAME || '—'}</Text></td>
+                      <td className="px-4 py-2">
+                        <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-700 dark:text-gray-300">{l.CLIENT_IP || '—'}</code>
+                      </td>
+                      <td className="px-4 py-2"><Text className="text-sm text-gray-600 dark:text-gray-300">{l.REPORTED_CLIENT_TYPE || '—'}</Text></td>
+                      <td className="px-4 py-2">
+                        <Badge variant="flat" color={ok ? 'success' : 'danger'} className="text-xs">
+                          {ok ? 'Success' : (l.ERROR_MESSAGE || 'Failed')}
+                        </Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {/* Access audit — column set isn't typed (access_records: any[]), so the
+          panel introspects the first row's keys and degrades to honest empty. */}
+      <AccessAuditTable rows={accessAudit} />
+
+      {/* Create resource monitor (spend cap). Parent gates the trigger; the rail
+          is presentation-only and re-fetches the tab on success. */}
+      <ResourceMonitorCreateRail
+        isOpen={rmCreateOpen}
+        onClose={() => setRmCreateOpen(false)}
+        onCreated={() => setLocalRefresh((v) => v + 1)}
+      />
+    </div>
+  );
+}
+
+/**
+ * AccessAuditTable — renders the untyped /audit/access-history access_records
+ * by introspecting the keys of the first row. Numeric cells are localized;
+ * missing values render an honest "—" (never a fabricated 0).
+ */
+function AccessAuditTable({ rows }: { rows: any[] }) {
+  const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+  const formatCell = (v: unknown): string => {
+    if (v == null || v === '') return '—';
+    if (typeof v === 'number') return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    return String(v);
+  };
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-2">
+          <PiShieldCheckDuotone className="h-5 w-5 text-emerald-500" />
+          <Text className="font-semibold text-gray-900 dark:text-white">Access Audit History</Text>
+          {rows.length > 0 && (
+            <Badge variant="flat" color="success" className="text-xs">{rows.length}</Badge>
+          )}
+        </div>
+      </div>
+      <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+        {rows.length === 0 ? (
+          <div className="p-8 text-center">
+            <PiShieldCheckDuotone className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+            <Text className="text-gray-500">No access audit records</Text>
+            <Text className="text-sm text-gray-400">No object access recorded in this period, or the audit endpoint is unavailable</Text>
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/50">
+              <tr className="border-b border-gray-200 dark:border-gray-700">
+                {columns.map((c) => (
+                  <th key={c} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">
+                    {c.replace(/_/g, ' ')}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {rows.map((row, i) => (
+                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  {columns.map((c) => (
+                    <td key={c} className="px-4 py-2">
+                      <Text className="text-sm text-gray-900 dark:text-white truncate max-w-xs" title={String(row[c] ?? '')}>
+                        {formatCell(row[c])}
+                      </Text>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

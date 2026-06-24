@@ -32,6 +32,7 @@ import { useSearchParams } from 'next/navigation';
 import {
   Activity,
   ArrowRight,
+  Coins,
   ExternalLink,
   FolderKanban,
   Gauge,
@@ -52,12 +53,14 @@ import ServerMetricsPanel from '../../admin/ServerMetricsPanel';
 import RealAccessPanel from '../../admin/RealAccessPanel';
 import RoleGrantsPanel from '../../admin/RoleGrantsPanel';
 import PlatformHealthPanel from './PlatformHealthPanel';
+import CostGovernancePanel from './CostGovernancePanel';
 import ProjectsMonitoringPanel from '../access-center/components/ProjectsMonitoringPanel';
 
 type TabId =
   | 'health'
   | 'performance'
   | 'access'
+  | 'costGov'
   | 'projects'
   | 'featureGov'
   | 'apiHealth'
@@ -74,6 +77,7 @@ const TABS: TabDef[] = [
   { id: 'health', label: 'Platform Health', icon: HeartPulse },
   { id: 'performance', label: 'Performance', icon: Gauge },
   { id: 'access', label: 'Access Control', icon: Lock },
+  { id: 'costGov', label: 'Cost Governance', icon: Coins },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'featureGov', label: 'Entitlements & Feature Governance', icon: ToggleRight },
   { id: 'apiHealth', label: 'API Health', icon: Activity },
@@ -374,6 +378,34 @@ export default function AdministrationHub() {
             </p>
             <RoleGrantsPanel />
           </div>
+        </div>
+      )}
+
+      {/* Cost Governance — spend visibility + real warehouse cost-limit controls */}
+      {tab === 'costGov' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Continue in
+            </p>
+            <CtaRow>
+              <OpenLink
+                href={routes.accountOverview}
+                variant="secondary"
+                onClick={() => trackFeatureClick('open_account_overview', { from: 'costGov' })}
+              >
+                Account Overview · FinOps
+              </OpenLink>
+              <OpenLink
+                href={routes.observability.dashboard}
+                variant="secondary"
+                onClick={() => trackFeatureClick('open_observability', { from: 'costGov' })}
+              >
+                Open Observability
+              </OpenLink>
+            </CtaRow>
+          </div>
+          <CostGovernancePanel />
         </div>
       )}
 

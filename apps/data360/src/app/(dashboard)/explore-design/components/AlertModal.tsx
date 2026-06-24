@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import DesignDockPanel from './DesignDockPanel';
+import { useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 interface Props {
   isOpen: boolean;
@@ -126,6 +128,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = [], columns = [], onCreated }: Props) {
+  const { markStale } = useCacheInvalidationContext();
   const [mode, setMode] = useState<'templates' | 'custom'>('templates');
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [selectedColumn, setSelectedColumn] = useState('');
@@ -170,6 +173,7 @@ export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = 
         schema: sourceTable?.schema,
       });
       toast.success(`Alert "${name}" created`);
+      markStale([CACHE_KEYS.ALERTS]);
       onCreated?.();
       onClose();
     } catch (e: any) {

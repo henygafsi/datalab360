@@ -21,8 +21,9 @@ import SmartFilterBar from './SmartFilterBar';
 import AddWidgetPanel from './AddChartPanel';
 import ChartPaletteRail from './ChartPaletteRail';
 import BiSmartRightBar, { type BiPanelSection, type AiProposal } from './BiSmartRightBar';
-//import DashboardTemplates from './DashboardTemplates';
-//import type { DashboardTemplate } from './DashboardTemplates';
+import DashboardTemplates from './DashboardTemplates';
+import type { DashboardTemplate } from './DashboardTemplates';
+import CloneDashboardButton from './CloneDashboardButton';
 import type { AppliedFilter } from '../hooks/useSmartFilters';
 
 import {
@@ -50,6 +51,12 @@ import type {
 interface DashboardEditorProps {
   projectId: string;
   projectName: string;
+  /**
+   * Optional `?source_table=DB.SCHEMA.TABLE` prefill from the URL.
+   * When set, the add-chart panel opens once (one-shot) after the dashboard
+   * loads with that source pre-selected. Parsed as dot-separated db.schema.table.
+   */
+  initialSourceTable?: string;
 }
 
 /** Convert widget chart_config to ComponentConfig for ConfigurationModal */
@@ -153,7 +160,7 @@ function nextWidgetPosition(widgets: DashboardWidget[]): { x: number; y: number 
   return { x: 0, y: Math.max(...widgets.map((w) => w.position_y + w.height)) };
 }
 
-export default function DashboardEditor({ projectId, projectName }: DashboardEditorProps) {
+export default function DashboardEditor({ projectId, projectName, initialSourceTable }: DashboardEditorProps) {
   // Fire-and-forget analytics (R11/H10). The hook also auto-emits a PAGE_VIEW
   // for this per-project route; the explicit mount event below adds projectId.
   const { trackFeatureClick, trackTabSwitch } = useTrackEvent();
@@ -202,9 +209,17 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     chartType: DashboardChartType | null;
   } | null>(null);
   const [snapshotting, setSaving] = useState(false);
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
   const [crossWidgetFilter, setCrossWidgetFilter] = useState<Record<string, string>>({});
   const [isExporting, setIsExporting] = useState(false);
   const [drillWidget, setDrillWidget] = useState<DashboardWidget | null>(null);
+
+  // ?source_table= prefill: overrides the page-inferred defaultSource for the add
+  // flow and auto-opens the chart creator. One-shot — fires at most once per mount.
+  const [urlSourceOverride, setUrlSourceOverride] = useState<
+    { database: string; schema: string; table: string } | undefined
+  >(undefined);
+  const prefillFiredRef = useRef(false);
 
   // BiSmartRightBar — docked right panel that hosts widget config (no popup) +
   // runs / schedule / share / AI. Section + collapse persist to versioned keys.
@@ -285,6 +300,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   // forms so Database/Schema/Table (and their column lists) are pre-filled
   // instead of starting blank. Undefined when no widget has a complete source.
   const defaultSource = useMemo<{ database: string; schema: string; table: string } | undefined>(() => {
+    if (urlSourceOverride) return urlSourceOverride;
     const counts = new Map<string, { database: string; schema: string; table: string; n: number }>();
     for (const w of pageWidgets) {
       const c = w.chart_config;
@@ -299,7 +315,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
       if (!best || v.n > best.n) best = v;
     }
     return best ? { database: best.database, schema: best.schema, table: best.table } : undefined;
-  }, [pageWidgets]);
+  }, [pageWidgets, urlSourceOverride]);
 
   // Rule-based AI proposals for the right panel — deterministic, so the "AI"
   // section never errors. They reference the page's real tables when present.
@@ -312,7 +328,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
         {
           id: 'first-chart',
           title: 'Generate your first chart',
-          rationale: 'Describe what you want in the AI bar above — e.g. “monthly revenue by region” — and it builds a ready chart.',
+          rationale: 'Describe what you want in the AI bar above — e.g. "monthly revenue by region" — and it builds a ready chart.',
         },
         {
           id: 'scan-source',
@@ -336,7 +352,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
       {
         id: 'rls',
         title: 'Secure these reports (RLS)',
-        rationale: 'Apply row-level security so each viewer only sees the rows they’re entitled to.',
+        rationale: "Apply row-level security so each viewer only sees the rows they're entitled to.",
         href: '/governance/policies',
         hrefLabel: 'Open Policies',
       },
@@ -472,6 +488,19 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     [],
   );
 
+  // ?source_table=DB.SCHEMA.TABLE one-shot prefill: after the dashboard resolves
+  // and the first page is active, open the add-chart panel with that source.
+  // prefillFiredRef prevents double-fire on re-renders.
+  useEffect(() => {
+    if (prefillFiredRef.current || loading || !activePageId || !initialSourceTable) return;
+    const parts = initialSourceTable.split('.');
+    if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) return;
+    const [database, schema, table] = parts;
+    prefillFiredRef.current = true;
+    setUrlSourceOverride({ database, schema, table });
+    handleStartAdd('chart', 'bar');
+  }, [loading, activePageId, initialSourceTable, handleStartAdd]);
+
   // Save chart widget config from ConfigurationModal
   const handleSaveChartConfig = useCallback(
     async (config: ComponentConfig) => {
@@ -562,6 +591,47 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
       setWidgetResult(widget.widget_id, prefetchedData);
     }
   }, [activePageId, setWidgetResult, trackFeatureClick]);
+
+  // Duplicate widget — clone a widget into a new one on the same page. Reuses the
+  // existing POST /widgets (createWidget) with the source widget's full config,
+  // dropped below the stack. Carries over the source's already-rendered rows so
+  // the clone shows data immediately (no extra fetch round-trip). Gated upstream
+  // in the card by the 'create' action; surfaces backend errors honestly.
+  const handleDuplicateWidget = useCallback(
+    async (widget: DashboardWidget) => {
+      if (!activePageId) return;
+      const pos = nextWidgetPosition(pageWidgets);
+      const baseTitle = widget.title || 'Untitled';
+      const title = `${baseTitle} (copy)`;
+      try {
+        const response = await createWidget(projectId, {
+          page_id: activePageId,
+          widget_type: widget.widget_type,
+          chart_type: widget.chart_type ?? null,
+          title,
+          chart_config: widget.chart_config ?? null,
+          text_content: widget.text_content ?? null,
+          position_x: pos.x,
+          position_y: pos.y,
+          width: widget.width,
+          height: widget.height,
+          style: widget.style ?? null,
+        });
+        const cloned: DashboardWidget = {
+          ...widget,
+          widget_id: response.widget_id,
+          title,
+          position_x: pos.x,
+          position_y: pos.y,
+        };
+        handleWidgetAdded(cloned, results[widget.widget_id]?.data);
+        toast.success(`${baseTitle} duplicated`);
+      } catch (err) {
+        toast.error(getApiErrorMessage(err));
+      }
+    },
+    [projectId, activePageId, pageWidgets, results, handleWidgetAdded]
+  );
 
   // Save a NEW chart widget from the docked Configure form (add flow). The
   // ChartConfigModal hands back a ComponentConfig (same shape as the edit
@@ -744,51 +814,83 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     autoFetchedKeyRef.current = null;
   }, []);
 
-  // Apply template — create placeholder widgets from template config
-   /**
- const handleApplyTemplate = useCallback(
-    (template: DashboardTemplate) => {
-      if (!activePageId) return;
-      const templateWidgets: DashboardWidget[] = template.widgets.map((tw, i) => {
-        const yOffset = i * 4; // stack vertically
-        return {
-          widget_id: `template-${template.id}-${i}-${Date.now()}`,
-          page_id: activePageId,
-          widget_type: tw.widgetType,
-          chart_type: tw.config.chartType || null,
-          title: tw.title,
-          chart_config: {
-            database: '',
-            schema: '',
-            table: '',
-            x: tw.config.suggestedDimension || null,
-            measures: (tw.config.suggestedMeasures || []).map((col) => ({
-              column: col,
-              aggregator: 'SUM',
-            })),
-            filters: [],
-            groupBy: [],
-            limit: null,
-          },
-          position_x: 0,
-          position_y: yOffset,
-          width: tw.width,
-          height: tw.height,
+  // Apply template — PERSIST each template widget via POST /widgets (createWidget)
+  // so they are real, restorable, executable widgets (not local-only placeholders).
+  // Curated templates carry a data_source + measures + dimension, so the created
+  // widgets render real data immediately; widgets with no bound source fall back
+  // to the dashboard default db/schema and surface honestly as "needs config".
+  // Sequential so position_y stays deterministic; partial failures are reported.
+  const handleApplyTemplate = useCallback(
+    async (template: DashboardTemplate) => {
+      if (!activePageId || applyingTemplate) return;
+      setApplyingTemplate(true);
+      const baseY = pageWidgets.length
+        ? Math.max(...pageWidgets.map((w) => w.position_y + w.height))
+        : 0;
+      let created = 0;
+      let failed = 0;
+      for (let i = 0; i < template.widgets.length; i += 1) {
+        const tw = template.widgets[i];
+        const cfg = tw.config;
+        const isKpi = tw.widgetType === 'kpi_card';
+        const width = isKpi ? 4 : 12;
+        const height = isKpi ? 2 : 4;
+        const chartConfig: BIDashboardChartConfig = {
+          database: cfg.database || dashboard?.default_database || '',
+          schema: cfg.schema || dashboard?.default_schema || '',
+          table: cfg.table || '',
+          x: cfg.suggestedDimension || null,
+          measures: (cfg.suggestedMeasures || []).map((col) => ({
+            column: col,
+            aggregator: cfg.aggregator || 'SUM',
+          })),
+          filters: [],
+          groupBy: cfg.suggestedDimension ? [cfg.suggestedDimension] : [],
+          limit: cfg.rowLimit ?? null,
         };
-      });
-
-      setPages((prev) =>
-        prev.map((p) =>
-          p.page_id === activePageId
-            ? { ...p, widgets: [...p.widgets, ...templateWidgets] }
-            : p
-        )
-      );
-
-      toast.success(`Applied "${template.name}" template with ${template.widgets.length} widgets. Configure each widget's data source.`);
+        const posY = baseY + i * height;
+        const chartType: DashboardChartType | null =
+          tw.widgetType === 'chart' ? cfg.chartType || 'bar' : null;
+        try {
+          const response = await createWidget(projectId, {
+            page_id: activePageId,
+            widget_type: tw.widgetType,
+            chart_type: chartType,
+            title: tw.title,
+            chart_config: chartConfig,
+            position_x: 0,
+            position_y: posY,
+            width,
+            height,
+          });
+          handleWidgetAdded({
+            widget_id: response.widget_id,
+            page_id: activePageId,
+            widget_type: tw.widgetType,
+            chart_type: chartType,
+            title: tw.title,
+            chart_config: chartConfig,
+            position_x: 0,
+            position_y: posY,
+            width,
+            height,
+          });
+          created += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      setApplyingTemplate(false);
+      if (created > 0 && failed === 0) {
+        toast.success(`Applied "${template.name}" — ${created} widget${created === 1 ? '' : 's'} added.`);
+      } else if (created > 0) {
+        toast.error(`Applied "${template.name}" with ${failed} widget${failed === 1 ? '' : 's'} skipped.`);
+      } else {
+        toast.error(`Couldn't apply "${template.name}". Check your permissions and try again.`);
+      }
     },
-    [activePageId]
-  );**/
+    [activePageId, applyingTemplate, pageWidgets, dashboard, projectId, handleWidgetAdded]
+  );
 
   // Snapshot
   const handleSnapshot = useCallback(async () => {
@@ -1004,6 +1106,14 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
               <><Download className="h-3.5 w-3.5" /> Export JSON</>
             )}
           </Button>
+
+          {/* Save as / clone — forks this dashboard (pages + widgets) into a new
+              editable copy via the create-dashboard/page/widget endpoints. */}
+          <CloneDashboardButton
+            projectId={projectId}
+            projectName={projectName}
+            variant="button"
+          />
         </div>
       </div>
 
@@ -1076,12 +1186,19 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
         </div>
       )}
 
-      {/* Template Gallery (shown when page has no widgets)
-      {activePageId && pageWidgets.length === 0 && (
+      {/* Template Gallery — shown when the active page is empty and the role can
+          create widgets. Applying a template PERSISTS real widgets (POST /widgets)
+          via handleApplyTemplate; once widgets exist the gallery yields to the grid. */}
+      {activePageId && pageWidgets.length === 0 && canCreate && (
         <div className="mt-4">
+          {applyingTemplate && (
+            <p className="mb-2 flex items-center gap-1.5 text-xs text-cyan-600 dark:text-cyan-400" role="status">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying template...
+            </p>
+          )}
           <DashboardTemplates onApplyTemplate={handleApplyTemplate} />
         </div>
-      )}*/}
+      )}
 
       {/* Dashboard area: ChartPaletteRail (left, add charts) + Grid (center,
           click-empty-canvas to hide both rails) + BiSmartRightBar (right, hosts
@@ -1115,6 +1232,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
               onConfigureWidget={handleConfigureWidget}
               onDeleteWidget={handleDeleteWidget}
               onExecuteSingleWidget={handleExecuteSingle}
+              onDuplicateWidget={handleDuplicateWidget}
               onAddWidget={() => setShowAddWidget(true)}
               onLayoutChange={handleLayoutChange}
               crossWidgetFilter={crossWidgetFilter}

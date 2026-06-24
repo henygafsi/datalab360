@@ -71,6 +71,7 @@ import type { RightBarTab, FocusedAction } from './components/ContextRightBar';
 import { useIngestionTrace } from '@/hooks/useIngestionTrace';
 import EventTable from './components/EventTable';
 import DeploymentValidation from './components/DeploymentValidation';
+import ManageAccessButton from '@/app/shared/governance/ManageAccessButton';
 import AiGuidedModelButton from './components/ai-guided/AiGuidedModelButton';
 import AiGuidedModelWizard from './components/ai-guided/AiGuidedModelWizard';
 import ScanPrefillBanner, { type ScanSuggestion } from './components/ScanPrefillBanner';
@@ -657,7 +658,7 @@ const CompactSourceSelector: React.FC<{
                     </div>
                   ) : (
                     <div className="text-xs text-slate-500 mb-3">
-                      No score available — check console for API response shape
+                      Score not available
                     </div>
                   )}
 
@@ -988,6 +989,9 @@ export default function ExploreDesignPage() {
   // leaving the user on empty selectors.
   const scanDeepLink =
     searchParams.get('intent') === 'model' && searchParams.get('from') === 'scan';
+  // Data-Quality deep-link: ?intent=model&from=data-quality&table=X
+  // Pre-selects the matching source table once the catalog is loaded.
+  const urlTable = searchParams.get('table');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
   // Slide-1 redesign: inline wizard replaces the legacy project-creation popup.
@@ -1327,6 +1331,9 @@ export default function ExploreDesignPage() {
   // Maps local event ID → backend DDL event_id for add/remove tracking
   const ddlEventMapRef = useRef<Map<string, string>>(new Map());
   const prevEventIdsRef = useRef<Set<string>>(new Set());
+  // One-shot guard: fires at most once per page-load so the ?table= deep-link
+  // doesn't re-select on every schema reload.
+  const urlTableAppliedRef = useRef(false);
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -1508,6 +1515,25 @@ export default function ExploreDesignPage() {
       setShowAiGuidedWizard(true);
     }
   }, [pendingScanApply, selectedProjectId]);
+
+  // ?table= deep-link: pre-select the matching source table once the catalog
+  // is loaded. Fires at most once per page-load (urlTableAppliedRef guard).
+  // NOTE: tables only populate after project+database+schema are selected, so
+  // this is a no-op on a bare deep-link until the user browses to a schema.
+  useEffect(() => {
+    if (!urlTable || tables.length === 0 || urlTableAppliedRef.current) return;
+    const needle = urlTable.toLowerCase();
+    const match = tables.find(
+      (t) =>
+        t.table.toLowerCase() === needle ||
+        `${t.schema}.${t.table}`.toLowerCase() === needle ||
+        `${t.database}.${t.schema}.${t.table}`.toLowerCase() === needle,
+    );
+    if (!match) return;
+    urlTableAppliedRef.current = true;
+    setSelectedTable(match);
+    setActiveRightTab('actions');
+  }, [tables, urlTable]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Conflict Detection ────────────────────────────────────────────────────
   // Checks pending events for conflicts before deploy. Returns true if conflicts
@@ -2210,7 +2236,7 @@ export default function ExploreDesignPage() {
         if (!targetTableIds.has(selectedTable.id)) {
           if (error instanceof TableColumnsTimeoutError) {
             setColumnsLoadError({ kind: 'timeout', message: error.message });
-            toast.error('Snowflake query timed out');
+            toast.error('Query timed out');
           } else {
             const msg = (error as { message?: string })?.message || 'Failed to load columns';
             setColumnsLoadError({ kind: 'generic', message: msg });
@@ -3435,12 +3461,14 @@ export default function ExploreDesignPage() {
     }
     const toastId = toast.loading('Discovering relationships...');
     try {
+      // Backend requires top-level database+schema and tables as string names.
+      // Use the first table as the db/schema anchor (backend processes one scope
+      // per call); all selected tables are filtered by name within that scope.
+      const anchor = tables[0];
       const result = await discoverRelationships(selectedProjectId, {
-        tables: tables.map(t => ({
-          database: t.database,
-          schema: t.schema,
-          table_name: t.table,
-        })),
+        database: anchor.database,
+        schema: anchor.schema,
+        tables: tables.map(t => t.table),
       });
       toast.dismiss(toastId);
       const count = result?.relationships?.length || 0;
@@ -3841,6 +3869,9 @@ export default function ExploreDesignPage() {
               }}
               disabled={!selectedProjectId || isReadOnly}
             />
+
+            {/* Cross-page governed access — grant/revoke roles for this page. */}
+            <ManageAccessButton module="explore-design" page="explore-design" iconOnly objectLabel="Explore & Design" />
 
             {/* Primary action: Deploy — only thing besides search that stays
                 always-visible. Everything else lives in the overflow menu. */}
@@ -5530,7 +5561,7 @@ export default function ExploreDesignPage() {
         isOpen={showCreateTableModal}
         onClose={() => setShowCreateTableModal(false)}
         database={dwhTargetDatabase || selectedDatabase || ''}
-        schema={dwhTargetSchema || ''}
+        schema={dwhTargetSchema || (schemaKeys.length === 1 ? schemaKeys[0] : '') || ''}
         projectId={selectedProjectId!}
         initialTableType={createTableType}
         onTableCreated={(tableName: string, database: string, schema: string, columns: any[]) => {

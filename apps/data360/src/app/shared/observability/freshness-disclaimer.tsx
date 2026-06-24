@@ -30,7 +30,7 @@ export default function FreshnessDisclaimer({
       <PiClockCountdownDuotone className="mt-0.5 h-4 w-4 shrink-0" />
       <span>
         {detail ??
-          'Figures are sourced from Snowflake ACCOUNT_USAGE, which is delayed (typically up to ~45 minutes, and up to ~24h for storage/metering). Recent activity may not be reflected yet.'}
+          'Figures are sourced from the data platform usage data, which is delayed (typically up to ~45 minutes, and up to ~24h for storage/metering). Recent activity may not be reflected yet.'}
       </span>
     </div>
   );

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, memo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Button, Input, Badge, Loader, Select } from 'rizzui';
 import { Database as DatabaseIcon, FileText as FileTextIcon } from 'lucide-react';
 import { useCanPerform } from '@/hooks/useCanPerform';
@@ -71,6 +72,8 @@ function InlineError({ message, onDismiss }: { message: string; onDismiss?: () =
 }
 
 function SemanticModelsContent() {
+  const searchParams = useSearchParams();
+
   // System 2 Action-RBAC (module 'cortex', alias backend 'ai_intelligence').
   // Semantic-models registry actions: create, edit, delete, generate (all exist).
   // Fail-open while the allow-set loads (no flash of disabled).
@@ -135,6 +138,19 @@ function SemanticModelsContent() {
         .catch((err) => setCreateError(err instanceof Error ? `Could not load databases: ${err.message}` : 'Could not load databases'));
     }
   }, [showCreateModal, dbOptions.length]);
+
+  // Pre-fill database/schema from URL params on first open (additive, defensive).
+  // Callers that link to ?tab=semantic-models&database=X&schema=Y get the form
+  // pre-seeded without any extra API calls being fired before the modal opens.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!showCreateModal) return;
+    if (database) return; // already picked — do not override
+    const urlDb = searchParams.get('database') ?? '';
+    const urlSch = searchParams.get('schema') ?? '';
+    if (urlDb) setDatabase(urlDb);
+    if (urlDb && urlSch) setSchema(urlSch);
+  }, [showCreateModal]);
 
   // Load schemas when database changes
   useEffect(() => {

@@ -42,6 +42,19 @@ const STEP_ICONS: Record<DeploymentStep, React.ElementType> = {
   verify: CheckCircle2,
 };
 
+// Short labels so all 8 steps fit the docked panel width WITHOUT horizontal
+// scroll (full labels overflowed and hid the trailing steps + buttons).
+const STEP_SHORT: Record<DeploymentStep, string> = {
+  review: 'Review',
+  config: 'Config',
+  pre_checks: 'Checks',
+  dry_run: 'Dry Run',
+  sql_diff: 'Diff',
+  impact: 'Impact',
+  deploy: 'Deploy',
+  verify: 'Verify',
+};
+
 // ── Props ──
 interface DeploymentValidationProps {
   className?: string;
@@ -231,6 +244,71 @@ function StepFrame({ children }: { children: React.ReactNode }) {
 }
 
 // ── Inner content (consumes context) ──
+/**
+ * Compact governance + KPI strip under the stepper — for ANY governed model.
+ * Surfaces the deploy risk score, # objects, in-deploy policies, and the
+ * CROSS-PROJECT policy coverage (GET /gouvernance/policies/my-scope) so the user
+ * sees the governance posture before applying changes. Read-only; honest "—".
+ */
+function GovernanceKpiStrip() {
+  const { results, events } = useDeploymentContext();
+  const [crossPolicies, setCrossPolicies] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    import('@/app/services/governance/policies')
+      .then((m) => m.getMyScopePolicies())
+      .then((r) => { if (alive) setCrossPolicies(r.total); })
+      .catch(() => { if (alive) setCrossPolicies(null); });
+    return () => { alive = false; };
+  }, []);
+
+  const policyCount = events.filter((e) => /POLICY_(APPLIED|ADDED)$/.test(e.type)).length;
+  const objectCount = events.filter((e) => /(CREATE_TABLE|TABLE_CREATED)/.test(e.type)).length;
+  const risk = results.riskAssessment;
+  const riskTone =
+    risk == null
+      ? 'text-slate-400'
+      : risk.level === 'HIGH'
+        ? 'text-red-600 dark:text-red-400'
+        : risk.level === 'MEDIUM'
+          ? 'text-amber-600 dark:text-amber-400'
+          : 'text-green-600 dark:text-green-400';
+
+  const Kpi = ({ label, value, tone }: { label: string; value: React.ReactNode; tone?: string }) => (
+    <div className="flex min-w-0 flex-col">
+      <span className={cn('text-sm font-semibold leading-tight tabular-nums', tone ?? 'text-slate-700 dark:text-slate-200')}>
+        {value}
+      </span>
+      <span className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        {label}
+      </span>
+    </div>
+  );
+
+  return (
+    <div className="flex items-center gap-5 border-b border-slate-200 bg-white px-4 py-2 dark:border-slate-700 dark:bg-slate-900">
+      <Kpi label="Risk" value={risk ? `${risk.score}/100` : '—'} tone={riskTone} />
+      <Kpi label="Objects" value={objectCount || '—'} />
+      <Kpi label="Policies" value={policyCount || '—'} />
+      <Kpi label="Cross-project" value={crossPolicies != null ? crossPolicies : '—'} />
+      {risk && (
+        <span
+          className={cn(
+            'ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
+            risk.level === 'HIGH'
+              ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+              : risk.level === 'MEDIUM'
+                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                : 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+          )}
+        >
+          {risk.level} risk
+        </span>
+      )}
+    </div>
+  );
+}
+
 function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
   const {
     currentStep,
@@ -298,11 +376,16 @@ function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
   }, [results.deploymentOutcome, projectId]);
 
   return (
-    <div className="flex h-full flex-col">
-      {/* ── Stepper Header with sliding gradient indicator ── */}
-      <div className="border-b border-slate-200 bg-white/70 px-6 py-4 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/70">
+    // Fill the (already height-bounded) RightTabPanel body exactly so the step
+    // content scrolls INTERNALLY and the Back/Next footer pins to the panel
+    // bottom — instead of the footer living at the end of a long scrolling event
+    // list (where it was unreachable). The ancestor chain (ErrorBoundary →
+    // PermissionGate) passes height through, so h-full resolves.
+    <div className="flex h-full min-h-0 flex-col">
+      {/* ── Floating horizontal stepper (minimized header) ── */}
+      <div className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 px-3 py-2 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/80">
         <LayoutGroup id="deployment-stepper">
-          <div className="flex items-center gap-1 overflow-x-auto">
+          <div className="flex w-full items-center gap-0.5 rounded-xl border border-slate-200/70 bg-slate-50/70 px-2 py-1.5 shadow-sm dark:border-slate-700/70 dark:bg-slate-800/40">
             {DEPLOYMENT_STEPS.map((step, idx) => {
               const Icon = STEP_ICONS[step.key];
               const isActive = idx === stepIndex;
@@ -322,7 +405,7 @@ function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
                         backgroundColor: isCompleted ? '#3b82f6' : '#e2e8f0',
                       }}
                       transition={{ duration: 0.3 }}
-                      className="h-px min-w-[16px] max-w-[40px] flex-1 dark:!bg-slate-700"
+                      className="h-px min-w-[4px] flex-1 dark:!bg-slate-700"
                     />
                   )}
                   <motion.button
@@ -347,7 +430,7 @@ function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
                           : `Upcoming step: ${step.label}`
                     }
                     className={cn(
-                      'relative flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+                      'relative flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-1.5 py-1 text-[11px] font-medium transition-colors',
                       isClickable && !isActive && 'cursor-pointer hover:bg-slate-100/70 dark:hover:bg-slate-800/60',
                       !isClickable && 'cursor-not-allowed',
                       isActive
@@ -367,7 +450,7 @@ function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
                     )}
                     <div
                       className={cn(
-                        'relative flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold transition-colors',
+                        'relative flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold transition-colors',
                         isActive
                           ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-sm shadow-blue-500/30'
                           : isCompleted
@@ -378,14 +461,14 @@ function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
                       )}
                     >
                       {stepHadError && !isActive ? (
-                        <AlertTriangle className="h-3 w-3" />
+                        <AlertTriangle className="h-2.5 w-2.5" />
                       ) : isCompleted ? (
-                        <CheckCircle2 className="h-3 w-3" />
+                        <CheckCircle2 className="h-2.5 w-2.5" />
                       ) : (
-                        <Icon className="h-3 w-3" />
+                        <Icon className="h-2.5 w-2.5" />
                       )}
                     </div>
-                    <span className="relative hidden sm:inline">{step.label}</span>
+                    <span className="relative">{STEP_SHORT[step.key] ?? step.label}</span>
                   </motion.button>
                 </React.Fragment>
               );
@@ -393,6 +476,9 @@ function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
           </div>
         </LayoutGroup>
       </div>
+
+      {/* Governance + KPI strip (risk · objects · policies · cross-project) */}
+      <GovernanceKpiStrip />
 
       {/* ── Step Content (wrapped in StepFrame for cross-step banners) ── */}
       {/* Modal mode caps the scroll area to the viewport (80vh). Embedded mode
@@ -422,10 +508,12 @@ function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
             </motion.div>
           </AnimatePresence>
         </StepFrame>
+      </div>
 
-        {/* Sticky bottom nav */}
-        {showGlobalNav && (
-          <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3 dark:border-slate-700 dark:bg-slate-900">
+      {/* Always-visible footer nav — pinned below the scrolling step content so
+          Back/Next stay reachable without scrolling past the whole event list. */}
+      {showGlobalNav && (
+        <div className="shrink-0 z-10 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3 dark:border-slate-700 dark:bg-slate-900">
             <div className="flex items-center gap-3">
               {stepIndex > 0 ? (
                 <motion.div whileHover={{ x: -2 }} whileTap={{ scale: 0.97 }}>
@@ -439,7 +527,7 @@ function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
               )}
               {/* Draft-saved indicator — tells the user their progress is
                   persisted and survives closing the window. */}
-              {draftSavedAt !== null && (
+              {draftSavedAt !== null ? (
                 <span
                   className="inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500"
                   title={`Your progress is saved locally — close and resume any time within 24h. Last saved ${formatRelative(draftSavedAt)}.`}
@@ -447,7 +535,19 @@ function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
                   <CheckCircle2 className="h-3 w-3 text-green-500" />
                   Progress saved · step {stepIndex + 1} of {DEPLOYMENT_STEPS.length}
                 </span>
-              )}
+              ) : currentStep === 'review' ? (
+                // On the first step nothing is draft-saved yet, but the deploy
+                // plan itself lives in the project's event store — so leaving
+                // and returning rebuilds this review automatically. Tell the
+                // user so it doesn't feel ephemeral.
+                <span
+                  className="inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500"
+                  title="Your deploy plan is part of this project and persists. Leave and come back any time — it rebuilds from your saved model. Progress is also saved locally once you advance past Review."
+                >
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                  Deploy plan saved with project
+                </span>
+              ) : null}
             </div>
             <div className="flex items-center gap-3">
               {/* Inline hint when blocked, so the user understands WHY Next is greyed */}
@@ -488,7 +588,6 @@ function DeploymentContent({ embedded = false }: { embedded?: boolean }) {
             </div>
           </div>
         )}
-      </div>
     </div>
   );
 }

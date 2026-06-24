@@ -20,6 +20,7 @@
  */
 
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 
 // ============================================
 // TYPES
@@ -30,7 +31,7 @@ export type VersionStatus = 'active' | 'superseded' | 'rolled_back';
 export type RunStatus = 'running' | 'completed' | 'failed';
 export type TriggerType = 'manual' | 'scheduled';
 export type DeploymentStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'ACTIVE' | 'SCHEDULED';
-export type ContributorRole = 'viewer' | 'editor' | 'admin';
+export type ContributorRole = 'owner' | 'editor' | 'viewer';
 
 export interface WorkflowStep {
   step_order: number;
@@ -136,7 +137,7 @@ export interface WorkflowDeployment {
  * Get all workflows for the authenticated user
  */
 export async function getWorkflows(): Promise<Workflow[]> {
-  const response = await apiClient.get('/workflow');
+  const response = await apiClient.get(API.workflow.create());
   return response.data.workflows || [];
 }
 
@@ -148,7 +149,7 @@ export async function createWorkflow(workflow: {
   steps: WorkflowStep[];
   project_id?: string;
 }): Promise<{ message: string; workflow_name: string; workflow_id?: string }> {
-  const response = await apiClient.post('/workflow', workflow);
+  const response = await apiClient.post(API.workflow.create(), workflow);
   return response.data;
 }
 
@@ -159,7 +160,7 @@ export async function updateWorkflow(workflow: {
   workflow_name: string;
   steps: WorkflowStep[];
 }): Promise<{ message: string; workflow_name: string }> {
-  const response = await apiClient.post('/workflow', workflow);
+  const response = await apiClient.post(API.workflow.create(), workflow);
   return response.data;
 }
 
@@ -171,7 +172,7 @@ export async function renameWorkflow(
   newWorkflowName: string
 ): Promise<{ message: string }> {
   const response = await apiClient.post(
-    '/workflow',
+    API.workflow.create(),
     { old_workflow_name: oldWorkflowName, new_workflow_name: newWorkflowName }
   );
   return response.data;
@@ -182,7 +183,7 @@ export async function renameWorkflow(
  */
 export async function executeWorkflow(workflowId: string): Promise<{ message: string; task_id?: string }> {
   const response = await apiClient.post(
-    `/workflow/${encodeURIComponent(workflowId)}/execute`,
+    API.workflow.execute(workflowId),
     {}
   );
   return response.data;
@@ -196,7 +197,7 @@ export async function scheduleWorkflow(
   cronSchedule: 'hourly' | 'daily' | 'weekly' | 'monthly'
 ): Promise<{ message: string }> {
   const response = await apiClient.post(
-    `/workflow/${encodeURIComponent(workflowId)}/schedule`,
+    API.workflow.schedule(workflowId),
     { cron_schedule: cronSchedule }
   );
   return response.data;
@@ -207,7 +208,7 @@ export async function scheduleWorkflow(
  */
 export async function suspendTask(workflowId: string): Promise<{ message: string }> {
   const response = await apiClient.post(
-    `/workflow/${encodeURIComponent(workflowId)}/schedule/pause`,
+    API.workflow.schedulePause(workflowId),
     {}
   );
   return response.data;
@@ -218,7 +219,7 @@ export async function suspendTask(workflowId: string): Promise<{ message: string
  */
 export async function resumeTask(workflowId: string): Promise<{ message: string }> {
   const response = await apiClient.post(
-    `/workflow/${encodeURIComponent(workflowId)}/schedule/resume`,
+    API.workflow.scheduleResume(workflowId),
     {}
   );
   return response.data;
@@ -245,7 +246,7 @@ export async function getWorkflowVersions(
   if (options?.include_rolled_back) params.append('include_rolled_back', 'true');
 
   const response = await apiClient.get(
-    `/workflow/${workflowId}/versions?${params.toString()}`
+    `${API.workflow.versions(workflowId)}?${params.toString()}`
   );
   return response.data;
 }
@@ -263,7 +264,7 @@ export async function createWorkflowVersion(
   status: VersionStatus;
 }> {
   const response = await apiClient.post(
-    `/workflow/${workflowId}/versions`,
+    API.workflow.versions(workflowId),
     options || {}
   );
   return response.data;
@@ -284,7 +285,7 @@ export async function rollbackWorkflow(
   message: string;
 }> {
   const response = await apiClient.post(
-    `/projects/${workflowId}/rollback`,
+    API.projects.rollback(workflowId),
     { target_version_id: versionId, reason }
   );
   return response.data;
@@ -310,7 +311,7 @@ export async function getWorkflowRuns(
   if (options?.status) params.append('status', options.status);
 
   const response = await apiClient.get(
-    `/workflow/${workflowId}/runs?${params.toString()}`
+    `${API.workflow.runs(workflowId)}?${params.toString()}`
   );
   return response.data;
 }
@@ -352,7 +353,7 @@ export async function scheduleDeployment(options: {
 
   // Step 1: Create the deployment
   const createResponse = await apiClient.post(
-    `/workflow/${encodeURIComponent(options.workflow_id)}/deployments`,
+    API.workflow.deployments(options.workflow_id),
     deploymentPayload
   );
 
@@ -362,7 +363,7 @@ export async function scheduleDeployment(options: {
   if (isImmediate && deploymentId) {
     try {
       await apiClient.post(
-        `/workflow/${encodeURIComponent(options.workflow_id)}/deployments/${deploymentId}/execute`,
+        API.workflow.executeDeployment(options.workflow_id, deploymentId),
         { rollback_on_error: true }
       );
       return {
@@ -404,7 +405,7 @@ export async function approveDeployment(workflowId: string, eventId: string, com
   approved_by: string;
 }> {
   const response = await apiClient.post(
-    `/workflow/${encodeURIComponent(workflowId)}/deployments/${encodeURIComponent(eventId)}/approve`,
+    API.workflow.approveDeployment(workflowId, eventId),
     { comment: comment || '' }
   );
   return {
@@ -431,7 +432,7 @@ export async function rejectDeployment(
   reason?: string;
 }> {
   const response = await apiClient.post(
-    `/workflow/${encodeURIComponent(workflowId)}/deployments/${encodeURIComponent(eventId)}/reject`,
+    API.workflow.rejectDeployment(workflowId, eventId),
     { reason: reason || '' }
   );
   return {
@@ -455,7 +456,7 @@ export async function activateDeployment(workflowId: string, eventId: string): P
   activated_by: string;
 }> {
   const response = await apiClient.post(
-    `/workflow/${encodeURIComponent(workflowId)}/deployments/${encodeURIComponent(eventId)}/execute`,
+    API.workflow.executeDeployment(workflowId, eventId),
     { rollback_on_error: true }
   );
   return {
@@ -490,7 +491,7 @@ export async function getWorkflowDeployments(options?: {
   if (options?.limit) params.append('limit', String(options.limit));
 
   const response = await apiClient.get(
-    `/workflow/${encodeURIComponent(workflowId)}/deployments?${params.toString()}`,
+    `${API.workflow.deployments(workflowId)}?${params.toString()}`,
     { timeout: 15000 }
   );
 
@@ -564,39 +565,47 @@ function getDeploymentActions(status: string): ('approve' | 'reject' | 'activate
 // ============================================
 
 /**
- * Get contributors for a workflow
+ * Get contributors for a workflow.
+ * Workflow-scoped route GET /workflow/{id}/contributors (documented real hook).
+ * Tolerates both `{ contributors: [...] }` and a bare array response shape.
  */
 export async function getWorkflowContributors(workflowId: string): Promise<WorkflowContributor[]> {
   const response = await apiClient.get(
-    `/projects/${workflowId}/contributors`
+    API.workflow.contributors(workflowId)
   );
-  return response.data.contributors || [];
+  const raw = response.data?.contributors ?? response.data ?? [];
+  return Array.isArray(raw) ? (raw as WorkflowContributor[]) : [];
 }
 
 /**
- * Add a contributor to a workflow
+ * Add a contributor to a workflow — POST /workflow/{id}/contributors.
+ * Sends both `username` and `user_name` so we match the backend field name
+ * regardless of which the route reads.
  */
 export async function addWorkflowContributor(
   workflowId: string,
   userName: string,
   role: ContributorRole
-): Promise<{ message: string; contributor_id: string }> {
+): Promise<{ message: string; contributor_id?: string }> {
   const response = await apiClient.post(
-    `/projects/${workflowId}/contributors`,
-    { user_name: userName, role }
+    API.workflow.contributors(workflowId),
+    { username: userName, user_name: userName, role }
   );
   return response.data;
 }
 
 /**
- * Remove a contributor from a workflow
+ * Remove a contributor from a workflow.
+ * Uses the WORKFLOW-scoped route DELETE /workflow/{id}/contributors/{username}
+ * (a documented candidate hook). The projects-scoped delete is NOT wired in the
+ * router, so callers should self-disable this action on a 404/501.
  */
 export async function removeWorkflowContributor(
   workflowId: string,
   username: string
 ): Promise<{ message: string }> {
   const response = await apiClient.delete(
-    `/projects/${workflowId}/contributors/${encodeURIComponent(username)}`
+    API.workflow.contributor(workflowId, username)
   );
   return response.data;
 }
@@ -615,7 +624,7 @@ export async function initializeTables(): Promise<{
   tables_created: string[];
 }> {
   const response = await apiClient.post(
-    '/workflow/setup/initialize-tables',
+    API.workflow.setupInitializeTables(),
     {}
   );
   return response.data;
@@ -707,7 +716,7 @@ export interface GitRepositoryDetail extends GitRepository {
 }
 
 export async function listGitRepositories(): Promise<GitRepository[]> {
-  const res = await apiClient.get('/workflow/git/repositories');
+  const res = await apiClient.get(API.workflow.gitRepositories());
   return res.data?.data || res.data || [];
 }
 
@@ -717,32 +726,32 @@ export async function createGitRepository(params: {
   api_integration?: string;
   secret?: string;
 }): Promise<{ message: string }> {
-  const res = await apiClient.post('/workflow/git/repositories', params);
+  const res = await apiClient.post(API.workflow.gitRepositories(), params);
   return res.data;
 }
 
 export async function describeGitRepository(name: string): Promise<GitRepositoryDetail> {
-  const res = await apiClient.get(`/workflow/git/repositories/${encodeURIComponent(name)}`);
+  const res = await apiClient.get(API.workflow.gitRepository(name));
   return res.data?.data || res.data;
 }
 
 export async function listGitBranches(repoName: string): Promise<string[]> {
-  const res = await apiClient.get(`/workflow/git/repositories/${encodeURIComponent(repoName)}/branches`);
+  const res = await apiClient.get(API.workflow.gitRepositoryBranches(repoName));
   return res.data?.data || res.data || [];
 }
 
 export async function listGitTags(repoName: string): Promise<string[]> {
-  const res = await apiClient.get(`/workflow/git/repositories/${encodeURIComponent(repoName)}/tags`);
+  const res = await apiClient.get(API.workflow.gitRepositoryTags(repoName));
   return res.data?.data || res.data || [];
 }
 
 export async function fetchGitRepository(repoName: string): Promise<{ message: string }> {
-  const res = await apiClient.post(`/workflow/git/repositories/${encodeURIComponent(repoName)}/fetch`);
+  const res = await apiClient.post(API.workflow.gitRepositoryFetch(repoName));
   return res.data;
 }
 
 export async function dropGitRepository(name: string): Promise<{ message: string }> {
-  const res = await apiClient.delete(`/workflow/git/repositories/${encodeURIComponent(name)}`);
+  const res = await apiClient.delete(API.workflow.gitRepository(name));
   return res.data;
 }
 
@@ -760,7 +769,7 @@ export interface ComputePool {
 }
 
 export async function listComputePools(): Promise<ComputePool[]> {
-  const res = await apiClient.get('/cortex/snowpark/compute-pools');
+  const res = await apiClient.get(API.cortex.snowparkComputePools());
   return res.data?.data || res.data || [];
 }
 
@@ -772,7 +781,7 @@ export async function createComputePool(params: {
   auto_resume?: boolean;
   auto_suspend_secs?: number;
 }): Promise<{ message: string }> {
-  const res = await apiClient.post('/cortex/snowpark/compute-pools', params);
+  const res = await apiClient.post(API.cortex.snowparkComputePools(), params);
   return res.data;
 }
 
@@ -783,12 +792,12 @@ export async function alterComputePool(name: string, params: {
   max_nodes?: number;
   auto_suspend_secs?: number;
 }): Promise<{ message: string }> {
-  const res = await apiClient.patch(`/workflow/compute-pools/${encodeURIComponent(name)}`, params);
+  const res = await apiClient.patch(API.workflow.computePool(name), params);
   return res.data;
 }
 
 export async function dropComputePool(name: string): Promise<{ message: string }> {
-  const res = await apiClient.delete(`/cortex/snowpark/compute-pools/${encodeURIComponent(name)}`);
+  const res = await apiClient.delete(API.cortex.snowparkComputePool(name));
   return res.data;
 }
 
@@ -824,7 +833,7 @@ export interface ContainerServiceStatus {
 }
 
 export async function listContainerServices(): Promise<ContainerService[]> {
-  const res = await apiClient.get('/cortex/snowpark/services');
+  const res = await apiClient.get(API.cortex.snowparkServices());
   return res.data?.data || res.data || [];
 }
 
@@ -835,29 +844,29 @@ export async function createContainerService(params: {
   min_instances?: number;
   max_instances?: number;
 }): Promise<{ message: string }> {
-  const res = await apiClient.post('/cortex/snowpark/services', params);
+  const res = await apiClient.post(API.cortex.snowparkServices(), params);
   return res.data;
 }
 
 // TODO: no exact backend route for GET /cortex/snowpark/services/{name} exists yet
 export async function describeContainerService(name: string): Promise<ContainerServiceDetail> {
-  const res = await apiClient.get(`/cortex/snowpark/services/${encodeURIComponent(name)}`);
+  const res = await apiClient.get(API.cortex.snowparkService(name));
   return res.data?.data || res.data;
 }
 
 export async function getContainerServiceStatus(name: string): Promise<ContainerServiceStatus> {
-  const res = await apiClient.get(`/cortex/snowpark/services/${encodeURIComponent(name)}/status`);
+  const res = await apiClient.get(API.cortex.snowparkServiceStatus(name));
   return res.data?.data || res.data;
 }
 
 export async function getContainerServiceLogs(name: string, instanceId?: string): Promise<string[]> {
   const params = instanceId ? { instance_id: instanceId } : {};
-  const res = await apiClient.get(`/cortex/snowpark/services/${encodeURIComponent(name)}/logs`, { params });
+  const res = await apiClient.get(API.cortex.snowparkServiceLogs(name), { params });
   return res.data?.data || res.data || [];
 }
 
 export async function dropContainerService(name: string): Promise<{ message: string }> {
-  const res = await apiClient.delete(`/cortex/snowpark/services/${encodeURIComponent(name)}`);
+  const res = await apiClient.delete(API.cortex.snowparkService(name));
   return res.data;
 }
 
@@ -880,7 +889,7 @@ export interface NotebookExecutionResult {
 }
 
 export async function listNotebooks(): Promise<Notebook[]> {
-  const res = await apiClient.get('/workflow/notebooks');
+  const res = await apiClient.get(API.workflow.notebooks());
   return res.data?.data || res.data || [];
 }
 
@@ -890,12 +899,12 @@ export async function createNotebook(params: {
   schema: string;
   warehouse?: string;
 }): Promise<{ message: string }> {
-  const res = await apiClient.post('/workflow/notebooks', params);
+  const res = await apiClient.post(API.workflow.notebooks(), params);
   return res.data;
 }
 
 export async function executeNotebook(name: string): Promise<{ message: string; result?: NotebookExecutionResult }> {
-  const res = await apiClient.post(`/workflow/notebooks/${encodeURIComponent(name)}/execute`);
+  const res = await apiClient.post(API.workflow.notebookExecute(name));
   return res.data;
 }
 
@@ -903,12 +912,12 @@ export async function alterNotebook(name: string, params: {
   warehouse?: string;
   comment?: string;
 }): Promise<{ message: string }> {
-  const res = await apiClient.patch(`/workflow/notebooks/${encodeURIComponent(name)}`, params);
+  const res = await apiClient.patch(API.workflow.notebook(name), params);
   return res.data;
 }
 
 export async function dropNotebook(name: string): Promise<{ message: string }> {
-  const res = await apiClient.delete(`/workflow/notebooks/${encodeURIComponent(name)}`);
+  const res = await apiClient.delete(API.workflow.notebook(name));
   return res.data;
 }
 
@@ -937,7 +946,7 @@ export async function runAdHocSQL(params: {
   database?: string;
   schema?: string;
 }): Promise<SqlQueryResult> {
-  const res = await apiClient.post('/workflow/run-sql', params);
+  const res = await apiClient.post(API.workflow.runSql(), params);
   return res.data?.data || res.data;
 }
 
@@ -946,7 +955,7 @@ export async function runAdHocPython(params: {
   warehouse?: string;
   packages?: string[];
 }): Promise<PythonExecutionResult> {
-  const res = await apiClient.post('/workflow/run-python', params);
+  const res = await apiClient.post(API.workflow.runPython(), params);
   return res.data?.data || res.data;
 }
 
@@ -969,12 +978,12 @@ export interface ActionTemplate {
 }
 
 export async function getWorkflowCapabilities(): Promise<WorkflowCapabilities> {
-  const res = await apiClient.get('/workflow/capabilities');
+  const res = await apiClient.get(API.workflow.capabilities());
   return res.data;
 }
 
 export async function getWorkflowActionTemplates(): Promise<{ data: ActionTemplate[]; count: number }> {
-  const res = await apiClient.get('/workflow/action-templates');
+  const res = await apiClient.get(API.workflow.actionTemplates());
   return res.data;
 }
 
@@ -985,7 +994,7 @@ export async function createWorkflowActionTemplate(payload: {
   description?: string;
   parameters?: Record<string, any>;
 }): Promise<Record<string, any>> {
-  const res = await apiClient.post('/workflow/action-templates', payload);
+  const res = await apiClient.post(API.workflow.createActionTemplate(), payload);
   return res.data;
 }
 
@@ -1014,8 +1023,195 @@ export async function runWorkflowCloneDataTests(
   const params = new URLSearchParams();
   connectorIds.forEach((id) => params.append('connector_ids', id));
   params.append('max_tables', String(maxTables));
-  const res = await apiClient.get(`/workflow/${workflowId}/clone-data-tests?${params.toString()}`);
+  const res = await apiClient.get(`${API.workflow.cloneDataTests(workflowId)}?${params.toString()}`);
   return res.data;
+}
+
+// =============================================================================
+// Per-block SQL preview (dry-run) — render a block's SQL from its params
+// =============================================================================
+
+// POST /workflow/blocks/{block_type}/render-sql — PURE render (no execution):
+// fills the block's query_template with the supplied params and returns the SQL
+// string. Many block types (sources, AI/ML, infra such as compute_pool /
+// container_service / notebook_run) carry NO query_template, so the backend
+// returns 404 for them — callers MUST treat 404/501 as "preview not available
+// for this block type", not as an error. The rendered SQL is a PREVIEW only:
+// FE config keys may not map 1:1 to backend template params, so surface it
+// read-only and do not assert it is byte-identical to what the block will run.
+// TODO: lift to api-contracts as API.workflow.renderBlockSql(blockType).
+const WORKFLOW_RENDER_SQL_PATH = (blockType: string) =>
+  `/workflow/blocks/${encodeURIComponent(blockType)}/render-sql`;
+
+export interface RenderBlockSqlResult {
+  sql: string;
+  block_type?: string;
+}
+
+export async function renderBlockSql(
+  blockType: string,
+  params: Record<string, unknown>,
+): Promise<RenderBlockSqlResult> {
+  const res = await apiClient.post(WORKFLOW_RENDER_SQL_PATH(blockType), { params });
+  const d: any = res.data?.data ?? res.data;
+  const sql =
+    typeof d === 'string'
+      ? d
+      : d?.sql ?? d?.rendered_sql ?? d?.query ?? '';
+  return { sql: String(sql || ''), block_type: d?.block_type ?? blockType };
+}
+
+// =============================================================================
+// Lifecycle readiness — pre-deploy preconditions + post-execute verification
+// =============================================================================
+
+// POST /workflow/{workflow_id}/pre-check — preconditions BEFORE a deploy:
+//   source objects exist, target schema writable, warehouse available.
+// POST /workflow/{workflow_id}/post-verify — AFTER an execute: per-target-block
+//   row counts + task outcome (the "did each block actually produce data" gate).
+// Both are documented candidate hooks (workflow-module.md) with no captured
+// response in the docs, so the normalizers below are deliberately tolerant of
+// several shapes. Callers MUST treat 404/501 as "not available on this backend"
+// (self-disable), not as an error.
+// TODO: lift to api-contracts as API.workflow.preCheck(id) / postVerify(id).
+const WORKFLOW_PRE_CHECK_PATH = (workflowId: string) =>
+  `/workflow/${encodeURIComponent(workflowId)}/pre-check`;
+const WORKFLOW_POST_VERIFY_PATH = (workflowId: string) =>
+  `/workflow/${encodeURIComponent(workflowId)}/post-verify`;
+
+/** One precondition / verification line, normalized from a loose backend shape. */
+export interface ReadinessCheck {
+  name: string;
+  /** true = pass, false = fail, null = unknown / warning. */
+  ok: boolean | null;
+  message?: string;
+}
+
+export interface WorkflowPreCheckResult {
+  /** Overall gate. null when the backend did not return an aggregate. */
+  ok: boolean | null;
+  checks: ReadinessCheck[];
+}
+
+export interface WorkflowBlockVerification {
+  block: string;
+  /** Rows produced by this block's target, or null when not reported. */
+  rows: number | null;
+  ok: boolean | null;
+  message?: string;
+}
+
+export interface WorkflowPostVerifyResult {
+  ok: boolean | null;
+  /** TASK_HISTORY outcome string (e.g. SUCCEEDED / FAILED), when reported. */
+  task_outcome: string | null;
+  blocks: WorkflowBlockVerification[];
+}
+
+function asBool(v: unknown): boolean | null {
+  if (v === true || v === false) return v;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    if (['ok', 'pass', 'passed', 'true', 'success', 'succeeded', 'yes'].includes(s)) return true;
+    if (['fail', 'failed', 'false', 'error', 'no'].includes(s)) return false;
+  }
+  return null;
+}
+
+function asNum(v: unknown): number | null {
+  const n = v == null || v === '' ? NaN : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Coerce an array-of-objects OR a name->value map into ReadinessCheck rows. */
+function normalizeChecks(raw: unknown): ReadinessCheck[] {
+  if (Array.isArray(raw)) {
+    return raw.map((c: any, i) => {
+      if (c && typeof c === 'object') {
+        return {
+          name: String(c.name ?? c.check ?? c.label ?? c.key ?? c.precondition ?? `Check ${i + 1}`),
+          ok: asBool(c.ok ?? c.passed ?? c.success ?? c.status ?? c.result),
+          message: c.message ?? c.detail ?? c.reason ?? c.error ?? undefined,
+        };
+      }
+      return { name: `Check ${i + 1}`, ok: asBool(c) };
+    });
+  }
+  if (raw && typeof raw === 'object') {
+    return Object.entries(raw as Record<string, unknown>).map(([k, v]) => {
+      if (v && typeof v === 'object') {
+        const o = v as any;
+        return {
+          name: k,
+          ok: asBool(o.ok ?? o.passed ?? o.success ?? o.status ?? o.result),
+          message: o.message ?? o.detail ?? o.reason ?? undefined,
+        };
+      }
+      return { name: k, ok: asBool(v) };
+    });
+  }
+  return [];
+}
+
+/**
+ * Run pre-deployment preconditions for a saved workflow.
+ * `warehouse` (optional) lets the backend validate a specific warehouse's
+ * availability. Throws on transport errors; callers self-disable on 404/501.
+ */
+export async function preCheckWorkflow(
+  workflowId: string,
+  warehouse?: string,
+): Promise<WorkflowPreCheckResult> {
+  const res = await apiClient.post(
+    WORKFLOW_PRE_CHECK_PATH(workflowId),
+    warehouse ? { warehouse } : {},
+  );
+  const d: any = res.data?.data ?? res.data ?? {};
+  const checksRaw = d.checks ?? d.preconditions ?? d.results ?? d.conditions ?? d.items ?? d;
+  const checks = normalizeChecks(
+    // when the top-level object IS the map of checks, drop the aggregate keys
+    checksRaw === d ? omitAggregateKeys(d) : checksRaw,
+  );
+  return {
+    ok: asBool(d.ok ?? d.passed ?? d.ready ?? d.success),
+    checks,
+  };
+}
+
+/** Strip well-known aggregate keys so the remainder can be read as checks. */
+function omitAggregateKeys(o: Record<string, unknown>): Record<string, unknown> {
+  const drop = new Set(['ok', 'passed', 'ready', 'success', 'status', 'message', 'workflow_id']);
+  return Object.fromEntries(Object.entries(o).filter(([k]) => !drop.has(k)));
+}
+
+/**
+ * Verify each target block's output after an execute (row counts + task
+ * outcome). `days` is the TASK_HISTORY lookback. Throws on transport errors;
+ * callers self-disable on 404/501.
+ */
+export async function postVerifyWorkflow(
+  workflowId: string,
+  days = 1,
+): Promise<WorkflowPostVerifyResult> {
+  const res = await apiClient.post(WORKFLOW_POST_VERIFY_PATH(workflowId), { days });
+  const d: any = res.data?.data ?? res.data ?? {};
+  const blocksRaw = d.blocks ?? d.targets ?? d.verifications ?? d.results ?? [];
+  const blocks: WorkflowBlockVerification[] = (Array.isArray(blocksRaw) ? blocksRaw : []).map(
+    (b: any, i: number) => ({
+      block: String(b?.block ?? b?.block_id ?? b?.target ?? b?.table ?? b?.name ?? `Block ${i + 1}`),
+      rows: asNum(b?.rows ?? b?.row_count ?? b?.count ?? b?.rowcount),
+      ok: asBool(b?.ok ?? b?.passed ?? b?.success ?? b?.status),
+      message: b?.message ?? b?.detail ?? b?.reason ?? undefined,
+    }),
+  );
+  return {
+    ok: asBool(d.ok ?? d.passed ?? d.success),
+    task_outcome:
+      (d.task_outcome ?? d.taskOutcome ?? d.outcome ?? d.task_state ?? null) != null
+        ? String(d.task_outcome ?? d.taskOutcome ?? d.outcome ?? d.task_state)
+        : null,
+    blocks,
+  };
 }
 
 // Export all as default object for convenience
@@ -1076,6 +1272,11 @@ export default {
   // Developer Tools — Ad-hoc Execution
   runAdHocSQL,
   runAdHocPython,
+  // Per-block SQL preview
+  renderBlockSql,
+  // Lifecycle readiness
+  preCheckWorkflow,
+  postVerifyWorkflow,
   getWorkflowCapabilities,
   getWorkflowActionTemplates,
   createWorkflowActionTemplate,

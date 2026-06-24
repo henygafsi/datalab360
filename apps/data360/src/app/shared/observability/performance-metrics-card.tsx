@@ -16,7 +16,7 @@ function formatDuration(ms: number | string | undefined | null): string {
   // Coerce + finite-guard: the backend sometimes sends these latency fields as
   // strings, and a bare `.toFixed()` on a string crashes the render.
   const n = Number(ms);
-  if (ms == null || !Number.isFinite(n)) return '0ms';
+  if (ms == null || !Number.isFinite(n)) return '—';
   if (n < 1000) return `${n.toFixed(0)}ms`;
   if (n < 60000) return `${(n / 1000).toFixed(1)}s`;
   return `${(n / 60000).toFixed(1)}m`;
@@ -41,10 +41,30 @@ function formatMB(mb: number | undefined | null): string {
 }
 
 function formatNumber(num: number | undefined | null): string {
-  if (num == null) return '0';
+  if (num == null) return '—';
   if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
   if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
   return num.toLocaleString();
+}
+
+/**
+ * Returns the best available cost signal for a slow query, plus its label.
+ * Priority: credits_used (exact Snowflake cost) > mb_scanned (cost proxy) >
+ * bytes_scanned legacy field (cost proxy) > "—".
+ * Never synthesises a dollar amount — rates are account-specific.
+ */
+function costSignal(query: SlowQuery): { value: string; label: string } {
+  const credits = query.credits_used != null ? Number(query.credits_used) : null;
+  if (credits != null && Number.isFinite(credits)) {
+    return { value: `${credits.toFixed(4)} credits`, label: 'credits consumed' };
+  }
+  const mb =
+    query.mb_scanned != null
+      ? query.mb_scanned
+      : query.bytes_scanned != null
+        ? query.bytes_scanned / 1_048_576
+        : null;
+  return { value: formatMB(mb), label: 'data scanned · cost proxy' };
 }
 
 export default function PerformanceMetricsCard({
@@ -234,8 +254,12 @@ export default function PerformanceMetricsCard({
                     <Text className="text-sm font-bold text-red-600">
                       {formatDurationSec(query.execution_time_sec)}
                     </Text>
-                    <Text className="text-xs text-gray-500">
-                      {formatMB(query.mb_scanned)} scanned
+                    {/* Cost attribution: credits > mb_scanned proxy > "—". Honest label. */}
+                    <Text className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                      {costSignal(query).value}
+                    </Text>
+                    <Text className="text-xs text-gray-400 dark:text-gray-500">
+                      {costSignal(query).label}
                     </Text>
                     {query.rows_produced !== undefined && (
                       <Text className="text-xs text-gray-500">

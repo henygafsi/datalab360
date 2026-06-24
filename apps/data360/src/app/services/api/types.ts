@@ -1592,6 +1592,12 @@ export interface BIDashboardChartConfig {
   groupBy?: string[];
   limit?: number | null;
   topN?: TopNConfig | null;
+  /**
+   * Provenance back-link: the Explore project that produced this table/view.
+   * Set by Explore when a user creates a BI widget via "View in BI" so the
+   * BI editor can offer "Back to Explore" navigation. Read-only on the BI side.
+   */
+  explore_project_id?: string;
 }
 
 // --- Widget Style ---

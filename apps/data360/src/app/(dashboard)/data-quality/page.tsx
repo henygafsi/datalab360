@@ -13,7 +13,8 @@ import {
   RefreshCw, Upload, Table2, Tag, Fingerprint,
   Activity, Search, X, Filter,
   Lightbulb, ChevronDown, ChevronUp,
-  Info, Play, Download, Plus, Link2, CalendarClock, Loader2,
+  Info, Play, Download, Plus, Link2, CalendarClock, Loader2, Sparkles,
+  ListChecks, Trash2,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -30,7 +31,16 @@ import {
   createCustomDmf,
   associateDmf,
   setDmfSchedule,
+  suggestDmfs,
+  suggestDmfsForTable,
+  getDmfReferences,
+  disassociateDmf,
+  describeDmf,
+  deleteCustomDmf,
   type DmfDefinition,
+  type DmfSuggestion,
+  type DmfReference,
+  type DmfDetails,
   type QualityCheckRunResult,
 } from '@/app/services/data-quality';
 import { toServiceError } from '@/app/services/_errors';
@@ -152,6 +162,21 @@ const TAB_LABELS: Record<string, string> = {
 const TAB_IDS = Object.keys(TAB_ENDPOINTS);
 
 const PAGINATED_TABS = new Set(['completeness', 'uniqueness', 'freshness', 'schema', 'cost', 'security']);
+
+/**
+ * Build a fully-qualified table name from a metric row.
+ * If TABLE_NAME already contains dots it is assumed to be an FQN and returned
+ * as-is. Otherwise the function assembles DB.SCHEMA.TABLE from the available
+ * row keys, falling back to the default database when the catalog field is absent.
+ */
+function buildFqnFromRow(row: MetricRow): string {
+  const tbl = String(row.TABLE_NAME ?? row.table_name ?? '');
+  if (!tbl) return '';
+  if (tbl.includes('.')) return tbl;
+  const schema = String(row.SCHEMA_NAME ?? row.TABLE_SCHEMA ?? '');
+  const db = String(row.TABLE_CATALOG ?? row.DATABASE_NAME ?? 'CP_DATA360');
+  return schema ? `${db}.${schema}.${tbl}` : tbl;
+}
 
 // ── API helpers ──
 
@@ -378,7 +403,9 @@ function RecommendationCard({ rec }: { rec: Recommendation }) {
       </div>
       {link && (
         <a
-          href={link.href}
+          href={link.href === '/explore-design' && rec.table
+            ? `/explore-design?table=${encodeURIComponent(rec.table)}&from=data-quality`
+            : link.href}
           className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded h-7 px-2 flex-shrink-0 border border-blue-200 dark:border-blue-800 transition-colors"
         >
           {link.label}
@@ -532,7 +559,7 @@ function generateRecommendations(allTabData: Record<string, MetricRow[]>, summar
         severity: 'info',
         category: 'Classification',
         title: 'Low classification coverage',
-        description: `Only ${summary.classification_coverage}% of columns are classified. Run SYSTEM$CLASSIFY to tag sensitive data.`,
+        description: `Only ${summary.classification_coverage}% of columns are classified. Run column classification in the Governance module to tag sensitive data.`,
         action: 'Classify',
       });
     }
@@ -730,7 +757,8 @@ function getTabColumns(tab: string): { key: string; label: string; format?: (v: 
         { key: 'NULL_COUNT', label: 'Nulls', format: (v) => Number(v || 0).toLocaleString() },
         {
           key: 'COMPLETENESS_PCT', label: 'Complete', format: (v) => {
-            const pct = Number(v || 0);
+            if (v == null) return <span className="text-gray-400 dark:text-gray-500">—</span>;
+            const pct = Number(v);
             const color = pct >= 95 ? 'text-green-600 dark:text-green-400' : pct >= 80 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400';
             return <span className={cn('font-semibold', color)}>{pct.toFixed(1)}%</span>;
           },
@@ -782,7 +810,8 @@ function getTabColumns(tab: string): { key: string; label: string; format?: (v: 
         { key: 'COLUMN_COUNT', label: 'Cols', format: (v) => Number(v || 0).toLocaleString() },
         { key: 'HAS_PK', label: 'PK', format: (v) => v ? <span className="text-green-600 dark:text-green-400 font-semibold">Yes</span> : <span className="text-red-600 dark:text-red-400">No</span> },
         { key: 'DOCUMENTED_PCT', label: 'Docs', format: (v) => {
-          const pct = Number(v || 0);
+          if (v == null) return <span className="text-gray-400 dark:text-gray-500">—</span>;
+          const pct = Number(v);
           const color = pct >= 80 ? 'text-green-600 dark:text-green-400' : pct >= 40 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400';
           return <span className={cn('font-semibold', color)}>{pct.toFixed(0)}%</span>;
         }},
@@ -833,7 +862,7 @@ function getTabEmptyMsg(tab: string): string {
     freshness: 'No freshness data available',
     ingestion: 'No ingestion history available',
     schema: 'No schema quality data available',
-    classification: 'No classification tags found. Run SYSTEM$CLASSIFY to tag sensitive columns.',
+    classification: 'No classification tags found. Run column classification in Governance to tag sensitive columns.',
     cost: 'No storage data available',
     security: 'No security posture data available',
     dmf: 'No DMF results yet. Associate a DMF to a table to start collecting metrics.',
@@ -1119,13 +1148,15 @@ export default function DataQualityPage() {
   const associatePerm = useCanPerform('data_quality', 'associate');
   const createDmfPerm = useCanPerform('data_quality', 'create');
   const schedulePerm = useCanPerform('data_quality', 'schedule');
+  const deleteDmfPerm = useCanPerform('data_quality', 'delete');
   const canRunCheck = runPerm.allowed || runPerm.loading;
   const canAssociateDmf = associatePerm.allowed || associatePerm.loading;
   const canCreateDmf = createDmfPerm.allowed || createDmfPerm.loading;
   const canScheduleDmf = schedulePerm.allowed || schedulePerm.loading;
+  const canDeleteDmf = deleteDmfPerm.allowed || deleteDmfPerm.loading;
 
   // ── DMF lifecycle (no-code) — drives the ActionRail panels ──
-  const dmfPanel = useActionPanel<'associate' | 'custom' | 'schedule'>();
+  const dmfPanel = useActionPanel<'associate' | 'custom' | 'schedule' | 'manage'>();
   // Available DMF definitions (built-in + custom), loaded lazily when the rail opens.
   const [dmfDefs, setDmfDefs] = useState<DmfDefinition[] | null>(null);
   const [dmfDefsError, setDmfDefsError] = useState<string | null>(null);
@@ -1136,6 +1167,15 @@ export default function DataQualityPage() {
   const [dmfActionNotice, setDmfActionNotice] = useState<string | null>(null);
   // Elapsed-time ticker for long Snowflake DDL (ADD DATA METRIC FUNCTION).
   const [dmfElapsed, setDmfElapsed] = useState(0);
+
+  // ── AI DMF suggestions ("Suggest checks") ──
+  const [dmfSuggestLoading, setDmfSuggestLoading] = useState(false);
+  const [dmfSuggestError, setDmfSuggestError] = useState<string | null>(null);
+  const [dmfSuggestions, setDmfSuggestions] = useState<DmfSuggestion[] | null>(null);
+  const [showDmfSuggestions, setShowDmfSuggestions] = useState(false);
+  // Snapshot the table name at fetch time so the panel header stays accurate
+  // if the user re-clicks a different row while results are displayed.
+  const [dmfSuggestTable, setDmfSuggestTable] = useState<string | null>(null);
 
   // Associate form. `assocDmf` holds the *bare* DMF name; `assocDmfSource`
   // selects the schema the backend qualifies it against — built-ins live in
@@ -1153,12 +1193,33 @@ export default function DataQualityPage() {
   const [customExpr, setCustomExpr] = useState('');
   const [customComment, setCustomComment] = useState('');
 
+  // ── Custom-DMF Inspect (describe) + Drop (delete) — completes DMF CRUD.
+  // Only one definition is inspected at a time; details are fetched lazily.
+  const [inspectName, setInspectName] = useState<string | null>(null);
+  const [inspectDetails, setInspectDetails] = useState<DmfDetails | null>(null);
+  const [inspectLoading, setInspectLoading] = useState(false);
+  const [inspectError, setInspectError] = useState<string | null>(null);
+  // Two-step inline confirm for the destructive drop (no modal — matches the
+  // page's inline-feedback convention). Holds the name awaiting confirmation.
+  const [dropConfirmName, setDropConfirmName] = useState<string | null>(null);
+  const [droppingName, setDroppingName] = useState<string | null>(null);
+
   // Schedule builder form
   const [schedTable, setSchedTable] = useState('');
   const [schedMode, setSchedMode] = useState<'minutes' | 'cron' | 'trigger'>('minutes');
   const [schedMinutes, setSchedMinutes] = useState('60');
   const [schedCron, setSchedCron] = useState('0 * * * *');
   const [schedCronTz, setSchedCronTz] = useState('UTC');
+
+  // ── Manage panel — read existing DMF associations on a table + remove them.
+  // Fills the missing READ + DELETE of the DMF CRUD (associate is the create).
+  const [mgTable, setMgTable] = useState('');
+  const [mgRefs, setMgRefs] = useState<DmfReference[] | null>(null);
+  const [mgLoading, setMgLoading] = useState(false);
+  const [mgError, setMgError] = useState<string | null>(null);
+  // Key of the reference currently being removed (metric@column) — drives the
+  // per-row spinner so only the targeted association shows a busy state.
+  const [mgRemoving, setMgRemoving] = useState<string | null>(null);
 
   // ── Threshold form (wired to the real /run-check backend) ──
   const thresholdPanel = useActionPanel<'main'>();
@@ -1453,14 +1514,55 @@ export default function DataQualityPage() {
     }
   }, [dmfDefs, dmfDefsLoading]);
 
-  const openDmfPanel = useCallback((which: 'associate' | 'custom' | 'schedule') => {
+  // ── Manage panel — load existing DMF associations for a table ──
+  // GET /gouvernance/policies/dmf/references. Degrades to an inline error
+  // (route may 404 until the policies router is deployed) — never fakes data.
+  // Declared before openDmfPanel because that callback lists it as a dependency.
+  const loadDmfReferences = useCallback(async (tableFqn: string) => {
+    const table = tableFqn.trim();
+    if (!table) { setMgRefs([]); return; }
+    setMgLoading(true);
+    setMgError(null);
+    try {
+      const refs = await getDmfReferences(table);
+      setMgRefs(refs);
+    } catch (err) {
+      setMgRefs(null);
+      setMgError(toServiceError(err, 'Failed to load DMF associations').message);
+    } finally {
+      setMgLoading(false);
+    }
+  }, []);
+
+  const openDmfPanel = useCallback((which: 'associate' | 'custom' | 'schedule' | 'manage') => {
     setDmfActionError(null);
     setDmfActionNotice(null);
     thresholdPanel.close(); // only one right-rail open at a time
-    dmfPanel.open(which);
+    // Pre-fill table / column from the selected row so the user does not have
+    // to retype values they already have in context. The fields remain editable.
+    const fqn = selectedRow ? buildFqnFromRow(selectedRow) : '';
+    if (selectedRow) {
+      if (which === 'associate') {
+        if (fqn) setAssocTable(fqn);
+        const col = String(selectedRow.COLUMN_NAME ?? selectedRow.column_name ?? '');
+        if (col) setAssocColumns(col);
+      } else if (which === 'schedule') {
+        if (fqn) setSchedTable(fqn);
+      } else if (which === 'manage') {
+        if (fqn) setMgTable(fqn);
+      }
+    }
     if (which === 'associate' || which === 'custom') void loadDmfDefs();
+    if (which === 'manage') {
+      // Need the custom-def list to tell built-in vs custom when removing.
+      void loadDmfDefs();
+      setMgRefs(null);
+      if (fqn) void loadDmfReferences(fqn);
+      else setMgRefs([]);
+    }
+    dmfPanel.open(which);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadDmfDefs]);
+  }, [loadDmfDefs, loadDmfReferences, selectedRow]);
 
   // Elapsed timer while a DMF DDL action runs (visible feedback for long
   // Snowflake operations).
@@ -1552,6 +1654,57 @@ export default function DataQualityPage() {
     }
   }, [customName, customArgs, customExpr, customComment, loadDmfDefs]);
 
+  // ── Inspect a custom DMF definition (READ-detail of DMF CRUD) ──
+  // GET /gouvernance/policies/dmf/{name}/details. Toggle: clicking the row that
+  // is already open collapses it; otherwise fetch + expand. Degrades to an
+  // inline error (route may 404 until deployed) — never fabricates a body.
+  const handleInspectDmf = useCallback(async (def: DmfDefinition) => {
+    const name = def.name?.trim();
+    if (!name) return;
+    if (inspectName === name) { setInspectName(null); return; } // collapse
+    setInspectName(name);
+    setInspectDetails(null);
+    setInspectError(null);
+    setInspectLoading(true);
+    try {
+      const details = await describeDmf(name, {
+        database: def.database_name,
+        schema: def.schema_name,
+      });
+      setInspectDetails(details);
+    } catch (err) {
+      setInspectError(toServiceError(err, 'Failed to load DMF definition').message);
+    } finally {
+      setInspectLoading(false);
+    }
+  }, [inspectName]);
+
+  // ── Drop a custom DMF definition (DELETE of DMF CRUD) ──
+  // DELETE /gouvernance/policies/dmf/{name}. Two-step inline confirm. The backend
+  // refuses if the DMF is still associated with a table — surface that message.
+  const handleDropCustomDmf = useCallback(async (def: DmfDefinition) => {
+    const name = def.name?.trim();
+    if (!name) return;
+    setDmfActionError(null);
+    setDmfActionNotice(null);
+    setDroppingName(name);
+    try {
+      await deleteCustomDmf(name, { database: def.database_name, schema: def.schema_name });
+      setDmfActionNotice(`Custom DMF "${name}" dropped.`);
+      if (inspectName === name) { setInspectName(null); setInspectDetails(null); }
+      setDropConfirmName(null);
+      // Refresh the definitions list so the dropped DMF disappears everywhere.
+      setDmfDefs(null);
+      void loadDmfDefs();
+    } catch (err) {
+      // Common case: "still associated" — keep the row, show the reason inline.
+      setDmfActionError(toServiceError(err, 'Failed to drop custom DMF').message);
+      setDropConfirmName(null);
+    } finally {
+      setDroppingName(null);
+    }
+  }, [inspectName, loadDmfDefs]);
+
   // Build the raw Snowflake schedule clause from the no-code builder state.
   const buildScheduleClause = useCallback((): string => {
     if (schedMode === 'trigger') return 'TRIGGER_ON_CHANGES';
@@ -1587,6 +1740,91 @@ export default function DataQualityPage() {
       setDmfSubmitting(false);
     }
   }, [schedTable, schedMode, schedMinutes, schedCron, buildScheduleClause, loadTabData]);
+
+  // Remove (disassociate) a single DMF association from a table column.
+  const handleRemoveDmf = useCallback(async (ref: DmfReference) => {
+    const table = mgTable.trim();
+    const metric = String(ref.metric_name ?? ref.METRIC_NAME ?? '').trim();
+    const column = String(ref.ref_column_name ?? '').trim();
+    if (!table || !metric) {
+      setMgError('Missing table or metric name for this association.');
+      return;
+    }
+    const key = `${metric}@${column}`;
+    setMgRemoving(key);
+    setMgError(null);
+    try {
+      // Built-in DMFs live under SNOWFLAKE.CORE; custom ones under the governance
+      // schema. The reference rows don't always carry the DMF's home schema, so
+      // we infer: a metric the custom-defs picker knows about is custom, else
+      // treat it as a built-in (the common case for NULL_COUNT/DUPLICATE_COUNT/…).
+      const isCustom = (dmfDefs ?? []).some((d) => d.name?.toUpperCase() === metric.toUpperCase());
+      const dbSchema = isCustom
+        ? { database: 'CP_DATA360', schema: 'GOUVERNANCE' }
+        : { database: 'SNOWFLAKE', schema: 'CORE' };
+      await disassociateDmf({ table_fqn: table, dmf_name: metric, columns: column ? [column] : [], ...dbSchema });
+      // Optimistically drop the removed row, then refresh from source.
+      setMgRefs((prev) => (prev ? prev.filter((r) => r !== ref) : prev));
+      void loadDmfReferences(table);
+      setTimeout(() => loadTabData('dmf', true), 2000);
+    } catch (err) {
+      setMgError(toServiceError(err, 'Failed to remove DMF association').message);
+    } finally {
+      setMgRemoving(null);
+    }
+  }, [mgTable, dmfDefs, loadDmfReferences, loadTabData]);
+
+  // ── AI suggest handler — GET /data-quality/projects/{id}/dmf-suggest ──
+  // Requires a project in scope. When lastProjectId is null (common on this page
+  // today — no DQ project selector), we surface an honest notice rather than
+  // fabricating a call with a guess-id.
+  const handleSuggestDmfs = useCallback(async () => {
+    setDmfSuggestError(null);
+    setDmfSuggestions(null);
+    setShowDmfSuggestions(true);
+    const tableName = selectedRow ? String(selectedRow.TABLE_NAME ?? '') : '';
+    const fqn = selectedRow ? buildFqnFromRow(selectedRow) : '';
+    // Two paths: project-scoped (GET /projects/{id}/dmf-suggest) when a DQ project
+    // is in context, OR table-scoped (POST /data-quality/dmf/suggest) when a table
+    // row is selected. Only when NEITHER is available do we show the honest notice.
+    if (!lastProjectId && !fqn) {
+      setDmfSuggestTable(null);
+      return;
+    }
+    // Snapshot at fetch time — panel header uses this, not the live selectedRow.
+    setDmfSuggestTable(tableName || fqn || null);
+    setDmfSuggestLoading(true);
+    try {
+      const result = lastProjectId
+        ? await suggestDmfs(lastProjectId, tableName ? { table_name: tableName } : undefined)
+        : await suggestDmfsForTable(fqn);
+      setDmfSuggestions(result.suggestions ?? []);
+    } catch (err) {
+      setDmfSuggestError(toServiceError(err, 'Failed to fetch DMF suggestions').message);
+    } finally {
+      setDmfSuggestLoading(false);
+    }
+  }, [lastProjectId, selectedRow]);
+
+  // Suggest → Associate: open the associate panel prefilled from an AI suggestion
+  // (DMF name + applicable columns), so the steward can apply it in one click.
+  const handleAssociateSuggestion = useCallback((s: DmfSuggestion) => {
+    setDmfActionError(null);
+    setDmfActionNotice(null);
+    thresholdPanel.close();
+    const table = dmfSuggestTable
+      || (selectedRow ? buildFqnFromRow(selectedRow) : '')
+      || '';
+    if (table) setAssocTable(table);
+    // Treat suggested metrics as built-ins unless the custom-defs list knows them.
+    const isCustom = (dmfDefs ?? []).some((d) => d.name?.toUpperCase() === s.dmf_name.toUpperCase());
+    setAssocDmfSource(isCustom ? 'custom' : 'builtin');
+    setAssocDmf(s.dmf_name);
+    setAssocColumns((s.applicable_columns ?? []).join(', '));
+    void loadDmfDefs();
+    dmfPanel.open('associate');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dmfSuggestTable, selectedRow, dmfDefs, loadDmfDefs]);
 
   // ── Threshold check handler — wired to the real /data-quality/run-check ──
   const handleRunThresholdCheck = useCallback(async () => {
@@ -1798,9 +2036,16 @@ export default function DataQualityPage() {
           <AdnHeaderBadge projectId={lastProjectId} />
           <CacheAgeBadge cacheInfo={cacheInfo} />
           <Button
-            onClick={() => { setThError(null); setThResult(null); dmfPanel.close(); thresholdPanel.open('main'); }}
+            onClick={() => {
+              setThError(null); setThResult(null); dmfPanel.close();
+              if (selectedRow) {
+                const fqn = buildFqnFromRow(selectedRow);
+                if (fqn) setThTable(fqn);
+              }
+              thresholdPanel.open('main');
+            }}
             disabled={!canRunCheck}
-            title={!canRunCheck ? 'You lack the "run" permission on data quality. Ask an administrator to grant it.' : undefined}
+            title={!canRunCheck ? 'You lack the "run" permission on data quality. Ask an administrator to grant it.' : selectedRow ? `Run check on ${buildFqnFromRow(selectedRow) || String(selectedRow.TABLE_NAME ?? '')}` : undefined}
             size="sm"
             className="bg-green-500/80 hover:bg-green-500 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -2214,7 +2459,7 @@ export default function DataQualityPage() {
                   <p className="text-xs text-gray-500 dark:text-gray-400">Associate built-in or custom DMFs to tables, then schedule continuous evaluation — no SQL required.</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('associate')} disabled={!canAssociateDmf} title={!canAssociateDmf ? 'You lack the "associate" permission on data quality. Ask an administrator to grant it.' : undefined}>
                   <Link2 className="h-3.5 w-3.5" /> Associate
                 </Button>
@@ -2224,8 +2469,124 @@ export default function DataQualityPage() {
                 <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('schedule')} disabled={!canScheduleDmf} title={!canScheduleDmf ? 'You lack the "schedule" permission on data quality. Ask an administrator to grant it.' : undefined}>
                   <CalendarClock className="h-3.5 w-3.5" /> Schedule
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() => openDmfPanel('manage')}
+                  disabled={!canAssociateDmf}
+                  title={
+                    !canAssociateDmf
+                      ? 'You lack the "associate" permission on data quality. Ask an administrator to grant it.'
+                      : selectedRow
+                        ? `View and remove DMFs on ${String(selectedRow.TABLE_NAME ?? '')}`
+                        : 'Select a table row to view its associated DMFs'
+                  }
+                >
+                  <ListChecks className="h-3.5 w-3.5" /> Manage DMFs
+                </Button>
+                {/* AI check suggestions — read-only, no extra permission needed */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs border-violet-300 dark:border-violet-600 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/30"
+                  onClick={handleSuggestDmfs}
+                  disabled={dmfSuggestLoading}
+                  title={
+                    selectedRow
+                      ? `Ask AI to suggest checks for ${String(selectedRow.TABLE_NAME ?? '')}`
+                      : 'Ask AI to suggest checks — select a row to scope to one table'
+                  }
+                >
+                  {dmfSuggestLoading
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Sparkles className="h-3.5 w-3.5" />}
+                  {dmfSuggestLoading ? 'Thinking…' : 'Suggest checks (AI)'}
+                </Button>
               </div>
             </div>
+
+            {/* ── AI suggestions panel — rendered inside the action bar ── */}
+            {showDmfSuggestions && (
+              <div className="mt-3 pt-3 border-t border-violet-200 dark:border-violet-700/50">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-violet-700 dark:text-violet-300 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Suggested checks
+                    {dmfSuggestTable && (
+                      <span className="font-mono font-normal text-gray-500 dark:text-gray-400">
+                        — {dmfSuggestTable}
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    aria-label="Dismiss suggestions"
+                    onClick={() => { setShowDmfSuggestions(false); setDmfSuggestions(null); setDmfSuggestError(null); }}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {/* Neither a project NOR a selected table — honest notice, no call.
+                    With a row selected we use the table-scoped POST suggest below. */}
+                {!lastProjectId && !selectedRow && !dmfSuggestLoading ? (
+                  <div role="status" className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-700 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                    <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                    <span>Select a table row to get AI check suggestions for it, or set a Data Quality project context for account-wide recommendations.</span>
+                  </div>
+                ) : dmfSuggestLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 py-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Analysing table schema and data profile…
+                  </div>
+                ) : dmfSuggestError ? (
+                  <div role="alert" className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                    <span className="break-words">{dmfSuggestError}</span>
+                  </div>
+                ) : dmfSuggestions && dmfSuggestions.length === 0 ? (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 italic py-1">
+                    — No suggestions returned for this configuration.
+                  </p>
+                ) : dmfSuggestions && dmfSuggestions.length > 0 ? (
+                  <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
+                    {dmfSuggestions.map((s, i) => (
+                      <div
+                        key={i}
+                        className="rounded-lg border border-violet-100 dark:border-violet-800/50 bg-white dark:bg-gray-900 px-3 py-2"
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-semibold font-mono text-violet-700 dark:text-violet-300">
+                            {s.dmf_name}
+                          </span>
+                          {s.applicable_columns && s.applicable_columns.length > 0 && (
+                            <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                              columns: {s.applicable_columns.join(', ')}
+                            </span>
+                          )}
+                          {/* One-click apply — opens the Associate panel prefilled. */}
+                          <button
+                            type="button"
+                            onClick={() => handleAssociateSuggestion(s)}
+                            disabled={!canAssociateDmf}
+                            title={!canAssociateDmf ? 'You lack the "associate" permission on data quality.' : `Associate ${s.dmf_name}`}
+                            className="ml-auto inline-flex items-center gap-1 rounded-md border border-violet-300 dark:border-violet-600 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Link2 className="h-3 w-3" /> Associate
+                          </button>
+                        </div>
+                        {(s.reason || s.description) && (
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 break-words">
+                            {s.reason || s.description}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         )}
 
@@ -2304,34 +2665,40 @@ export default function DataQualityPage() {
         title={
           dmfPanel.panel === 'associate' ? 'Associate a DMF'
             : dmfPanel.panel === 'custom' ? 'Build a custom DMF'
-              : 'Schedule DMF evaluation'
+              : dmfPanel.panel === 'manage' ? 'Manage DMFs on table'
+                : 'Schedule DMF evaluation'
         }
         description={
           dmfPanel.panel === 'associate' ? 'Attach a Data Metric Function to one or more table columns.'
             : dmfPanel.panel === 'custom' ? 'Define a SQL-expression metric, then associate it from the picker.'
-              : 'Choose how often the analytics engine re-evaluates DMFs on a table.'
+              : dmfPanel.panel === 'manage' ? 'Review the DMFs currently attached to a table and remove any you no longer need.'
+                : 'Choose how often the analytics engine re-evaluates DMFs on a table.'
         }
         footer={
-          <>
-            <Button variant="outline" size="sm" onClick={dmfPanel.close} disabled={dmfSubmitting}>Cancel</Button>
-            <Button
-              size="sm"
-              disabled={dmfSubmitting}
-              className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
-              onClick={
-                dmfPanel.panel === 'associate' ? handleAssociateDmf
-                  : dmfPanel.panel === 'custom' ? handleCreateCustomDmf
-                    : handleSetSchedule
-              }
-            >
-              {dmfSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {dmfSubmitting
-                ? `Working… ${dmfElapsed}s`
-                : dmfPanel.panel === 'associate' ? 'Associate'
-                  : dmfPanel.panel === 'custom' ? 'Create DMF'
-                    : 'Set schedule'}
-            </Button>
-          </>
+          dmfPanel.panel === 'manage' ? (
+            <Button variant="outline" size="sm" onClick={dmfPanel.close}>Close</Button>
+          ) : (
+            <>
+              <Button variant="outline" size="sm" onClick={dmfPanel.close} disabled={dmfSubmitting}>Cancel</Button>
+              <Button
+                size="sm"
+                disabled={dmfSubmitting}
+                className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+                onClick={
+                  dmfPanel.panel === 'associate' ? handleAssociateDmf
+                    : dmfPanel.panel === 'custom' ? handleCreateCustomDmf
+                      : handleSetSchedule
+                }
+              >
+                {dmfSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {dmfSubmitting
+                  ? `Working… ${dmfElapsed}s`
+                  : dmfPanel.panel === 'associate' ? 'Associate'
+                    : dmfPanel.panel === 'custom' ? 'Create DMF'
+                      : 'Set schedule'}
+              </Button>
+            </>
+          )
         }
       >
         {/* Shared inline action feedback */}
@@ -2433,6 +2800,134 @@ export default function DataQualityPage() {
               <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Comment (optional)</span>
               <Input value={customComment} onChange={(e) => setCustomComment(e.target.value)} placeholder="Counts rows with a negative price" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
             </label>
+
+            {/* ── Existing custom DMFs — inspect (describe) + drop (delete) ── */}
+            <div className="pt-2 mt-1 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  Existing custom DMFs
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setDmfDefs(null); void loadDmfDefs(); }}
+                  disabled={dmfDefsLoading}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-violet-600 dark:text-violet-400 hover:underline disabled:opacity-50"
+                  title="Reload custom DMF list"
+                >
+                  <RefreshCw className={cn('h-3 w-3', dmfDefsLoading && 'animate-spin')} />
+                  Refresh
+                </button>
+              </div>
+
+              {dmfDefsLoading ? (
+                <div className="mt-2 space-y-1.5">
+                  <SkeletonBar className="h-9 w-full" />
+                  <SkeletonBar className="h-9 w-full" />
+                </div>
+              ) : !dmfDefs || dmfDefs.length === 0 ? (
+                <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400 italic">
+                  {dmfDefsError ? '—' : '— No custom DMFs yet. Create one above; it will appear here to inspect or drop.'}
+                </p>
+              ) : (
+                <div className="mt-2 space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
+                  {dmfDefs.map((def) => {
+                    const name = String(def.name ?? '');
+                    const open = inspectName === name;
+                    const confirming = dropConfirmName === name;
+                    const dropping = droppingName === name;
+                    return (
+                      <div key={name} className="rounded-lg border border-violet-100 dark:border-violet-800/50 bg-white dark:bg-gray-900">
+                        <div className="flex items-center gap-2 px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleInspectDmf(def)}
+                            className="min-w-0 flex-1 flex items-center gap-1.5 text-left"
+                            title="Inspect definition"
+                          >
+                            {open ? <ChevronUp className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />}
+                            <span className="truncate text-xs font-semibold font-mono text-violet-700 dark:text-violet-300">{name}</span>
+                            {def.comment ? <span className="truncate text-[11px] text-gray-400 dark:text-gray-500">— {String(def.comment)}</span> : null}
+                          </button>
+                          {confirming ? (
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => void handleDropCustomDmf(def)}
+                                disabled={dropping}
+                                className="inline-flex items-center gap-1 rounded-md bg-red-600 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                              >
+                                {dropping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                                Confirm drop
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDropConfirmName(null)}
+                                disabled={dropping}
+                                className="rounded-md border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <Tooltip
+                              content={canDeleteDmf ? 'Drop this custom DMF' : 'You do not have permission to drop DMFs'}
+                              placement="top"
+                            >
+                              <button
+                                type="button"
+                                onClick={() => { setDropConfirmName(name); }}
+                                disabled={!canDeleteDmf}
+                                title="Drop"
+                                className="inline-flex items-center gap-1 rounded-md border border-red-200 dark:border-red-800 px-1.5 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                Drop
+                              </button>
+                            </Tooltip>
+                          )}
+                        </div>
+
+                        {open && (
+                          <div className="border-t border-gray-100 dark:border-gray-800 px-3 py-2 space-y-1.5">
+                            {inspectLoading ? (
+                              <div className="space-y-1.5">
+                                <SkeletonBar className="h-4 w-1/2" />
+                                <SkeletonBar className="h-10 w-full" />
+                              </div>
+                            ) : inspectError ? (
+                              <p className="text-[11px] text-red-600 dark:text-red-400 break-words">{inspectError}</p>
+                            ) : inspectDetails ? (
+                              <>
+                                <div>
+                                  <p className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500">Argument signature</p>
+                                  <code className="block text-[11px] font-mono text-gray-700 dark:text-gray-300 break-all">
+                                    {String(inspectDetails.table_args ?? '—')}
+                                  </code>
+                                </div>
+                                <div>
+                                  <p className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500">Expression</p>
+                                  <code className="block whitespace-pre-wrap text-[11px] font-mono text-gray-700 dark:text-gray-300 break-all">
+                                    {String(inspectDetails.expression ?? inspectDetails.body ?? '—')}
+                                  </code>
+                                </div>
+                                {inspectDetails.owner ? (
+                                  <p className="text-[10px] text-gray-400 dark:text-gray-500">owner: {String(inspectDetails.owner)}</p>
+                                ) : null}
+                              </>
+                            ) : (
+                              <p className="text-[11px] text-gray-400 dark:text-gray-500 italic">—</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                Drop is blocked while a DMF is still attached to a table — remove its associations first via Manage DMFs.
+              </p>
+            </div>
           </div>
         )}
 
@@ -2490,6 +2985,97 @@ export default function DataQualityPage() {
               <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Resulting clause</p>
               <code className="text-xs text-gray-800 dark:text-gray-200 break-all">{buildScheduleClause()}</code>
             </div>
+          </div>
+        )}
+
+        {/* ── Manage panel — existing associations (read) + remove (delete) ── */}
+        {dmfPanel.panel === 'manage' && (
+          <div className="space-y-3">
+            <label className="block">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Table (DB.SCHEMA.TABLE)</span>
+              <div className="mt-1 flex items-center gap-2">
+                <Input
+                  value={mgTable}
+                  onChange={(e) => setMgTable(e.target.value)}
+                  placeholder="CP_DATA360.PUBLIC.ORDERS"
+                  className="h-8 text-xs flex-1"
+                  inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  disabled={mgLoading || !mgTable.trim()}
+                  onClick={() => loadDmfReferences(mgTable)}
+                >
+                  {mgLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  Load
+                </Button>
+              </div>
+            </label>
+
+            {mgError && (
+              <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                <p className="flex-1 min-w-0 text-xs text-red-600 dark:text-red-400 break-words">{mgError}</p>
+              </div>
+            )}
+
+            {mgLoading ? (
+              <div className="space-y-1.5">
+                <SkeletonBar className="h-9 w-full" />
+                <SkeletonBar className="h-9 w-full" />
+                <SkeletonBar className="h-9 w-full" />
+              </div>
+            ) : mgRefs === null && !mgError ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400 italic py-1">
+                Enter a table and load its associations.
+              </p>
+            ) : mgRefs && mgRefs.length === 0 ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400 italic py-1">
+                — No DMFs are associated with this table yet. Use Associate to add one.
+              </p>
+            ) : mgRefs && mgRefs.length > 0 ? (
+              <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+                {mgRefs.map((ref, i) => {
+                  const metric = String(ref.metric_name ?? ref.METRIC_NAME ?? '—');
+                  const column = String(ref.ref_column_name ?? '');
+                  const sched = String(ref.schedule_status ?? '');
+                  const key = `${metric}@${column}`;
+                  const removing = mgRemoving === key;
+                  return (
+                    <div
+                      key={`${key}-${i}`}
+                      className="flex items-center gap-2 rounded-lg border border-violet-100 dark:border-violet-800/50 bg-white dark:bg-gray-900 px-3 py-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-semibold font-mono text-violet-700 dark:text-violet-300">{metric}</span>
+                          {column && <span className="text-[11px] text-gray-500 dark:text-gray-400">on {column}</span>}
+                        </div>
+                        {sched && (
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 break-words">schedule: {sched}</p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveDmf(ref)}
+                        disabled={removing}
+                        title={`Remove ${metric}${column ? ` on ${column}` : ''}`}
+                        className="inline-flex items-center gap-1 rounded-md border border-red-200 dark:border-red-800 px-1.5 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                      >
+                        {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                        Remove
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              Removing a DMF stops its scheduled evaluation. Built-in metrics are resolved under SNOWFLAKE.CORE; custom metrics under the governance schema.
+            </p>
           </div>
         )}
       </ActionRail>
@@ -2578,8 +3164,8 @@ export default function DataQualityPage() {
                       <div className="min-w-0">
                         <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{c.check_type}{c.column ? ` · ${c.column}` : ''}</span>
                         {c.error && <p className="text-[11px] text-red-500 break-words">{c.error}</p>}
-                        {c.completeness_pct !== undefined && <p className="text-[11px] text-gray-500 dark:text-gray-400">{Number(c.completeness_pct).toFixed(1)}% complete</p>}
-                        {c.duplicates !== undefined && <p className="text-[11px] text-gray-500 dark:text-gray-400">{Number(c.duplicates).toLocaleString()} duplicates</p>}
+                        {c.completeness_pct != null && <p className="text-[11px] text-gray-500 dark:text-gray-400">{Number(c.completeness_pct).toFixed(1)}% complete</p>}
+                        {c.duplicates != null && <p className="text-[11px] text-gray-500 dark:text-gray-400">{Number(c.duplicates).toLocaleString()} duplicates</p>}
                       </div>
                       <StatusBadge status={s} />
                     </div>
@@ -2601,7 +3187,14 @@ export default function DataQualityPage() {
       selectedRow={selectedRow}
       data={rightbarData}
       loading={rightbarLoading}
-      onRunCheck={() => { setThError(null); setThResult(null); dmfPanel.close(); thresholdPanel.open('main'); }}
+      onRunCheck={() => {
+        setThError(null); setThResult(null); dmfPanel.close();
+        if (selectedRow) {
+          const fqn = buildFqnFromRow(selectedRow);
+          if (fqn) setThTable(fqn);
+        }
+        thresholdPanel.open('main');
+      }}
       onAssociateDmf={() => openDmfPanel('associate')}
       onScheduleDmf={() => openDmfPanel('schedule')}
       onClose={() => setSelectedRow(null)}

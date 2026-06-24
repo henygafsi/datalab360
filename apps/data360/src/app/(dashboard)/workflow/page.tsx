@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import ManageAccessButton from '@/app/shared/governance/ManageAccessButton';
 
 const ETLPipelineBuilder = dynamic(() => import('./ETLPipelineBuilder'), { ssr: false });
 
@@ -62,6 +63,9 @@ const WorkflowPage: React.FC = () => {
           <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore &amp; Design (Source Tables)</a>
           <a href="/data-quality" className="text-blue-600 dark:text-blue-400 hover:underline">Data Quality (Checks)</a>
           <a href="/bi-dashboard" className="text-blue-600 dark:text-blue-400 hover:underline">BI Dashboard (Visualize)</a>
+          <div className="ml-auto">
+            <ManageAccessButton module="workflow" page="workflow" objectLabel="Workflow" />
+          </div>
         </div>
       </div>
     </ErrorBoundary>

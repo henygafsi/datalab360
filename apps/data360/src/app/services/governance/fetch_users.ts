@@ -285,7 +285,11 @@ export async function disableUser(username: string): Promise<{
   username: string;
 }> {
   try {
-    const response = await apiClient.post(`/gouvernance/disable_user/?username=${username}`);
+    // Backend route is `@post("/disable_user/")` (WITH trailing slash). Keep the
+    // slash so it matches the canonical route; a dedicated next.config rewrite
+    // (`/api-proxy/gouvernance/disable_user/`) preserves the slash through the
+    // proxy so there's no 307 cross-origin redirect that drops the auth header.
+    const response = await apiClient.post(`/gouvernance/disable_user/?username=${encodeURIComponent(username)}`);
     return response.data;
   } catch (error) {
     console.error('Error disabling user:', error);
@@ -303,7 +307,9 @@ export async function enableUser(username: string): Promise<{
   username: string;
 }> {
   try {
-    const response = await apiClient.post(`/gouvernance/enable_user/?username=${username}`);
+    // See disableUser: keep the trailing slash (backend route is `/enable_user/`);
+    // the next.config rewrite preserves it through the proxy (no auth-dropping 307).
+    const response = await apiClient.post(`/gouvernance/enable_user/?username=${encodeURIComponent(username)}`);
     return response.data;
   } catch (error) {
     console.error('Error enabling user:', error);

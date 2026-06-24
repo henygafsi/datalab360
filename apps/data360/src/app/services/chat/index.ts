@@ -1,3 +1,6 @@
+import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
+
 /**
  * Chat Service — CRUD for conversations, messages, participants, attachments.
  * Uses the /chat backend endpoints (CHAT_CONVERSATIONS + CHAT_MESSAGES tables).
@@ -15,7 +18,6 @@
  *   POST   /chat/conversations/{id}/messages
  *   POST   /chat/conversations/{id}/read
  */
-import apiClient from '@/lib/api-client';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -104,7 +106,7 @@ function normalizeMessage(raw: any): ChatMessageRecord {
 
 /** List all conversations for the current user */
 export async function listConversations(page = 1, pageSize = 50): Promise<ConversationListResponse> {
-  const res = await apiClient.get('/chat/conversations', { params: { page, page_size: pageSize } });
+  const res = await apiClient.get(API.chat.conversations(), { params: { page, page_size: pageSize } });
   const data = res.data?.data ?? res.data;
   return {
     ...data,
@@ -114,19 +116,19 @@ export async function listConversations(page = 1, pageSize = 50): Promise<Conver
 
 /** Get a single conversation by ID */
 export async function getConversation(conversationId: string): Promise<ChatConversation> {
-  const res = await apiClient.get(`/chat/conversations/${conversationId}`);
+  const res = await apiClient.get(API.chat.conversation(conversationId));
   return normalizeConversation(res.data?.data ?? res.data);
 }
 
 /** Create a DM conversation (used for AI chat — DM with self or bot user) */
 export async function createDMConversation(targetUsername: string): Promise<ChatConversation> {
-  const res = await apiClient.post('/chat/conversations/dm', { target_username: targetUsername });
+  const res = await apiClient.post(API.chat.conversationsDm(), { target_username: targetUsername });
   return normalizeConversation(res.data?.data ?? res.data);
 }
 
 /** Create a group conversation */
 export async function createGroupConversation(title: string, participants: string[] = []): Promise<ChatConversation> {
-  const res = await apiClient.post('/chat/conversations/group', {
+  const res = await apiClient.post(API.chat.conversationsGroup(), {
     title,
     participant_usernames: participants,
   });
@@ -142,7 +144,7 @@ export async function getMessages(
 ): Promise<MessageListResponse> {
   const params: Record<string, any> = { page, page_size: pageSize };
   if (beforeMessageId) params.before_message_id = beforeMessageId;
-  const res = await apiClient.get(`/chat/conversations/${conversationId}/messages`, { params });
+  const res = await apiClient.get(API.chat.conversationMessages(conversationId), { params });
   const data = res.data?.data ?? res.data;
   return {
     ...data,
@@ -161,19 +163,19 @@ export async function sendMessage(
   const body: Record<string, any> = { content, message_type: messageType };
   if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
   if (attachmentIds?.length) body.attachment_ids = attachmentIds;
-  const res = await apiClient.post(`/chat/conversations/${conversationId}/messages`, body);
+  const res = await apiClient.post(API.chat.conversationMessages(conversationId), body);
   return normalizeMessage(res.data?.data ?? res.data);
 }
 
 /** Update conversation title */
 export async function updateConversation(conversationId: string, title: string): Promise<ChatConversation> {
-  const res = await apiClient.patch(`/chat/conversations/${conversationId}`, { title });
+  const res = await apiClient.patch(API.chat.conversation(conversationId), { title });
   return normalizeConversation(res.data?.data ?? res.data);
 }
 
 /** Get participants in a conversation */
 export async function getParticipants(conversationId: string): Promise<ChatParticipant[]> {
-  const res = await apiClient.get(`/chat/conversations/${conversationId}/participants`);
+  const res = await apiClient.get(API.chat.conversationParticipants(conversationId));
   const data = res.data?.data ?? res.data;
   return data?.participants ?? [];
 }
@@ -183,7 +185,7 @@ export async function markAsRead(
   conversationId: string,
   lastReadMessageId: string,
 ): Promise<Record<string, any>> {
-  const res = await apiClient.post(`/chat/conversations/${conversationId}/read`, {
+  const res = await apiClient.post(API.chat.conversationRead(conversationId), {
     last_read_message_id: lastReadMessageId,
   });
   return res.data?.data ?? res.data;
@@ -197,7 +199,7 @@ export async function uploadAttachment(
   const formData = new FormData();
   formData.append('file', file);
   const res = await apiClient.post(
-    `/chat/conversations/${conversationId}/attachments`,
+    API.chat.conversationAttachments(conversationId),
     formData,
     { headers: { 'Content-Type': 'multipart/form-data' } },
   );
@@ -207,7 +209,7 @@ export async function uploadAttachment(
 /** Get list of currently online users (active WebSocket connections) */
 export async function getOnlineUsers(): Promise<OnlineUsersResponse> {
   try {
-    const res = await apiClient.get('/chat/online-users');
+    const res = await apiClient.get(API.chat.onlineUsers());
     return res.data?.data ?? res.data ?? { online_users: [], count: 0 };
   } catch {
     // Graceful fallback — presence is non-critical

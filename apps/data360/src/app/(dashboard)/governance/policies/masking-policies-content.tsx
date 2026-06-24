@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Button, Input, Select } from 'rizzui';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { toast } from 'react-hot-toast';
@@ -39,7 +39,17 @@ const MASKING_TYPES = [
   { label: 'Custom Expression', value: 'CUSTOM' },
 ];
 
-export default function MaskingPoliciesContent() {
+export default function MaskingPoliciesContent({ prefill }: {
+  prefill?: {
+    name: string;
+    maskingType: string;
+    /** Optional: table coords from a classify result — seed the apply form. */
+    database?: string;
+    schema?: string;
+    table?: string;
+    column?: string;
+  } | null;
+} = {}) {
   // System 2 Action-RBAC. Create maps to gouvernance:create, apply to
   // gouvernance:apply. Fail-open while the allow-set loads (no flash of disabled).
   const createPerm = useCanPerform('gouvernance', 'create');
@@ -252,6 +262,29 @@ export default function MaskingPoliciesContent() {
     setColumn('');
     setApplyError(null);
   };
+
+  // Prefill from external navigate (e.g. "Protect" CTA in the Classification tab).
+  // When the parent switches to this tab and passes a prefill:
+  //   - always open the create form with the suggested name + masking type
+  //   - if table coords were provided, also seed the apply form so the user
+  //     does not have to re-select the database/schema/table/column they just classified.
+  useEffect(() => {
+    if (!prefill) return;
+    setPolicyName(prefill.name);
+    setMaskingType(prefill.maskingType);
+    setCustomExpression('');
+    setCreateError(null);
+    setShowCreatePanel(true);
+    // Seed apply form when the caller provided a known table context.
+    if (prefill.database) setDatabase(prefill.database);
+    if (prefill.schema) setSchema(prefill.schema);
+    if (prefill.table) setTable(prefill.table);
+    if (prefill.column) setColumn(prefill.column);
+    if (prefill.database || prefill.table) {
+      // Clear any stale apply error so the seeded values aren't shadowed by a prior error.
+      setApplyError(null);
+    }
+  }, [prefill]);
 
   return (
     <div className="space-y-6">

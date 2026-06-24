@@ -234,31 +234,38 @@ export default function StepVerify() {
       </div>
 
       {/* ── Actions ── */}
-      <div className="flex flex-wrap justify-center gap-3 pt-2">
-        <Button variant="outline" onClick={goPrev} className="gap-1.5">
-          <RotateCcw className="h-4 w-4" /> Back
-        </Button>
-        <Button variant="outline" onClick={runPostVerify} disabled={isVerifying} className="gap-1.5">
-          <RotateCcw className="h-4 w-4" /> Re-verify
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => {
-            cleanupAppliedEvents();
-            toast.success('Applied events cleaned up');
-          }}
-          className="gap-1.5"
-        >
-          Clean Up Events
-        </Button>
-        <Button onClick={goToVersionsTab} className="gap-1.5">
-          View in Versions <ArrowRight className="h-4 w-4" />
-        </Button>
-        {onClose && (
-          <Button variant="outline" onClick={onClose} className="gap-1.5">
-            <CheckCircle2 className="h-4 w-4" /> Done
+      <div className="space-y-3 pt-2">
+        {/* Primary + secondary actions */}
+        <div className="flex flex-wrap justify-center gap-3">
+          <Button variant="outline" onClick={goPrev} className="gap-1.5">
+            <RotateCcw className="h-4 w-4" /> Back
           </Button>
-        )}
+          <Button variant="outline" onClick={runPostVerify} disabled={isVerifying} className="gap-1.5">
+            <RotateCcw className="h-4 w-4" /> Re-verify
+          </Button>
+          <Button variant="outline" onClick={goToVersionsTab} className="gap-1.5">
+            View in Versions <ArrowRight className="h-4 w-4" />
+          </Button>
+          {onClose && (
+            <Button onClick={onClose} className="gap-1.5">
+              <CheckCircle2 className="h-4 w-4" /> Done
+            </Button>
+          )}
+        </div>
+        {/* Destructive action — visually separated */}
+        <div className="flex justify-center border-t dark:border-slate-700 pt-3">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (!window.confirm('Clean up all applied events? This action cannot be undone.')) return;
+              cleanupAppliedEvents();
+              toast.success('Applied events cleaned up');
+            }}
+            className="gap-1.5 text-xs text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-900/50 dark:hover:bg-red-900/20"
+          >
+            Clean Up Events
+          </Button>
+        </div>
       </div>
     </div>
   );

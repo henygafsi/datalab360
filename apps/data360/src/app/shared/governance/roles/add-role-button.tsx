@@ -6,6 +6,7 @@ import { Button } from 'rizzui';
 import cn from '@core/utils/class-names';
 import { PiPlusBold } from 'react-icons/pi';
 import { useModal } from '@/app/shared/modal-views/use-modal'; // Correct import for useModal
+import { useCanPerform } from '@/hooks/useCanPerform';
 import AddRoleForm from './add-role-form'; // Adjust import path
 
 type AddRoleButtonProps = {
@@ -22,11 +23,19 @@ export default function AddRoleButton({
   onAddRoleSuccess, // Destructure the callback
 }: React.PropsWithChildren<AddRoleButtonProps>) {
   const { openModal, closeModal } = useModal(); // Correctly use the hook here
-
-  // console.log('AddRoleForm in AddRoleButton:', AddRoleForm); // <-- CHECK THIS LOG! Should be a function.
+  // System 2 Action-RBAC: creating roles maps to gouvernance:create. Keep enabled
+  // while the allow-set loads (fail-open) so there's no flash of a disabled CTA.
+  const { allowed, loading } = useCanPerform('gouvernance', 'create');
+  const denied = !allowed && !loading;
 
   return (
     <Button
+      disabled={denied}
+      title={
+        denied
+          ? 'You lack the "create" permission on governance. Ask an administrator to grant it.'
+          : undefined
+      }
       onClick={() =>
         openModal({
           view: (

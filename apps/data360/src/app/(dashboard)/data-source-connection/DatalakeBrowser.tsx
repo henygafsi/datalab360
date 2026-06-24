@@ -803,7 +803,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
               </Text>
               <Button onClick={() => loadStages()} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
                 <HiOutlineArrowPath className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                {/*Sync stages*/}
+                {loading ? 'Syncing...' : 'Sync stages'}
               </Button>
             </div>
           </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button, Badge, Input, Select, Tab, type SelectOption } from 'rizzui';
 import {
   HiOutlineShieldCheck,
@@ -614,9 +614,8 @@ export default function SecurityMatrixPage() {
                   </thead>
                   <tbody>
                     {matrixTable.getRowModel().rows.map((row) => (
-                      <>
+                      <Fragment key={row.id}>
                       <tr
-                        key={row.id}
                         className={`border-b border-slate-100 dark:border-slate-700/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${
                           dirtyMatrixRows.has(row.original.id) ? 'bg-amber-50/50 dark:bg-amber-900/10 border-l-2 border-l-amber-400' : ''
                         }`}
@@ -650,7 +649,7 @@ export default function SecurityMatrixPage() {
                           </td>
                         </tr>
                       )}
-                      </>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -765,9 +764,8 @@ export default function SecurityMatrixPage() {
                   </thead>
                   <tbody>
                     {usersTable.getRowModel().rows.map((row) => (
-                      <>
+                      <Fragment key={row.id}>
                       <tr
-                        key={row.id}
                         className={`border-b border-slate-100 dark:border-slate-700/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${
                           dirtyUserRows.has(row.original.USERNAME) ? 'bg-amber-50/50 dark:bg-amber-900/10 border-l-2 border-l-amber-400' : ''
                         }`}
@@ -801,7 +799,7 @@ export default function SecurityMatrixPage() {
                           </td>
                         </tr>
                       )}
-                      </>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>

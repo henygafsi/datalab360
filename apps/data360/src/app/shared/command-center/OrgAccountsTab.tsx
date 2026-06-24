@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
+  AlertTriangle,
   BarChart3,
   Building2,
   Cloud,
@@ -48,6 +49,7 @@ import {
 import { useRouter } from 'next/navigation';
 import {
   getAccounts,
+  getAnomalies,
   getDashboardOverview,
   getDashboardTrends,
   getReaderAccounts,
@@ -60,6 +62,7 @@ import { dash } from '@/app/shared/ui/format';
 import AuditTable, { type Row } from './AuditTable';
 import type {
   AccountsListResponse,
+  AnomalyEntry,
   DashboardOverviewResponse,
   DashboardTrendsResponse,
   ReplicationResponse,
@@ -83,6 +86,8 @@ interface OrgAccountsState {
   shares: number;
   readerList: Array<{ name: string; cloud?: string; region?: string }>;
   shareList: Array<{ name: string; database_name?: string; kind?: string }>;
+  /** Cost anomalies (z-score credit spikes). Null = not yet loaded or failed. */
+  anomalies: AnomalyEntry[] | null;
   loading: boolean;
   error: string | null;
 }
@@ -131,6 +136,7 @@ export default function OrgAccountsTab() {
     shares: 0,
     readerList: [],
     shareList: [],
+    anomalies: null,
     loading: true,
     error: null,
   });
@@ -151,7 +157,7 @@ export default function OrgAccountsTab() {
     //   • a fulfilled 200-OK error envelope = the Snowflake role can't read
     //     ORGANIZATION_USAGE.* → not an error, degrade to the friendly
     //     "not a Snowflake Organization account" state (handled downstream).
-    const [overviewR, accountsR, trendsR, readerR, shareR, replicationR] =
+    const [overviewR, accountsR, trendsR, readerR, shareR, replicationR, anomaliesR] =
       await Promise.allSettled([
         getDashboardOverview(),
         getAccounts(),
@@ -159,6 +165,12 @@ export default function OrgAccountsTab() {
         getReaderAccounts(),
         getShares(),
         getReplication(30),
+        // Anomalies is a footnote panel — failure must NOT blank the page.
+        // NOTE: calls /org-accounts/anomalies. The task spec names
+        // /org-accounts/finops/anomalies — if that route differs on the backend,
+        // this will 404 and render the honest empty state. Hand-off to backend
+        // team to confirm the canonical path.
+        getAnomalies(30),
       ]);
 
     const val = <T,>(r: PromiseSettledResult<T>): T | null =>
@@ -177,6 +189,7 @@ export default function OrgAccountsTab() {
     const readerRes = val(readerR);
     const shareRes = val(shareR);
     const replicationRaw = val(replicationR);
+    const anomaliesRes = val(anomaliesR);
 
     // Treat error-envelope 200s (role can't read org views) as "no data" so
     // the UI shows the friendly not-an-org state instead of a wall of zeros.
@@ -196,6 +209,10 @@ export default function OrgAccountsTab() {
       database_name?: string;
       kind?: string;
     }>;
+    // Anomalies: best-effort footnote. Null on failure → honest empty state.
+    const anomalies = isApiError(anomaliesRes)
+      ? null
+      : (anomaliesRes?.anomalies ?? null);
 
     const errorMsg = coreRejection
       ? getApiErrorMessage(coreRejection.reason) ||
@@ -212,6 +229,7 @@ export default function OrgAccountsTab() {
       shares: shareList.length,
       readerList,
       shareList,
+      anomalies,
       loading: false,
       error: errorMsg,
     });
@@ -426,12 +444,12 @@ export default function OrgAccountsTab() {
           <div className="mx-auto max-w-md text-center">
             <Building2 className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-600" />
             <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-white">
-              This account is not a Snowflake Organization account
+              This account is not an Organization account
             </h3>
             <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
               Organization-level metrics (multi-account roll-ups, replication and
               failover groups, cross-account credits and storage) are only
-              available when the connected Snowflake account has the{' '}
+              available when the connected account has the{' '}
               <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] dark:bg-slate-800">
                 ORGADMIN
               </code>{' '}
@@ -508,10 +526,10 @@ export default function OrgAccountsTab() {
             <div className="flex-1">
               <p className="text-sm font-semibold">Organization-level access not enabled</p>
               <p className="mt-1 text-xs leading-relaxed">
-                This Snowflake account does not have the <code>ORGADMIN</code> role granted,
+                This account does not have the <code>ORGADMIN</code> role granted,
                 so the multi-account organization views are unavailable. Per-account
                 metrics (credits, storage, warehouses) are still loaded below.
-                Ask a Snowflake org administrator to grant <code>ORGADMIN</code> to enable
+                Ask an org administrator to grant <code>ORGADMIN</code> to enable
                 cross-account roll-ups.
               </p>
             </div>
@@ -840,6 +858,65 @@ export default function OrgAccountsTab() {
             )}
           </div>
         )}
+
+        {/* Cost anomalies — z-score credit spikes from /org-accounts/anomalies.
+            Best-effort footnote panel; null = not loaded / route not yet live.
+            NOTE: backend spec names /org-accounts/finops/anomalies — verify
+            the canonical path and update getAnomalies if it differs. */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+          <div className="mb-3 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-orange-500" />
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+              Cost anomalies
+            </h3>
+            {state.anomalies !== null && state.anomalies.length > 0 && (
+              <span className="ml-auto rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+                {state.anomalies.length}
+              </span>
+            )}
+          </div>
+          {state.loading ? (
+            <div className="h-8 w-32 animate-pulse rounded bg-slate-100 dark:bg-slate-800" />
+          ) : state.anomalies === null || state.anomalies.length === 0 ? (
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              No anomalies detected.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {state.anomalies.slice(0, 8).map((a, i) => {
+                // Excess credits above forecast — honest derived value, not fake.
+                const excess = a.actual_value - a.forecasted_value;
+                return (
+                  <li
+                    key={i}
+                    className="flex items-start justify-between gap-3 rounded-lg bg-orange-50 px-3 py-2 text-[11px] dark:bg-orange-900/10"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-slate-900 dark:text-white">
+                        {a.account_name || a.account_locator}
+                      </p>
+                      <p className="text-slate-500 dark:text-slate-400">
+                        {a.date}
+                        {a.region ? ` · ${a.region}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0 text-right">
+                      <p className="font-semibold text-orange-700 dark:text-orange-400">
+                        {Number(a.actual_value).toLocaleString(undefined, { maximumFractionDigits: 1 })}{' '}
+                        {a.currency || 'cr'}
+                      </p>
+                      {excess > 0 ? (
+                        <p className="text-slate-500 dark:text-slate-400">
+                          +{Number(excess).toLocaleString(undefined, { maximumFractionDigits: 1 })} vs forecast
+                        </p>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       </section>
     </div>
   );
@@ -852,8 +929,8 @@ function NeedsOrgAdminNote({ label }: { label: string }) {
     <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
       <p className="font-semibold">{label} — requires ORGADMIN</p>
       <p className="mt-1 leading-relaxed">
-        Organization-level data is only available when the connected Snowflake
-        account has the <code>ORGADMIN</code> role. Ask a Snowflake org
+        Organization-level data is only available when the connected account
+        has the <code>ORGADMIN</code> role. Ask an org
         administrator to grant it to enable cross-account roll-ups.
       </p>
     </div>

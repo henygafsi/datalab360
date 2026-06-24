@@ -2699,8 +2699,12 @@ export default function DataSourceConnectionPage() {
                           {oracleTestResult.ok ? (
                               <div>
                                   <div className="flex items-center gap-2 font-medium"><HiOutlineCheckCircle className="h-4 w-4" /> Connected</div>
-                                  <p className="mt-1 text-xs">{oracleTestResult.version}</p>
-                                  <p className="text-xs">{oracleTestResult.table_count} tables — {oracleTestResult.latency_ms}ms</p>
+                                  {oracleTestResult.version && <p className="mt-1 text-xs">{oracleTestResult.version}</p>}
+                                  <p className="text-xs">
+                                      {typeof oracleTestResult.table_count === 'number' ? `${oracleTestResult.table_count} tables` : '—'}
+                                      {' — '}
+                                      {typeof oracleTestResult.latency_ms === 'number' ? `${oracleTestResult.latency_ms}ms` : '—'}
+                                  </p>
                                   {oracleTestResult.tables && oracleTestResult.tables.length > 0 && (
                                       <div className="mt-2 flex flex-wrap gap-1">
                                           {oracleTestResult.tables.map((t) => (

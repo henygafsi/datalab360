@@ -148,6 +148,7 @@ import ApprovalDetailModal from './ApprovalDetailModal';
 import CommandCenterActionsPanel from './ActionsPanel';
 import ServerlessFinOpsCards from './serverless-finops-cards';
 import TopProblemsPanel from './TopProblemsPanel';
+import WhatChangedCard from './WhatChangedCard';
 import ExecutiveOverview from './ExecutiveOverview';
 import AiAdvisor from './AiAdvisor';
 import SnowflakeInsightsAdvisor from './SnowflakeInsightsAdvisor';
@@ -221,7 +222,7 @@ interface TabItem {
  */
 const tabs: TabItem[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'snowflake-objects', label: 'Snowflake Objects', icon: Database },
+  { id: 'snowflake-objects', label: 'Data Objects', icon: Database },
   { id: 'finops', label: 'FinOps', icon: DollarSign },
   { id: 'modules', label: 'Modules', icon: Box },
   { id: 'platform-activity', label: 'Platform Activity', icon: Layers },
@@ -1320,6 +1321,11 @@ function CommandCenterDashboardInner() {
   // one came back null/error — used to surface a clear "backend offline" banner
   // instead of an empty chart wall.
   const [backendUnreachable, setBackendUnreachable] = useState(false);
+  // True when every overview call failed specifically because the analytics
+  // service-cache isn't connected yet (503 CACHE_NOT_READY / svc_connect_failed).
+  // The backend IS reachable — the data cache is provisioning — so we show an
+  // honest "warming up" state instead of the misleading "Backend unreachable".
+  const [cacheWarming, setCacheWarming] = useState(false);
 
   // Safety net: the page-level skeleton blocks every tab until `isLoading`
   // flips false. If the very first fetch hangs (e.g. the request is queued
@@ -1451,9 +1457,20 @@ function CommandCenterDashboardInner() {
       // timeout (10s on `isLoading`) still escapes the skeleton at 10s,
       // and per-card empty-states render gracefully while slow calls land.
       const OVERVIEW_TIMEOUT_MS = 25000;
+      // Capture whether any failure was the analytics-cache-warming 503 so the
+      // banner can distinguish "warming up" (reachable) from "unreachable".
+      let sawCacheWarming = false;
       const withTimeout = <T,>(p: Promise<T>): Promise<T | null> =>
         Promise.race<T | null>([
-          p.catch(() => null),
+          p.catch((e: any) => {
+            const detail = e?.response?.data?.detail;
+            const code =
+              (detail && typeof detail === 'object' ? detail.error_code || detail.errorCode : undefined) ||
+              detail?.reason;
+            const sig = `${e?.message ?? ''} ${code ?? ''}`;
+            if (/warming up|CACHE_NOT_READY|svc_connect_failed/i.test(sig)) sawCacheWarming = true;
+            return null;
+          }),
           new Promise<null>((resolve) =>
             setTimeout(() => resolve(null), OVERVIEW_TIMEOUT_MS),
           ),
@@ -1545,7 +1562,11 @@ function CommandCenterDashboardInner() {
       const gotSummary = !!(s && !isApiError(s));
       const gotModuleHealth = !!(mh && !isApiError(mh));
       const gotActivity = !!(af && !isApiError(af));
-      setBackendUnreachable(!gotSummary && !gotModuleHealth && !gotActivity);
+      const allFailed = !gotSummary && !gotModuleHealth && !gotActivity;
+      // If everything failed because the cache is warming, that's NOT
+      // "unreachable" — show the honest warming banner instead.
+      setCacheWarming(allFailed && sawCacheWarming);
+      setBackendUnreachable(allFailed && !sawCacheWarming);
       // Safety net: if nothing landed (every call timed out), drop the
       // spinner so the user sees the empty-state banner instead of an
       // infinite skeleton.
@@ -1854,6 +1875,7 @@ function CommandCenterDashboardInner() {
     setPerformanceData(null);
     setPlatformData(null);
     setBackendUnreachable(false);
+    setCacheWarming(false);
     // Re-fetch current active tab
     switch (activeTab) {
       case 'overview':
@@ -2016,6 +2038,30 @@ function CommandCenterDashboardInner() {
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
           <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
           <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        </div>
+      )}
+
+      {/* Cache-warming banner — the backend IS reachable but the account's
+          analytics service-cache isn't connected yet (503 CACHE_NOT_READY).
+          This is transient + recoverable, so it reads as "warming up", not
+          "unreachable". Takes precedence over the offline banner. */}
+      {cacheWarming && !error && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/50 dark:bg-blue-950/50">
+          <RefreshCw className="mt-0.5 h-5 w-5 flex-shrink-0 animate-spin text-blue-500" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+              Live analytics are warming up
+            </p>
+            <p className="mt-0.5 text-xs text-blue-700 dark:text-blue-300">
+              The backend is reachable; your account&apos;s data cache is being provisioned. KPIs and charts will appear once it&apos;s ready — this usually clears on its own.
+            </p>
+          </div>
+          <button
+            onClick={handleRefresh}
+            className="flex-shrink-0 rounded-md border border-blue-300 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/50"
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -2262,7 +2308,7 @@ function CommandCenterDashboardInner() {
                   </section>
                   <section>
                     <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Snowflake accounts
+                      Connected Accounts
                     </h2>
                     <SnowflakeAccountsTab />
                   </section>
@@ -2323,7 +2369,7 @@ function TasksQuickWidget() {
     <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
-          <Clock className="h-4 w-4 text-blue-500" /> Snowflake Tasks
+          <Clock className="h-4 w-4 text-blue-500" /> Scheduled Tasks
         </h3>
         <a
           href="/observability"
@@ -2381,10 +2427,10 @@ function TasksQuickWidget() {
       {status === 'ok' && total === 0 && (
         <div className="flex flex-col items-center justify-center py-4 text-center">
           <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
-            No Snowflake tasks scheduled
+            No scheduled tasks
           </div>
           <p className="mt-1 text-xs text-gray-500">
-            Active and historical task runs appear here once a Snowflake task is
+            Active and historical task runs appear here once a scheduled task is
             created and executed.
           </p>
         </div>
@@ -2809,6 +2855,25 @@ function FinOpsCostRecos({
                   {r.detail}
                 </p>
               ) : null}
+              {r.business_impact ? (
+                <p className="mt-1 text-[11px] italic text-gray-400 dark:text-gray-500">
+                  {r.business_impact}
+                </p>
+              ) : null}
+              {(r.roi?.estimate || r.ttm) ? (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {r.roi?.estimate ? (
+                    <span className="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                      {r.roi.estimate}
+                    </span>
+                  ) : null}
+                  {r.ttm ? (
+                    <span className="inline-flex items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                      {r.ttm}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="mt-2">
                 <RecoCtaButton cta={r.cta} onNavigateTab={onNavigateTab} />
               </div>
@@ -3042,7 +3107,7 @@ const OverviewTab = memo(function OverviewTab({
       {summaryFallback && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
           <span className="font-semibold">Limited data available.</span>{' '}
-          Some Snowflake views (e.g. <code>SNOWFLAKE.ACCOUNT_USAGE.*</code>,
+          Some analytics views (e.g. <code>SNOWFLAKE.ACCOUNT_USAGE.*</code>,
           <code> CP_DATA360.EVENT_STORE.*</code>) are not readable with the
           current role. KPIs that depend on them show as zero.
         </div>
@@ -3219,6 +3284,11 @@ const OverviewTab = memo(function OverviewTab({
       {/* ── Executive overview: real cross-tab Data360 × Snowflake summary
              (live endpoints; replaces the cards gated on the dead KPI cache) ── */}
       <ExecutiveOverview days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
+
+      {/* ── What changed this week? — cost-spike anomalies (z-score) from the
+             last 7 days. Separate signal from the recommendations panels below;
+             degrades silently to null when the endpoint is role-gated. ── */}
+      <WhatChangedCard />
 
       {/* ── AI recommendations: Snowflake-feature insights · ready module
              actions · top cross-tab problems. Compacted into ONE collapsible,
@@ -3735,14 +3805,14 @@ const OverviewTab = memo(function OverviewTab({
                 <div className="flex items-center gap-2">
                   <Cloud className="h-4 w-4 text-blue-500" />
                   <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                    Snowflake Account Overview
+                    Account Overview
                   </h3>
                 </div>
                 <a
                   href="/account-overview?tab=snowflake-accounts"
                   className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:text-blue-400 dark:hover:bg-blue-900/20"
                 >
-                  View Snowflake Accounts
+                  View Connected Accounts
                 </a>
               </div>
               <dl className="grid grid-cols-1 gap-y-2 text-xs">
@@ -5081,7 +5151,7 @@ const CostTab = memo(function CostTab({
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <KpiCard
           label="Credits Today"
-          value={creditsToday.toLocaleString()}
+          value={lastTrend.credits != null ? creditsToday.toLocaleString() : null}
           icon={Zap}
           color="amber"
         />
@@ -5098,7 +5168,7 @@ const CostTab = memo(function CostTab({
         />
         <KpiCard
           label="Estimated Savings"
-          value={estimatedSavings.toLocaleString()}
+          value={optimization.estimated_savings != null ? estimatedSavings.toLocaleString() : null}
           icon={Sparkles}
           color="green"
         />
@@ -5489,7 +5559,7 @@ const CostTab = memo(function CostTab({
             </div>
           ) : (
             <p className="py-6 text-center text-sm text-gray-400">
-              No resource monitors configured. Add one in Snowflake to track
+              No resource monitors configured. Add one to track
               credit budgets.
             </p>
           )}

@@ -161,6 +161,17 @@ const ObjectNode = memo(({ data }: { data: any }) => {
             </span>
           )}
         </div>
+        {/* Open in Explore deep-link — TABLE/VIEW only, requires full db.schema.name */}
+        {(data.domain === 'TABLE' || data.domain === 'VIEW') && data.database && data.schema && data.label && (
+          <a
+            href={`/explore-design?intent=model&from=observability&table=${encodeURIComponent(`${data.database}.${data.schema}.${data.label}`)}`}
+            className="nodrag mt-1 inline-flex items-center gap-0.5 text-[9px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+            onClick={(e) => e.stopPropagation()}
+            title={`Open ${data.database}.${data.schema}.${data.label} in Explore & Design`}
+          >
+            <PiMagnifyingGlass className="w-2.5 h-2.5" /> Open in Explore
+          </a>
+        )}
       </div>
     </div>
   );
@@ -199,6 +210,17 @@ const LineageNode = memo(({ data }: { data: any }) => {
           <div className="text-[10px] text-gray-400 font-mono truncate">
             Q: {data.query_id}
           </div>
+        )}
+        {/* Open in Explore deep-link — only when fullName is a clean db.schema.table FQN */}
+        {data.fullName && /^[\w$]+\.[\w$]+\.[\w$]+$/.test(String(data.fullName)) && (
+          <a
+            href={`/explore-design?intent=model&from=observability&table=${encodeURIComponent(String(data.fullName))}`}
+            className="nodrag mt-1 inline-flex items-center gap-0.5 text-[9px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+            onClick={(e) => e.stopPropagation()}
+            title={`Open ${data.fullName} in Explore & Design`}
+          >
+            <PiMagnifyingGlass className="w-2.5 h-2.5" /> Open in Explore
+          </a>
         )}
       </div>
     </div>
