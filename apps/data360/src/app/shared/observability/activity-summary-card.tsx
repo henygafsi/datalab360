@@ -13,6 +13,14 @@ interface ActivitySummaryCardProps {
   className?: string;
 }
 
+const CHART_TOOLTIP_STYLE = {
+  backgroundColor: '#1F2937',
+  border: '1px solid #374151',
+  borderRadius: '8px',
+  color: '#F9FAFB',
+  fontSize: '12px',
+};
+
 function formatNumber(num: number | undefined | null): string {
   if (num == null) return EM_DASH;
   if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -157,11 +165,7 @@ export default function ActivitySummaryCard({ data, isLoading, className }: Acti
                 />
                 <Tooltip
                   formatter={(value: number) => [formatNumber(value), 'Queries']}
-                  contentStyle={{
-                    backgroundColor: '#fff',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                  }}
+                  contentStyle={CHART_TOOLTIP_STYLE}
                 />
                 <Bar
                   dataKey="queries"

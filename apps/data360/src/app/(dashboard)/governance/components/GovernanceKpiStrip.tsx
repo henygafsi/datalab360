@@ -19,9 +19,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   BarChart3,
   Cog,
   EyeOff,
+  Gauge,
   Globe,
   KeyRound,
   Lock,
@@ -41,6 +43,13 @@ import {
 import { getUsers } from '@/app/services/governance/fetch_users';
 import { getRoles, getD360Roles } from '@/app/services/governance/fetch_roles';
 import { getPermissions } from '@/app/services/governance/fetch_grants';
+import {
+  getComplianceScore,
+  getAccessReviewSummary,
+  countNeedsAttention,
+  type ComplianceScore,
+  type AccessReviewSummary,
+} from '@/app/services/governance/posture';
 
 export type GovernanceKpiScope = 'policies' | 'grants' | 'users' | 'roles';
 
@@ -83,6 +92,8 @@ interface Tile {
   source: string;
   /** Pure: derive the tile's number from the source payload (null = undetermined). */
   select: (data: unknown) => number | null;
+  /** Optional: derive a dynamic tooltip from the payload (falls back to `hint`). */
+  describe?: (data: unknown) => string | null;
 }
 
 const len = (data: unknown): number => (Array.isArray(data) ? data.length : 0);
@@ -98,6 +109,8 @@ const SRC = {
   roles: { key: 'roles', load: () => getRoles() },
   d360: { key: 'd360', load: () => getD360Roles() },
   grants: { key: 'grants', load: () => getPermissions() },
+  compliance: { key: 'compliance', load: () => getComplianceScore() },
+  accessReview: { key: 'accessReview', load: () => getAccessReviewSummary() },
 } satisfies Record<string, Source>;
 
 type UserRow = { status?: string };
@@ -105,11 +118,46 @@ type UserRow = { status?: string };
 const countStatus = (data: unknown, status: string): number =>
   Array.isArray(data) ? (data as UserRow[]).filter((u) => u?.status === status).length : 0;
 
+// ── Posture selectors (gate on `available` so failure → null → "—", never a fake 0) ──
+const selectComplianceScore = (data: unknown): number | null => {
+  const c = data as ComplianceScore | undefined;
+  return c?.available ? Math.round(c.score) : null;
+};
+
+const describeCompliance = (data: unknown): string | null => {
+  const c = data as ComplianceScore | undefined;
+  if (!c?.available) return null;
+  const b = c.breakdown;
+  return (
+    `Compliance ${c.score.toFixed(1)}/100 — ` +
+    `masking ${b.masking.score.toFixed(0)}% (w${b.masking.weight}), ` +
+    `row access ${b.row_access.score.toFixed(0)}% (w${b.row_access.weight}), ` +
+    `tagging ${b.tagging.score.toFixed(1)}% (w${b.tagging.weight})`
+  );
+};
+
+const selectNeedsAttention = (data: unknown): number | null => {
+  const s = data as AccessReviewSummary | undefined;
+  return s?.available ? countNeedsAttention(s) : null;
+};
+
+const describeNeedsAttention = (data: unknown): string | null => {
+  const s = data as AccessReviewSummary | undefined;
+  if (!s?.available) return null;
+  return (
+    `${s.mfa_gaps.length} MFA gap(s), ` +
+    `${s.expiring_policies.length} expiring policy(ies), ` +
+    `${s.orphan_grants.length} orphan grant(s) in last ${s.window_days}d`
+  );
+};
+
 // ── Scope → tiles ────────────────────────────────────────────────────────────
 const SCOPES: Record<GovernanceKpiScope, { sources: Source[]; tiles: Tile[] }> = {
   policies: {
-    sources: [SRC.masking, SRC.rls, SRC.aggregation, SRC.network, SRC.tags],
+    sources: [SRC.compliance, SRC.accessReview, SRC.masking, SRC.rls, SRC.aggregation, SRC.network, SRC.tags],
     tiles: [
+      { key: 'compliance', label: 'Compliance Score', hint: 'Weighted governance posture (0-100)', Icon: Gauge, tone: 'emerald', source: 'compliance', select: selectComplianceScore, describe: describeCompliance },
+      { key: 'attention', label: 'Needs Attention', hint: 'Access-review items needing attention', Icon: AlertTriangle, tone: 'rose', source: 'accessReview', select: selectNeedsAttention, describe: describeNeedsAttention },
       { key: 'masking', label: 'Masking', hint: 'Column-masking policies', Icon: EyeOff, tone: 'amber', source: 'masking', select: len },
       { key: 'rls', label: 'Row Access', hint: 'Row-level security policies', Icon: Lock, tone: 'purple', source: 'rls', select: len },
       { key: 'aggregation', label: 'Aggregation', hint: 'Aggregation-constraint policies', Icon: BarChart3, tone: 'cyan', source: 'aggregation', select: len },
@@ -211,11 +259,12 @@ export default function GovernanceKpiStrip({
         {tiles.map((t) => {
           const src = state?.[t.source];
           const value = !state ? null : src?.ok ? t.select(src.data) : null;
+          const tip = (src?.ok && t.describe ? t.describe(src.data) : null) ?? t.hint;
           const c = TONE[t.tone];
           return (
             <div
               key={t.key}
-              title={t.hint}
+              title={tip}
               className="flex items-center gap-2.5 rounded-xl border border-slate-100 px-3 py-2.5 dark:border-slate-800"
             >
               <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ${c.bg} ${c.ring}`}>

@@ -208,7 +208,7 @@ export const userListColumns = [
     header: 'Status',
     cell: ({ row }) => (
       <Text
-        className={`text-sm font-medium ${row.original.status === 'Active' ? 'text-green-600' : 'text-red-600'}`}
+        className={`text-sm font-medium ${row.original.status === 'Active' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}
       >
         {row.original.status || 'N/A'}
       </Text>

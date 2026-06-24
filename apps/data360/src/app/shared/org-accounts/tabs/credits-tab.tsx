@@ -3,7 +3,11 @@
 import { useState, useEffect } from 'react';
 import { Text, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
+import { ShieldPlus } from 'lucide-react';
 import { PiWarningCircleDuotone } from 'react-icons/pi';
+import { useCanPerform } from '@/hooks/useCanPerform';
+import ResourceMonitorCreateRail from '../ResourceMonitorCreateRail';
+import AiComputeCostPanel from '../AiComputeCostPanel';
 import {
   LineChart,
   Line,
@@ -27,6 +31,7 @@ import {
   getMeteringTrend,
   getCreditForecast,
   getWarehouseCredits,
+  getUsageAnalytics,
 } from '@/app/services/org-accounts/hooks';
 import { formatCredits, extractApiError } from '@/app/services/org-accounts/utils';
 import { safeToFixed } from '@/lib/format-number';
@@ -63,9 +68,19 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
   const [meteringTrend, setMeteringTrend] = useState<MeteringTrendPoint[]>([]);
   const [forecast, setForecast] = useState<any>(null);
   const [warehouseCredits, setWarehouseCredits] = useState<any>(null);
+  const [usageAnalytics, setUsageAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
+  // Bumped after a spend-cap monitor is created so the forecast re-pulls.
+  const [localRefresh, setLocalRefresh] = useState(0);
+
+  // detect -> act: when the forecast flags budget-at-risk, offer a one-click
+  // "set a spending cap" (resource monitor create). Parent owns the gate; the
+  // rail is presentation-only. Fail-open while the allow-set loads.
+  const { allowed: canCreateRm, loading: rmPermLoading } = useCanPerform('org_accounts', 'create');
+  const rmCreateDenied = !canCreateRm && !rmPermLoading;
+  const [rmCreateOpen, setRmCreateOpen] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -85,7 +100,8 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
       guard(getMeteringTrend(days)),
       guard(getCreditForecast(days)),
       guard(getWarehouseCredits(days)),
-    ]).then(([creditsData, topData, trendData, meteringData, mTrendData, forecastData, whCreditsData]) => {
+      guard(getUsageAnalytics(days)),
+    ]).then(([creditsData, topData, trendData, meteringData, mTrendData, forecastData, whCreditsData, usageData]) => {
       if (creditsData) {
         setCredits(Array.isArray(creditsData.accounts) ? creditsData.accounts : []);
         setTotalCredits(creditsData.total_credits || 0);
@@ -96,9 +112,10 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
       if (mTrendData) setMeteringTrend(Array.isArray(mTrendData.trend) ? mTrendData.trend : []);
       setForecast(forecastData);
       setWarehouseCredits(whCreditsData);
+      setUsageAnalytics(usageData);
       setError(firstError);
     }).finally(() => setLoading(false));
-  }, [refreshKey, dateRange]);
+  }, [refreshKey, dateRange, localRefresh]);
 
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
@@ -241,6 +258,21 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
             {budgetAtRisk && (
               <Badge variant="flat" color="danger" className="text-xs ml-auto">Budget at Risk</Badge>
             )}
+            <button
+              type="button"
+              disabled={rmCreateDenied}
+              title={rmCreateDenied ? 'You lack the "create" permission on Client Accounts. Ask an administrator to grant it.' : 'Create a resource monitor to cap spend'}
+              onClick={() => { if (!rmCreateDenied) setRmCreateOpen(true); }}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                budgetAtRisk
+                  ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30'
+                  : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/30',
+                budgetAtRisk ? '' : 'ml-auto',
+              )}
+            >
+              <ShieldPlus className="h-3.5 w-3.5" /> Set spending cap
+            </button>
           </div>
 
           {/* Stat cards */}
@@ -471,10 +503,109 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
       </div>
 
       {/* ─────────────────────────────────────────────────────────────────
-          AI consumption (Cortex / wizard / classification charges)
-          Client-side aggregation only — backend rollup endpoint missing.
+          Usage Analytics — top users / queries by credits + warehouse
+          utilization (GET /org-accounts/usage-analytics). Untyped backend
+          rows are introspected generically so the panel adapts to whatever
+          columns the endpoint returns and degrades to an honest empty state.
+          ───────────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <DynamicTable
+          title="Top Users by Credits"
+          rows={Array.isArray(usageAnalytics?.top_users_by_credits) ? usageAnalytics.top_users_by_credits : []}
+        />
+        <DynamicTable
+          title="Top Queries by Credits"
+          rows={Array.isArray(usageAnalytics?.top_queries_by_credits) ? usageAnalytics.top_queries_by_credits : []}
+        />
+      </div>
+      <DynamicTable
+        title="Warehouse Utilization"
+        rows={Array.isArray(usageAnalytics?.warehouse_utilization) ? usageAnalytics.warehouse_utilization : []}
+      />
+
+      {/* ─────────────────────────────────────────────────────────────────
+          AI compute cost — LIVE server-side per-service spend
+          (GET /org-accounts/cortex-costs). Self-fetching: degrades to an
+          honest "not available" notice if the route is undeployed (404),
+          without poisoning the rest of the tab.
+          ───────────────────────────────────────────────────────────── */}
+      <AiComputeCostPanel
+        days={dateRange === '7d' ? 7 : dateRange === '90d' ? 90 : 30}
+        refreshKey={refreshKey}
+      />
+
+      {/* ─────────────────────────────────────────────────────────────────
+          AI consumption (per-feature) — client-side aggregation. Complements
+          the live per-service totals above with per-feature detail the server
+          rollup does not yet expose.
           ───────────────────────────────────────────────────────────── */}
       <AiConsumptionCard />
+
+      {/* detect -> act: create a spend-cap resource monitor, seeded from the
+          forecast's projected 30d total. Parent gates; rail is presentation-only. */}
+      <ResourceMonitorCreateRail
+        isOpen={rmCreateOpen}
+        onClose={() => setRmCreateOpen(false)}
+        onCreated={() => setLocalRefresh((v) => v + 1)}
+        defaultQuota={Number(projected30d) > 0 ? Number(projected30d) : undefined}
+        defaultName="MONTHLY_BUDGET_CAP"
+      />
+    </div>
+  );
+}
+
+/**
+ * DynamicTable — renders an array of untyped backend rows by introspecting the
+ * keys of the first row. Numeric cells are localized; missing values render an
+ * honest "—" (never a fabricated 0). Used for the usage-analytics sub-arrays
+ * whose exact column set isn't typed.
+ */
+function DynamicTable({ title, rows }: { title: string; rows: any[] }) {
+  const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+  const formatCell = (v: unknown): string => {
+    if (v == null || v === '') return '—';
+    if (typeof v === 'number') return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    return String(v);
+  };
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
+        <PiChartBarDuotone className="h-5 w-5 text-indigo-500" />
+        <Text className="font-semibold text-gray-900 dark:text-white">{title}</Text>
+        {rows.length > 0 && (
+          <Badge variant="flat" color="info" className="text-xs ml-auto">{rows.length}</Badge>
+        )}
+      </div>
+      <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
+        {rows.length === 0 ? (
+          <div className="px-4 py-8 text-center text-gray-500">No data available</div>
+        ) : (
+          <table className="w-full">
+            <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/50">
+              <tr className="border-b border-gray-200 dark:border-gray-700">
+                {columns.map((c) => (
+                  <th key={c} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">
+                    {c.replace(/_/g, ' ')}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {rows.map((row, i) => (
+                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  {columns.map((c) => (
+                    <td key={c} className="px-4 py-2">
+                      <Text className="text-sm text-gray-900 dark:text-white truncate max-w-xs" title={String(row[c] ?? '')}>
+                        {formatCell(row[c])}
+                      </Text>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
@@ -603,12 +734,13 @@ function AiConsumptionCard() {
           <PiInfoDuotone className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
           <div className="space-y-1">
             <Text className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-              Backend Gap — AI credit rollup endpoint missing
+              Backend Gap — per-feature AI rollup endpoint missing
             </Text>
             <Text className="text-xs text-amber-700 dark:text-amber-200/80">
-              This card aggregates AI charges in the browser (localStorage,
-              rolling 30 days). Server-side rollup is not yet exposed. Expected
-              shape:
+              Live per-service AI spend is shown above (server rollup). This card
+              adds per-feature detail, aggregated in the browser (localStorage,
+              rolling 30 days) — the per-feature server endpoint is not yet
+              exposed. Expected shape:
             </Text>
             <pre className="mt-1 overflow-x-auto rounded bg-amber-100/70 p-2 text-[11px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
 {`GET /account/{accountId}/ai-credits?period=30d

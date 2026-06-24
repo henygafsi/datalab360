@@ -257,7 +257,11 @@ const AccessManagementSlot: React.FC<AccessManagementSlotProps> = ({ projectId }
   const handleRemove = async (username: string) => {
     setIsRemoving(true);
     try {
-      await removeContributor(projectId, username);
+      const result = await removeContributor(projectId, username);
+      if (result.status === 'noop') {
+        toast.error("Couldn't remove — backend route unavailable");
+        return;
+      }
       setContributors((prev) => prev.filter((c) => c.username !== username));
       toast.success(`Removed ${username} from project`);
       setConfirmRemove(null);

@@ -137,7 +137,7 @@ export default function LocalAnalyticsContent() {
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">Last Query</p>
             <p className="text-lg font-semibold text-gray-900 dark:text-white">
-              {queryResult?.execution_time_ms != null ? `${queryResult.execution_time_ms}ms` : '--'}
+              {queryResult?.execution_time_ms != null ? `${queryResult.execution_time_ms}ms` : '—'}
             </p>
           </div>
         </div>
@@ -207,7 +207,7 @@ export default function LocalAnalyticsContent() {
                         {formatBytes(ds.size_bytes)}
                       </td>
                       <td className="px-4 py-2.5 text-right text-gray-500 dark:text-gray-400 text-xs">
-                        {ds.last_modified || '--'}
+                        {ds.last_modified || '—'}
                       </td>
                     </tr>
                   ))}

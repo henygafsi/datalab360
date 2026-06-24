@@ -402,6 +402,9 @@ export interface SlowQuery {
   end_time: string;
   query_type: string;
   error_message: string | null;
+  // Cost attribution — render when present; fall back to mb_scanned as proxy.
+  // The backend may start returning this for Snowflake serverless / dynamic tables.
+  credits_used?: number | null;
   // Legacy fields
   execution_time_seconds?: number;
   bytes_scanned?: number;

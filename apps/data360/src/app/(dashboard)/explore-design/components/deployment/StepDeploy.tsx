@@ -318,9 +318,13 @@ export default function StepDeploy() {
             <Button variant="outline" onClick={goPrev} className="gap-1.5">
               <ArrowLeft className="h-4 w-4" /> Back
             </Button>
-            <Button size="lg" onClick={handleDeploy} className="gap-2">
+            <Button size="lg" onClick={handleDeploy} disabled={isDeploying} className="gap-2">
               <Rocket className="h-5 w-5" />
-              {config.deploymentType === 'with_approval' ? 'Submit for Approval' : 'Deploy Now'}
+              {isDeploying
+                ? 'Deploying…'
+                : config.deploymentType === 'with_approval'
+                  ? 'Submit for Approval'
+                  : 'Deploy Now'}
             </Button>
           </div>
         </div>

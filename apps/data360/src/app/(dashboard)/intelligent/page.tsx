@@ -36,8 +36,9 @@ import QueryAnalyticsContent from './query-analytics-content';
 import LocalAnalyticsContent from './local-analytics-content';
 import SnowparkServicesContent from './snowpark-services-content';
 import AiAdvisorContent from './ai-advisor-content';
+import AiPromptConsoleContent from './ai-prompt-console-content';
 
-type TabType = 'semantic-models' | 'cortex-chat' | 'ml-features' | 'advanced-ml' | 'query-analytics' | 'local-analytics' | 'snowpark-services' | 'cortex-agents' | 'semantic-views' | 'vector-search' | 'ai-advisor';
+type TabType = 'semantic-models' | 'ai-console' | 'cortex-chat' | 'ml-features' | 'advanced-ml' | 'query-analytics' | 'local-analytics' | 'snowpark-services' | 'cortex-agents' | 'semantic-views' | 'vector-search' | 'ai-advisor';
 
 // ── Response shapes for the inline Cortex tabs (no dedicated service types
 // exist for these read-only listing endpoints, so they are declared here). ──
@@ -87,6 +88,14 @@ const TABS = [
     description: 'YAML-based data models for natural-language analytics',
     badge: 'AI-Powered',
     badgeColor: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
+  },
+  {
+    id: 'ai-console' as TabType,
+    name: 'AI Console',
+    icon: PiLightning,
+    description: 'Docked NL to SQL analyst: pick a semantic model, ask, get SQL + results',
+    badge: 'AI',
+    badgeColor: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400',
   },
   {
     id: 'cortex-chat' as TabType,
@@ -183,7 +192,7 @@ export default function IntelligentPage() {
   const { trackTabSwitch } = useTrackEvent();
   const tabFromUrl = useMemo(() => {
     const t = searchParams.get('tab');
-    if (t === 'ml-features' || t === 'semantic-models' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services' || t === 'cortex-agents' || t === 'semantic-views' || t === 'vector-search' || t === 'ai-advisor') return t as TabType;
+    if (t === 'ml-features' || t === 'semantic-models' || t === 'ai-console' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services' || t === 'cortex-agents' || t === 'semantic-views' || t === 'vector-search' || t === 'ai-advisor') return t as TabType;
     return 'semantic-models';
   }, [searchParams]);
   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
@@ -406,6 +415,7 @@ export default function IntelligentPage() {
         {/* Tab Content */}
         <div role="tabpanel" className="p-6">
           {activeTab === 'semantic-models' && <SemanticModelsContent />}
+          {activeTab === 'ai-console' && <AiPromptConsoleContent />}
           {activeTab === 'cortex-chat' && <CortexChatContent />}
           {activeTab === 'ai-advisor' && <AiAdvisorContent />}
           {activeTab === 'ml-features' && <MLFeaturesContent />}

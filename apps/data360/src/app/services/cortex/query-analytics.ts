@@ -1,4 +1,5 @@
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ export interface RunAnalysisResponse {
 // ── API Functions ──────────────────────────────────────────────────────────
 
 export async function runQueryAnalysis(hours: number = 5): Promise<RunAnalysisResponse> {
-  const response = await apiClient.post('/cortex/query-analytics/analyze', null, {
+  const response = await apiClient.post(API.cortex.queryAnalyticsRun(), null, {
     params: { hours },
     timeout: 120000,
   });
@@ -86,17 +87,17 @@ export async function getQueryAnalyticsResults(params?: {
   severity?: string;
   limit?: number;
 }): Promise<{ results: AnalyticsResult[]; count: number }> {
-  const response = await apiClient.get('/cortex/query-analytics/results', { params });
+  const response = await apiClient.get(API.cortex.queryAnalyticsResults(), { params });
   return response.data;
 }
 
 export async function getQueryAnalyticsSummary(): Promise<AnalyticsSummary> {
-  const response = await apiClient.get('/cortex/query-analytics/summary');
+  const response = await apiClient.get(API.cortex.queryAnalyticsSummary());
   return response.data;
 }
 
 export async function getRedundantGroups(limit: number = 20): Promise<{ groups: RedundantGroup[]; count: number }> {
-  const response = await apiClient.get('/cortex/query-analytics/redundant-groups', {
+  const response = await apiClient.get(API.cortex.queryAnalyticsRedundantGroups(), {
     params: { limit },
   });
   return response.data;

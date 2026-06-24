@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ChevronLeft, RefreshCw } from 'lucide-react';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
@@ -10,6 +10,7 @@ import type { FullDashboard } from '@/app/services/api/types';
 import DashboardEditor from '../components/DashboardEditor';
 import ProjectStatusBadges from '../components/ProjectStatusBadges';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
+import ManageAccessButton from '@/app/shared/governance/ManageAccessButton';
 
 // ---------------------------------------------------------------------------
 // Page
@@ -22,6 +23,9 @@ import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 export default function BIDashboardProjectPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params?.projectId ?? '';
+  const searchParams = useSearchParams();
+  // ?source_table=DB.SCHEMA.TABLE — pre-fills the add-widget source picker on mount.
+  const initialSourceTable = searchParams?.get('source_table') ?? undefined;
 
   const [dashboard, setDashboard] = useState<FullDashboard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,7 +45,7 @@ export default function BIDashboardProjectPage() {
         } else if (status != null && status >= 500) {
           // Server-side failure — be specific so it doesn't read as a missing
           // dashboard, and offer a Retry instead of a dead end.
-          setError(`The server couldn’t load this dashboard (error ${status}). This is a backend issue, not your dashboard.`);
+          setError(`The server couldn't load this dashboard (error ${status}). This is a backend issue, not your dashboard.`);
         } else {
           setError('Failed to load dashboard.');
         }
@@ -77,6 +81,12 @@ export default function BIDashboardProjectPage() {
                     top bar; self-hides when the rollup route is unprovisioned. */}
                 <AdnHeaderBadge projectId={projectId} compact />
                 <ProjectStatusBadges projectId={projectId} />
+                <ManageAccessButton
+                  module="bi-dashboard"
+                  page="bi-dashboard"
+                  objectName={projectId}
+                  objectLabel={dashboard?.project_name ?? 'BI Dashboard'}
+                />
               </>
             )}
           </div>
@@ -112,6 +122,7 @@ export default function BIDashboardProjectPage() {
             <DashboardEditor
               projectId={projectId}
               projectName={dashboard?.project_name ?? 'BI Dashboard'}
+              initialSourceTable={initialSourceTable}
             />
           </div>
         )}

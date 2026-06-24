@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useState, useCallback } from 'react';
 import Link from 'next/link';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import {
@@ -13,6 +13,7 @@ import {
   PiTag,
   PiKey,
   PiSparkle,
+  PiPencilSimple,
 } from 'react-icons/pi';
 
 // Import existing policy components (we'll use their content)
@@ -30,6 +31,7 @@ import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
 import GovernanceTagsPanel from '../components/GovernanceTagsPanel';
 import MyRolePoliciesContent from './my-role-policies-content';
 import ProposedPoliciesPanel from './components/ProposedPoliciesPanel';
+import PolicyMetadataPanel, { type MetadataPolicyType } from './components/PolicyMetadataPanel';
 
 type TabType =
   | 'rls'
@@ -84,6 +86,17 @@ const GROUPS: TabGroup[] = [
 
 const ALL_TABS: TabDef[] = GROUPS.flatMap((g) => g.tabs);
 
+// Tabs whose policy type exposes the enriched LIST endpoint that backs the
+// docked metadata editor (PUT .../policies/{type}/{name}/metadata). Tabs not in
+// this map (network/tag/classification/dmf) hide the "Edit metadata" launcher.
+const TAB_TO_METADATA_TYPE: Partial<Record<TabType, MetadataPolicyType>> = {
+  rls: 'ROW_ACCESS',
+  masking: 'MASKING',
+  aggregation: 'AGGREGATION',
+  password: 'PASSWORD',
+  session: 'SESSION',
+};
+
 // Tailwind can't see dynamic class names, so enumerate everything statically.
 const ACCENT_CLASSES: Record<string, { dot: string; activeBg: string; activeText: string; activeRing: string; hoverBg: string; headerGrad: string; headerIconBg: string }> = {
   purple:  { dot: 'bg-purple-500',  activeBg: 'bg-purple-50 dark:bg-purple-900/30',   activeText: 'text-purple-700 dark:text-purple-300',  activeRing: 'ring-purple-500/30',  hoverBg: 'hover:bg-purple-50/60 dark:hover:bg-purple-900/20',  headerGrad: 'from-purple-500 to-purple-600',  headerIconBg: 'bg-purple-500/10 text-purple-600 dark:text-purple-400' },
@@ -102,12 +115,67 @@ const ACCENT_CLASSES: Record<string, { dot: string; activeBg: string; activeText
 // unchanged; non-admins can switch to the role-scoped view that always works.
 type ViewMode = 'all' | 'mine';
 
+// Derive the best available masking type from Snowflake's semantic / privacy categories.
+// Only maps to the types supported by MaskingPoliciesContent: FULL, PARTIAL_FIRST,
+// PARTIAL_LAST, EMAIL, HASH, CUSTOM.
+function inferMaskingType(semantic?: string | null, privacy?: string | null): string {
+  const s = (semantic ?? '').toUpperCase();
+  if (s.includes('EMAIL') || s.includes('MAIL'))                          return 'EMAIL';
+  if (s.includes('SSN') || s.includes('SOCIAL_SECURITY') || s.includes('NATIONAL_ID')) return 'FULL';
+  if (s.includes('PHONE') || s.includes('MOBILE') || s.includes('FAX'))  return 'FULL';
+  if (s.includes('CREDIT_CARD') || s.includes('PAYMENT_CARD') || s.includes('CARD_NUMBER')) return 'PARTIAL_LAST';
+  if (s.includes('IBAN') || s.includes('ACCOUNT_NUMBER') || s.includes('BANK_ACCOUNT')) return 'PARTIAL_LAST';
+  if (s.includes('PASSPORT') || s.includes('DRIVER') || s.includes('LICENSE')) return 'FULL';
+  if (s.includes('IP_ADDRESS') || s.includes('MAC_ADDRESS') || s.includes('DEVICE_ID')) return 'HASH';
+  if (s.includes('USERNAME') || s.includes('USER_ID') || s.includes('PERSON_NAME')) return 'PARTIAL_FIRST';
+  const p = (privacy ?? '').toUpperCase();
+  if (p === 'IDENTIFIER')       return 'FULL';
+  if (p === 'QUASI_IDENTIFIER') return 'PARTIAL_FIRST';
+  if (p === 'SENSITIVE')        return 'HASH';
+  return 'FULL'; // safe default
+}
+
 export default function PoliciesPage() {
   const [activeTab, setActiveTab] = useState<TabType>('rls');
   const [view, setView] = useState<ViewMode>('all');
+  // Docked metadata editor (right-tab) — open/closed; the policy type follows the
+  // active tab so switching tabs while open re-targets the editor.
+  const [metadataOpen, setMetadataOpen] = useState(false);
+  // Prefill state for the masking create+apply forms, populated when the user clicks
+  // "Protect" on a classified column in the Classification tab.
+  // database/schema/table/column are optional — only present when the column came
+  // from a classify result with a known target table.
+  const [maskingPrefill, setMaskingPrefill] = useState<{
+    name: string;
+    maskingType: string;
+    database?: string;
+    schema?: string;
+    table?: string;
+    column?: string;
+  } | null>(null);
+
+  const handleProtect = useCallback((col: {
+    column: string;
+    semantic_category?: string | null;
+    privacy_category?: string | null;
+    database?: string;
+    schema?: string;
+    table?: string;
+  }) => {
+    setMaskingPrefill({
+      name: `PROTECT_${col.column.toUpperCase()}`,
+      maskingType: inferMaskingType(col.semantic_category, col.privacy_category),
+      database: col.database || undefined,
+      schema: col.schema || undefined,
+      table: col.table || undefined,
+      column: col.column || undefined,
+    });
+    setActiveTab('masking');
+  }, []);
 
   const active = ALL_TABS.find((t) => t.id === activeTab)!;
   const accent = ACCENT_CLASSES[active.accent];
+  const metadataType = TAB_TO_METADATA_TYPE[activeTab] ?? null;
 
   const Breadcrumb = () => (
     <nav className="mb-6">
@@ -194,8 +262,9 @@ export default function PoliciesPage() {
 
         {view === 'all' && (
           <>
-        {/* Grouped tab bar */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm overflow-hidden">
+        {/* Grouped tab bar + docked metadata editor (flex siblings, not a modal) */}
+        <div className="flex items-start gap-4">
+        <div className="min-w-0 flex-1 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm overflow-hidden">
           <div className="p-4 sm:p-6 border-b border-slate-200/60 dark:border-slate-700/60 bg-gradient-to-b from-slate-50 to-white dark:from-slate-900/60 dark:to-slate-900">
             <div className="flex flex-col gap-5">
               {GROUPS.map((group) => (
@@ -252,20 +321,41 @@ export default function PoliciesPage() {
               </div>
               <p className="text-sm text-slate-600 dark:text-slate-400 truncate">{active.description}</p>
             </div>
+            {metadataType && (
+              <button
+                type="button"
+                onClick={() => setMetadataOpen(true)}
+                title="Edit a policy's expiration and comment in place"
+                className="ml-auto shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <PiPencilSimple className="w-3.5 h-3.5" />
+                Edit metadata
+              </button>
+            )}
           </div>
 
           {/* Tab content */}
           <div className="p-4 sm:p-6">
             {activeTab === 'rls' && <RLSPoliciesContent />}
-            {activeTab === 'masking' && <MaskingPoliciesContent />}
+            {activeTab === 'masking' && <MaskingPoliciesContent prefill={maskingPrefill} />}
             {activeTab === 'aggregation' && <AggregationPoliciesContent />}
             {activeTab === 'network' && <NetworkPoliciesContent />}
             {activeTab === 'tag' && <TagPoliciesContent />}
             {activeTab === 'password' && <PasswordPoliciesContent />}
             {activeTab === 'session' && <SessionPoliciesContent />}
             {activeTab === 'dmf' && <DMFContent />}
-            {activeTab === 'classification' && <ClassificationContent />}
+            {activeTab === 'classification' && <ClassificationContent onProtect={handleProtect} />}
           </div>
+        </div>
+
+          {/* Docked metadata editor — sibling of the card, not a modal. */}
+          {metadataOpen && metadataType && (
+            <PolicyMetadataPanel
+              policyType={metadataType}
+              policyTypeLabel={active.name}
+              onClose={() => setMetadataOpen(false)}
+            />
+          )}
         </div>
 
         {/* Advisory governance-depth probes (read-only; self-disable if route not deployed) */}

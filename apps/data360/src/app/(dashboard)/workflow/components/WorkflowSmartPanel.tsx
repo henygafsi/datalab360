@@ -58,6 +58,10 @@ import {
   Shield,
   RotateCcw,
   CheckCircle2,
+  XCircle,
+  Users,
+  UserPlus,
+  Trash2,
   PlusCircle,
   MinusCircle,
   PencilLine,
@@ -97,6 +101,18 @@ import {
   useWorkflowSectionQuery,
   evictWorkflowSectionCache,
 } from './useWorkflowSectionCache';
+// Lifecycle readiness surfaces (docked, honest states): pre-deploy preconditions
+// (POST /workflow/{id}/pre-check) + post-execute block-output verification
+// (POST /workflow/{id}/post-verify). Both self-disable on 404/501.
+import { PreDeployChecks, PostRunVerify } from './WorkflowReadinessChecks';
+// Contributor CRUD lives in the workflow module service (workflow-scoped routes
+// GET/POST/DELETE /workflow/{id}/contributors/*). Imported read-only here.
+import {
+  getWorkflowContributors,
+  addWorkflowContributor,
+  removeWorkflowContributor,
+  type WorkflowContributor,
+} from '@/app/services/workflow';
 // Operational tabs folded in from the former second rail (WorkflowProjectBar /
 // ContextBar). They join THIS single icon rail as the Usage / Cost / Governance
 // sections so the builder shows ONE right-tab, not two. Reused verbatim (same
@@ -609,6 +625,14 @@ function SubmitSection({
           />
         )}
 
+        {/* Readiness gate — preconditions BEFORE approval + per-block output
+            verification AFTER a run. Both are docked checklists that self-disable
+            when the backend route is absent (404/501). */}
+        <div className="space-y-2 border-t border-gray-100 pt-3 dark:border-gray-800">
+          <PreDeployChecks workflowId={workflowId} isReadOnly={isReadOnly} />
+          <PostRunVerify workflowId={workflowId} />
+        </div>
+
         {/* After validation passes, request the production deployment approval. */}
         <InsightActionButton
           label="Submit for deployment approval"
@@ -665,6 +689,10 @@ function DeploySection({
     { enabled: !!workflowId },
   );
 
+  // Inline (docked) reject flow: which deployment is being rejected + its reason.
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+
   const deployments: WorkflowDeployment[] = dep.data?.deployments ?? [];
   const versions: WorkflowVersion[] = ver.data?.versions ?? [];
   const isGap = (s: number | null) => s === 404 || s === 501;
@@ -714,6 +742,72 @@ function DeploySection({
                   <span>Approved: {str(d.approved_by)}</span>
                   <span className="col-span-2">When: {fmtDate(d.deployed_at ?? d.created_at)}</span>
                 </div>
+                {d.status === 'pending_approval' && !isReadOnly && (
+                  <div className="mt-2 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <InsightActionButton
+                        label="Approve"
+                        icon={CheckCircle2}
+                        variant="subtle"
+                        size="sm"
+                        onAction={() => workflowApi.approveDeployment(workflowId!, d.deployment_id)}
+                        successToast="Deployment approved"
+                        pingBell
+                        onDone={() => {
+                          dep.reload();
+                          onReload?.();
+                        }}
+                        unavailableHint="Approve is not available on this backend"
+                        confirm={{
+                          title: 'Approve this deployment?',
+                          body: 'Approving lets this production deployment be executed.',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRejectingId(rejectingId === d.deployment_id ? null : d.deployment_id);
+                          setRejectReason('');
+                        }}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                      >
+                        <XCircle className="h-3.5 w-3.5" />
+                        Reject
+                      </button>
+                    </div>
+                    {rejectingId === d.deployment_id && (
+                      <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800/50">
+                        <textarea
+                          value={rejectReason}
+                          onChange={(e) => setRejectReason(e.target.value)}
+                          rows={2}
+                          placeholder="Reason for rejection (optional)"
+                          className="w-full resize-none rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 outline-none focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                        />
+                        <InsightActionButton
+                          label="Confirm reject"
+                          icon={XCircle}
+                          variant="danger"
+                          size="sm"
+                          onAction={() =>
+                            workflowApi.rejectDeployment(workflowId!, d.deployment_id, {
+                              reason: rejectReason.trim() || undefined,
+                            })
+                          }
+                          successToast="Deployment rejected"
+                          pingBell
+                          onDone={() => {
+                            setRejectingId(null);
+                            setRejectReason('');
+                            dep.reload();
+                            onReload?.();
+                          }}
+                          unavailableHint="Reject is not available on this backend"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
                 {d.status === 'approved' && !isReadOnly && (
                   <div className="mt-2">
                     <InsightActionButton
@@ -783,6 +877,144 @@ function DeploySection({
           </ul>
         )}
       </div>
+
+      <ContributorsSection workflowId={workflowId} isReadOnly={isReadOnly} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 3b — CONTRIBUTORS (access management for this workflow)
+// ---------------------------------------------------------------------------
+
+const contribName = (c: any): string => c?.username ?? c?.user_name ?? c?.name ?? '';
+const contribKey = (c: any): string =>
+  c?.contributor_id ?? c?.id ?? c?.username ?? c?.user_name ?? Math.random().toString(36);
+
+function ContributorsSection({
+  workflowId,
+  isReadOnly,
+}: {
+  workflowId: string | null;
+  isReadOnly: boolean;
+}) {
+  const list = useWorkflowSectionQuery<WorkflowContributor[]>(
+    workflowId ? `wf:${workflowId}:contributors` : null,
+    () => getWorkflowContributors(workflowId as string),
+    { enabled: !!workflowId },
+  );
+
+  const [newUser, setNewUser] = useState('');
+  const [newRole, setNewRole] = useState<'viewer' | 'editor'>('viewer');
+
+  const contributors = list.data ?? [];
+  const isGap = (s: number | null) => s === 404 || s === 501;
+  const status: FetchStatus =
+    list.state === 'done'
+      ? 'ok'
+      : list.state === 'error'
+        ? isGap(list.errorStatus)
+          ? 'gap'
+          : 'error'
+        : 'loading';
+
+  const reloadList = () => {
+    if (workflowId) evictWorkflowSectionCache(`wf:${workflowId}:contributors`);
+    list.reload();
+  };
+
+  return (
+    <div className="border-t border-gray-100 pt-4 dark:border-gray-800">
+      <div className="mb-3 flex items-center gap-1.5">
+        <Users className="h-3.5 w-3.5 text-gray-500" />
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+          Contributors
+        </h3>
+      </div>
+
+      {status === 'loading' && <SkeletonRows />}
+      {status === 'gap' && <GapNote />}
+      {status === 'error' && <ErrorNote code={list.errorStatus ?? undefined} />}
+      {status === 'ok' && contributors.length === 0 && (
+        <p className="text-[11px] italic text-gray-400 dark:text-gray-500">No contributors yet</p>
+      )}
+      {status === 'ok' && contributors.length > 0 && (
+        <ul className="space-y-1.5">
+          {contributors.map((c) => (
+            <li
+              key={contribKey(c)}
+              className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs dark:border-gray-700"
+            >
+              <div className="min-w-0">
+                <span className="block truncate font-medium text-gray-800 dark:text-gray-200">
+                  {contribName(c) || '—'}
+                </span>
+                <span className="text-[10px] uppercase tracking-wide text-gray-400">
+                  {str((c as any).role)}
+                </span>
+              </div>
+              {!isReadOnly && (c as any).role !== 'owner' && contribName(c) && (
+                <InsightActionButton
+                  label="Remove"
+                  icon={Trash2}
+                  variant="danger"
+                  size="sm"
+                  onAction={() => removeWorkflowContributor(workflowId!, contribName(c))}
+                  successToast="Contributor removed"
+                  pingBell
+                  onDone={reloadList}
+                  unavailableHint="Removing contributors is not available on this backend"
+                  confirm={{
+                    title: 'Remove contributor?',
+                    body: `${contribName(c)} will lose access to this workflow.`,
+                    variant: 'warning',
+                  }}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {!isReadOnly && (status === 'ok' || status === 'error') && (
+        <div className="mt-3 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800/50">
+          <div className="flex items-center gap-2">
+            <input
+              value={newUser}
+              onChange={(e) => setNewUser(e.target.value)}
+              placeholder="username"
+              className="min-w-0 flex-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 outline-none focus:border-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+            />
+            <select
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value as 'viewer' | 'editor')}
+              className="rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+            >
+              <option value="viewer">viewer</option>
+              <option value="editor">editor</option>
+            </select>
+          </div>
+          <InsightActionButton
+            label="Add contributor"
+            icon={UserPlus}
+            variant="subtle"
+            size="sm"
+            onAction={async () => {
+              const u = newUser.trim();
+              if (!u) throw new Error('Enter a username to add');
+              return addWorkflowContributor(workflowId!, u, newRole);
+            }}
+            successToast="Contributor added"
+            pingBell
+            onDone={() => {
+              setNewUser('');
+              setNewRole('viewer');
+              reloadList();
+            }}
+            unavailableHint="Adding contributors is not available on this backend"
+          />
+        </div>
+      )}
     </div>
   );
 }

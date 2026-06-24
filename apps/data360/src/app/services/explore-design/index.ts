@@ -376,9 +376,10 @@ export async function deployEvents(
   results: DeploymentResult[];
   summary: { applied: number; failed: number; skipped: number };
 }> {
-  // Step 1 — stage the deployment with the events ('staged' keeps it from
-  // auto-running so step 2 is the explicit trigger).
-  const created = await createDeployment(projectId, '1.0', 'staged', eventIds, {
+  // Step 1 — create the deployment with 'immediate' type so the backend sets
+  // status=APPROVED; step 2 (executeDeploymentV1) is still the explicit trigger.
+  // 'staged' is NOT a valid DeploymentType enum value on the backend — it 422s.
+  const created = await createDeployment(projectId, '1.0', 'immediate', eventIds, {
     rollback_on_error: options?.rollback_on_error ?? true,
   });
   // Step 2 — execute it through the registered v1 route.
@@ -719,6 +720,10 @@ export async function createDeployment(
     {
       project_id: projectId,
       version,
+      // Backend (FastAPI) requires `deployment_type`; sending only `type` 400s
+      // with "deployment_type: Field required" → the create step (and thus the
+      // whole deploy) silently failed. Send both for compatibility.
+      deployment_type: type,
       type,
       event_ids: eventIds,
       config: {
@@ -4581,8 +4586,25 @@ export async function getColumnClassification(projectId: string, database: strin
   return res.data;
 }
 
-export async function discoverRelationships(projectId: string, data: { tables: any[]; existing_relations?: any[] }) {
-  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/discover-relationships`, data);
+/**
+ * Discover FK relationships via AI for a single database+schema scope.
+ *
+ * Backend AIRelationshipDiscoverRequest requires top-level `database` and
+ * `schema` (required); `tables` is an optional List[str] of table-name
+ * filters. Sending objects or omitting database/schema caused a 422.
+ * NOTE: backend processes one db/schema pair per call — multi-schema
+ * projects are under-scoped; the sibling caller in services/api/exploreDesignApi.ts
+ * has the same shape mismatch (out of this file's scope).
+ */
+export async function discoverRelationships(
+  projectId: string,
+  data: { database: string; schema: string; tables?: string[] },
+) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/discover-relationships`, {
+    database: data.database,
+    schema: data.schema,
+    tables: data.tables,
+  });
   return res.data;
 }
 

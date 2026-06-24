@@ -75,6 +75,9 @@ export default function ChatSidebar() {
   const [attachFile, setAttachFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Tracks whether a full loadMessages fetch is in progress; used by the poll
+  // guard to avoid concurrent fetches (React state is stale in interval closures).
+  const loadingRef = useRef(false);
 
   const context = getModuleContext(pathname);
 
@@ -94,6 +97,54 @@ export default function ChatSidebar() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // ── Polling: new messages every 10 s while a conversation is open ─────
+  useEffect(() => {
+    if (!isOpen || !activeConversation?.conversation_id) return;
+    const convId = activeConversation.conversation_id;
+
+    const poll = async () => {
+      if (loadingRef.current) return; // full load in flight — skip this tick
+      try {
+        const { data } = await apiClient.get(`/chat/conversations/${convId}/messages?limit=50`);
+        const items = data?.data?.items || data?.items || data?.messages || (Array.isArray(data) ? data : []);
+        const normalized: Message[] = items.map((m: Record<string, unknown>) => ({
+          message_id: (m.MESSAGE_ID || m.message_id || '') as string,
+          conversation_id: (m.CONVERSATION_ID || m.conversation_id || convId) as string,
+          sender: (m.SENDER_USERNAME || m.sender || '') as string,
+          content: (m.CONTENT || m.content || '') as string,
+          created_at: (m.CREATED_AT || m.created_at || '') as string,
+          edited: (m.IS_EDITED || m.edited || false) as boolean,
+          metadata: m.metadata as Message['metadata'],
+        }));
+        setMessages(prev => {
+          const lastPrevId = prev[prev.length - 1]?.message_id;
+          const lastNewId = normalized[normalized.length - 1]?.message_id;
+          // Same last message — return identical reference → no re-render, no scroll
+          if (lastPrevId === lastNewId && prev.length === normalized.length) return prev;
+          // Genuinely new messages → mark as read
+          if (lastNewId && lastNewId !== lastPrevId) {
+            apiClient.post(`/chat/conversations/${convId}/read`, {
+              last_read_message_id: lastNewId,
+            }).catch(() => {});
+          }
+          return normalized;
+        });
+      } catch { /* silent — poll failures are non-critical */ }
+    };
+
+    const id = setInterval(poll, 10_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, activeConversation?.conversation_id]);
+
+  // ── Polling: online-users badge every 30 s while open ────────────────
+  useEffect(() => {
+    if (!isOpen) return;
+    const id = setInterval(loadOnlineUsers, 30_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const loadConversations = async () => {
     try {
@@ -176,6 +227,7 @@ export default function ChatSidebar() {
     if (!conversationId || conversationId === 'undefined') return;
     try {
       setLoading(true);
+      loadingRef.current = true;
       const { data } = await apiClient.get(`/chat/conversations/${conversationId}/messages?limit=50`);
       // API returns {success, data: {items: [{MESSAGE_ID, CONTENT, SENDER_USERNAME, ...}]}}
       const items = data?.data?.items || data?.items || data?.messages || (Array.isArray(data) ? data : []);
@@ -194,7 +246,7 @@ export default function ChatSidebar() {
         last_read_message_id: normalized[normalized.length - 1]?.message_id || '',
       }).catch(() => {});
     } catch { setMessages([]); }
-    finally { setLoading(false); }
+    finally { setLoading(false); loadingRef.current = false; }
   };
 
   const sendMessage = async () => {

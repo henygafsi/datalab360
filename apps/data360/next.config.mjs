@@ -26,6 +26,20 @@ const nextConfig = {
         source: '/api-proxy/api/recommendations/',
         destination: `${upstream}/api/recommendations/`,
       },
+      // Same trailing-slash trap: the backend defines these as
+      // `@post("/disable_user/")` / `@post("/enable_user/")` (WITH slash). The
+      // catch-all below strips the slash → FastAPI 307s to the absolute slash URL
+      // → the browser drops the Authorization header on that cross-origin redirect
+      // → spurious 401 "Not authenticated" (disable/enable user silently failed).
+      // Forward these WITH the slash intact so the proxy hits the canonical route.
+      {
+        source: '/api-proxy/gouvernance/disable_user/',
+        destination: `${upstream}/gouvernance/disable_user/`,
+      },
+      {
+        source: '/api-proxy/gouvernance/enable_user/',
+        destination: `${upstream}/gouvernance/enable_user/`,
+      },
       // NOTE: the former '/api/mapping/:path*' rewrite was removed (2026-05-29) —
       // the backend has no '/mapping' router; the mapping wizard calls
       // '/explore-design/guided/*' directly via apiClient. See AsBuilt — Contract Coverage.

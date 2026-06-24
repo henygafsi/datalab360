@@ -216,7 +216,7 @@ export default function TableDetailPanel({
         ) : (
           <div className="p-4 space-y-4">
             {tab === 'object' && <ObjectTier data={data360} onRecompute={handleRecompute} recomputing={recomputing} recomputeError={recomputeError} canRecompute={canRecompute} recomputeDeniedReason={recomputeDeniedReason} />}
-            {tab === 'product' && <ProductTierCard tier={data360.tiers.product} />}
+            {tab === 'product' && <ProductTierCard tier={data360.tiers.product} sourceFqn={fqn} />}
             {tab === 'project' && <ProjectTierCard tier={data360.tiers.project} />}
             {tab === 'dependencies' && <DependenciesTierCard tier={data360.tiers.dependencies} />}
 
@@ -511,7 +511,7 @@ function ObjectTier({ data, onRecompute, recomputing, recomputeError, canRecompu
   );
 }
 
-function ProductTierCard({ tier }: { tier: Object360Response['tiers']['product'] }) {
+function ProductTierCard({ tier, sourceFqn }: { tier: Object360Response['tiers']['product']; sourceFqn?: string }) {
   if (!tier.matched) {
     return (
       <div className="text-center py-8">
@@ -520,7 +520,7 @@ function ProductTierCard({ tier }: { tier: Object360Response['tiers']['product']
         {tier.hint && <p className="text-[10px] text-gray-400">{tier.hint}</p>}
         {/* Was a no-op button; product creation/curation lives on the Data
             Products surface, so hand off there instead of a dead control. */}
-        <Link href="/data-products">
+        <Link href={sourceFqn ? `/data-products?source_table=${encodeURIComponent(sourceFqn)}` : '/data-products'}>
           <Button size="sm" variant="outline" className="mt-3 gap-1.5">
             <Plus className="h-3 w-3" />Create Product
           </Button>

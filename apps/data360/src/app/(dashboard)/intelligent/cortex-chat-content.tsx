@@ -639,37 +639,62 @@ export default function CortexChatContent() {
                   <PiMagicWand className="w-10 h-10 text-white" />
                 </div>
               </div>
-              <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-                Ask Anything About Your Data
-              </h3>
-              <p className="text-slate-600 dark:text-slate-400 max-w-md mb-8">
-                Powered by your semantic models, I can help you query
-                and understand your data using natural language.
-              </p>
-
-              {/* Example queries */}
-              <div className="w-full max-w-2xl">
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3">Try asking:</p>
-                <div className="grid grid-cols-2 gap-3">
-                  {getContextExamples(contextTable).map((query, index) => {
-                    const Icon = query.icon;
-                    return (
-                      <button
-                        key={index}
-                        onClick={() => handleSendMessage(query.text)}
-                        className="flex items-center gap-3 p-4 text-left rounded-xl border border-slate-200 dark:border-slate-700 hover:border-fuchsia-300 dark:hover:border-fuchsia-600 hover:bg-fuchsia-50/50 dark:hover:bg-fuchsia-900/10 transition-all duration-200 group"
+              {/* No-models gate: show setup notice instead of example queries */}
+              {!loadingModels && (models ?? []).length === 0 ? (
+                <div className="w-full max-w-md rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-6 text-left">
+                  <div className="flex items-start gap-3">
+                    <PiDatabase className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-1">
+                        No semantic models configured
+                      </h3>
+                      <p className="text-sm text-amber-700 dark:text-amber-300 mb-3">
+                        AI Chat requires at least one semantic model to answer questions about your data. Generate one first, then return here to start chatting.
+                      </p>
+                      <a
+                        href="?tab=semantic-models"
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-700 dark:text-amber-300 underline hover:text-amber-900 dark:hover:text-amber-100"
                       >
-                        <div className="w-8 h-8 rounded-lg bg-fuchsia-100 dark:bg-fuchsia-900/30 flex items-center justify-center flex-shrink-0 group-hover:bg-fuchsia-200 dark:group-hover:bg-fuchsia-900/50 transition-colors">
-                          <Icon className="w-4 h-4 text-fuchsia-600 dark:text-fuchsia-400" />
-                        </div>
-                        <span className="text-sm text-slate-700 dark:text-slate-300">
-                          {query.text}
-                        </span>
-                      </button>
-                    );
-                  })}
+                        Set up Semantic Models
+                      </a>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <>
+                  <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+                    Ask Anything About Your Data
+                  </h3>
+                  <p className="text-slate-600 dark:text-slate-400 max-w-md mb-8">
+                    Powered by your semantic models, I can help you query
+                    and understand your data using natural language.
+                  </p>
+
+                  {/* Example queries */}
+                  <div className="w-full max-w-2xl">
+                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3">Try asking:</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {getContextExamples(contextTable).map((query, index) => {
+                        const Icon = query.icon;
+                        return (
+                          <button
+                            key={index}
+                            onClick={() => handleSendMessage(query.text)}
+                            className="flex items-center gap-3 p-4 text-left rounded-xl border border-slate-200 dark:border-slate-700 hover:border-fuchsia-300 dark:hover:border-fuchsia-600 hover:bg-fuchsia-50/50 dark:hover:bg-fuchsia-900/10 transition-all duration-200 group"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-fuchsia-100 dark:bg-fuchsia-900/30 flex items-center justify-center flex-shrink-0 group-hover:bg-fuchsia-200 dark:group-hover:bg-fuchsia-900/50 transition-colors">
+                              <Icon className="w-4 h-4 text-fuchsia-600 dark:text-fuchsia-400" />
+                            </div>
+                            <span className="text-sm text-slate-700 dark:text-slate-300">
+                              {query.text}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             /* Message List */

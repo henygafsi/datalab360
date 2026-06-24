@@ -151,6 +151,10 @@ type ColumnRow = {
   valid_value_ratio?: number | null;
   alternates?: any[];
   extra?: Record<string, any>;
+  /** Table context injected at the call site so onProtect can pre-fill the apply form. */
+  database?: string;
+  schema?: string;
+  table?: string;
 };
 
 // Snowflake's EXTRACT_SEMANTIC_CATEGORIES returns a VARIANT like:
@@ -221,7 +225,7 @@ const CONFIDENCE_BADGE: Record<string, string> = {
   LOW:    'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
 };
 
-function ClassificationTable({ rows, emptyHint }: { rows: ColumnRow[]; emptyHint: string }) {
+function ClassificationTable({ rows, emptyHint, onProtect }: { rows: ColumnRow[]; emptyHint: string; onProtect?: (row: ColumnRow) => void }) {
   if (!rows.length) {
     return (
       <div className="text-sm text-slate-500 dark:text-slate-400 text-center py-6 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg">
@@ -252,6 +256,7 @@ function ClassificationTable({ rows, emptyHint }: { rows: ColumnRow[]; emptyHint
               <th className="px-4 py-3 font-semibold">Confidence</th>
               <th className="px-4 py-3 font-semibold">Coverage</th>
               <th className="px-4 py-3 font-semibold">Alternates</th>
+              {onProtect && <th className="px-4 py-3 font-semibold">Protect</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 dark:divide-slate-700 bg-white dark:bg-slate-900">
@@ -318,6 +323,22 @@ function ClassificationTable({ rows, emptyHint }: { rows: ColumnRow[]; emptyHint
                       <span className="text-slate-400 text-xs">—</span>
                     )}
                   </td>
+                  {onProtect && (
+                    <td className="px-4 py-3">
+                      {hasClass ? (
+                        <button
+                          onClick={() => onProtect(r)}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-900/30 dark:text-amber-300 dark:hover:bg-amber-900/50 border border-amber-200 dark:border-amber-800 transition-colors"
+                          title="Suggest a masking policy for this column"
+                        >
+                          <PiShieldCheck className="w-3.5 h-3.5" />
+                          Protect
+                        </button>
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -328,7 +349,7 @@ function ClassificationTable({ rows, emptyHint }: { rows: ColumnRow[]; emptyHint
   );
 }
 
-export default function ClassificationContent() {
+export default function ClassificationContent({ onProtect }: { onProtect?: (row: ColumnRow) => void } = {}) {
   // System 2 Action-RBAC. New Classifier / Add Regex Rule map to gouvernance:create,
   // Apply Tags to gouvernance:apply. Fail-open while the allow-set loads (no flash of disabled).
   const createPerm = useCanPerform('gouvernance', 'create');
@@ -551,6 +572,12 @@ export default function ClassificationContent() {
               <ClassificationTable
                 rows={normalizeColumns(classifyResult)}
                 emptyHint="No column classifications returned for this table."
+                onProtect={onProtect ? (r) => onProtect({
+                  ...r,
+                  database: classifyTarget.database || undefined,
+                  schema: classifyTarget.schema || undefined,
+                  table: classifyTarget.table || undefined,
+                }) : undefined}
               />
             </div>
           )}
@@ -566,7 +593,7 @@ export default function ClassificationContent() {
             </div>
             <div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Extract Semantic Categories</h3>
-              <p className="text-sm text-slate-500">Extract category tags from table columns using Snowflake classification</p>
+              <p className="text-sm text-slate-500">Extract category tags from table columns using AI classification</p>
             </div>
           </div>
 
@@ -601,6 +628,12 @@ export default function ClassificationContent() {
               <ClassificationTable
                 rows={normalizeColumns(extractResult)}
                 emptyHint="No semantic categories found for this table."
+                onProtect={onProtect ? (r) => onProtect({
+                  ...r,
+                  database: extractTarget.database || undefined,
+                  schema: extractTarget.schema || undefined,
+                  table: extractTarget.table || undefined,
+                }) : undefined}
               />
             </div>
           )}

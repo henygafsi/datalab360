@@ -34,7 +34,7 @@ import { useRouter } from 'next/navigation';
 import { useAtomValue } from 'jotai';
 import {
   Package, Shield, GitBranch, Zap, User, Gauge,
-  Lightbulb, Clock, ArrowRight, Sparkles,
+  Lightbulb, Clock, ArrowRight, Sparkles, Wrench,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
@@ -58,6 +58,7 @@ import type {
 } from '@/app/services/catalog/rightbar';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
 import GovernancePostureCard, { type GovernancePostureData } from '@/app/shared/score-cards/GovernancePostureCard';
+import ObjectDdlActions from './ObjectDdlActions';
 import SourceAiSummary, {
   type SourceDescriptor,
   type GovernanceContext,
@@ -386,7 +387,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
   // only hit it once the user opens the AI Summary tab. It enriches the AI brief
   // (column count, sample null-rate, storage size, owner/comment, persisted scores).
   const object360  = useSection<Object360Response>(
-    selected && activeSection === 'ai-summary' ? object360Url : null,
+    selected && (activeSection === 'ai-summary' || activeSection === 'actions') ? object360Url : null,
     selected,
   );
 
@@ -551,6 +552,35 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
       },
     },
     {
+      // S-ACT — ACTIONS (governed schema/DDL changes on this object). Reuses the
+      // explore-design DDL service fns; only projectId-free ops are surfaced here
+      // (mark-sensitive / exclude / add-PK need a project and live in Explore).
+      id: 'actions',
+      icon: Wrench,
+      label: 'Actions',
+      description: 'Governed schema changes on this object (rename, add/drop column, change type, add FK)',
+      help: 'Run governed DDL on this object: rename it, add or drop a column, change a column type, or add a foreign key. Each change runs real DDL after you confirm and is gated by your Explore & Design permissions.',
+      render: () => (
+        <ObjectDdlActions
+          database={selected.database}
+          schema={selected.schema}
+          table={selected.table}
+          columns={
+            object360.data?.tiers?.object?.profiling?.per_column?.length
+              ? object360.data.tiers.object.profiling.per_column.map((c) => c.column)
+              : undefined
+          }
+          onChanged={() => {
+            // Schema changed — refetch the structure-dependent sections so the
+            // panel does not show stale columns / governance / history.
+            void context.refetch();
+            void governance.refetch();
+            void history.refetch();
+          }}
+        />
+      ),
+    },
+    {
       // S0 — TRUST SCORES (DQ / GOV / COST / trust rollup + recommended actions)
       id: 'scores',
       icon: Gauge,
@@ -705,7 +735,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
                 />
               )}
               <div className="pt-1">
-                <p className="text-[10px] uppercase text-gray-400">Upstream ({d.upstream?.length ?? 0})</p>
+                <p className="text-[10px] uppercase text-gray-400">Upstream ({d.upstream?.length ?? '—'})</p>
                 {d.upstream && d.upstream.length > 0 ? (
                   <ul className="mt-0.5 space-y-0.5">
                     {d.upstream.slice(0, 5).map((n, i) => (
@@ -717,7 +747,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
                 )}
               </div>
               <div className="pt-1">
-                <p className="text-[10px] uppercase text-gray-400">Downstream ({d.downstream?.length ?? 0})</p>
+                <p className="text-[10px] uppercase text-gray-400">Downstream ({d.downstream?.length ?? '—'})</p>
                 {d.downstream && d.downstream.length > 0 ? (
                   <ul className="mt-0.5 space-y-0.5">
                     {d.downstream.slice(0, 5).map((n, i) => (
@@ -776,7 +806,7 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
               <Field label="Pipeline" value={str(d.pipeline_name)} />
               <Field label="Step" value={num(d.pipeline_step)} />
               <div className="pt-1">
-                <p className="text-[10px] uppercase text-gray-400">Consumers ({d.consumers?.length ?? 0})</p>
+                <p className="text-[10px] uppercase text-gray-400">Consumers ({d.consumers?.length ?? '—'})</p>
                 {d.consumers && d.consumers.length > 0 ? (
                   <ul className="mt-0.5 space-y-0.5">
                     {d.consumers.slice(0, 5).map((c, i) => (

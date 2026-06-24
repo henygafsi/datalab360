@@ -46,8 +46,8 @@ export default function AiAdvisor({ days = 30 }: { days?: number }) {
       key: 'model', module: 'Explore & Design', icon: Boxes, tone: 'indigo',
       title: 'Modéliser les données scannées',
       msg: unmigrated != null
-        ? `${unmigrated.toLocaleString()} table(s) Snowflake scannée(s) ne sont pas encore des produits Data360 — l’IA recommande de les modéliser.`
-        : 'Modéliser les tables Snowflake détectées en produits Data360.',
+        ? `${unmigrated.toLocaleString()} table(s) scannée(s) ne sont pas encore des produits Data360 — l'IA recommande de les modéliser.`
+        : 'Modéliser les tables détectées en produits Data360.',
       cta: 'Créer des produits', route: '/explore-design?intent=model&from=scan',
     },
     {
@@ -83,7 +83,7 @@ export default function AiAdvisor({ days = 30 }: { days?: number }) {
           <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-300" />
         </span>
         <h3 className="text-sm font-bold text-gray-900 dark:text-white">
-          Conseiller IA — transformer les données Snowflake scannées en Data360
+          Conseiller IA — transformer les données scannées en Data360
         </h3>
         {scanned != null && (
           <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">

@@ -15,6 +15,7 @@ import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/proj
 import ActionRail from '@/app/shared/action-rail/ActionRail';
 import ScoreCards from '@/app/shared/score-cards/ScoreCards';
 import AutoCreateModal from './components/AutoCreateModal';
+import CloneDashboardButton from './components/CloneDashboardButton';
 
 // ---------------------------------------------------------------------------
 // Empty state
@@ -225,12 +226,21 @@ function ProjectList({
       {projects.map((p) => {
         const isHighlighted = !!highlightId && p.project_id === highlightId;
         return (
+        <div key={p.project_id} className="group relative">
+        {/* Save/clone — duplicates the whole dashboard (pages + widgets) into an
+            editable copy. Overlaid so it never nests a <button> inside the <a>. */}
+        <div className="absolute right-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <CloneDashboardButton
+            projectId={p.project_id}
+            projectName={p.name}
+            className="bg-white/95 shadow-sm dark:bg-gray-900/95"
+          />
+        </div>
         <Link
-          key={p.project_id}
           ref={isHighlighted ? highlightRef : undefined}
           href={`/bi-dashboard/${p.project_id}`}
           className={cn(
-            'block p-4 rounded-xl border bg-white dark:bg-gray-900 hover:border-cyan-400 dark:hover:border-cyan-500 hover:shadow-sm transition-all group',
+            'block p-4 rounded-xl border bg-white dark:bg-gray-900 hover:border-cyan-400 dark:hover:border-cyan-500 hover:shadow-sm transition-all',
             isHighlighted
               ? 'border-cyan-400 dark:border-cyan-500 ring-2 ring-cyan-400/60 dark:ring-cyan-500/50'
               : 'border-gray-200 dark:border-gray-700',
@@ -270,6 +280,7 @@ function ProjectList({
             )}
           </div>
         </Link>
+        </div>
         );
       })}
     </div>

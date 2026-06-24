@@ -37,6 +37,20 @@ export interface HealthResultRow {
   http_status?: number | null;
   time_ms?: number | null;
   error?: string;
+  /**
+   * Lossless JSON-stringified response/error body (capped upstream). Persisted
+   * ALONGSIDE the human `error` so the warehouse query id survives into history:
+   * the per-endpoint trace parses `query_id` out of this on read-back even when
+   * the dedicated `query_id` column isn't echoed.
+   */
+  error_body?: string;
+  /**
+   * The underlying Snowflake QUERY_HISTORY id for this probed call, extracted at
+   * save time from the error body (failures) or the success payload (some
+   * endpoints echo it). Lets per-endpoint history drill QUERY_HISTORY without a
+   * live re-probe. Null when the call exposed no query id.
+   */
+  query_id?: string | null;
 }
 
 /** KPI summary shared by a single run and a per-release rollup. */
@@ -98,6 +112,10 @@ export interface RunDetailRow {
   http_status: number | null;
   time_ms: number | null;
   error: string | null;
+  /** Lossless body echoed back when the backend stored it (see HealthResultRow). */
+  error_body?: string | null;
+  /** Warehouse query id echoed back when the backend stored the column. */
+  query_id?: string | null;
 }
 
 export interface SlowestRow {

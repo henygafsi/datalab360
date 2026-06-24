@@ -246,7 +246,7 @@ export default function PublishGate({
             ) : (
               <Share2 className="h-3.5 w-3.5" />
             )}
-            Publish as Snowflake share
+            Publish as data share
           </button>
           {scoreState === 'done' && !allPass && (
             <p className="text-[10px] text-amber-600 dark:text-amber-400">

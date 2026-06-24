@@ -1,8 +1,9 @@
 'use client';
 
 import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { Badge, Tooltip } from 'rizzui';
-import { Settings, Trash2, Play, Loader2, GripVertical, AlertTriangle, Search } from 'lucide-react';
+import { Settings, Trash2, Play, Loader2, GripVertical, AlertTriangle, Search, ExternalLink, Copy } from 'lucide-react';
 import DataTable from '@/components/ui/DataTable';
 import { DynamicChart } from './DynamicChart';
 import { DeltaBadge } from './TimeIntelligenceBar';
@@ -19,6 +20,12 @@ interface WidgetCardProps {
   onConfigure: (widget: DashboardWidget) => void;
   onDelete: (widgetId: string) => void;
   onExecuteSingle: (widget: DashboardWidget) => void;
+  /**
+   * Clone this widget into a new one on the same page (POST /widgets, reusing
+   * the source config). Optional — when omitted the Duplicate action is hidden
+   * (e.g. read-only surfaces). Gated by the 'create' action like the add flow.
+   */
+  onDuplicate?: (widget: DashboardWidget) => void;
   crossWidgetFilter?: Record<string, string>;
   onCrossWidgetFilter?: (filterKey: string, filterValue: string) => void;
   onDrillThrough?: (widget: DashboardWidget) => void;
@@ -283,6 +290,7 @@ export default function WidgetCard({
   onConfigure,
   onDelete,
   onExecuteSingle,
+  onDuplicate,
   crossWidgetFilter,
   onCrossWidgetFilter,
   onDrillThrough,
@@ -298,6 +306,10 @@ export default function WidgetCard({
   const canEdit = editPerm.allowed || editPerm.loading;
   const deletePerm = useCanPerform(rbacModule, 'delete');
   const canDelete = deletePerm.allowed || deletePerm.loading;
+  // Duplicate is a POST /widgets (a create), so it gates on 'create' like the
+  // add flow — not 'edit'. Fail-open while the allow-set loads.
+  const createPerm = useCanPerform(rbacModule, 'create');
+  const canCreate = createPerm.allowed || createPerm.loading;
 
   // Apply cross-widget filter to execution data (client-side)
   const filteredExecutionData = useMemo(() => {
@@ -379,6 +391,42 @@ export default function WidgetCard({
                 onClick={() => onDrillThrough(widget)}
               >
                 <Search className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+          )}
+          {isDataWidget &&
+            widget.chart_config?.database &&
+            widget.chart_config?.schema &&
+            widget.chart_config?.table && (() => {
+              const db = widget.chart_config.database;
+              const sc = widget.chart_config.schema;
+              const tb = widget.chart_config.table;
+              const proj = widget.chart_config.explore_project_id;
+              const href =
+                '/explore-design?table=' +
+                encodeURIComponent(db + '.' + sc + '.' + tb) +
+                (proj ? '&project_id=' + encodeURIComponent(proj) : '');
+              return (
+                <Tooltip content="View source in Explore">
+                  <Link
+                    href={href}
+                    className="p-1 rounded hover:bg-teal-100 dark:hover:bg-teal-900/30 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+                    title="View source in Explore"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Link>
+                </Tooltip>
+              );
+            })()}
+          {onDuplicate && (
+            <Tooltip content={canCreate ? 'Duplicate' : 'Requires the "create" permission on Business Reporting.'}>
+              <button
+                className="p-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/30 text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                onClick={() => onDuplicate(widget)}
+                disabled={!canCreate}
+                aria-label="Duplicate widget"
+              >
+                <Copy className="h-3.5 w-3.5" />
               </button>
             </Tooltip>
           )}

@@ -23,6 +23,9 @@ import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
 import IngestionBadge, { relativeTimeShort } from './IngestionBadge';
 import type { IngestionTraceEntry } from '@/app/services/explore-design/ingestionTrace';
 import GovernanceAccessPanel from './GovernanceAccessPanel';
+import AiSavingsDashboard from './AiSavingsDashboard';
+import { listIngestionRuns } from '@/app/services/api/exploreDesignApi';
+import type { IngestionRun } from '@/app/services/api/types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -407,7 +410,16 @@ export default function ContextRightBar({
           // Escape collapses only when open — never expands a collapsed (hidden) panel.
           onClose={() => { if (isOpen) onToggle(); }}
           storageKey={ACTIVE_TAB_KEY}
-          widthClassName="w-[380px]"
+          // The Deploy tab hosts the full 8-step wizard — it needs room to
+          // breathe (horizontal stepper with labels + the review/diff/impact
+          // content). Widen the docked panel only while Deploy is active; all
+          // other sections stay at the compact rail width.
+          widthClassName={activeTab === 'deploy' ? 'w-[720px] max-w-[60vw]' : 'w-[380px]'}
+          // Deploy hosts a pinned Back/Next footer — cap the panel shorter so it
+          // fits at its flow position and the footer stays on-screen without
+          // scrolling the page (the default cap let the footer fall ~86px below
+          // the fold). Other tabs keep the taller default.
+          maxHeightClassName={activeTab === 'deploy' ? 'max-h-[calc(100vh-13rem)]' : undefined}
         />
       </div>
     </div>
@@ -508,6 +520,80 @@ function RoleContextChip({ canCreate, canApprove, canDeploy, canExecute, fallbac
 }
 
 // ---------------------------------------------------------------------------
+// A0a. Last Ingestion Run card — compact row showing most-recent run stats.
+// ---------------------------------------------------------------------------
+//
+// Fetches once on mount (limit=1). Both rows_affected and duration_seconds
+// are nullable — honest "—" on null or empty list; never a fake 0.
+function LastIngestionCard({ projectId }: { projectId: string }) {
+  const [run, setRun] = useState<IngestionRun | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    listIngestionRuns(projectId, { limit: 1 })
+      .then((res) => { if (!cancelled) setRun(res.runs[0] ?? null); })
+      .catch(() => { /* silent — "—" is shown for absent data */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  const fmtRows = (n: number | null | undefined) =>
+    n == null ? '—' : n.toLocaleString();
+  const fmtDur = (s: number | null | undefined) => {
+    if (s == null) return '—';
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m ${s % 60}s`;
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <RefreshCw className="h-4 w-4 text-cyan-500" />
+        <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Last Ingestion Run</h4>
+        {loading && <RefreshCw className="h-3 w-3 animate-spin text-slate-400 ml-auto" />}
+      </div>
+      {!loading && !run ? (
+        <p className="text-[11px] text-slate-400">No ingestion runs recorded for this project.</p>
+      ) : (
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2">
+            <p className="text-[10px] text-slate-500 mb-0.5">Status</p>
+            <p className={cn(
+              'text-xs font-semibold',
+              run?.status === 'SUCCESS' ? 'text-emerald-600 dark:text-emerald-400'
+                : run?.status === 'FAILED' ? 'text-red-500'
+                : run?.status === 'IN_PROGRESS' ? 'text-blue-500'
+                : 'text-slate-500',
+            )}>
+              {run?.status ?? '—'}
+            </p>
+          </div>
+          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2">
+            <p className="text-[10px] text-slate-500 mb-0.5">Rows</p>
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              {fmtRows(run?.rows_affected)}
+            </p>
+          </div>
+          <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2">
+            <p className="text-[10px] text-slate-500 mb-0.5">Duration</p>
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              {fmtDur(run?.duration_seconds)}
+            </p>
+          </div>
+        </div>
+      )}
+      {run?.executed_at && (
+        <p className="text-[10px] text-slate-400 text-right">
+          {relativeTimeShort(run.executed_at)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // A0. Cost & KPIs Panel (read-only per-project rollup)
 // ---------------------------------------------------------------------------
 //
@@ -519,6 +605,10 @@ function RoleContextChip({ canCreate, canApprove, canDeploy, canExecute, fallbac
 // Non-compact (labels visible) differentiates this tab from the compact strip
 // already docked in the panel header. Limited to the spec'd five dimensions:
 // runs · cost · perf · recos · storage.
+//
+// Below the strip: AiSavingsDashboard (credits saved, ROI multiplier, per-feature
+// breakdown including warehouse_sizing savings if any) + LastIngestionCard
+// (rows and duration of the most-recent ingestion run).
 function CostKpiPanel({ projectId }: { projectId: string }) {
   return (
     <div className="p-4 space-y-4">
@@ -529,13 +619,20 @@ function CostKpiPanel({ projectId }: { projectId: string }) {
         </div>
         <p className="text-[11px] text-slate-500">
           Per-project rollup — runs, cost, performance, recommendations and storage.
-          Read-only; “—” means not yet provisioned for this project.
+          Read-only; "—" means not yet provisioned for this project.
         </p>
         <ProjectKpiStrip
           projectId={projectId}
           dimensions={['runs', 'cost', 'perf', 'recos', 'storage']}
         />
       </div>
+
+      {/* Value & ROI — AI credits saved, ROI multiplier, per-feature savings
+          (warehouse_sizing savings surface here via by_feature row). */}
+      <AiSavingsDashboard projectId={projectId} />
+
+      {/* Last Ingestion Run — rows affected + duration, honest "—" on null. */}
+      <LastIngestionCard projectId={projectId} />
     </div>
   );
 }
@@ -1370,7 +1467,7 @@ function IngestionCostPanel({ table, trace }: { table: TableItem; trace: Ingesti
         </div>
       </div>
       <p className="text-[10px] text-slate-400">
-        Source-load activity (Snowpipe &amp; COPY) and best-effort warehouse credits. “—” = no data.
+        Source-load activity (Snowpipe &amp; COPY) and best-effort warehouse credits. "—" = no data.
       </p>
     </div>
   );
@@ -1572,7 +1669,7 @@ function HelpPanel({ table }: { table: TableItem }) {
             </div>
           ))}
         </div>
-        <p className="text-[10px] text-slate-400 pt-1">Only the primary key is verified here; “—” means not tracked in this view.</p>
+        <p className="text-[10px] text-slate-400 pt-1">Only the primary key is verified here; "—" means not tracked in this view.</p>
       </div>
     </div>
   );

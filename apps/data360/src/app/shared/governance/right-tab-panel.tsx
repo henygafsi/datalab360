@@ -89,6 +89,13 @@ export interface RightTabPanelProps {
   /** Width class for the whole panel (rail included). Defaults to `w-[360px]`. */
   widthClassName?: string;
   /**
+   * Max-height class for the docked panel. Defaults to `max-h-[calc(100vh-6rem)]`.
+   * Tabs whose body has a PINNED footer (e.g. the Deploy wizard's Back/Next) pass
+   * a shorter cap so the panel fits within the viewport at its flow position and
+   * the footer stays visible without scrolling the page.
+   */
+  maxHeightClassName?: string;
+  /**
    * Optional compact strip rendered directly under the header — intended for a
    * per-project KPI badge row. Additive; render nothing when omitted.
    */
@@ -113,6 +120,7 @@ export default function RightTabPanel({
   footer,
   accentClassName = 'bg-violet-500',
   widthClassName = 'w-[360px]',
+  maxHeightClassName = 'max-h-[calc(100vh-6rem)]',
   kpiStrip,
   quickActions,
   statusPill,
@@ -268,7 +276,8 @@ export default function RightTabPanel({
       className={cn(
         // Docked + pinned: sticks in view and the active section scrolls inside
         // the capped height rather than stretching the page (full-height feel).
-        'sticky top-4 flex max-h-[calc(100vh-6rem)] min-w-0 max-w-full shrink-0 self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 ring-1 ring-slate-900/[0.03] dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20 dark:ring-white/5',
+        'sticky top-4 flex min-w-0 max-w-full shrink-0 self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 ring-1 ring-slate-900/[0.03] dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20 dark:ring-white/5',
+        maxHeightClassName,
         widthClassName,
       )}
     >

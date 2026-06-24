@@ -722,7 +722,7 @@ export default function DMFContent() {
         isOpen={showAssociate}
         onClose={() => setShowAssociate(false)}
         title="Associate DMF with Table"
-        description="Attach a data metric function to specific columns so Snowflake runs it on schedule."
+        description="Attach a data metric function to specific columns so the data warehouse runs it on schedule."
         accentClassName="bg-teal-500"
         footer={
           <>

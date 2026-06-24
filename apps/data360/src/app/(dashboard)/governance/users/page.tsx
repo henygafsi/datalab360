@@ -3,19 +3,39 @@
 import { useState, useCallback } from 'react';
 import { Badge } from 'rizzui';
 import { HiOutlineUsers } from 'react-icons/hi2';
+import { Lock } from 'lucide-react';
 import UsersTable from '@/app/shared/governance/users/table';
 import AddUserButton from '@/app/shared/governance/users/add-user-button';
 import ImportButton from '@/app/shared/import-button';
 import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import EmptyState from '@/components/ui/EmptyState';
 import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
+import { useAuth } from '@/hooks/useAuth';
+import { isAdminRole } from '@/config/constants';
 
 export default function UsersManagementPage() {
+  const { role } = useAuth();
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleAddUserSuccess = useCallback(() => {
     setRefreshKey(prev => prev + 1);
   }, []);
+
+  // User management is admin-only. Mirror the coarse isAdminRole pattern used
+  // across the app (AccessControlCenter, ActionsPanel, etc.) — role defaults to
+  // 'ACCOUNTADMIN' until the JWT resolves, so admins never see a flash.
+  if (!isAdminRole(role)) {
+    return (
+      <ErrorBoundary>
+        <EmptyState
+          icon={Lock}
+          title="Access restricted"
+          description="User management is only available to platform administrators (ACCOUNTADMIN, SYSADMIN, SECURITYADMIN). Contact your admin if you need access."
+        />
+      </ErrorBoundary>
+    );
+  }
 
   return (
     <ErrorBoundary>

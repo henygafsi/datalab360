@@ -994,7 +994,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                 {run.status === 'failed' && analyzingRun === run.run_id && !aiAnalysis[run.run_id] && (
                   <div className="mt-2 ml-6 flex items-center gap-2 px-3 py-2 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg text-xs text-purple-600 dark:text-purple-400">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    Analyzing with Cortex AI...
+                    Analyzing with AI...
                   </div>
                 )}
                 {aiAnalysis[run.run_id] && (

@@ -1680,6 +1680,68 @@ export async function unapplyPolicyFromAll(
     };
   }
 }
+
+// ============= POLICY METADATA (edit expiration / comment in place) =============
+
+/**
+ * Body for PUT /gouvernance/policies/{policy_type}/{policy_name}/metadata.
+ * Both fields are optional — send only what changed. `expiration_date` is an ISO
+ * string (e.g. 2026-12-31T23:59:59Z) or null to clear it.
+ */
+export interface UpdatePolicyMetadataRequest {
+  expiration_date?: string | null;
+  comment?: string | null;
+}
+
+export interface UpdatePolicyMetadataResult {
+  policy_name: string;
+  policy_type: string;
+  expiration_date?: string | null;
+  comment?: string | null;
+  [k: string]: unknown;
+}
+
+/**
+ * Edit a policy's expiration/comment metadata in place (no drop + recreate).
+ *
+ * PUT /gouvernance/policies/{policy_type}/{policy_name}/metadata
+ *   ?database=&schema=   body: { expiration_date?, comment? }
+ *
+ * Path-form note (verified against the references/unapply-all siblings, NOT the
+ * enriched-list form): policy_type comes BEFORE policy_name and uses the
+ * lowercase-hyphen casing — same skeleton as getPolicyReferences. The enriched
+ * LIST endpoint (UPPERCASE, no name) is a different route shape.
+ *
+ * Unlike the read helpers above, this MUTATION rethrows a normalized backend
+ * message (via formatPolicyError) so the caller's error toast is honest.
+ */
+export async function updatePolicyMetadata(
+  policyType: string,
+  policyName: string,
+  body: UpdatePolicyMetadataRequest,
+  database: string = 'cp_data360',
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA,
+): Promise<UpdatePolicyMetadataResult> {
+  const type = policyType.toLowerCase().replace('_', '-');
+  const url = `${POLICIES_API}/${type}/${encodeURIComponent(policyName)}/metadata`;
+  try {
+    const response = await apiClient.put<StandardResponse<UpdatePolicyMetadataResult>>(
+      url,
+      body,
+      { params: { database, schema } },
+    );
+    return (
+      response.data?.data ?? {
+        policy_name: policyName,
+        policy_type: policyType,
+        ...body,
+      }
+    );
+  } catch (error: any) {
+    throw new Error(formatPolicyError(error, 'Failed to update policy metadata'));
+  }
+}
+
 // ============= TABLE/OBJECT POLICIES =============
 
 /**

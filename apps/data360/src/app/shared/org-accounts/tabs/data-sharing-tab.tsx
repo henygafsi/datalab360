@@ -15,6 +15,7 @@ import {
   getReaderAccounts,
   getShares,
   getReplication,
+  getShareDetail,
   createReaderAccount,
   deleteReaderAccount,
 } from '@/app/services/org-accounts/hooks';
@@ -28,6 +29,7 @@ import type {
   Share,
   ReplicationEntry,
   DateRange,
+  ShareDetailResponse,
 } from '@/app/services/org-accounts/types';
 
 interface DataSharingTabProps {
@@ -62,6 +64,27 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
   const [form, setForm] = useState({ name: '', admin_name: '', admin_password: '', comment: '' });
   const [dropTarget, setDropTarget] = useState<ReaderAccount | null>(null);
   const [dropBusy, setDropBusy] = useState(false);
+
+  // ── Share-detail drill-in (consumers + shared objects) ─────────────────
+  const [shareDetailName, setShareDetailName] = useState<string | null>(null);
+  const [shareDetail, setShareDetail] = useState<ShareDetailResponse | null>(null);
+  const [shareDetailLoading, setShareDetailLoading] = useState(false);
+  const [shareDetailError, setShareDetailError] = useState<string | null>(null);
+
+  const openShareDetail = async (name: string) => {
+    setShareDetailName(name);
+    setShareDetail(null);
+    setShareDetailError(null);
+    setShareDetailLoading(true);
+    try {
+      const data = await getShareDetail(name);
+      setShareDetail(data);
+    } catch (e) {
+      setShareDetailError(extractApiError(e, 'Failed to load share detail'));
+    } finally {
+      setShareDetailLoading(false);
+    }
+  };
 
   // ── Action-RBAC gating ─────────────────────────────────────────────────
   // Reader create/drop are real org_accounts mutations (createReaderAccount /
@@ -139,7 +162,9 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
   const createFormValid =
     form.name.trim().length > 0 &&
     form.admin_name.trim().length > 0 &&
-    form.admin_password.length > 0;
+    // Backend requires an admin password of at least 8 characters — surface the
+    // rule client-side instead of waiting for a server-side rejection.
+    form.admin_password.length >= 8;
 
   if (loading) {
     return (
@@ -246,7 +271,16 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
                   <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-500">No shares</td></tr>
                 ) : shares.map((s) => (
                   <tr key={s.name} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="px-4 py-2"><Text className="text-sm font-medium text-gray-900 dark:text-white">{s.name}</Text></td>
+                    <td className="px-4 py-2">
+                      <button
+                        type="button"
+                        onClick={() => openShareDetail(s.name)}
+                        className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+                        title="View consumers and shared objects"
+                      >
+                        {s.name}
+                      </button>
+                    </td>
                     <td className="px-4 py-2"><Text className="text-sm text-gray-600 dark:text-gray-300">{s.database_name}</Text></td>
                     <td className="px-4 py-2"><Badge variant="flat" color={s.kind === 'OUTBOUND' ? 'success' : 'info'} className="text-xs">{s.kind}</Badge></td>
                     <td className="px-4 py-2"><Text className="text-sm text-gray-600 dark:text-gray-300">{formatDate(s.created_on)}</Text></td>
@@ -343,6 +377,77 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
         </div>
       </div>
 
+      {/* ── Share detail drill-in (consumers + shared objects) ───────────── */}
+      <ActionRail
+        isOpen={shareDetailName !== null}
+        onClose={() => { setShareDetailName(null); setShareDetail(null); setShareDetailError(null); }}
+        title={shareDetailName ? `Share: ${shareDetailName}` : 'Share detail'}
+        description="Consumers and objects exposed by this data share."
+        accentClassName="bg-teal-500"
+      >
+        {shareDetailLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+          </div>
+        ) : shareDetailError ? (
+          <div role="alert" className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300">
+            <PiWarningCircleDuotone className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <span>{shareDetailError}</span>
+          </div>
+        ) : shareDetail ? (
+          <div className="space-y-5">
+            {/* Share summary */}
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <Text className="text-slate-500 dark:text-slate-400">Database</Text>
+                <Text className="font-medium text-slate-900 dark:text-white">{shareDetail.share?.database_name || '—'}</Text>
+              </div>
+              <div>
+                <Text className="text-slate-500 dark:text-slate-400">Kind</Text>
+                <Text className="font-medium text-slate-900 dark:text-white">{shareDetail.share?.kind || '—'}</Text>
+              </div>
+            </div>
+
+            {/* Consumers */}
+            <div>
+              <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Consumers ({shareDetail.consumers?.length ?? 0})
+              </Text>
+              {(shareDetail.consumers?.length ?? 0) === 0 ? (
+                <Text className="text-sm text-slate-400">No consumers</Text>
+              ) : (
+                <ul className="space-y-1.5">
+                  {shareDetail.consumers.map((c, i) => (
+                    <li key={`${c.consumer_account}-${i}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800/40">
+                      <span className="font-medium text-slate-900 dark:text-white">{c.consumer_name || c.consumer_account || '—'}</span>
+                      <span className="ml-2 text-slate-500 dark:text-slate-400">{c.consumer_region || '—'}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Shared objects */}
+            <div>
+              <Text className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Shared objects ({shareDetail.objects?.length ?? 0})
+              </Text>
+              {(shareDetail.objects?.length ?? 0) === 0 ? (
+                <Text className="text-sm text-slate-400">No objects exposed</Text>
+              ) : (
+                <ul className="space-y-1">
+                  {shareDetail.objects.map((o, i) => (
+                    <li key={`${o}-${i}`} className="rounded bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                      {o}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </ActionRail>
+
       {/* ── Create reader account (non-blocking ActionRail) ───────────────── */}
       <ActionRail
         isOpen={createOpen}
@@ -399,7 +504,7 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
           </div>
           <div className="space-y-1.5">
             <label htmlFor="reader-pwd" className="block text-xs font-medium text-slate-600 dark:text-slate-400">
-              Admin password
+              Admin password <span className="text-slate-400">(min 8 characters)</span>
             </label>
             <input
               id="reader-pwd"

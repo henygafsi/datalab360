@@ -4,10 +4,13 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { Text, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
+import { Loader2, Plus } from 'lucide-react';
 import {
   PiClockCounterClockwiseDuotone,
   PiGaugeDuotone,
   PiCalendarDuotone,
+  PiBuildingsDuotone,
+  PiWarningCircleDuotone,
 } from 'react-icons/pi';
 import {
   getDashboardOverview,
@@ -22,7 +25,11 @@ import {
   getWarehouses,
   getOrgEvents,
   getResourceMonitors,
+  createResourceMonitor,
+  getCrossAccountUsage,
 } from '@/app/services/org-accounts/hooks';
+import { ActionRail } from '@/app/shared/action-rail';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import type {
   DashboardOverviewResponse,
   DashboardUsageResponse,
@@ -38,6 +45,7 @@ import type {
   DataTransferUsage,
   Warehouse,
   DateRange,
+  CrossAccountUsageResponse,
 } from '@/app/services/org-accounts/types';
 
 import OverviewCards from '../overview-cards';
@@ -53,8 +61,15 @@ import {
   DataTransferChart,
   WarehouseUsageChart,
 } from '../charts';
-import { safeToFixed } from '@/lib/format-number';
-import { extractApiError } from '@/app/services/org-accounts/utils';
+import { safeToFixed, safeNum } from '@/lib/format-number';
+import { formatCredits, extractApiError } from '@/app/services/org-accounts/utils';
+
+/** Currency formatter with honest "—" on missing values (no fake 0). */
+function formatCurrency(amount: number | string | null | undefined, currency = 'USD'): string {
+  const n = safeNum(amount);
+  if (n == null) return '—';
+  return n.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 interface OverviewTabProps {
   refreshKey: number;
@@ -95,12 +110,68 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
   const [resourceMonitors, setResourceMonitors] = useState<any[]>([]);
   const [resourceMonitorsLoading, setResourceMonitorsLoading] = useState(true);
 
+  // Step 5: Cross-account usage rollup (per-account credits + cost in currency).
+  // Sourced from ORGANIZATION_USAGE; only an org-admin connection returns rows,
+  // otherwise the list stays empty and the card shows an honest empty state.
+  const [crossAccount, setCrossAccount] = useState<CrossAccountUsageResponse['account_summary']>([]);
+  const [crossAccountLoading, setCrossAccountLoading] = useState(true);
+
   // UI state
   const [globalDays, setGlobalDays] = useState<7 | 30 | 90>(30);
   const [creditDateRange, setCreditDateRange] = useState<DateRange>('30d');
   const [storageDateRange, setStorageDateRange] = useState<DateRange>('30d');
   const [selectedAccount, setSelectedAccount] = useState<ClientAccount | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
+  // ── Create resource monitor (non-blocking ActionRail) ───────────────────
+  // create is wired (POST /resource-monitors). There is NO backend DELETE, so
+  // no drop control is offered on the cards.
+  const { allowed: canCreateRm, loading: rmPermLoading } = useCanPerform('org_accounts', 'create');
+  const rmCreateDenied = !canCreateRm && !rmPermLoading;
+  const [rmCreateOpen, setRmCreateOpen] = useState(false);
+  const [rmBusy, setRmBusy] = useState(false);
+  const [rmError, setRmError] = useState<string | null>(null);
+  const [rmForm, setRmForm] = useState({ name: '', credit_quota: '', frequency: 'MONTHLY', suspend_at_pct: '100' });
+
+  const refetchResourceMonitors = useCallback(() => {
+    setResourceMonitorsLoading(true);
+    getResourceMonitors()
+      .then((data) => setResourceMonitors(Array.isArray(data.monitors) ? data.monitors : []))
+      .catch((e) => { console.error('Failed to refetch resource monitors:', e); })
+      .finally(() => setResourceMonitorsLoading(false));
+  }, []);
+
+  const resetRmForm = () => {
+    setRmForm({ name: '', credit_quota: '', frequency: 'MONTHLY', suspend_at_pct: '100' });
+    setRmError(null);
+  };
+
+  const rmFormValid =
+    rmForm.name.trim().length > 0 &&
+    Number(rmForm.credit_quota) > 0 &&
+    Number(rmForm.suspend_at_pct) > 0 &&
+    Number(rmForm.suspend_at_pct) <= 100;
+
+  const handleCreateResourceMonitor = async () => {
+    setRmBusy(true);
+    setRmError(null);
+    try {
+      await createResourceMonitor({
+        name: rmForm.name.trim(),
+        credit_quota: Number(rmForm.credit_quota),
+        frequency: rmForm.frequency,
+        suspend_at_pct: Number(rmForm.suspend_at_pct),
+      });
+      toast.success(`Resource monitor ${rmForm.name.trim()} created`);
+      setRmCreateOpen(false);
+      resetRmForm();
+      refetchResourceMonitors();
+    } catch (e) {
+      setRmError(extractApiError(e, 'Failed to create resource monitor'));
+    } finally {
+      setRmBusy(false);
+    }
+  };
 
   // Shared "some data failed to load" flag — surfaced as one banner instead of
   // leaving the tab silently empty when individual sections fail to fetch.
@@ -136,6 +207,7 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
     setWarehousesLoading(true);
     setEventsLoading(true);
     setResourceMonitorsLoading(true);
+    setCrossAccountLoading(true);
 
     getDashboardUsage()
       .then((data) => setUsageData(data))
@@ -199,6 +271,11 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
       .then((data) => setResourceMonitors(Array.isArray(data.monitors) ? data.monitors : []))
       .catch((e) => { console.error('Failed to fetch resource monitors:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
       .finally(() => setResourceMonitorsLoading(false));
+
+    getCrossAccountUsage(days)
+      .then((data) => setCrossAccount(Array.isArray(data.account_summary) ? data.account_summary : []))
+      .catch((e) => { console.error('Failed to fetch cross-account usage:', e); setLoadError((prev) => prev ?? extractApiError(e, LOAD_ERROR_MSG)); })
+      .finally(() => setCrossAccountLoading(false));
   }, []);
 
   useEffect(() => {
@@ -286,6 +363,68 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
           setIsDetailModalOpen(true);
         }}
       />
+
+      {/* Cross-Account Usage — per-account credits + cost rollup from
+          ORGANIZATION_USAGE. Org-admin only; honest empty state otherwise. */}
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <PiBuildingsDuotone className="h-5 w-5 text-blue-500" />
+            <Text className="font-semibold text-gray-900 dark:text-white">Cross-Account Usage</Text>
+            {crossAccount.length > 0 && (
+              <Badge variant="flat" color="info" className="text-xs ml-auto">{crossAccount.length} accounts</Badge>
+            )}
+          </div>
+        </div>
+        <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+          {crossAccountLoading ? (
+            <div className="p-4 space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-10 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              ))}
+            </div>
+          ) : crossAccount.length === 0 ? (
+            <div className="p-8 text-center">
+              <PiBuildingsDuotone className="h-10 w-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+              <Text className="text-gray-500 dark:text-gray-400 text-sm">
+                No cross-account usage available
+              </Text>
+              <Text className="text-xs text-gray-400">
+                Requires an organization-admin connection
+              </Text>
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/50">
+                <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Account</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Credits</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Cost</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Currency</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {crossAccount.map((row, i) => (
+                  <tr key={`${row.account_name}-${i}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <td className="px-4 py-2">
+                      <Text className="text-sm font-medium text-gray-900 dark:text-white">{row.account_name || '—'}</Text>
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <Text className="text-sm text-gray-900 dark:text-white">{formatCredits(row.total_credits)}</Text>
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <Text className="text-sm font-medium text-gray-900 dark:text-white">{formatCurrency(row.total_cost, row.currency)}</Text>
+                    </td>
+                    <td className="px-4 py-2">
+                      <Text className="text-sm text-gray-600 dark:text-gray-300">{row.currency || '—'}</Text>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <CreditsTrendChart
@@ -420,6 +559,15 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
                   </Badge>
                 )}
               </div>
+              <button
+                type="button"
+                disabled={rmCreateDenied}
+                title={rmCreateDenied ? 'You lack the "create" permission on Client Accounts. Ask an administrator to grant it.' : undefined}
+                onClick={() => { if (rmCreateDenied) return; resetRmForm(); setRmCreateOpen(true); }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/30"
+              >
+                <Plus className="h-3.5 w-3.5" /> New monitor
+              </button>
             </div>
           </div>
           <div className="divide-y divide-gray-200 dark:divide-gray-700 max-h-[320px] overflow-y-auto">
@@ -500,6 +648,104 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
           setSelectedAccount(null);
         }}
       />
+
+      {/* ── Create resource monitor (non-blocking ActionRail) ────────────── */}
+      <ActionRail
+        isOpen={rmCreateOpen}
+        onClose={() => { if (!rmBusy) { setRmCreateOpen(false); resetRmForm(); } }}
+        title="New resource monitor"
+        description="Cap credit consumption and auto-suspend warehouses at a threshold."
+        accentClassName="bg-blue-500"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => { if (!rmBusy) { setRmCreateOpen(false); resetRmForm(); } }}
+              disabled={rmBusy}
+              className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleCreateResourceMonitor}
+              disabled={rmBusy || !rmFormValid}
+              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+            >
+              {rmBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Create monitor
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="rm-name" className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+              Monitor name
+            </label>
+            <input
+              id="rm-name"
+              value={rmForm.name}
+              onChange={(e) => setRmForm((f) => ({ ...f, name: e.target.value.toUpperCase() }))}
+              placeholder="MONTHLY_BUDGET"
+              className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="rm-quota" className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+              Credit quota
+            </label>
+            <input
+              id="rm-quota"
+              type="number"
+              min={1}
+              step={1}
+              value={rmForm.credit_quota}
+              onChange={(e) => setRmForm((f) => ({ ...f, credit_quota: e.target.value }))}
+              placeholder="1000"
+              className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label htmlFor="rm-frequency" className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                Frequency
+              </label>
+              <select
+                id="rm-frequency"
+                value={rmForm.frequency}
+                onChange={(e) => setRmForm((f) => ({ ...f, frequency: e.target.value }))}
+                className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              >
+                {['MONTHLY', 'DAILY', 'WEEKLY', 'YEARLY', 'NEVER'].map((f) => (
+                  <option key={f} value={f}>{f.charAt(0) + f.slice(1).toLowerCase()}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="rm-pct" className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+                Suspend at (%)
+              </label>
+              <input
+                id="rm-pct"
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                value={rmForm.suspend_at_pct}
+                onChange={(e) => setRmForm((f) => ({ ...f, suspend_at_pct: e.target.value }))}
+                className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+              />
+            </div>
+          </div>
+          {rmError && (
+            <div role="alert" className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300">
+              <PiWarningCircleDuotone className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>{rmError}</span>
+            </div>
+          )}
+        </div>
+      </ActionRail>
     </div>
   );
 }

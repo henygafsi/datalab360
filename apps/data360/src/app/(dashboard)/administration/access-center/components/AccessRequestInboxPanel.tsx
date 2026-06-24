@@ -15,13 +15,16 @@
  * quiet retry on load failure — never crashes, never fabricates data.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import { CheckCircle2, Inbox, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { GlassPanel } from '@/app/shared/glass';
 import GovernedActionButton from '@/app/shared/insights/GovernedActionButton';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   getInbox,
   approveRequest,
@@ -91,6 +94,21 @@ export default function AccessRequestInboxPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Real-time refresh: refetch when the backend broadcasts an access-requests
+  // cache invalidation over SSE (e.g. a new request arrives or is processed
+  // by another admin). Reads the shared SSE connection via the provider atom —
+  // no extra connection is opened here. The identity ref skips the persisted
+  // mount-time value so only post-mount events trigger a refetch.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const seenInvalidationRef = useRef(lastInvalidation);
+  useEffect(() => {
+    if (lastInvalidation === seenInvalidationRef.current) return;
+    seenInvalidationRef.current = lastInvalidation;
+    if (lastInvalidation?.keys.includes(CACHE_KEYS.ACCESS_REQUESTS)) {
+      void load();
+    }
+  }, [lastInvalidation, load]);
 
   // ── per-row approve / deny callbacks ─────────────────────────────────────
 

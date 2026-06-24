@@ -116,16 +116,18 @@ export async function listDMFs(database?: string, schema?: string) {
 /**
  * Create a new Data Metric Function
  * POST /gouvernance/policies/dmf
+ * Backend uses Query(...) params — null body required.
  */
 export async function createDMF(request: CreateDMFRequest) {
-  const { data } = await apiClient.post(`${PREFIX}/dmf`, {
+  const params: Record<string, string> = {
     name: request.name,
     table_args: request.table_args,
     expression: request.expression,
-    database: request.database,
-    schema: request.schema,
-    comment: request.comment,
-  });
+  };
+  if (request.database) params.database = request.database;
+  if (request.schema) params.schema = request.schema;
+  if (request.comment) params.comment = request.comment;
+  const { data } = await apiClient.post(`${PREFIX}/dmf`, null, { params });
   return data;
 }
 
@@ -156,39 +158,54 @@ export async function deleteDMF(name: string, database?: string, schema?: string
 /**
  * Associate a DMF with table columns
  * POST /gouvernance/policies/dmf/associate
+ * Backend uses Query(...) params — null body; columns must be comma-joined string.
  */
 export async function associateDMF(request: AssociateDMFRequest) {
-  const { data } = await apiClient.post(`${PREFIX}/dmf/associate`, {
+  const cols = Array.isArray(request.columns) ? request.columns : [];
+  if (!request.table_fqn || !request.dmf_name || cols.length === 0) {
+    throw new Error('associateDMF requires table_fqn, dmf_name and at least one column');
+  }
+  const params: Record<string, string> = {
     table_fqn: request.table_fqn,
     dmf_name: request.dmf_name,
-    columns: request.columns,
-    database: request.database,
-    schema: request.schema,
-  });
+    columns: cols.join(','),
+  };
+  if (request.database) params.database = request.database;
+  if (request.schema) params.schema = request.schema;
+  const { data } = await apiClient.post(`${PREFIX}/dmf/associate`, null, { params });
   return data;
 }
 
 /**
  * Disassociate a DMF from table columns
  * POST /gouvernance/policies/dmf/disassociate
+ * Backend uses Query(...) params — null body; columns must be comma-joined string.
  */
 export async function disassociateDMF(request: DisassociateDMFRequest) {
-  const { data } = await apiClient.post(`${PREFIX}/dmf/disassociate`, {
+  const cols = Array.isArray(request.columns) ? request.columns : [];
+  if (!request.table_fqn || !request.dmf_name || cols.length === 0) {
+    throw new Error('disassociateDMF requires table_fqn, dmf_name and at least one column');
+  }
+  const params: Record<string, string> = {
     table_fqn: request.table_fqn,
     dmf_name: request.dmf_name,
-    columns: request.columns,
-  });
+    columns: cols.join(','),
+  };
+  const { data } = await apiClient.post(`${PREFIX}/dmf/disassociate`, null, { params });
   return data;
 }
 
 /**
  * Set a DMF evaluation schedule for a table
  * POST /gouvernance/policies/dmf/schedule
+ * Backend uses Query(...) params — null body.
  */
 export async function setDMFSchedule(request: SetDMFScheduleRequest) {
-  const { data } = await apiClient.post(`${PREFIX}/dmf/schedule`, {
-    table_fqn: request.table_fqn,
-    schedule: request.schedule,
+  const { data } = await apiClient.post(`${PREFIX}/dmf/schedule`, null, {
+    params: {
+      table_fqn: request.table_fqn,
+      schedule: request.schedule,
+    },
   });
   return data;
 }
@@ -211,11 +228,11 @@ export async function getDMFReferences(tableName: string) {
 /**
  * Classify a table using Snowflake's built-in classification
  * POST /gouvernance/policies/classification/classify
+ * Backend uses Query(...) params — null body. `config` is not supported by the backend.
  */
 export async function classifyTable(request: ClassifyTableRequest) {
-  const { data } = await apiClient.post(`${PREFIX}/classification/classify`, {
-    table_name: request.table_name,
-    config: request.config,
+  const { data } = await apiClient.post(`${PREFIX}/classification/classify`, null, {
+    params: { table_name: request.table_name },
   });
   return data;
 }
@@ -223,10 +240,11 @@ export async function classifyTable(request: ClassifyTableRequest) {
 /**
  * Extract semantic categories from a table
  * POST /gouvernance/policies/classification/extract-categories
+ * Backend uses Query(...) `table_name` — null body.
  */
 export async function extractSemanticCategories(request: ExtractCategoriesRequest) {
-  const { data } = await apiClient.post(`${PREFIX}/classification/extract-categories`, {
-    table_name: request.table_name,
+  const { data } = await apiClient.post(`${PREFIX}/classification/extract-categories`, null, {
+    params: { table_name: request.table_name },
   });
   return data;
 }
@@ -234,10 +252,11 @@ export async function extractSemanticCategories(request: ExtractCategoriesReques
 /**
  * Apply semantic tags to a table based on classification results
  * POST /gouvernance/policies/classification/apply-tags
+ * Backend uses Query(...) `table_name` — null body.
  */
 export async function applySemanticTags(request: ApplySemanticTagsRequest) {
-  const { data } = await apiClient.post(`${PREFIX}/classification/apply-tags`, {
-    table_name: request.table_name,
+  const { data } = await apiClient.post(`${PREFIX}/classification/apply-tags`, null, {
+    params: { table_name: request.table_name },
   });
   return data;
 }
@@ -245,31 +264,35 @@ export async function applySemanticTags(request: ApplySemanticTagsRequest) {
 /**
  * Create a custom classifier
  * POST /gouvernance/policies/classification/classifiers
+ * Backend uses Query(...) params — null body.
  */
 export async function createCustomClassifier(request: CreateCustomClassifierRequest) {
-  const { data } = await apiClient.post(`${PREFIX}/classification/classifiers`, {
-    name: request.name,
-    database: request.database,
-    schema: request.schema,
-  });
+  const params: Record<string, string> = { name: request.name };
+  if (request.database) params.database = request.database;
+  if (request.schema) params.schema = request.schema;
+  const { data } = await apiClient.post(`${PREFIX}/classification/classifiers`, null, { params });
   return data;
 }
 
 /**
  * Add a regex rule to a custom classifier
  * POST /gouvernance/policies/classification/classifiers/{name}/regex
+ * Backend uses Query(...) params — null body.
+ * Backend param names: value_regex (not regex), col_name_regex (not col_regex).
+ * classifier_name is the path param `name`, not a query param.
  */
 export async function addClassifierRegex(name: string, request: AddClassifierRegexRequest) {
+  const params: Record<string, any> = {
+    semantic_category: request.semantic_category,
+    privacy_category: request.privacy_category,
+    value_regex: request.regex,
+  };
+  if (request.col_regex) params.col_name_regex = request.col_regex;
+  if (request.threshold !== undefined) params.threshold = request.threshold;
   const { data } = await apiClient.post(
     `${PREFIX}/classification/classifiers/${encodeURIComponent(name)}/regex`,
-    {
-      classifier_name: request.classifier_name,
-      semantic_category: request.semantic_category,
-      privacy_category: request.privacy_category,
-      regex: request.regex,
-      col_regex: request.col_regex,
-      threshold: request.threshold,
-    }
+    null,
+    { params },
   );
   return data;
 }

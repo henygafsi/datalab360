@@ -46,7 +46,7 @@ export default function ImportTasksModal({
       const res = await discoverTasks();
       setGraphs(res.graphs ?? []);
     } catch (e) {
-      setError(getApiErrorMessage(e) || 'Failed to load Snowflake tasks');
+      setError(getApiErrorMessage(e) || 'Failed to load tasks');
     } finally {
       setLoading(false);
     }
@@ -96,7 +96,7 @@ export default function ImportTasksModal({
           transition={{ type: 'spring', stiffness: 380, damping: 32 }}
           role="dialog"
           aria-modal="false"
-          aria-label="Import Snowflake task graphs"
+          aria-label="Import task graphs"
           onClick={(e) => e.stopPropagation()}
           className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
         >
@@ -118,10 +118,10 @@ export default function ImportTasksModal({
                 </motion.div>
                 <div>
                   <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-white">
-                    Import Snowflake task graphs
+                    Import task graphs
                   </h2>
                   <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                    Discover existing tasks in Snowflake and bring each graph in as a
+                    Discover existing tasks in the data warehouse and bring each graph in as a
                     workflow project.
                   </p>
                 </div>
@@ -184,10 +184,10 @@ export default function ImportTasksModal({
                     <Database className="h-6 w-6 text-slate-500" />
                   </div>
                   <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                    No Snowflake tasks found
+                    No tasks found
                   </p>
                   <p className="mt-1 max-w-[280px] text-xs text-slate-500">
-                    Once you create tasks in Snowflake, they'll appear here ready
+                    Once you create tasks in the data warehouse, they'll appear here ready
                     to import as workflow projects.
                   </p>
                 </div>

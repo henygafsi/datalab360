@@ -2,6 +2,12 @@ export { queryCortex } from './query';
 export type { CortexQueryRequest, CortexQueryResponse, CortexQueryResult } from './query';
 export { getCortexRecommend } from './recommend';
 export type { RecommendRequest, RecommendResponse } from './recommend';
+export { analystQuery } from './query';
+export type { AnalystQueryRequest, AnalystQueryResponse } from './query';
+
+// AI conversation history (GET /cortex/conversations[/{id}])
+export { listCortexConversations, getCortexConversation } from './conversations';
+export type { CortexConversation, CortexConversationDetail } from './conversations';
 export { getCortexKpis } from './kpis';
 export type { CortexKpis } from './kpis';
 

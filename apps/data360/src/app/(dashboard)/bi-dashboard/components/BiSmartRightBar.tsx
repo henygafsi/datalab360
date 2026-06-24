@@ -51,8 +51,10 @@ import {
   listDashboardShares,
   shareDashboard,
   revokeDashboardShare,
+  getDashboardCost,
   isBiRouteUnavailable,
   type DashboardShare,
+  type DashboardCost,
 } from '@/app/services/api/biDashboardApi';
 import { getD360Roles, type D360Role } from '@/app/services/governance/fetch_roles';
 import { getUsers } from '@/app/services/governance/fetch_users';
@@ -178,6 +180,25 @@ export default function BiSmartRightBar({
   const canEdit = useCanPerform('bi_reporting', 'edit', projectId);
   const canPublish = useCanPerform('bi_reporting', 'publish', projectId);
   const canShare = useCanPerform('bi_reporting', 'share', projectId);
+
+  // Per-dashboard query cost — lazy-loaded only when the Details section is active.
+  const [cost, setCost] = useState<DashboardCost | null>(null);
+  const [costLoading, setCostLoading] = useState(false);
+  const [costUnavailable, setCostUnavailable] = useState(false);
+  useEffect(() => {
+    if (section !== 'details') return;
+    let alive = true;
+    setCostLoading(true);
+    getDashboardCost(projectId)
+      .then((c) => { if (alive) setCost(c); })
+      .catch((err) => {
+        if (!alive) return;
+        if (isBiRouteUnavailable(err)) setCostUnavailable(true);
+        setCost(null);
+      })
+      .finally(() => { if (alive) setCostLoading(false); });
+    return () => { alive = false; };
+  }, [section, projectId]);
 
   // Persist section + collapse (versioned keys; "draft of menu" → preselect).
   useEffect(() => {
@@ -400,7 +421,7 @@ export default function BiSmartRightBar({
                 <EmptyNote>No snapshot saved yet this session. Snapshots capture the current design as a restorable version.</EmptyNote>
               )}
               <p className="text-[11px] italic text-gray-400 dark:text-gray-500">
-                Full run history (scheduled refreshes, version list) isn’t exposed by the API yet.
+                Full run history (scheduled refreshes, version list) isn't exposed by the API yet.
               </p>
             </div>
           )}
@@ -409,7 +430,7 @@ export default function BiSmartRightBar({
             <div className="space-y-3">
               <SectionHeader title="Refresh schedule" subtitle="When this dashboard re-queries its data." />
               <EmptyNote>
-                Server-side scheduled refresh isn’t available on this backend yet. Use{' '}
+                Server-side scheduled refresh isn't available on this backend yet. Use{' '}
                 <span className="font-medium">Auto</span> in the filter bar to poll on an interval, or{' '}
                 <span className="font-medium">Refresh now</span> in Runs.
               </EmptyNote>
@@ -437,6 +458,28 @@ export default function BiSmartRightBar({
                 <Row k="Pages" v={String(pageCount)} />
                 <Row k="Widgets" v={String(widgetCount)} />
               </dl>
+              {/* Query cost card — GET /bi-dashboard/{id}/cost */}
+              <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Query cost
+                </p>
+                {costUnavailable ? (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500">Not provisioned on this backend yet.</p>
+                ) : costLoading ? (
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500">Loading&hellip;</p>
+                ) : (
+                  <dl className="space-y-1.5 text-xs">
+                    <Row k="Credits" v={cost?.credits != null ? String(cost.credits) : '—'} />
+                    <Row k="Bytes scanned" v={cost?.bytes_scanned != null ? fmtBytes(cost.bytes_scanned) : '—'} />
+                    <Row k="Renders (30d)" v={cost?.render_activity?.render_count != null ? String(cost.render_activity.render_count) : '—'} />
+                  </dl>
+                )}
+                {cost?.partial && !costUnavailable && (
+                  <p className="mt-1.5 text-[10px] italic text-gray-400 dark:text-gray-500">
+                    {cost.note ?? 'Partial — credits not directly attributable.'}
+                  </p>
+                )}
+              </div>
               <PublishControl status={liveStatus} />
             </div>
           )}
@@ -487,6 +530,13 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
+function fmtBytes(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)} KB`;
+  return `${n} B`;
+}
+
 function StatusPill({ status }: { status: 'draft' | 'live' }) {
   return (
     <span
@@ -528,8 +578,8 @@ function PublishControl({ status }: { status: UseDashboardStatus }) {
     } catch (err) {
       toast.error(
         isBiRouteUnavailable(err)
-          ? 'Publish endpoint isn’t live on this backend yet.'
-          : 'Couldn’t publish the dashboard.',
+          ? "Publish endpoint isn't live on this backend yet."
+          : "Couldn't publish the dashboard.",
       );
     }
   };
@@ -541,8 +591,8 @@ function PublishControl({ status }: { status: UseDashboardStatus }) {
     } catch (err) {
       toast.error(
         isBiRouteUnavailable(err)
-          ? 'Unpublish endpoint isn’t live on this backend yet.'
-          : 'Couldn’t unpublish the dashboard.',
+          ? "Unpublish endpoint isn't live on this backend yet."
+          : "Couldn't unpublish the dashboard.",
       );
     }
   };
@@ -559,7 +609,7 @@ function PublishControl({ status }: { status: UseDashboardStatus }) {
       </p>
       {status.unavailable ? (
         <p className="text-[11px] italic text-gray-400 dark:text-gray-500">
-          Publish/unpublish routes aren’t provisioned on this backend yet.
+          Publish/unpublish routes aren't provisioned on this backend yet.
         </p>
       ) : isLive ? (
         <button
@@ -658,15 +708,15 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
     setGranting(true);
     try {
       await shareDashboard(projectId, { grantee_type: granteeType, grantee: selected });
-      toast.success(`Shared with ${granteeType} “${selected}”.`);
+      toast.success(`Shared with ${granteeType} "${selected}".`);
       setSelected('');
       await loadShares();
       onSharesChanged?.();
     } catch (err) {
       toast.error(
         isBiRouteUnavailable(err)
-          ? 'Sharing endpoint isn’t live on this backend yet.'
-          : 'Couldn’t share the dashboard.',
+          ? "Sharing endpoint isn't live on this backend yet."
+          : "Couldn't share the dashboard.",
       );
     } finally {
       setGranting(false);
@@ -682,7 +732,7 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
       await loadShares();
       onSharesChanged?.();
     } catch {
-      toast.error('Couldn’t revoke access.');
+      toast.error("Couldn't revoke access.");
     } finally {
       setRevokingId(null);
     }
@@ -691,7 +741,7 @@ function ShareManager({ projectId, onSharesChanged }: { projectId: string; onSha
   if (unavailable) {
     return (
       <div className="space-y-2">
-        <EmptyNote>Per-dashboard sharing isn’t provisioned on this backend yet.</EmptyNote>
+        <EmptyNote>Per-dashboard sharing isn't provisioned on this backend yet.</EmptyNote>
         <CtaLink href="/governance/grants" label="Manage access in Governance" />
       </div>
     );

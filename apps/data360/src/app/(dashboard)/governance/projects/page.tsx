@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import Link from 'next/link';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Badge, Button, Input, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
   FolderOpen, Users, Crown, Pencil, Eye, Trash2,
   ChevronDown, ChevronRight, Loader2, RefreshCw,
-  UserPlus, Check, X, Search, Rocket, Clock,
+  UserPlus, Check, X, Search, Rocket, Clock, ExternalLink,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -238,6 +239,19 @@ function ProjectRow({
           )}
         </div>
       </button>
+
+      {/* Open in Explore — only for explore_design projects */}
+      {isTypeExplore && (
+        <div className="px-4 py-1.5 border-t border-slate-100 dark:border-slate-700/50 flex items-center gap-1.5">
+          <Link
+            href={`/explore-design?project_id=${project.project_id}`}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-violet-600 hover:text-violet-800 dark:text-violet-400 dark:hover:text-violet-200 transition-colors"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Open in Explore
+          </Link>
+        </div>
+      )}
 
       {/* Expanded members */}
       {expanded && (

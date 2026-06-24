@@ -202,6 +202,7 @@ export const API = {
     /** PATCH /projects/{id}/events/bulk-update */
     bulkUpdateEvents: (id: string) => `/projects/${enc(id)}/events/bulk-update`,
     contributors: (id: string) => `/projects/${enc(id)}/contributors`,
+    contributor: (id: string, username: string) => `/projects/${enc(id)}/contributors/${enc(username)}`,
     runs: (id: string) => `/projects/${enc(id)}/runs`,
     deployments: (id: string) => `/projects/${enc(id)}/deployments`,
     deployment: (id: string, deploymentId: string) =>
@@ -362,6 +363,30 @@ export const API = {
     /** GET /workflow/{workflowId}/tasks/{taskId}/logs — fetch task log lines (verified vs backend). */
     runLogs: (workflowId: string, taskId: string) =>
       `/workflow/${enc(workflowId)}/tasks/${enc(taskId)}/logs`,
+    /** POST /workflow/setup/initialize-tables — initialize workflow tracking tables (one-shot). */
+    setupInitializeTables: () => '/workflow/setup/initialize-tables',
+    /** GET /workflow/git/repositories — list Snowflake Git repositories. */
+    gitRepositories: () => '/workflow/git/repositories',
+    /** GET /workflow/git/repositories/{name} — describe a single Git repository. */
+    gitRepository: (name: string) => `/workflow/git/repositories/${enc(name)}`,
+    /** GET /workflow/git/repositories/{name}/branches — list branches in a Git repository. */
+    gitRepositoryBranches: (name: string) => `/workflow/git/repositories/${enc(name)}/branches`,
+    /** GET /workflow/git/repositories/{name}/tags — list tags in a Git repository. */
+    gitRepositoryTags: (name: string) => `/workflow/git/repositories/${enc(name)}/tags`,
+    /** POST /workflow/git/repositories/{name}/fetch — fetch remote changes for a Git repository. */
+    gitRepositoryFetch: (name: string) => `/workflow/git/repositories/${enc(name)}/fetch`,
+    /** PATCH /workflow/compute-pools/{name} — alter a compute pool (api_workflow_alter_compute_pool, 2026-06-21). */
+    computePool: (name: string) => `/workflow/compute-pools/${enc(name)}`,
+    /** GET/POST /workflow/notebooks — list or create Snowflake notebooks. */
+    notebooks: () => '/workflow/notebooks',
+    /** GET/PATCH/DELETE /workflow/notebooks/{name} — single notebook operations. */
+    notebook: (name: string) => `/workflow/notebooks/${enc(name)}`,
+    /** POST /workflow/notebooks/{name}/execute — execute a Snowflake notebook. */
+    notebookExecute: (name: string) => `/workflow/notebooks/${enc(name)}/execute`,
+    /** POST /workflow/run-sql — run ad-hoc SQL in the data warehouse. */
+    runSql: () => '/workflow/run-sql',
+    /** POST /workflow/run-python — run ad-hoc Python via Snowpark. */
+    runPython: () => '/workflow/run-python',
   },
 
   /** Gouvernance — backend: /gouvernance/* (modules/gouvernance + gui_permissions). */
@@ -431,6 +456,10 @@ export const API = {
     policyDmfSchedule: () => '/gouvernance/policies/dmf/schedule',
     /** GET /gouvernance/policies/dmf/references — DMF associations for a table. */
     policyDmfReferences: () => '/gouvernance/policies/dmf/references',
+    /** GET /gouvernance/compliance/score — account governance posture score (masking/row-access/tagging weighted). */
+    complianceScore: () => '/gouvernance/compliance/score',
+    /** GET /gouvernance/access-review/summary — access-review findings (mfa gaps, expiring policies, orphan grants). */
+    accessReviewSummary: () => '/gouvernance/access-review/summary',
   },
 
   /** Cortex (AI) — backend: /cortex/* (modules/cortex). */
@@ -503,6 +532,8 @@ export const API = {
     queryAnalyticsResults: () => '/cortex/query-analytics/results',
     /** GET /cortex/query-analytics/summary — fetch analysis summary */
     queryAnalyticsSummary: () => '/cortex/query-analytics/summary',
+    /** GET /cortex/query-analytics/redundant-groups — redundant query groups with dedup stats */
+    queryAnalyticsRedundantGroups: () => '/cortex/query-analytics/redundant-groups',
     /** GET /cortex/duckdb/datasets — list local analytics datasets */
     duckdbDatasets: () => '/cortex/duckdb/datasets',
     /** POST /cortex/duckdb/query — run a local DuckDB query */
@@ -511,6 +542,36 @@ export const API = {
     stageQuery: () => '/cortex/duckdb/query-stage',
     /** POST /cortex/ml/finetune — fine-tune entry point (alias of mlFinetune; /cortex/finetune does not exist). */
     finetune: () => '/cortex/ml/finetune',
+    /** DELETE /cortex/snowpark/compute-pools/{name} — drop a compute pool. */
+    snowparkComputePool: (name: string) => `/cortex/snowpark/compute-pools/${enc(name)}`,
+    /** GET /cortex/snowpark/services/{name} — describe a container service. */
+    snowparkService: (name: string) => `/cortex/snowpark/services/${enc(name)}`,
+    /** GET /cortex/snowpark/services/{name}/status — get container service status. */
+    snowparkServiceStatus: (name: string) => `/cortex/snowpark/services/${enc(name)}/status`,
+    /** GET /cortex/snowpark/services/{name}/logs — fetch container service logs. */
+    snowparkServiceLogs: (name: string) => `/cortex/snowpark/services/${enc(name)}/logs`,
+  },
+
+  /** Chat — backend: /chat/* (modules/chat/router.py). Conversations, messages, participants, attachments. */
+  chat: {
+    /** GET /chat/conversations — list all conversations for the current user. */
+    conversations: () => '/chat/conversations',
+    /** GET/PATCH /chat/conversations/{id} — fetch or update a single conversation. */
+    conversation: (id: string) => `/chat/conversations/${enc(id)}`,
+    /** POST /chat/conversations/dm — create a direct-message conversation. */
+    conversationsDm: () => '/chat/conversations/dm',
+    /** POST /chat/conversations/group — create a group conversation. */
+    conversationsGroup: () => '/chat/conversations/group',
+    /** GET/POST /chat/conversations/{id}/messages — list or send messages. */
+    conversationMessages: (id: string) => `/chat/conversations/${enc(id)}/messages`,
+    /** GET /chat/conversations/{id}/participants — list conversation participants. */
+    conversationParticipants: (id: string) => `/chat/conversations/${enc(id)}/participants`,
+    /** POST /chat/conversations/{id}/read — mark messages as read up to a given message. */
+    conversationRead: (id: string) => `/chat/conversations/${enc(id)}/read`,
+    /** POST /chat/conversations/{id}/attachments — upload a file attachment. */
+    conversationAttachments: (id: string) => `/chat/conversations/${enc(id)}/attachments`,
+    /** GET /chat/online-users — list users with active WebSocket connections. */
+    onlineUsers: () => '/chat/online-users',
   },
 
   /** Observability — backend: /observability/* (mounted with prefix in main.py). */
@@ -708,6 +769,14 @@ export const API = {
     orgSummary:           ()                            => '/org-accounts/org-summary',
     /** GET /org-accounts/events[?days=<n>] — platform events audit trail. */
     events:               (days?: number)               => `/org-accounts/events${days != null ? `?days=${days}` : ''}`,
+    /** POST /org-accounts/warehouses/{name}/resize — ALTER WAREHOUSE size (connected account). */
+    warehouseResize:      (name: string)                => `/org-accounts/warehouses/${enc(name)}/resize`,
+    /** PATCH /org-accounts/warehouses/{name}/auto-suspend — set idle auto-suspend seconds. */
+    warehouseAutoSuspend: (name: string)                => `/org-accounts/warehouses/${enc(name)}/auto-suspend`,
+    /** POST /org-accounts/warehouses/{name}/suspend — ALTER WAREHOUSE SUSPEND. */
+    warehouseSuspend:     (name: string)                => `/org-accounts/warehouses/${enc(name)}/suspend`,
+    /** GET/POST /org-accounts/resource-monitors — list / create a resource monitor (no DELETE route). */
+    resourceMonitors:     ()                            => '/org-accounts/resource-monitors',
   },
 
   /** Admin — backend: /admin/* (platform-level admin endpoints, admin-role only). */
@@ -824,6 +893,8 @@ export const API = {
     publish: (id: string) => `/data-products/${enc(id)}/publish`,
     /** POST /data-products/{id}/subscribe — grant a consumer account access to a published share */
     subscribe: (id: string) => `/data-products/${enc(id)}/subscribe`,
+    /** POST /data-products/{id}/refresh — refresh the product's backing object (ALTER DYNAMIC TABLE … REFRESH; data_products.py:790, verified vs backend). */
+    refresh: (id: string) => `/data-products/${enc(id)}/refresh`,
   },
 
   /** Data quality — backend: /data-quality/* (modules/data_quality). */
@@ -1022,6 +1093,29 @@ export const API = {
   /** Platform API — backend: /api/* (keep-rule endpoints). */
   platform: {
     path: (p: string) => `/api/${p.replace(/^\//, '')}`,
+
+    /**
+     * Page/role grants — backend: /api/platform/grants/* (validated, live).
+     * These are FE path constants for the existing super-admin-gated grant
+     * surface; they add NO backend routes. Reads use `/grants` (fresh after a
+     * revoke); avoid `/grants/role/{role}` for post-mutation refresh (stale).
+     */
+    grants: {
+      /** GET /api/platform/grants?role=&page=&module=  → { items, count }. */
+      list: (opts?: { role?: string; page?: string; module?: string }) =>
+        `/api/platform/grants${qs({ role: opts?.role, page: opts?.page, module: opts?.module })}`,
+      /** GET /api/platform/grants/role/{role}  (can serve STALE data post-revoke). */
+      byRole: (role: string) => `/api/platform/grants/role/${enc(role)}`,
+      /** POST /api/platform/grants {role,page,module,tab?} — grant a role a page.
+       *  DELETE /api/platform/grants {role,module,page?,tab?} — revoke. */
+      base: () => '/api/platform/grants',
+      /** GET /api/platform/grants/users?username= ; POST/DELETE {username,role}. */
+      users: (username?: string) => `/api/platform/grants/users${qs({ username })}`,
+      /** POST /api/platform/grants/actions {role,action_key,module,page,can_execute}. */
+      actions: () => '/api/platform/grants/actions',
+      /** POST /api/platform/grants/policies {role,policy_type,can:{read},policy_name?}. */
+      policies: () => '/api/platform/grants/policies',
+    },
   },
 
   /**

@@ -2,37 +2,15 @@
 
 import { useState } from 'react';
 import { Button, Text, Title } from 'rizzui';
-import apiClient from '@/lib/api-client';
-import { API } from '@/lib/api-contracts';
 import { generateCompletion } from '@/app/services/cortex/ml-features';
 import { isDefect, isExpected, parseErrorBody, SLOW_THRESHOLD_MS, type ProbeDetail } from './types';
+import { QueryIntrospect } from './QueryIntrospect';
 
 type DrillPanelProps = {
   detail: ProbeDetail | null;
   onClose: () => void;
   onReprobe: (detail: ProbeDetail) => void;
   reprobing: boolean;
-};
-
-/** Shape of GET /admin/api-health/introspect — every field optional/nullable. */
-type IntrospectEvent = {
-  name?: string | null;
-  timestamp?: string | null;
-  message?: string | null;
-  [k: string]: unknown;
-};
-type IntrospectResponse = {
-  query_text?: string | null;
-  execution_status?: string | null;
-  error_message?: string | null;
-  total_elapsed_ms?: number | null;
-  bytes_scanned?: number | null;
-  rows_produced?: number | null;
-  warehouse?: string | null;
-  role?: string | null;
-  start_time?: string | null;
-  end_time?: string | null;
-  events?: IntrospectEvent[] | null;
 };
 
 function statusLabel(detail: ProbeDetail): { text: string; color: string } {
@@ -105,12 +83,6 @@ export function DrillPanel({ detail, onClose, onReprobe, reprobing }: DrillPanel
   // is visible without a click; the toggle only collapses it.
   const [showData, setShowData] = useState(true);
 
-  // Snowflake query introspection state (lazy — loaded on demand per row).
-  const [introLoading, setIntroLoading] = useState(false);
-  const [introData, setIntroData] = useState<IntrospectResponse | null>(null);
-  const [introError, setIntroError] = useState<string | null>(null);
-  const [introUnavailable, setIntroUnavailable] = useState(false);
-
   // "Ask coco" AI analysis state.
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<string | null>(null);
@@ -128,31 +100,10 @@ export function DrillPanel({ detail, onClose, onReprobe, reprobing }: DrillPanel
   const hasStructured =
     !!parsed.code || !!parsed.queryId || !!parsed.snowflakeCode || !!parsed.hint;
   const dash = (v: string | null) => (v && v.trim() ? v : '—');
-  // No-fake-0: a real numeric 0 must render as "0", only null/undefined → "—".
-  const num = (v: number | null | undefined) => (v != null ? String(v) : '—');
 
   // A query_id can ride on either a failing error body OR a successful payload
   // (some success responses echo the warehouse query id). Try both.
   const queryId = parsed.queryId || parseErrorBody(r?.data).queryId;
-
-  const loadIntrospect = async () => {
-    if (!queryId) return;
-    setIntroLoading(true);
-    setIntroError(null);
-    setIntroUnavailable(false);
-    setIntroData(null);
-    try {
-      const resp = await apiClient.get<IntrospectResponse>(API.admin.apiHealthIntrospect(queryId));
-      setIntroData((resp.data as any)?.data ?? resp.data ?? null);
-    } catch (err: any) {
-      const code = err?.response?.status;
-      // 404/501 → the parallel backend route isn't live yet (not a real failure).
-      if (code === 404 || code === 501) setIntroUnavailable(true);
-      else setIntroError(err?.response?.data?.detail || err?.message || 'Failed to load query');
-    } finally {
-      setIntroLoading(false);
-    }
-  };
 
   const askCoco = async () => {
     setAiLoading(true);
@@ -279,64 +230,7 @@ export function DrillPanel({ detail, onClose, onReprobe, reprobing }: DrillPanel
             <Text className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600">
               Snowflake query
             </Text>
-            {!introData && !introUnavailable && (
-              <Button
-                size="sm"
-                variant="outline"
-                isLoading={introLoading}
-                onClick={loadIntrospect}
-                className="mt-1.5 w-full"
-              >
-                Load query + events
-              </Button>
-            )}
-            {introError && <Text className="mt-1 text-sm text-red-600">{introError}</Text>}
-            {introUnavailable && (
-              <Text className="mt-1 text-sm text-gray-400">
-                Query introspection not available yet.
-              </Text>
-            )}
-            {introData && (
-              <div className="mt-1.5">
-                <Text className="text-[10px] uppercase tracking-wide text-gray-400">SQL</Text>
-                {introData.query_text ? (
-                  <pre className="mt-0.5 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2 font-mono text-[11px] text-gray-700 dark:bg-gray-100">
-                    {introData.query_text}
-                  </pre>
-                ) : (
-                  <Text className="mt-0.5 text-sm text-gray-400">—</Text>
-                )}
-                <Row label="Status" value={dash(introData.execution_status ?? null)} mono />
-                {introData.error_message && (
-                  <Row label="Query error" value={introData.error_message} mono />
-                )}
-                <Row label="Elapsed" value={introData.total_elapsed_ms != null ? `${introData.total_elapsed_ms} ms` : '—'} mono />
-                <Row label="Bytes scanned" value={num(introData.bytes_scanned)} mono />
-                <Row label="Rows produced" value={num(introData.rows_produced)} mono />
-                <Row label="Warehouse" value={dash(introData.warehouse ?? null)} mono />
-                <Row label="Role" value={dash(introData.role ?? null)} mono />
-                <div className="py-2">
-                  <Text className="text-[10px] uppercase tracking-wide text-gray-400">
-                    Events ({introData.events?.length ?? 0})
-                  </Text>
-                  {introData.events && introData.events.length > 0 ? (
-                    <ul className="mt-1 max-h-40 space-y-1 overflow-auto">
-                      {introData.events.map((ev, i) => (
-                        <li
-                          key={i}
-                          className="rounded bg-gray-50 px-2 py-1 font-mono text-[10px] text-gray-600 dark:bg-gray-100"
-                        >
-                          <span className="font-semibold">{ev.name || ev.message || `event ${i + 1}`}</span>
-                          {ev.timestamp ? <span className="text-gray-400"> · {ev.timestamp}</span> : null}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <Text className="mt-1 text-sm text-gray-400">—</Text>
-                  )}
-                </div>
-              </div>
-            )}
+            <QueryIntrospect queryId={queryId} />
           </div>
         )}
 

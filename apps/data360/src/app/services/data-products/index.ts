@@ -167,6 +167,39 @@ export async function subscribeToProduct(
   return data;
 }
 
+export interface RefreshProductResponse {
+  product_id: string;
+  /** Whether the backing object actually had a manual-refresh verb run against it. */
+  refreshed: boolean;
+  /** Honest reason when `refreshed` is false (e.g. plain table / view — nothing to refresh). */
+  reason?: string;
+  object_kind?: string;
+  last_refreshed_at?: string | null;
+  message: string;
+  execution_time_ms: number;
+  [key: string]: unknown;
+}
+
+/**
+ * Refresh the materialization behind a data product.
+ * POST /data-products/{id}/refresh (data_products.py:790, verified vs backend).
+ *
+ * A data product is metadata over an existing TABLE_FQN. Only a dynamic table has
+ * a manual refresh verb (ALTER DYNAMIC TABLE … REFRESH); for a plain table / view /
+ * materialized view the backend returns an honest `refreshed: false` with a reason
+ * rather than a fake success. Requires the `data_products:edit` action (403 otherwise).
+ */
+export async function refreshDataProduct(
+  productId: string,
+  body?: Record<string, unknown>
+): Promise<RefreshProductResponse> {
+  const { data } = await apiClient.post<RefreshProductResponse>(
+    API.dataProducts.refresh(productId),
+    body ?? {}
+  );
+  return data;
+}
+
 export interface DataProductLineageResponse {
   product_id: string;
   objects: string[];

@@ -21,12 +21,13 @@ import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
 import { Node } from 'reactflow';
 import {
-  X, AlertCircle, Trash2, Save,
+  X, AlertCircle, Trash2, Save, Eye, Copy, Check, Loader2, Code2,
 } from 'lucide-react';
-import { getBlockByType } from './etl-blocks';
+import { getBlockByType, convertLegacyType } from './etl-blocks';
 import { FormField, Input } from './config-forms/_primitives';
 import ConfigFormSkeleton from './config-forms/_skeleton';
 import { Tooltip } from '@/app/shared/ui/Tooltip';
+import { renderBlockSql } from '@/app/services/workflow';
 
 // ============================================
 // LAZY-LOADED CONFIG FORMS
@@ -350,6 +351,145 @@ const TaskDagConfigForm = dynamic(() => import('./config-forms/task-dag-config-f
 });
 
 
+
+// ============================================
+// PER-BLOCK SQL PREVIEW (dry-run, no execution)
+// ============================================
+
+type PreviewState = 'idle' | 'loading' | 'ready' | 'empty' | 'unavailable' | 'error';
+
+/**
+ * Docked, in-panel "Preview SQL" surface. Calls the pure render-sql hook with
+ * the block's CURRENT config and shows the generated SQL read-only — no data is
+ * read or written. Self-disables (quiet "not available") when the block type
+ * has no SQL template (404/501); surfaces the backend message on other errors.
+ * This is the per-block test/preview path that lets a power user verify a block
+ * before it is ever run.
+ */
+const BlockSqlPreview: React.FC<{ node: Node; formData: any }> = ({ node, formData }) => {
+  const [state, setState] = useState<PreviewState>('idle');
+  const [sql, setSql] = useState('');
+  const [errMsg, setErrMsg] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  // Reset whenever the selected block changes — a stale preview from another
+  // node would be misleading.
+  useEffect(() => {
+    setState('idle');
+    setSql('');
+    setErrMsg('');
+    setCopied(false);
+  }, [node.id]);
+
+  const run = useCallback(async () => {
+    setState('loading');
+    setErrMsg('');
+    setCopied(false);
+    try {
+      const cfg = (formData && (formData.config || formData)) || {};
+      const blockType = convertLegacyType(node.type || '');
+      const { sql: rendered } = await renderBlockSql(blockType, cfg as Record<string, unknown>);
+      if (!rendered.trim()) {
+        setState('empty');
+        return;
+      }
+      setSql(rendered);
+      setState('ready');
+    } catch (e: any) {
+      const status = e?.response?.status;
+      if (status === 404 || status === 501) {
+        setState('unavailable');
+        return;
+      }
+      const detail = e?.response?.data?.detail ?? e?.response?.data?.message ?? e?.message;
+      setErrMsg(typeof detail === 'string' && detail ? detail : 'Could not render SQL preview');
+      setState('error');
+    }
+  }, [node, formData]);
+
+  const copy = useCallback(() => {
+    if (!sql) return;
+    void navigator.clipboard?.writeText(sql).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [sql]);
+
+  return (
+    <div className="mt-4 border-t border-slate-200 dark:border-slate-700 pt-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+          <Code2 className="h-3.5 w-3.5" />
+          SQL preview
+        </div>
+        <Tooltip label="Render this block's SQL from the current config — no data is read or written" side="left">
+          <button
+            type="button"
+            onClick={run}
+            disabled={state === 'loading' || state === 'unavailable'}
+            aria-label="Preview generated SQL for this block"
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors',
+              state === 'unavailable'
+                ? 'border-slate-200 text-slate-400 cursor-not-allowed dark:border-slate-700'
+                : 'border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700',
+            )}
+          >
+            {state === 'loading' ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Eye className="h-3.5 w-3.5" />
+            )}
+            {state === 'ready' || state === 'empty' || state === 'error' ? 'Refresh preview' : 'Preview SQL'}
+          </button>
+        </Tooltip>
+      </div>
+
+      {state === 'idle' && (
+        <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
+          Preview the SQL this block generates from its current configuration before running anything.
+        </p>
+      )}
+      {state === 'unavailable' && (
+        <p className="mt-2 text-[11px] italic text-slate-400 dark:text-slate-500">
+          SQL preview is not available for this block type.
+        </p>
+      )}
+      {state === 'empty' && (
+        <p className="mt-2 text-[11px] italic text-slate-400 dark:text-slate-500">
+          This block produced no SQL — it may run on a non-SQL path (source / AI / infrastructure).
+        </p>
+      )}
+      {state === 'error' && (
+        <div className="mt-2 flex items-start gap-1.5 rounded-md bg-red-50 dark:bg-red-900/20 px-2 py-1.5">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+          <span className="text-[11px] text-red-600 dark:text-red-400">{errMsg}</span>
+        </div>
+      )}
+      {state === 'ready' && (
+        <div className="mt-2">
+          <div className="relative">
+            <pre className="max-h-56 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300">
+              <code>{sql}</code>
+            </pre>
+            <button
+              type="button"
+              onClick={copy}
+              aria-label="Copy SQL to clipboard"
+              className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800/90 dark:text-slate-300"
+            >
+              {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <p className="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500">
+            Read-only preview generated from the current config. Save the block to persist these settings.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ============================================
 // MAIN SIDEBAR COMPONENT
@@ -1072,6 +1212,7 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
           out of reach). */}
       <div className="flex-1 min-h-0 overflow-auto p-4">
         {renderConfig()}
+        <BlockSqlPreview node={node} formData={formData} />
       </div>
 
       {/* Errors */}

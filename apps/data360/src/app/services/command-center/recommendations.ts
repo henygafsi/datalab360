@@ -43,6 +43,12 @@ export interface Recommendation {
   detail: string;
   value: number | string | null;
   cta: RecommendationCta;
+  /** Return-on-investment estimate — e.g. "~$1,200 / mo" or "14 credits / day". */
+  roi?: { estimate?: string };
+  /** Time-to-materialize effort signal — e.g. "1–2 days" or "< 1 hour". */
+  ttm?: string;
+  /** One-liner human-readable business impact from the backend. */
+  business_impact?: string;
 }
 
 /** Headline KPI surfaced alongside the recommendation list. */

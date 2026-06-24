@@ -419,6 +419,57 @@ export async function getAccountWarehouses(accountName: string, days = 30): Prom
   return data;
 }
 
+// -----------------------------------------------------------------------------
+// WAREHOUSE MANAGEMENT MUTATIONS (connected-account scoped)
+// -----------------------------------------------------------------------------
+//
+// These ALTER WAREHOUSE actions run against the CONNECTED account's session
+// (the path carries only the warehouse name, not an account). They must only be
+// surfaced for warehouses that belong to the connected account — applying them
+// from the org-wide usage list could hit a same-named warehouse in the wrong
+// account. The Warehouses tab sources these rows from getAccountWarehouses(
+// connectedAccount), which returns live SHOW WAREHOUSES state, so every row is
+// guaranteed local.
+
+export interface WarehouseMutationResponse {
+  success: boolean;
+  warehouse?: string;
+  size?: string;
+  state?: string;
+  auto_suspend?: number;
+  message?: string;
+}
+
+/** POST /org-accounts/warehouses/{wh}/resize — ALTER WAREHOUSE SET WAREHOUSE_SIZE. */
+export async function resizeWarehouse(warehouse: string, size: string): Promise<WarehouseMutationResponse> {
+  const { data } = await apiClient.post<WarehouseMutationResponse>(
+    `${BASE_URL}/warehouses/${encodeURIComponent(warehouse)}/resize`,
+    { size },
+    { timeout: 60000 }
+  );
+  return data;
+}
+
+/** PATCH /org-accounts/warehouses/{wh}/auto-suspend — set idle auto-suspend seconds. */
+export async function setWarehouseAutoSuspend(warehouse: string, seconds: number): Promise<WarehouseMutationResponse> {
+  const { data } = await apiClient.patch<WarehouseMutationResponse>(
+    `${BASE_URL}/warehouses/${encodeURIComponent(warehouse)}/auto-suspend`,
+    { seconds },
+    { timeout: 60000 }
+  );
+  return data;
+}
+
+/** POST /org-accounts/warehouses/{wh}/suspend — ALTER WAREHOUSE SUSPEND. */
+export async function suspendWarehouse(warehouse: string): Promise<WarehouseMutationResponse> {
+  const { data } = await apiClient.post<WarehouseMutationResponse>(
+    `${BASE_URL}/warehouses/${encodeURIComponent(warehouse)}/suspend`,
+    null,
+    { timeout: 60000 }
+  );
+  return data;
+}
+
 // =============================================================================
 // LOGINS (Premium Views)
 // =============================================================================
@@ -608,6 +659,35 @@ export async function getResourceMonitors(): Promise<{ monitors: any[]; count: n
   // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<{ monitors: any[]; count: number }>(
     `${BASE_URL}/resource-monitors`, { timeout: 60000 }
+  );
+  return data;
+}
+
+export interface CreateResourceMonitorRequest {
+  name: string;
+  credit_quota: number;
+  frequency: string;
+  suspend_at_pct: number;
+}
+
+export interface CreateResourceMonitorResponse {
+  success: boolean;
+  name: string;
+  message?: string;
+}
+
+/**
+ * Create a resource monitor.
+ * POST /org-accounts/resource-monitors { name, credit_quota, frequency, suspend_at_pct }.
+ *
+ * NOTE: there is NO backend DELETE endpoint for resource monitors yet, so the
+ * UI exposes create only — no drop control is rendered.
+ */
+export async function createResourceMonitor(
+  request: CreateResourceMonitorRequest,
+): Promise<CreateResourceMonitorResponse> {
+  const { data } = await apiClient.post<CreateResourceMonitorResponse>(
+    `${BASE_URL}/resource-monitors`, request, { timeout: 60000 }
   );
   return data;
 }
