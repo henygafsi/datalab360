@@ -27,6 +27,7 @@ import {
   getResourceMonitors,
   createResourceMonitor,
   getCrossAccountUsage,
+  getQueries,
 } from '@/app/services/org-accounts/hooks';
 import { ActionRail } from '@/app/shared/action-rail';
 import { useCanPerform } from '@/hooks/useCanPerform';
@@ -46,9 +47,11 @@ import type {
   Warehouse,
   DateRange,
   CrossAccountUsageResponse,
+  QueriesResponse,
 } from '@/app/services/org-accounts/types';
 
 import OverviewCards from '../overview-cards';
+import QueryVolumeCard from '../query-volume-card';
 import AccountsTable from '../accounts-table';
 import AlertsPanel from '../alerts-panel';
 import HealthOverview from '../health-overview';
@@ -115,6 +118,13 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
   // otherwise the list stays empty and the card shows an honest empty state.
   const [crossAccount, setCrossAccount] = useState<CrossAccountUsageResponse['account_summary']>([]);
   const [crossAccountLoading, setCrossAccountLoading] = useState(true);
+
+  // Step 6: Query-volume KPI (total queries + per-account breakdown). May be
+  // current-account only when ORGANIZATION_USAGE.QUERY_HISTORY is unavailable —
+  // the response carries a `note` we surface honestly.
+  const [queries, setQueries] = useState<QueriesResponse | null>(null);
+  const [queriesLoading, setQueriesLoading] = useState(true);
+  const [queriesError, setQueriesError] = useState<string | null>(null);
 
   // UI state
   const [globalDays, setGlobalDays] = useState<7 | 30 | 90>(30);
@@ -208,6 +218,13 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
     setEventsLoading(true);
     setResourceMonitorsLoading(true);
     setCrossAccountLoading(true);
+    setQueriesLoading(true);
+    setQueriesError(null);
+
+    getQueries(days)
+      .then((data) => setQueries(data))
+      .catch((e) => { console.error('Failed to fetch queries:', e); setQueriesError(extractApiError(e, 'Failed to load query volume')); })
+      .finally(() => setQueriesLoading(false));
 
     getDashboardUsage()
       .then((data) => setUsageData(data))
@@ -351,6 +368,8 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
         alertsLoading={alertsLoading}
         healthLoading={healthLoading}
       />
+
+      <QueryVolumeCard data={queries} loading={queriesLoading} error={queriesError} />
 
       <AccountsTable
         accounts={accounts}

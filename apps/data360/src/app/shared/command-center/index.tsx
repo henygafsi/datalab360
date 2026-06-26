@@ -60,6 +60,7 @@ import {
   Cloud,
   Sparkles,
   ShieldCheck,
+  Wrench,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -144,6 +145,7 @@ const SnowflakeExplorerTab = lazy(() => import('./snowflake-explorer-tab'));
 const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
 const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
 const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
+const DwhActionPlanTab = lazy(() => import('./dwh-action-plan-tab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
 import CommandCenterActionsPanel from './ActionsPanel';
 import ServerlessFinOpsCards from './serverless-finops-cards';
@@ -222,6 +224,7 @@ interface TabItem {
  */
 const tabs: TabItem[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'dwh-plan', label: 'DWH Action Plan', icon: Wrench },
   { id: 'snowflake-objects', label: 'Data Objects', icon: Database },
   { id: 'finops', label: 'FinOps', icon: DollarSign },
   { id: 'modules', label: 'Modules', icon: Box },
@@ -2218,6 +2221,11 @@ function CommandCenterDashboardInner() {
                 globalDays={filters.days}
                 onNavigateTab={goToTab}
               />
+            )}
+            {activeTab === 'dwh-plan' && (
+              <Suspense fallback={<LoadingSection />}>
+                <DwhActionPlanTab />
+              </Suspense>
             )}
             {activeTab === 'snowflake-objects' && (
               /* Refactored Data Catalog Explorer (UI-first, sample data on the
