@@ -18,6 +18,18 @@ mkdirSync(OUT_DIR, { recursive: true });
 const oapi = JSON.parse(readFileSync(SNAP, 'utf8'));
 const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
 
+// FE-wired detection: paths referenced as string literals in api-contracts.ts.
+// An endpoint NOT referenced is "unwired" = a missing-from-FE reintegration target.
+const CONTRACTS = path.join(ROOT, 'src/lib/api-contracts.ts');
+const wiredRefs = new Set();
+try {
+  const c = readFileSync(CONTRACTS, 'utf8');
+  for (const m of c.matchAll(/['"`](\/[a-zA-Z0-9_\-{}\/.:]+)['"`]/g)) {
+    wiredRefs.add(m[1].replace(/\{[^}]+\}/g, '{}').replace(/\/$/, ''));
+  }
+} catch { /* contracts optional */ }
+const isWired = (p) => wiredRefs.has(p.replace(/\{[^}]+\}/g, '{}').replace(/\/$/, ''));
+
 const lc = (s) => (s || '').toLowerCase();
 const seg = (p) => p.split('/').filter(Boolean)[0] || '(root)';
 
@@ -89,6 +101,7 @@ for (const [p, ops] of Object.entries(oapi.paths || {})) {
       cache: cacheHint(M, p, summary, desc, tags),
       ...dataUserClarity(p, summary, desc, tags),
       rbac: rbacKey(M, p),
+      wired: isWired(p),
     });
   }
 }
@@ -112,6 +125,8 @@ const meta = {
   finopsOps: entries.filter((e) => e.finops !== 'none').length,
   needsDoc: entries.filter((e) => e.needsDoc).length,
   cacheable: entries.filter((e) => e.cache.startsWith('cacheable')).length,
+  wired: entries.filter((e) => e.wired).length,
+  unwired: entries.filter((e) => !e.wired).length,
 };
 
 writeFileSync(path.join(OUT_DIR, 'api-catalog.json'), JSON.stringify(entries));

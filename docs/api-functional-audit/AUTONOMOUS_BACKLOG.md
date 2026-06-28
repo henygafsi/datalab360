@@ -39,6 +39,27 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 ### W5 — Réponses stockées / coût (FinOps)
 - [ ] Étendre le store "première réponse" au-delà du Probe manuel : stratégie de cache par endpoint cacheable (384) documentée + hint dans la vue.
 
+---
+## Élargissement (PS utilisateur 2026-06-29 ~01:2x) — backend on-disk + nouvelles features
+
+**Contexte décisif :**
+- Backend = repo git réel `/Users/datalab360/Documents/data360_pro/backend` sur `feat/backlog-v1`. Fixes backend **possibles MAIS deploy-gated** : le front tape le backend **déployé** (api.datalab360.io) → un fix backend local n'a **aucun effet** tant que non déployé (= `go` utilisateur). Et la mémoire interdit le bare-restart local → je ne peux pas tester un fix backend localement. ⇒ backend = **préparer + commit local seulement**, jamais deploy.
+- 913 paths backend, **251 wirés FE / 769 NON-wirés** (rapport `docs/api-functional-audit/missing-endpoints.json`). La vue fonctionnelle affiche désormais le flag wiré/non-wiré + filtre.
+
+### W6 — Réintégration des endpoints manquants (769 non-wirés) — FRONT, sûr
+- [ ] Prioriser par module (explore-design 146, gouvernance 100, org-accounts 73, workflow 47…). Par batch : ajouter dans `api-contracts.ts` + service + surfacer. Build-verify, commit. Mettre à jour le flag `wired`.
+
+### W7 — Validation/réparation backend — DEPLOY-GATED (préparer, ne pas déployer)
+- [ ] Croiser openapi déployé vs routes backend on-disk vs annuaire (`vault/.../api-reference`) → lister endpoints en erreur (503/500 réels code vs SVC-down) + manquants. Préparer fixes sur la branche backend `feat/backlog-v1` (commit LOCAL). **NE PAS déployer** — journaliser "prêt à déployer, besoin go". Flag chaque fix : testé localement ? (non, backend non-restart) → à valider au deploy.
+
+### W8 — Paiement UI + dry-run gratuit (sample data) + coût maîtrisé — FRONT
+- [ ] Réutiliser `account-settings/billing-*` existants. Avant toute action coûteuse : **mode dry-run gratuit avec sample data** (pas de crédits Snowflake), estimation de coût + bouton paiement explicite pour passer en run réel. Patterns + KPIs coût dans la vue.
+
+### W9 — Chat agentic vs datalakes entreprise — FRONT (s'appuie sur cortex-chat existant)
+- [ ] Enrichir `intelligent/cortex-chat-content` + `ai-prompt-console` : récupérer des données en ligne + résultats agentic + discussion comparée aux datalakes entreprise. Gouverné (RBAC) + coût affiché.
+
+> ⚠️ W8/W9 sont de **grosses features** (décisions produit : provider de paiement, quels datalakes). En autonomie : scaffolder incrémentalement, build-verify, journaliser les décisions ouvertes plutôt que deviner en grand.
+
 ## Journal des vagues
 | Horodatage | Vague | Avancement |
 |---|---|---|

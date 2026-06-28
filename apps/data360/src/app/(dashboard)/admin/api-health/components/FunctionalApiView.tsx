@@ -18,11 +18,12 @@ type CatalogEntry = {
   method: string; path: string; group: string; action: string; desc: string;
   tags: string[]; params: { n: string; in: string; req: boolean }[]; hasBody: boolean;
   aiRole: string; finops: string; cache: string; audience: string; clear: boolean;
-  needsDoc: boolean; rbac: string;
+  needsDoc: boolean; rbac: string; wired: boolean;
 };
 type Meta = {
   generatedFrom: string; totalOps: number; totalPaths: number; manifestRoutes: number;
   groups: [string, number][]; aiOps: number; finopsOps: number; needsDoc: number; cacheable: number;
+  wired: number; unwired: number;
 };
 type Probe = { ms: number; status: number; at: string; snippet: string };
 
@@ -57,6 +58,7 @@ export default function FunctionalApiView() {
   const [onlyAi, setOnlyAi] = useState(false);
   const [onlyFin, setOnlyFin] = useState(false);
   const [onlyDoc, setOnlyDoc] = useState(false);
+  const [onlyUnwired, setOnlyUnwired] = useState(false);
   const [probing, setProbing] = useState<string | null>(null);
 
   useEffect(() => { setStore(loadStore()); }, []);
@@ -107,9 +109,10 @@ export default function FunctionalApiView() {
       (!onlyAi || e.aiRole !== 'none') &&
       (!onlyFin || e.finops !== 'none') &&
       (!onlyDoc || e.needsDoc) &&
+      (!onlyUnwired || !e.wired) &&
       (!ql || e.path.toLowerCase().includes(ql) || e.action.toLowerCase().includes(ql) || (e.tags.join(' ').toLowerCase().includes(ql)))
     );
-  }, [rows, q, group, onlyAi, onlyFin, onlyDoc]);
+  }, [rows, q, group, onlyAi, onlyFin, onlyDoc, onlyUnwired]);
 
   const rt = (e: CatalogEntry) => {
     const k = keyOf(e.method, e.path);
@@ -144,6 +147,7 @@ export default function FunctionalApiView() {
           {[
             ['Endpoints', meta.totalOps], ['Paths', meta.totalPaths],
             ['IA', meta.aiOps], ['FinOps', meta.finopsOps],
+            ['Wirés FE', meta.wired], ['Non-wirés (à réintégrer)', meta.unwired],
             ['À clarifier (data-user)', meta.needsDoc], ['Cacheables', meta.cacheable],
           ].map(([l, v]) => (
             <div key={l as string} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 14px', minWidth: 92 }}>
@@ -165,6 +169,7 @@ export default function FunctionalApiView() {
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyAi} onChange={(e) => setOnlyAi(e.target.checked)} /> IA</label>
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyFin} onChange={(e) => setOnlyFin(e.target.checked)} /> FinOps</label>
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyDoc} onChange={(e) => setOnlyDoc(e.target.checked)} /> À clarifier</label>
+          <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyUnwired} onChange={(e) => setOnlyUnwired(e.target.checked)} /> Non-wirés</label>
           <span style={{ marginLeft: 'auto', fontSize: 12, color: '#666' }}>{filtered.length} / {rows.length}</span>
         </div>
       )}
@@ -193,7 +198,7 @@ export default function FunctionalApiView() {
                     <td style={{ padding: '6px 10px' }}><span style={{ color: methodColor[e.method] || '#444', fontWeight: 700 }}>{e.method}</span></td>
                     <td style={{ padding: '6px 10px' }}>
                       <div style={{ fontWeight: 600 }}>{e.action}{e.needsDoc && <span title="data-user sans description claire — doc à améliorer" style={{ color: '#d97706' }}> ⚠</span>}</div>
-                      <div style={{ color: '#888', fontFamily: 'monospace', fontSize: 11 }}>{e.path}</div>
+                      <div style={{ color: '#888', fontFamily: 'monospace', fontSize: 11 }}>{e.path}{!e.wired && <span title="Endpoint backend non câblé côté FE — à réintégrer" style={{ marginLeft: 6, color: '#b45309', fontFamily: 'system-ui' }}>· non-wiré</span>}</div>
                     </td>
                     <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>
                       {time ? <span style={{ color: time.ms > 1000 ? '#dc2626' : time.ms > 300 ? '#d97706' : '#16a34a' }}>{time.ms} ms <span style={{ color: '#aaa', fontSize: 10 }}>{time.src}</span></span> : <span style={{ color: '#ccc' }}>—</span>}

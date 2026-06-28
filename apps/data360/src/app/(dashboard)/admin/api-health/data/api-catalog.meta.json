@@ -121,5 +121,7 @@
   "aiOps": 146,
   "finopsOps": 132,
   "needsDoc": 268,
-  "cacheable": 384
+  "cacheable": 384,
+  "wired": 251,
+  "unwired": 769
 }
