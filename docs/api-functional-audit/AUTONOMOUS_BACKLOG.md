@@ -25,9 +25,10 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 - [ ] Différé (shapes ambigus, vague ultérieure) : PolicyAssignmentPanel (`detail || autre-champ`), explore-design/index.ts (service layer), explore-design fallback template-literal (l.3505).
 - ⚠️ **Gotcha loop** : `pnpm iso:build` écrase le `.next` du dev server en cours → 404 « chunks ». APRÈS chaque build-verify : `rm -rf apps/data360/.next` + relancer `pnpm iso:dev` avant tout Playwright.
 
-### W2 — Enrichir le catalogue (rôle IA / FinOps / clarté data_user)
-- [ ] Affiner la classification dans `gen-api-catalog.mjs` (heuristiques + doc en ligne pour les 268 `needsDoc`). Régénérer `api-catalog.json`. Ajouter une colonne "audience" visible + filtre data_user.
-- [ ] Pour les endpoints FinOps (132), vérifier la sémantique (observe/control/optimize) et ajouter un libellé d'action FinOps clair.
+### W2 — Enrichir le catalogue (rôle IA / FinOps / clarté data_user) ✅ FAIT (commit 171578b)
+- [x] `gen-api-catalog`: `hint` FR synthétisé pour les endpoints sans description claire (371 hints). Vue: **filtre data_user** + chip audience + ligne hint sous l'action (764/1020 = data-user). Build VERT.
+- [x] FinOps déjà classés observe/control/optimize (132) + chip dédié dans la vue.
+- [ ] Reste (deeper, non bloquant) : remplacer les `hint` heuristiques par du texte réel de la doc en ligne pour les 268 `needsDoc` — coûteux (par endpoint), à faire par petits batches ciblés.
 
 ### W3 — Doc Obsidian fonctionnelle (read-only + write doc)
 - [ ] `vault/data360_full_doc/` : 1 doc consolidé pages→actions→cause, wikilinké aux `pages/*.md` + `_FE_BACKEND_COVERAGE_GAP_2026-06-24.md`. Inclure le tableau runtime du sweep.
@@ -66,4 +67,5 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 | 2026-06-29 00:3x | W0 (fondation) | Vue fonctionnelle + route + générateur + fix crash snowpark + sweep 64 routes. Commit 769987a. Vérifié Playwright (600 lignes). |
 | 2026-06-29 ~00:5x | W1 (partiel) | Cause racine `extractApiError` durcie (15 consommateurs) + 4 fichiers `toMessage` + fix types FunctionalApiView. **`pnpm iso:build` VERT**. Commit d686e46. Découvert : 769987a ne passait que le dev compile, pas `next build` → garde-fou renforcé. Reste : ~20 fichiers anti-pattern + re-sweep Playwright. |
 | 2026-06-29 01:11 CEST | W1 (FAIT) | Sweep complet: 27 sites / 18 fichiers `toMessage` (commit d109496), build `pnpm iso:build` VERT. **Re-sweep Playwright: client-accounts/ai-advisor/snowpark/costGov = ok, 0 pageerror** (crash object-as-React-child éliminé). Gotcha .next/build-vs-dev documenté. Prochaine: W2 (enrichissement catalogue). |
+| 2026-06-29 01:36 CEST | W2 (FAIT) | Catalogue enrichi : `hint` FR synthétisé (371 endpoints sans desc claire) + **filtre data_user** + chip audience + ligne hint dans la vue. FinOps observe/control/optimize confirmés. Build `pnpm iso:build` VERT. Commit 171578b. Reste différé : texte doc-en-ligne réel pour les 268 `needsDoc` (par batches). Prochaine : W3 (doc Obsidian) ou W6 (réintégration endpoints). |
 | 2026-06-29 01:18 CEST | Élargissement PS + wired-flag | Backend localisé on-disk (`data360_pro/backend`, repo git feat/backlog-v1, **deploy-gated**). Rapport **769 endpoints non-wirés** (missing-endpoints.json). Vue fonctionnelle: KPI/filtre/marqueur **wiré vs non-wiré** (251/769). Build VERT, commit 6bda5fe. Backlog étendu **W6** (réintégration) / **W7** (backend repair deploy-gated) / **W8** (paiement dry-run+sample) / **W9** (chat agentic vs datalakes). |
