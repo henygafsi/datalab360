@@ -67,6 +67,16 @@ function dataUserClarity(p, summary, desc, tags) {
   const clear = !!desc && desc.length > 25;
   return { audience, clear, needsDoc: audience === 'data-user' && !clear };
 }
+// Synthesized FR clarity hint for endpoints lacking a usable description — so a
+// data_user gets a plain-language idea of the action even when the backend
+// summary is terse. (Heuristic; replaced by real online-doc text when added.)
+const VERB = { GET: 'Consulter', POST: 'Créer / lancer', PUT: 'Modifier', PATCH: 'Modifier', DELETE: 'Supprimer' };
+function synthHint(method, p) {
+  const segs = p.split('/').filter(Boolean).filter((s) => !/^\{.*\}$/.test(s));
+  const module = segs[0] || 'root';
+  const resource = segs.slice(1).join(' / ') || module;
+  return `${VERB[method] || method} : ${resource} (module ${module})`;
+}
 function rbacKey(method, p) {
   const m = p.split('/').filter(Boolean);
   const module = m[0] || 'root';
@@ -93,6 +103,7 @@ for (const [p, ops] of Object.entries(oapi.paths || {})) {
       group: seg(p),
       action: summary || `${M} ${p}`,
       desc: desc.slice(0, 240),
+      hint: desc && desc.length > 25 ? '' : synthHint(M, p),
       tags,
       params,
       hasBody,

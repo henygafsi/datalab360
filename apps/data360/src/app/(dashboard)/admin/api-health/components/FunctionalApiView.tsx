@@ -15,7 +15,7 @@ import { getServerMetrics } from '@/app/services/admin-visibility';
 import { toMessage } from '@/lib/error-messages';
 
 type CatalogEntry = {
-  method: string; path: string; group: string; action: string; desc: string;
+  method: string; path: string; group: string; action: string; desc: string; hint: string;
   tags: string[]; params: { n: string; in: string; req: boolean }[]; hasBody: boolean;
   aiRole: string; finops: string; cache: string; audience: string; clear: boolean;
   needsDoc: boolean; rbac: string; wired: boolean;
@@ -59,6 +59,7 @@ export default function FunctionalApiView() {
   const [onlyFin, setOnlyFin] = useState(false);
   const [onlyDoc, setOnlyDoc] = useState(false);
   const [onlyUnwired, setOnlyUnwired] = useState(false);
+  const [onlyDataUser, setOnlyDataUser] = useState(false);
   const [probing, setProbing] = useState<string | null>(null);
 
   useEffect(() => { setStore(loadStore()); }, []);
@@ -110,9 +111,10 @@ export default function FunctionalApiView() {
       (!onlyFin || e.finops !== 'none') &&
       (!onlyDoc || e.needsDoc) &&
       (!onlyUnwired || !e.wired) &&
+      (!onlyDataUser || e.audience === 'data-user') &&
       (!ql || e.path.toLowerCase().includes(ql) || e.action.toLowerCase().includes(ql) || (e.tags.join(' ').toLowerCase().includes(ql)))
     );
-  }, [rows, q, group, onlyAi, onlyFin, onlyDoc, onlyUnwired]);
+  }, [rows, q, group, onlyAi, onlyFin, onlyDoc, onlyUnwired, onlyDataUser]);
 
   const rt = (e: CatalogEntry) => {
     const k = keyOf(e.method, e.path);
@@ -170,6 +172,7 @@ export default function FunctionalApiView() {
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyFin} onChange={(e) => setOnlyFin(e.target.checked)} /> FinOps</label>
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyDoc} onChange={(e) => setOnlyDoc(e.target.checked)} /> À clarifier</label>
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyUnwired} onChange={(e) => setOnlyUnwired(e.target.checked)} /> Non-wirés</label>
+          <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyDataUser} onChange={(e) => setOnlyDataUser(e.target.checked)} /> data_user</label>
           <span style={{ marginLeft: 'auto', fontSize: 12, color: '#666' }}>{filtered.length} / {rows.length}</span>
         </div>
       )}
@@ -197,7 +200,8 @@ export default function FunctionalApiView() {
                   <tr key={k + e.action} style={{ borderTop: '1px solid #f0f0f0' }}>
                     <td style={{ padding: '6px 10px' }}><span style={{ color: methodColor[e.method] || '#444', fontWeight: 700 }}>{e.method}</span></td>
                     <td style={{ padding: '6px 10px' }}>
-                      <div style={{ fontWeight: 600 }}>{e.action}{e.needsDoc && <span title="data-user sans description claire — doc à améliorer" style={{ color: '#d97706' }}> ⚠</span>}</div>
+                      <div style={{ fontWeight: 600 }}>{e.action}{e.audience === 'data-user' && chip('data_user', '#dbeafe', '#1d4ed8')}{e.needsDoc && <span title="data-user sans description claire — doc à améliorer" style={{ color: '#d97706' }}> ⚠</span>}</div>
+                      {e.hint && <div style={{ color: '#9ca3af', fontSize: 11, fontStyle: 'italic' }}>{e.hint}</div>}
                       <div style={{ color: '#888', fontFamily: 'monospace', fontSize: 11 }}>{e.path}{!e.wired && <span title="Endpoint backend non câblé côté FE — à réintégrer" style={{ marginLeft: 6, color: '#b45309', fontFamily: 'system-ui' }}>· non-wiré</span>}</div>
                     </td>
                     <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>
