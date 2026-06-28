@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Badge, Button, Input, Loader, Textarea } from 'rizzui';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
+import { toMessage } from '@/lib/error-messages';
 import {
   PiCpu, PiCloudArrowUp, PiPlay, PiPause, PiPlus,
   PiArrowsClockwise, PiWarningCircle, PiTerminalWindow,
@@ -37,7 +38,7 @@ import {
 } from '@/app/services/cortex/ai';
 import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
 import { ConfirmDestructiveDialog, ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 
 type SubTab = 'compute-pools' | 'services' | 'streamlit' | 'image-repos';
 
@@ -136,7 +137,7 @@ function ComputePoolsPanel() {
   const [creating, setCreating] = useState(false);
   const [busyPool, setBusyPool] = useState<string | null>(null);
 
-  const errMsg = (e: any) => e?.response?.data?.detail || e?.message || 'Failed';
+  const errMsg = (e: any) => toMessage(e, 'Failed');
   // `silent` polls refresh state in place without flashing the skeleton.
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -291,7 +292,7 @@ function ContainerServicesPanel() {
     if (!silent) setLoading(true);
     setError(null);
     try { const r = await listServices(); setServices(r.services || []); }
-    catch (e: any) { setError(e?.response?.data?.detail || e?.message || 'Failed to load'); if (!silent) setServices([]); }
+    catch (e: any) { setError(toMessage(e, 'Failed to load')); if (!silent) setServices([]); }
     finally { if (!silent) setLoading(false); }
   }, []);
 
@@ -308,7 +309,7 @@ function ContainerServicesPanel() {
   const hasTransitional = services.some((s) => TRANSITIONAL_STATES.has((s.status || '').toUpperCase()));
   usePollWhile(hasTransitional, useCallback(() => load(true), [load]));
 
-  const errMsg = (e: any) => e?.response?.data?.detail || e?.message || 'Action failed';
+  const errMsg = (e: any) => toMessage(e, 'Action failed');
   const svcParams = (s: ContainerService) => ({ database: s.database_name, schema: s.schema_name });
   const isSuspended = (s: ContainerService) => ['SUSPENDED', 'STOPPED'].includes((s.status || '').toUpperCase());
 
@@ -362,7 +363,7 @@ function ContainerServicesPanel() {
     try {
       const r = await getServiceLogs(svc.name);
       setLogPanel({ name: svc.name, logs: r.logs || '(no logs)' });
-    } catch (e: any) { setLogPanel({ name: svc.name, logs: `Error: ${e?.response?.data?.detail || e?.message}` }); }
+    } catch (e: any) { setLogPanel({ name: svc.name, logs: `Error: ${toMessage(e)}` }); }
     finally { setLogsLoading(false); }
   };
 
@@ -559,7 +560,7 @@ function StreamlitAppsPanel() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try { const r = await listStreamlitApps(); setApps(r.apps || []); }
-    catch (e: any) { setError(e?.response?.data?.detail || e?.message || 'Failed to load'); setApps([]); }
+    catch (e: any) { setError(toMessage(e, 'Failed to load')); setApps([]); }
     finally { setLoading(false); }
   }, []);
 
@@ -678,7 +679,7 @@ function ImageReposPanel() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try { const r = await listImageRepos(); setRepos(r.repositories || []); }
-    catch (e: any) { setError(e?.response?.data?.detail || e?.message || 'Failed to load'); setRepos([]); }
+    catch (e: any) { setError(toMessage(e, 'Failed to load')); setRepos([]); }
     finally { setLoading(false); }
   }, []);
 

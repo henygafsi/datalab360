@@ -18,6 +18,7 @@ import { DrillPanel } from './components/DrillPanel';
 import { ReleaseHistory } from './components/ReleaseHistory';
 import { EndpointHistory } from './components/EndpointHistory';
 import { ProbeVsProd, type ProbeRow } from './components/ProbeVsProd';
+import FunctionalApiView from './components/FunctionalApiView';
 import { SLOW_THRESHOLD_MS, isDefect, isExpected, isExpectedOrKnown, isKnownUnimplemented, isConfigDependentRejection, parseErrorBody, type ProbeDetail } from './components/types';
 import { persistApiHealthRun, NotDeployedError } from '@/app/services/admin-api-health';
 
@@ -1393,6 +1394,9 @@ export default function ApiHealthPage() {
         {' '}Grey <b>Expected</b> rows are the API correctly rejecting the probe’s fake/empty test input (not a problem);
         {' '}use the chips to reveal Expected and Healthy.
       </p>
+
+      {/* Functional API View — all backend endpoints (actions + response times) */}
+      <FunctionalApiView />
 
       {/* Stale-session re-login banner — only when MANY privilege errors cluster */}
       {showStaleBanner && (
