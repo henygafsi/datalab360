@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { Badge, Button, Loader, Textarea } from 'rizzui';
 import toast from 'react-hot-toast';
 import {
@@ -56,12 +57,9 @@ function fmtDate(s: string | null | undefined): string {
 }
 
 function errMsg(e: any): string {
-  return (
-    e?.response?.data?.detail ||
-    e?.response?.data?.message ||
-    e?.message ||
-    'Something went wrong'
-  );
+  // toMessage() guarantees a string even when the backend `detail` is a
+  // structured object (503 cache/svc states) — prevents "object as React child".
+  return toMessage(e, 'Something went wrong');
 }
 
 // ── Elapsed timer (visible during long analyze) ──────────────────────────

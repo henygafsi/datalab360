@@ -28,7 +28,7 @@ type Probe = { ms: number; status: number; at: string; snippet: string };
 
 const STORE_KEY = 'd360.api-probe-cache.v1';
 const loadStore = (): Record<string, Probe> => {
-  try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}') as Record<string, Probe>; } catch { return {}; }
 };
 const saveStore = (s: Record<string, Probe>) => { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch { /* quota */ } };
 
@@ -65,7 +65,7 @@ export default function FunctionalApiView() {
     setLoading(true); setErr(null);
     try {
       const res = await fetch('/api/admin/api-catalog');
-      const { meta, catalog } = await res.json();
+      const { meta, catalog } = (await res.json()) as { meta: Meta; catalog: CatalogEntry[] };
       setMeta(meta); setRows(catalog);
     } catch (e) { setErr(toMessage(e, 'Échec du chargement du catalogue.')); }
     finally { setLoading(false); }

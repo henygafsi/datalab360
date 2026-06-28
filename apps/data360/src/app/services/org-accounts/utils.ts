@@ -96,9 +96,20 @@ export function getHealthBgColor(score: Numeric): string {
  * state with the exact backend detail when present.
  */
 export function extractApiError(err: unknown, fallback = 'Failed to load data'): string {
-  const e = err as { response?: { status?: number; data?: { detail?: string; message?: string } }; message?: string };
-  const detail = e?.response?.data?.detail ?? e?.response?.data?.message;
-  if (detail) return detail;
+  const e = err as { response?: { status?: number; data?: { detail?: unknown; message?: unknown } }; message?: string };
+  const raw = e?.response?.data?.detail ?? e?.response?.data?.message;
+  // `detail` may be a STRUCTURED OBJECT (e.g. a 503 svc/cache state
+  // {errorCode, error_code, account, reason, message}) — returning it raw made
+  // 15 consumers render an object as a React child ("Objects are not valid as a
+  // React child"), crashing client-accounts / cost-governance / etc. Coerce.
+  const detail = typeof raw === 'string'
+    ? raw
+    : (raw && typeof raw === 'object'
+        ? ((raw as Record<string, unknown>).detail
+          || (raw as Record<string, unknown>).message
+          || (raw as Record<string, unknown>).reason)
+        : undefined);
+  if (typeof detail === 'string' && detail) return detail;
   const status = e?.response?.status;
   if (status === 404 || status === 405) return `${fallback} — endpoint not available (${status}).`;
   if (status) return `${fallback} (HTTP ${status}).`;

@@ -14,6 +14,7 @@
  * history view share one introspection block instead of copy-pasting it.
  */
 import { useState } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { Button, Text } from 'rizzui';
 
 import apiClient from '@/lib/api-client';
@@ -79,7 +80,7 @@ export function QueryIntrospect({ queryId, label }: Props) {
       const code = err?.response?.status;
       // 404/501 → the introspection route isn't live yet (not a real failure).
       if (code === 404 || code === 501) setUnavailable(true);
-      else setError(err?.response?.data?.detail || err?.message || 'Failed to load query');
+      else setError(toMessage(err, 'Failed to load query'));
     } finally {
       setLoading(false);
     }
