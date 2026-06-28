@@ -354,7 +354,7 @@ function ContainerServicesPanel() {
       await createService(form);
       toast.success(`Service ${form.name} deployed`);
       setShowCreate(false); load();
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Deploy failed'); }
+    } catch (e: any) { toast.error(toMessage(e, 'Deploy failed')); }
     finally { setCreating(false); }
   };
 
@@ -579,7 +579,7 @@ function StreamlitAppsPanel() {
       await createStreamlitApp(form);
       toast.success(`Data app ${form.name} created`);
       setShowCreate(false); load();
-    } catch (e: any) { toast.error(e?.response?.data?.detail || 'Create failed'); }
+    } catch (e: any) { toast.error(toMessage(e, 'Create failed')); }
     finally { setCreating(false); }
   };
 

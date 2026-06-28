@@ -32,6 +32,7 @@
  * fabricated numbers — every prod cell is real or "—".
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { useSession } from 'next-auth/react';
 
 import {
@@ -235,7 +236,7 @@ export function ProbeVsProd({ probeRows, refreshKey }: Props) {
       const res = await generateCompletion({ prompt, model: 'claude-3-7-sonnet' } as any);
       setAiResult((res?.response || '').trim() || 'No analysis returned.');
     } catch (err: any) {
-      setAiError(err?.response?.data?.detail || err?.message || 'Analysis failed. Try again.');
+      setAiError(toMessage(err, 'Analysis failed. Try again.'));
     } finally {
       setAiLoading(false);
     }

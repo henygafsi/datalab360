@@ -25,6 +25,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 
@@ -154,7 +155,7 @@ export function useDqWidgetData(descriptors: DqWidgetDescriptor[]): UseDqWidgetD
             });
             sourceData[source] = res.data;
           } catch (err: any) {
-            const msg = err?.response?.data?.detail || err?.message || 'Request failed';
+            const msg = toMessage(err, 'Request failed');
             sourceErr[source] = msg;
           }
         })

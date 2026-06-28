@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { useParams, useRouter } from 'next/navigation';
 import { HiOutlineShieldCheck, HiOutlinePencil, HiOutlineArrowLeft } from 'react-icons/hi2';
 import { Button, Input, Badge, Text } from 'rizzui';
@@ -45,7 +46,7 @@ export default function ViewRolePage() {
       toast.success(`Revoked ${priv} on ${objName}`);
       setGrants((g) => g.filter((_, i) => i !== index));
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail || e?.message || 'Revoke failed');
+      toast.error(toMessage(e, 'Revoke failed'));
     } finally {
       setRevoking(null);
     }
@@ -75,7 +76,7 @@ export default function ViewRolePage() {
         }
       } catch (err: any) {
         console.error('Error fetching role:', err);
-        const errorMessage = err.response?.data?.detail || err.message || 'Failed to fetch role details';
+        const errorMessage = toMessage(err, 'Failed to fetch role details');
         setError(errorMessage);
       } finally {
         setLoading(false);

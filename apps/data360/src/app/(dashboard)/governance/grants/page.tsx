@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { Badge, Button } from 'rizzui';
 import {
   HiOutlineKey,
@@ -291,7 +292,7 @@ function D360RolesPanel() {
       setTemplates(t);
       setStatus('completed');
     } catch (err: any) {
-      setLoadError(err?.response?.data?.detail || err?.message || 'Failed to load D360 roles');
+      setLoadError(toMessage(err, 'Failed to load D360 roles'));
       setRoles([]);
       setStatus('error');
     }
@@ -346,7 +347,7 @@ function D360RolesPanel() {
       close();
       await reload();
     } catch (err: any) {
-      setFormError(err?.response?.data?.detail || err?.message || 'Failed to save role');
+      setFormError(toMessage(err, 'Failed to save role'));
     } finally {
       setSaving(false);
     }
@@ -363,7 +364,7 @@ function D360RolesPanel() {
       setDeleteTarget(null);
       await reload();
     } catch (err: any) {
-      setFeedback({ type: 'error', text: err?.response?.data?.detail || err?.message || 'Failed to delete role' });
+      setFeedback({ type: 'error', text: toMessage(err, 'Failed to delete role') });
       setDeleteTarget(null);
     } finally {
       setDeleting(false);

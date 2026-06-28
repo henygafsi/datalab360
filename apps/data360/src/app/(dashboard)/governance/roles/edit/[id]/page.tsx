@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { useParams, useRouter } from 'next/navigation';
 import { HiOutlineShieldCheck } from 'react-icons/hi2';
 import { Button, Input, Textarea } from 'rizzui';
@@ -38,7 +39,7 @@ export default function EditRolePage() {
         setComment(data.comment || '');
       } catch (err: any) {
         console.error('Error fetching role:', err);
-        const errorMessage = err.response?.data?.detail || err.message || 'Failed to fetch role details';
+        const errorMessage = toMessage(err, 'Failed to fetch role details');
         setError(errorMessage);
       } finally {
         setLoading(false);
@@ -58,7 +59,7 @@ export default function EditRolePage() {
       router.push('/governance/roles');
     } catch (err: any) {
       console.error('Error updating role:', err);
-      const errorMessage = err.response?.data?.detail || err.message || 'Erreur lors de la mise à jour';
+      const errorMessage = toMessage(err, 'Erreur lors de la mise à jour');
       toast.error(`❌ ${errorMessage}`);
     } finally {
       setIsSaving(false);

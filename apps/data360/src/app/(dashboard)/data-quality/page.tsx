@@ -1,6 +1,7 @@
 'use client';
 
 import Breadcrumb from '@/components/ui/Breadcrumb';
+import { toMessage } from '@/lib/error-messages';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
@@ -215,7 +216,7 @@ async function fetchQualityData(path: string, forceRefresh = false, params?: Rec
     .get(`${path}${queryStr}`, { headers })
     .then((res) => res.data)
     .catch((err: any) => {
-      const msg = err?.response?.data?.detail || err?.message || 'Request failed';
+      const msg = toMessage(err, 'Request failed');
       console.error(`[DataQuality] ${path} failed:`, msg);
       throw new Error(msg);
     })
