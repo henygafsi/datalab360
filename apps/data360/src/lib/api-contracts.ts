@@ -267,6 +267,17 @@ export const API = {
       `/explore-design/${enc(projectId)}/ingestion/operations`,
     /** GET /explore-design/schema-clone/list — list schema clones (project_id as query param) */
     schemaCloneList: () => `/explore-design/schema-clone/list`,
+    // --- Business glossary (W6 reintegration: was unwired) -------------------
+    /** GET /explore-design/glossary — list business glossary terms. */
+    glossaryList: () => '/explore-design/glossary',
+    /** POST /explore-design/glossary — create/update a glossary term (admin). */
+    glossaryUpsert: () => '/explore-design/glossary',
+    /** GET /explore-design/glossary/lookup?q=… — advisor glossary lookup (reuse). */
+    glossaryLookup: (q?: string) => `/explore-design/glossary/lookup${qs({ q })}`,
+    /** POST /explore-design/glossary/ai-draft — AI-draft a definition for review (admin). */
+    glossaryAiDraft: () => '/explore-design/glossary/ai-draft',
+    /** DELETE /explore-design/glossary/{term} — delete a glossary term (admin). */
+    glossaryDelete: (term: string) => `/explore-design/glossary/${enc(term)}`,
   },
 
   /**
