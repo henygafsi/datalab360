@@ -28,7 +28,7 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 ### W2 — Enrichir le catalogue (rôle IA / FinOps / clarté data_user) ✅ FAIT (commit 171578b)
 - [x] `gen-api-catalog`: `hint` FR synthétisé pour les endpoints sans description claire (371 hints). Vue: **filtre data_user** + chip audience + ligne hint sous l'action (764/1020 = data-user). Build VERT.
 - [x] FinOps déjà classés observe/control/optimize (132) + chip dédié dans la vue.
-- [ ] Reste (deeper, non bloquant) : remplacer les `hint` heuristiques par du texte réel de la doc en ligne pour les 268 `needsDoc` — coûteux (par endpoint), à faire par petits batches ciblés.
+- [x] **Deepening FAIT** : les 268 `needsDoc` n'ont pas de description MAIS portent des schémas OpenAPI. `gen-api-catalog` résout les `$ref` → **champs du body** (272 endpoints, ex. /signin → account_name/username/password) + **forme de retour** (1020). Vue : détail ligne montre `Body: {…}` + `Retourne: {…}`. Build VERT (clean), commit 254ec61. Clarté data_user via contrat plutôt que prose.
 
 ### W3 — Doc Obsidian fonctionnelle (read-only + write doc) ✅ FAIT
 - [x] `vault/data360_full_doc/_FUNCTIONAL_API_AUDIT_2026-06-29.md` : doc consolidé pages × APIs × manquements **classés par cause**, tableau runtime du sweep (58 ok/4 CRASH corrigés/2 BLANK), stats catalogue (1020/769 non-wirés), top modules non-wirés, wikilinks vers `pages/*.md` + [[_FE_BACKEND_COVERAGE_GAP_2026-06-24]]. (Dans le vault Obsidian, hors repo front → pas de commit git front.)
@@ -76,6 +76,7 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 ## Journal des vagues
 | Horodatage | Vague | Avancement |
 |---|---|---|
+| 2026-06-29 09:38 CEST | W2 deepening (schémas) | Résolu les schémas OpenAPI ($ref) → champs body (272 endpoints) + forme de retour (1020) dans le catalogue ; détail ligne affiche Body/Retourne. Clarté data_user via contrat (les 268 needsDoc nont pas de prose mais ont des schémas). Build VERT clean (échec uploadthing transitoire = dev concurrent, écarté). Commit 254ec61. |
 | 2026-06-29 09:28 CEST | Test HAHA cache+events | Screenshots = pages HAHA en cache initializing. Test live HAHA: DATA360_CACHE PEUPLE+FRAIS (OVERVIEW_KPIS reels, usage max=28/06) + EVENT_STORE 76 tables (USER_REQUESTS 14669, USER_ACTIVITY 3451). => banniere cache = backend deploye SVC mort (lit pas ces tables pleines), PAS cache vide ni bug FE. FE gracieux (no crash). Fix = backend avec connexion CP_DATA360 valide. Rapport HAHA_CACHE_EVENTS_VALIDATION.md. Commit 08e0997. |
 | 2026-06-29 09:05 CEST | W7 (plan, deploy-gated) | Test live → bug backend confirme: org_accounts/router.py detecte org-admin via SHOW ORGANIZATION ACCOUNTS (0 ligne) => vrais ORGADMIN mal classes, top-strip org vide. Fix valide SQL: ORGANIZATION_USAGE.ACCOUNTS=35 comptes. Plan BACKEND_FIX_PLAN_W7.md (3 fixes) PRET mais NON applique (attente go, deploy-gated). Commit 482d0c9. |
 | 2026-06-29 00:3x | W0 (fondation) | Vue fonctionnelle + route + générateur + fix crash snowpark + sweep 64 routes. Commit 769987a. Vérifié Playwright (600 lignes). |
