@@ -76,6 +76,7 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 ## Journal des vagues
 | Horodatage | Vague | Avancement |
 |---|---|---|
+| 2026-06-29 09:28 CEST | Test HAHA cache+events | Screenshots = pages HAHA en cache initializing. Test live HAHA: DATA360_CACHE PEUPLE+FRAIS (OVERVIEW_KPIS reels, usage max=28/06) + EVENT_STORE 76 tables (USER_REQUESTS 14669, USER_ACTIVITY 3451). => banniere cache = backend deploye SVC mort (lit pas ces tables pleines), PAS cache vide ni bug FE. FE gracieux (no crash). Fix = backend avec connexion CP_DATA360 valide. Rapport HAHA_CACHE_EVENTS_VALIDATION.md. Commit 08e0997. |
 | 2026-06-29 09:05 CEST | W7 (plan, deploy-gated) | Test live → bug backend confirme: org_accounts/router.py detecte org-admin via SHOW ORGANIZATION ACCOUNTS (0 ligne) => vrais ORGADMIN mal classes, top-strip org vide. Fix valide SQL: ORGANIZATION_USAGE.ACCOUNTS=35 comptes. Plan BACKEND_FIX_PLAN_W7.md (3 fixes) PRET mais NON applique (attente go, deploy-gated). Commit 482d0c9. |
 | 2026-06-29 00:3x | W0 (fondation) | Vue fonctionnelle + route + générateur + fix crash snowpark + sweep 64 routes. Commit 769987a. Vérifié Playwright (600 lignes). |
 | 2026-06-29 ~00:5x | W1 (partiel) | Cause racine `extractApiError` durcie (15 consommateurs) + 4 fichiers `toMessage` + fix types FunctionalApiView. **`pnpm iso:build` VERT**. Commit d686e46. Découvert : 769987a ne passait que le dev compile, pas `next build` → garde-fou renforcé. Reste : ~20 fichiers anti-pattern + re-sweep Playwright. |
