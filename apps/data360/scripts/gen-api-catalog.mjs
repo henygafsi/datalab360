@@ -22,13 +22,28 @@ const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
 // An endpoint NOT referenced is "unwired" = a missing-from-FE reintegration target.
 const CONTRACTS = path.join(ROOT, 'src/lib/api-contracts.ts');
 const wiredRefs = new Set();
+// Normalize an OpenAPI path or a contract path-skeleton to a comparable form:
+// every path param ({name} or interpolated ${...}) → '{}', no trailing slash.
+const normPath = (s) => s
+  .replace(/\$\{\s*qs\([^)]*\)\s*\}/g, '') // drop query-string suffix helper `${qs(...)}`
+  .replace(/\$\{[^}]*\}/g, '{}')           // path interpolation `${enc(name)}` → '{}'
+  .replace(/\{[^}]+\}/g, '{}')             // `{name}` → '{}'
+  .replace(/\/$/, '');
 try {
   const c = readFileSync(CONTRACTS, 'utf8');
-  for (const m of c.matchAll(/['"`](\/[a-zA-Z0-9_\-{}\/.:]+)['"`]/g)) {
-    wiredRefs.add(m[1].replace(/\{[^}]+\}/g, '{}').replace(/\/$/, ''));
+  // (a) plain literal paths: '/foo/bar'
+  for (const m of c.matchAll(/['"](\/[a-zA-Z0-9_\-{}\/.:]+)['"]/g)) wiredRefs.add(normPath(m[1]));
+  // (b) template-literal paths: `/foo/${enc(id)}/bar${qs(...)}` — captured whole,
+  //     then normalized so interpolated segments match OpenAPI's {param} form.
+  //     This fixes the under-count (e.g. observability cost/budgets were wired
+  //     via `${enc(name)}` but read as unwired). Precise: only the static
+  //     skeleton matches, so false-wired risk is low.
+  for (const m of c.matchAll(/`(\/[^`]*)`/g)) {
+    const sk = normPath(m[1]);
+    if (/^\/[a-zA-Z0-9_\-{}\/.:]*$/.test(sk)) wiredRefs.add(sk);
   }
 } catch { /* contracts optional */ }
-const isWired = (p) => wiredRefs.has(p.replace(/\{[^}]+\}/g, '{}').replace(/\/$/, ''));
+const isWired = (p) => wiredRefs.has(normPath(p));
 
 const lc = (s) => (s || '').toLowerCase();
 const seg = (p) => p.split('/').filter(Boolean)[0] || '(root)';
