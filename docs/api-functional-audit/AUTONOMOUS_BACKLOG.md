@@ -22,7 +22,7 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 - [x] ai-advisor-content, snowflake-explorer-tab, QueryIntrospect, GovernanceTagsPanel → `toMessage`. Build `pnpm iso:build` VERT.
 - [x] Reste du sweep : 27 sites / 18 fichiers passés à `toMessage` (observability, governance grants/roles/users, explore-design, mapping, data-quality, intelligent, api-health). Build VERT. Commit d109496.
 - [x] Re-sweep Playwright : **client-accounts / ai-advisor / snowpark / costGov = ok, 0 pageerror** (crash éliminé, confirmé runtime).
-- [ ] Différé (shapes ambigus, vague ultérieure) : PolicyAssignmentPanel (`detail || autre-champ`), explore-design/index.ts (service layer), explore-design fallback template-literal (l.3505).
+- [x] **Différé FAIT** : explore-design page.tsx (toast) + index.ts (3 sites: executeIngestion/getSchemaVersions/execute) → `toMessage`. PolicyAssignmentPanel **déjà safe** (JSON.stringify fallback). **Sweep anti-crash 100% complet.** Build VERT, commit 355a686.
 - ⚠️ **Gotcha loop** : `pnpm iso:build` écrase le `.next` du dev server en cours → 404 « chunks ». APRÈS chaque build-verify : `rm -rf apps/data360/.next` + relancer `pnpm iso:dev` avant tout Playwright.
 
 ### W2 — Enrichir le catalogue (rôle IA / FinOps / clarté data_user) ✅ FAIT (commit 171578b)
@@ -76,6 +76,7 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 ## Journal des vagues
 | Horodatage | Vague | Avancement |
 |---|---|---|
+| 2026-06-29 10:06 CEST | W1 differe (complet) | Fermé les 3 derniers sites error-render (explore-design page toast + index.ts x3) via toMessage ; PolicyAssignmentPanel deja safe. Sweep anti-crash 100% complet. Build VERT clean, commit 355a686. |
 | 2026-06-29 09:38 CEST | W2 deepening (schémas) | Résolu les schémas OpenAPI ($ref) → champs body (272 endpoints) + forme de retour (1020) dans le catalogue ; détail ligne affiche Body/Retourne. Clarté data_user via contrat (les 268 needsDoc nont pas de prose mais ont des schémas). Build VERT clean (échec uploadthing transitoire = dev concurrent, écarté). Commit 254ec61. |
 | 2026-06-29 09:28 CEST | Test HAHA cache+events | Screenshots = pages HAHA en cache initializing. Test live HAHA: DATA360_CACHE PEUPLE+FRAIS (OVERVIEW_KPIS reels, usage max=28/06) + EVENT_STORE 76 tables (USER_REQUESTS 14669, USER_ACTIVITY 3451). => banniere cache = backend deploye SVC mort (lit pas ces tables pleines), PAS cache vide ni bug FE. FE gracieux (no crash). Fix = backend avec connexion CP_DATA360 valide. Rapport HAHA_CACHE_EVENTS_VALIDATION.md. Commit 08e0997. |
 | 2026-06-29 09:05 CEST | W7 (plan, deploy-gated) | Test live → bug backend confirme: org_accounts/router.py detecte org-admin via SHOW ORGANIZATION ACCOUNTS (0 ligne) => vrais ORGADMIN mal classes, top-strip org vide. Fix valide SQL: ORGANIZATION_USAGE.ACCOUNTS=35 comptes. Plan BACKEND_FIX_PLAN_W7.md (3 fixes) PRET mais NON applique (attente go, deploy-gated). Commit 482d0c9. |
