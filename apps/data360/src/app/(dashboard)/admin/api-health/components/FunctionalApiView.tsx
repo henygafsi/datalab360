@@ -9,7 +9,7 @@
  * safe GET once, measures latency, and CACHES the response in localStorage —
  * subsequent views read the stored copy instead of re-hitting the backend.
  */
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, Fragment } from 'react';
 import apiClient from '@/lib/api-client';
 import { getServerMetrics } from '@/app/services/admin-visibility';
 import { toMessage } from '@/lib/error-messages';
@@ -61,6 +61,8 @@ export default function FunctionalApiView() {
   const [onlyUnwired, setOnlyUnwired] = useState(false);
   const [onlyDataUser, setOnlyDataUser] = useState(false);
   const [probing, setProbing] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggle = (k: string) => setExpanded((s) => ({ ...s, [k]: !s[k] }));
 
   useEffect(() => { setStore(loadStore()); }, []);
 
@@ -205,11 +207,13 @@ export default function FunctionalApiView() {
                 const k = keyOf(e.method, e.path);
                 const time = rt(e);
                 const safeGet = e.method === 'GET' && !e.path.includes('{');
+                const isOpen = !!expanded[k];
                 return (
-                  <tr key={k + e.action} style={{ borderTop: '1px solid #f0f0f0' }}>
+                  <Fragment key={k + e.action}>
+                  <tr style={{ borderTop: '1px solid #f0f0f0' }}>
                     <td style={{ padding: '6px 10px' }}><span style={{ color: methodColor[e.method] || '#444', fontWeight: 700 }}>{e.method}</span></td>
-                    <td style={{ padding: '6px 10px' }}>
-                      <div style={{ fontWeight: 600 }}>{e.action}{e.audience === 'data-user' && chip('data_user', '#dbeafe', '#1d4ed8')}{e.needsDoc && <span title="data-user sans description claire — doc à améliorer" style={{ color: '#d97706' }}> ⚠</span>}</div>
+                    <td style={{ padding: '6px 10px', cursor: 'pointer' }} onClick={() => toggle(k)} title="Cliquer pour les détails">
+                      <div style={{ fontWeight: 600 }}><span style={{ color: '#9ca3af', fontSize: 10 }}>{isOpen ? '▾' : '▸'}</span> {e.action}{e.audience === 'data-user' && chip('data_user', '#dbeafe', '#1d4ed8')}{e.needsDoc && <span title="data-user sans description claire — doc à améliorer" style={{ color: '#d97706' }}> ⚠</span>}</div>
                       {e.hint && <div style={{ color: '#9ca3af', fontSize: 11, fontStyle: 'italic' }}>{e.hint}</div>}
                       <div style={{ color: '#888', fontFamily: 'monospace', fontSize: 11 }}>{e.path}{!e.wired && <span title="Endpoint backend non câblé côté FE — à réintégrer" style={{ marginLeft: 6, color: '#b45309', fontFamily: 'system-ui' }}>· non-wiré</span>}</div>
                     </td>
@@ -227,6 +231,31 @@ export default function FunctionalApiView() {
                       ) : <span style={{ color: '#ccc', fontSize: 11 }}>—</span>}
                     </td>
                   </tr>
+                  {isOpen && (
+                    <tr style={{ background: '#fafaff' }}>
+                      <td colSpan={7} style={{ padding: '8px 14px 12px 30px', fontSize: 11.5, color: '#555' }}>
+                        {(e.desc || e.hint) && <div style={{ marginBottom: 6 }}><b>Description :</b> {e.desc || e.hint}</div>}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                          <span><b>Audience :</b> {e.audience}{e.needsDoc ? ' (doc à clarifier)' : ''}</span>
+                          <span><b>RBAC :</b> <code>{e.rbac}</code></span>
+                          <span><b>Cache :</b> {e.cache}</span>
+                          <span><b>IA :</b> {e.aiRole}</span>
+                          <span><b>FinOps :</b> {e.finops}</span>
+                          <span><b>Wiré FE :</b> {e.wired ? 'oui' : 'non — à réintégrer'}</span>
+                          {e.tags?.length > 0 && <span><b>Tags :</b> {e.tags.join(', ')}</span>}
+                        </div>
+                        {e.params.length > 0 && (
+                          <div style={{ marginTop: 6 }}><b>Paramètres :</b> {e.params.map((p) => `${p.n}${p.req ? '*' : ''} (${p.in})`).join(' · ')}{e.hasBody ? ' · body' : ''}</div>
+                        )}
+                        {store[k] && (
+                          <div style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 11, color: '#15803d', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                            <b style={{ color: '#555' }}>Réponse stockée ({store[k].status}, {store[k].ms}ms) :</b> {store[k].snippet}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
