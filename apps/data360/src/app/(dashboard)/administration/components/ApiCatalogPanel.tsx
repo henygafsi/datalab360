@@ -11,7 +11,7 @@
  * Design rules honoured: real data only (no mocks), '—' instead of fake zeros,
  * docked/inline (no floating popups), searchable + bulk action.
  */
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import apiClient from '@/lib/api-client';
 import {
@@ -98,6 +98,21 @@ export default function ApiCatalogPanel() {
     }
     setBulkRunning(false);
   }, [filtered, probeOne]);
+
+  // Auto-probe a small sample of safe (parameterless) GETs once on mount, so the
+  // catalog shows live green status immediately without the user clicking.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current) return;
+    autoRan.current = true;
+    const sample = ENDPOINTS.filter(isProbable).slice(0, 24);
+    (async () => {
+      const pool = 6;
+      for (let i = 0; i < sample.length; i += pool) {
+        await Promise.all(sample.slice(i, i + pool).map(probeOne));
+      }
+    })();
+  }, [probeOne]);
 
   const stats = useMemo(() => {
     const exact = ENDPOINTS.filter((e) => e.coverage === 'exact').length;
