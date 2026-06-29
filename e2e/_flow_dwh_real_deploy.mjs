@@ -84,6 +84,21 @@ const prev = await call('GET', `/explore-design/${PID}/tables/${DB}/${SCHEMA}/${
 const cols = prev.body?.columns || [];
 check('destination table exists', prev.status === 200 && cols.length >= 3, `cols=${JSON.stringify(cols).slice(0, 80)}`);
 
+// 4b. IMPLICIT DESTINATION — ingest into a NOT-YET-EXISTENT target; backend
+// auto-creates it (CREATE TABLE AS SELECT). This is the "create destination
+// table + DDLs implicitly in deployment steps" requirement, proven real.
+const AUTO = `${TBL}_AUTO`;
+const pre = await call('GET', `/explore-design/${PID}/tables/${DB}/${SCHEMA}/${AUTO}/preview?limit=1`);
+const ing = await call('POST', `/explore-design/${PID}/ingestion/execute`, {
+  source_database: DB, source_schema: SCHEMA, source_table: 'DIM_CLIENTS',
+  target_database: DB, target_schema: SCHEMA, target_table: AUTO, ingestion_mode: 'full_refresh',
+});
+const post = await call('GET', `/explore-design/${PID}/tables/${DB}/${SCHEMA}/${AUTO}/preview?limit=1`);
+check('implicit destination auto-create + load', pre.status === 404 && ing.status === 200 && ing.body?.status === 'success' && (post.body?.columns || []).length > 0,
+  `pre=${pre.status} ingest=${ing.status}/${ing.body?.status} rows=${ing.body?.rows_affected} cols=${(post.body?.columns || []).length}`);
+await call('POST', `/explore-design/${PID}/ddl-actions`, { ddl_sql: `DROP TABLE IF EXISTS ${DB}.${SCHEMA}.${AUTO}`, ddl_type: 'DROP_TABLE', priority: 1 });
+await call('POST', `/explore-design/${PID}/ddl-actions/execute`, {});
+
 // 5. SCHEDULE INGESTION (daily task) — backend requires one source/target pair top-level
 const sched = await call('POST', `/explore-design/${PID}/ingestion/schedule`, {
   source_database: DB, source_schema: SCHEMA, source_table: 'DIM_CLIENTS',

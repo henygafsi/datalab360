@@ -16,6 +16,16 @@ Proven directly against the live backend (`localhost:8000`, HAHA/ACCOUNTADMIN):
 | `tablePreview` of the new table | 200, columns present → **table physically exists** |
 | cleanup `DROP TABLE` | executed:1 |
 
+### Implicit destination creation already works (no fragile frontend DDL-synthesis needed)
+
+Ingesting into a **non-existent** target auto-creates it via CREATE-TABLE-AS-SELECT:
+`pre-check 404 → executeIngestion 200 success, rows_affected 50000 → target now
+exists with the full source schema`. So "create destination table + DDLs
+implicitly in deployment steps" is satisfied by the backend ingestion engine.
+The frontend's immediate-ingestion path triggers it; the scheduled path now does
+too (after the §2 fix). Proven as leg "implicit destination auto-create + load"
+in `e2e/_flow_dwh_real_deploy.mjs` (now **8/0 green**).
+
 So the backend genuinely creates a real DWH table. The screenshot's "0 Affected
 Tables / 0 DDL Operations" is because the wizard was opened on an **existing**
 source table with **no staged modeling change** — there was nothing to deploy,
