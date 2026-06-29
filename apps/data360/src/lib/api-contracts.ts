@@ -492,6 +492,35 @@ export const API = {
     complianceScore: () => '/gouvernance/compliance/score',
     /** GET /gouvernance/access-review/summary — access-review findings (mfa gaps, expiring policies, orphan grants). */
     accessReviewSummary: () => '/gouvernance/access-review/summary',
+    // --- Identity & integrations (W6 reintegration: oauth / gui-perms / ent-users) ---
+    /** GET|POST /gouvernance/oauth/integrations — list / create OAuth|SAML security integrations. */
+    oauthIntegrations: () => '/gouvernance/oauth/integrations',
+    /** GET /gouvernance/oauth/network-policies — list network policies. */
+    oauthNetworkPolicies: () => '/gouvernance/oauth/network-policies',
+    /** GET /gouvernance/oauth/api-keys — list service accounts with RSA keys. */
+    oauthApiKeys: () => '/gouvernance/oauth/api-keys',
+    /** POST /gouvernance/oauth/service-users — create a service user (PAT/API access). */
+    oauthServiceUsers: () => '/gouvernance/oauth/service-users',
+    /** POST /gouvernance/oauth/assign-rsa-key — assign an RSA public key to a user. */
+    oauthAssignRsaKey: () => '/gouvernance/oauth/assign-rsa-key',
+    /** DELETE /gouvernance/oauth/revoke-rsa-key/{username} — revoke a user's RSA key. */
+    oauthRevokeRsaKey: (username: string) => `/gouvernance/oauth/revoke-rsa-key/${enc(username)}`,
+    /** POST /gouvernance/oauth/saml-integrations — create a SAML2 SSO integration. */
+    oauthSamlIntegrations: () => '/gouvernance/oauth/saml-integrations',
+    /** GET|POST /gouvernance/gui-permissions — list / upsert GUI page-access permissions. */
+    guiPermissions: () => '/gouvernance/gui-permissions',
+    /** GET /gouvernance/gui-permissions/my-access — caller's effective page access. */
+    guiMyAccess: () => '/gouvernance/gui-permissions/my-access',
+    /** GET /gouvernance/gui-permissions/effective/{username} — effective page access for a user. */
+    guiEffective: (username: string) => `/gouvernance/gui-permissions/effective/${enc(username)}`,
+    /** DELETE /gouvernance/gui-permissions/{permission_id} — delete a GUI permission. */
+    guiPermissionDelete: (permissionId: string) => `/gouvernance/gui-permissions/${enc(permissionId)}`,
+    /** GET /gouvernance/enterprise-users — list enterprise directory users. */
+    enterpriseUsers: () => '/gouvernance/enterprise-users',
+    /** PUT|DELETE /gouvernance/enterprise-users/{username} — update / delete an enterprise user. */
+    enterpriseUser: (username: string) => `/gouvernance/enterprise-users/${enc(username)}`,
+    /** POST /gouvernance/enterprise-users/sync — sync users from Snowflake. */
+    enterpriseUsersSync: () => '/gouvernance/enterprise-users/sync',
   },
 
   /** Cortex (AI) — backend: /cortex/* (modules/cortex). */
