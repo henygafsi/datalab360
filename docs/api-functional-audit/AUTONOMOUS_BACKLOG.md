@@ -41,7 +41,8 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 
 ### W5 — Réponses stockées / coût (FinOps) ✅ FAIT (commit 6c03af6)
 - [x] `probe()` court-circuite le réseau si déjà en cache (= appel backend évité) → **store-first = optimisation coût** explicite. Force-refresh via le bouton `✓ cache ⟳`. Résumé `♻ N en cache` + bouton vider. Hint cache (store-first/live/no-cache) déjà par endpoint (384 cacheables). Build VERT.
-- [ ] Approfondissement (non bloquant) : estimation de crédits/coût par endpoint + TTL configurable du store.
+- [x] **TTL FAIT** : cache réponses = TTL 1h (`PROBE_TTL_MS`) → une entrée expirée = non-cachée (re-probe à la demande), résumé compte les fraîches, bouton reflète la fraîcheur. Plus de données périmées servies. Build VERT, commit 1524eaa.
+- [ ] Reste (non bloquant) : estimation crédits/coût **par endpoint** — nécessite données coût à granularité endpoint (j'ai le coût account-level via test Snowflake, pas par-endpoint).
 
 ---
 ## Élargissement (PS utilisateur 2026-06-29 ~01:2x) — backend on-disk + nouvelles features
@@ -76,6 +77,7 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 ## Journal des vagues
 | Horodatage | Vague | Avancement |
 |---|---|---|
+| 2026-06-29 10:36 CEST | W5 deepening (TTL) | Cache reponses probe = TTL 1h : entree expiree = non-cachee (re-probe), resume compte les fraiches, bouton reflete la fraicheur. Plus de stale. Build VERT, commit 1524eaa. Reste W5 (cout par endpoint) = besoin granularite endpoint. |
 | 2026-06-29 10:06 CEST | W1 differe (complet) | Fermé les 3 derniers sites error-render (explore-design page toast + index.ts x3) via toMessage ; PolicyAssignmentPanel deja safe. Sweep anti-crash 100% complet. Build VERT clean, commit 355a686. |
 | 2026-06-29 09:38 CEST | W2 deepening (schémas) | Résolu les schémas OpenAPI ($ref) → champs body (272 endpoints) + forme de retour (1020) dans le catalogue ; détail ligne affiche Body/Retourne. Clarté data_user via contrat (les 268 needsDoc nont pas de prose mais ont des schémas). Build VERT clean (échec uploadthing transitoire = dev concurrent, écarté). Commit 254ec61. |
 | 2026-06-29 09:28 CEST | Test HAHA cache+events | Screenshots = pages HAHA en cache initializing. Test live HAHA: DATA360_CACHE PEUPLE+FRAIS (OVERVIEW_KPIS reels, usage max=28/06) + EVENT_STORE 76 tables (USER_REQUESTS 14669, USER_ACTIVITY 3451). => banniere cache = backend deploye SVC mort (lit pas ces tables pleines), PAS cache vide ni bug FE. FE gracieux (no crash). Fix = backend avec connexion CP_DATA360 valide. Rapport HAHA_CACHE_EVENTS_VALIDATION.md. Commit 08e0997. |
