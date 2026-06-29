@@ -18,6 +18,26 @@ mkdirSync(OUT_DIR, { recursive: true });
 const oapi = JSON.parse(readFileSync(SNAP, 'utf8'));
 const manifest = JSON.parse(readFileSync(MANIFEST, 'utf8'));
 
+// Schema resolution (for data_user clarity): resolve $ref + list property names
+// so each endpoint shows its request body fields and response shape — the 268
+// `needsDoc` endpoints have NO description but DO carry request/response schemas.
+const SCHEMAS = oapi.components?.schemas || {};
+function propsOf(schema, depth = 0) {
+  if (!schema || depth > 2) return [];
+  if (schema.$ref) return propsOf(SCHEMAS[schema.$ref.split('/').pop()], depth + 1);
+  if (schema.properties) return Object.keys(schema.properties);
+  if (schema.type === 'array' && schema.items) return propsOf(schema.items, depth + 1);
+  if (schema.allOf) return schema.allOf.flatMap((s) => propsOf(s, depth + 1));
+  return [];
+}
+function jsonSchema(node) { return node?.content?.['application/json']?.schema; }
+function bodyFieldsOf(op) { return propsOf(jsonSchema(op.requestBody)).slice(0, 14); }
+function returnsOf(op) {
+  const r = op.responses?.['200'] || op.responses?.['201'];
+  const p = propsOf(jsonSchema(r)).slice(0, 14);
+  return p.length ? p : (r?.content ? ['(payload)'] : []);
+}
+
 // FE-wired detection: paths referenced as string literals in api-contracts.ts.
 // An endpoint NOT referenced is "unwired" = a missing-from-FE reintegration target.
 const CONTRACTS = path.join(ROOT, 'src/lib/api-contracts.ts');
@@ -128,6 +148,8 @@ for (const [p, ops] of Object.entries(oapi.paths || {})) {
       ...dataUserClarity(p, summary, desc, tags),
       rbac: rbacKey(M, p),
       wired: isWired(p),
+      bodyFields: bodyFieldsOf(op),
+      returns: returnsOf(op),
     });
   }
 }

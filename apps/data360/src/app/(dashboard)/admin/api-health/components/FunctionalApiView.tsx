@@ -19,6 +19,7 @@ type CatalogEntry = {
   tags: string[]; params: { n: string; in: string; req: boolean }[]; hasBody: boolean;
   aiRole: string; finops: string; cache: string; audience: string; clear: boolean;
   needsDoc: boolean; rbac: string; wired: boolean;
+  bodyFields?: string[]; returns?: string[];
 };
 type Meta = {
   generatedFrom: string; totalOps: number; totalPaths: number; manifestRoutes: number;
@@ -245,7 +246,13 @@ export default function FunctionalApiView() {
                           {e.tags?.length > 0 && <span><b>Tags :</b> {e.tags.join(', ')}</span>}
                         </div>
                         {e.params.length > 0 && (
-                          <div style={{ marginTop: 6 }}><b>Paramètres :</b> {e.params.map((p) => `${p.n}${p.req ? '*' : ''} (${p.in})`).join(' · ')}{e.hasBody ? ' · body' : ''}</div>
+                          <div style={{ marginTop: 6 }}><b>Paramètres :</b> {e.params.map((p) => `${p.n}${p.req ? '*' : ''} (${p.in})`).join(' · ')}</div>
+                        )}
+                        {e.bodyFields && e.bodyFields.length > 0 && (
+                          <div style={{ marginTop: 4 }}><b>Body :</b> <code>{`{ ${e.bodyFields.join(', ')} }`}</code></div>
+                        )}
+                        {e.returns && e.returns.length > 0 && (
+                          <div style={{ marginTop: 4 }}><b>Retourne :</b> <code>{e.returns[0] === '(payload)' ? 'payload' : `{ ${e.returns.join(', ')} }`}</code></div>
                         )}
                         {store[k] && (
                           <div style={{ marginTop: 6, fontFamily: 'monospace', fontSize: 11, color: '#15803d', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
