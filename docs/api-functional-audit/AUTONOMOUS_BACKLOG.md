@@ -77,6 +77,7 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 ## Journal des vagues
 | Horodatage | Vague | Avancement |
 |---|---|---|
+| 2026-06-29 12:06 CEST | Polish vue (export CSV) | Bouton export CSV de la sélection filtrée du catalogue (inventaire des 1020 endpoints portable : tableur/planning). Client-side, sans backend. Build VERT, commit 7bcf71f. Reste decision-gated (W7/W8/W9 + relance backend local). |
 | 2026-06-29 11:38 CEST | Polish vue (filtre tag) | Ajouté un filtre par tag fonctionnel OpenAPI dans la vue (navigation par taxonomie backend vs prefixe URL). Build VERT, commit 70d936d. Backlog reste decision-gated (W7/W8/W9 + relance backend local). |
 | 2026-06-29 11:03 CEST | Handoff summary | Backlog W1-W6 + deepenings 100% faits (57 commits, build-verts). Plus aucune vague front sure a valeur reelle : reste = 4 decisions gated (relance backend local / go W7 / provider W8 / datalakes W9). Ecrit RUN_SUMMARY.md (synthese + findings + fix backend valide + decisions). |
 | 2026-06-29 10:36 CEST | W5 deepening (TTL) | Cache reponses probe = TTL 1h : entree expiree = non-cachee (re-probe), resume compte les fraiches, bouton reflete la fraicheur. Plus de stale. Build VERT, commit 1524eaa. Reste W5 (cout par endpoint) = besoin granularite endpoint. |
