@@ -77,6 +77,7 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 ## Journal des vagues
 | Horodatage | Vague | Avancement |
 |---|---|---|
+| 2026-06-29 11:03 CEST | Handoff summary | Backlog W1-W6 + deepenings 100% faits (57 commits, build-verts). Plus aucune vague front sure a valeur reelle : reste = 4 decisions gated (relance backend local / go W7 / provider W8 / datalakes W9). Ecrit RUN_SUMMARY.md (synthese + findings + fix backend valide + decisions). |
 | 2026-06-29 10:36 CEST | W5 deepening (TTL) | Cache reponses probe = TTL 1h : entree expiree = non-cachee (re-probe), resume compte les fraiches, bouton reflete la fraicheur. Plus de stale. Build VERT, commit 1524eaa. Reste W5 (cout par endpoint) = besoin granularite endpoint. |
 | 2026-06-29 10:06 CEST | W1 differe (complet) | Fermé les 3 derniers sites error-render (explore-design page toast + index.ts x3) via toMessage ; PolicyAssignmentPanel deja safe. Sweep anti-crash 100% complet. Build VERT clean, commit 355a686. |
 | 2026-06-29 09:38 CEST | W2 deepening (schémas) | Résolu les schémas OpenAPI ($ref) → champs body (272 endpoints) + forme de retour (1020) dans le catalogue ; détail ligne affiche Body/Retourne. Clarté data_user via contrat (les 268 needsDoc nont pas de prose mais ont des schémas). Build VERT clean (échec uploadthing transitoire = dev concurrent, écarté). Commit 254ec61. |
