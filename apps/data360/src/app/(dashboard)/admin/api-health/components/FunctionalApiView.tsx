@@ -85,8 +85,11 @@ export default function FunctionalApiView() {
 
   useEffect(() => { if (open && !meta) load(); }, [open, meta, load]);
 
-  const probe = useCallback(async (e: CatalogEntry) => {
+  const probe = useCallback(async (e: CatalogEntry, force = false) => {
     const k = keyOf(e.method, e.path);
+    // Cost optimization: a response is fetched (and stored) only the FIRST time.
+    // Subsequent views reuse the stored copy — no backend call — unless forced.
+    if (store[k] && !force) return;
     setProbing(k);
     const t0 = performance.now();
     try {
@@ -173,7 +176,13 @@ export default function FunctionalApiView() {
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyDoc} onChange={(e) => setOnlyDoc(e.target.checked)} /> À clarifier</label>
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyUnwired} onChange={(e) => setOnlyUnwired(e.target.checked)} /> Non-wirés</label>
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyDataUser} onChange={(e) => setOnlyDataUser(e.target.checked)} /> data_user</label>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#666' }}>{filtered.length} / {rows.length}</span>
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#15803d' }} title="Réponses stockées (1ʳᵉ fois) = appels backend évités sur les visites suivantes — optimisation coût">
+            ♻ {Object.keys(store).length} en cache
+            {Object.keys(store).length > 0 && (
+              <button onClick={() => { setStore({}); saveStore({}); }} style={{ marginLeft: 6, fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>vider</button>
+            )}
+          </span>
+          <span style={{ fontSize: 12, color: '#666' }}>{filtered.length} / {rows.length}</span>
         </div>
       )}
 
@@ -212,8 +221,8 @@ export default function FunctionalApiView() {
                     <td style={{ padding: '6px 10px', color: e.cache.startsWith('cacheable') ? '#16a34a' : '#999', fontSize: 11 }}>{e.cache.startsWith('cacheable') ? 'store-first' : e.cache.startsWith('live') ? 'live' : 'no-cache'}</td>
                     <td style={{ padding: '6px 10px' }}>
                       {safeGet ? (
-                        <button onClick={() => probe(e)} disabled={probing === k} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #6d28d9', background: store[k] ? '#f5f3ff' : '#fff', color: '#6d28d9', cursor: 'pointer' }}>
-                          {probing === k ? '…' : store[k] ? `↻ ${store[k].status}` : 'Probe'}
+                        <button onClick={() => probe(e, !!store[k])} disabled={probing === k} title={store[k] ? `En cache (${store[k].ms}ms) — cliquer pour rafraîchir` : 'Récupère et stocke la 1ʳᵉ réponse'} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #6d28d9', background: store[k] ? '#ecfdf5' : '#fff', color: store[k] ? '#15803d' : '#6d28d9', cursor: 'pointer' }}>
+                          {probing === k ? '…' : store[k] ? `✓ cache ⟳` : 'Probe'}
                         </button>
                       ) : <span style={{ color: '#ccc', fontSize: 11 }}>—</span>}
                     </td>
