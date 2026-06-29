@@ -194,12 +194,35 @@ apiClient.interceptors.response.use(
 
     // Handle 403 Forbidden - Insufficient permissions
     if (status === 403) {
-      const data = error.response?.data as { detail?: string | { detail?: string } } | undefined;
-      const message = typeof data?.detail === 'string' ? data.detail : (data?.detail as any)?.detail ?? 'You do not have permission to access this resource.';
+      const data = error.response?.data as
+        | { error_code?: string; governance_denied?: boolean; required_roles?: string[]; required_module?: string; your_role?: string; request_access?: GovernanceDenial['requestAccess']; detail?: any }
+        | undefined;
+      // Structured governance payload may sit at top-level OR nested under `detail`.
+      const d = (data?.detail && typeof data.detail === 'object') ? data.detail : data;
+      const message = typeof data?.detail === 'string'
+        ? data.detail
+        : (d?.detail ?? 'You do not have permission to access this resource.');
+      // A governance denial (GOVERNANCE_DENIED / MODULE_FORBIDDEN) carries what the
+      // role lacks + the request endpoint → components route to the access-request
+      // flow (RequestAccessBadge) instead of a dead "forbidden".
+      const isGov = d?.error_code === 'GOVERNANCE_DENIED' || d?.governance_denied === true || d?.error_code === 'MODULE_FORBIDDEN';
+      const governance: GovernanceDenial | undefined = isGov ? {
+        requiredRoles: d?.required_roles,
+        requiredModule: d?.required_module,
+        yourRole: d?.your_role ?? null,
+        requestAccess: d?.request_access ?? (d?.required_module ? { endpoint: '/access-requests', module: d.required_module } : undefined),
+      } : undefined;
       if (process.env.NODE_ENV === 'development') {
-        console.warn('[API Client] 403 Forbidden -', message);
+        console.warn('[API Client] 403 Forbidden -', message, governance ? '(governance — request access available)' : '');
       }
-      return Promise.reject(new AuthorizationError(message));
+      // Reusable "redirect to the request flow" seam: emit one global event so a
+      // single app-level listener can surface a "Request access" CTA, without every
+      // component needing its own catch. Existing AuthorizationError handling is
+      // unchanged (the reject below still carries `governance`).
+      if (governance && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('data360:governance-denied', { detail: { message, governance } }));
+      }
+      return Promise.reject(new AuthorizationError(message, governance));
     }
 
     // Handle 404 Not Found - pass through so components can show "not found"
@@ -275,10 +298,25 @@ export class AuthenticationError extends Error {
   }
 }
 
+/**
+ * Structured governance denial extracted from a 403. When present, the UI can
+ * route the user into the self-service access-request flow (POST /access-requests)
+ * — render a "Request access" CTA / RequestAccessBadge, or hide/grey the feature.
+ */
+export interface GovernanceDenial {
+  requiredRoles?: string[];
+  requiredModule?: string;
+  yourRole?: string | null;
+  requestAccess?: { endpoint: string; module?: string | null; action?: string | null };
+}
+
 export class AuthorizationError extends Error {
-  constructor(message: string) {
+  /** Present when the 403 is a governance denial (role/module not granted). */
+  governance?: GovernanceDenial;
+  constructor(message: string, governance?: GovernanceDenial) {
     super(message);
     this.name = 'AuthorizationError';
+    this.governance = governance;
   }
 }
 

@@ -720,10 +720,16 @@ export default function FeatureGovernanceMatrix() {
               {pagedSlugs.map((slug) => {
                 const feats = filteredModules[slug] ?? [];
                 const p = postureByModule.get(slug);
-                // Coverage meter: prefer posture's account-wide count, else the
-                // group's currently-shown rows. Honest "—" when nothing to measure.
-                const grpEnabled = p ? p.features_enabled : feats.filter((f) => f.enabled).length;
-                const grpTotal = p ? p.features_total : feats.length;
+                // Coverage meter: count the FULL unfiltered module rows from the
+                // live matrix (patched optimistically on every toggle) so the
+                // meter stays account-wide AND reflects edits immediately. Fall
+                // back to the posture snapshot only if the matrix lacks the
+                // module. Honest "—" when nothing to measure.
+                const moduleFeats = modules[slug] ?? feats;
+                const grpEnabled = moduleFeats.length
+                  ? moduleFeats.filter((f) => f.enabled).length
+                  : (p?.features_enabled ?? 0);
+                const grpTotal = moduleFeats.length || (p?.features_total ?? 0);
                 const grpPct = grpTotal > 0 ? Math.round((grpEnabled / grpTotal) * 100) : null;
                 const allOn = feats.every((f) => f.enabled);
                 const allOff = feats.every((f) => !f.enabled);

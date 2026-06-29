@@ -124,42 +124,6 @@ export default function PasswordSettingsView() {
                   />
                 </div>
 
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    New Password
-                  </label>
-                  <Controller
-                    control={control}
-                    name="newPassword"
-                    render={({ field: { onChange, value } }) => (
-                      <Password
-                        placeholder="Enter your new password"
-                        onChange={onChange}
-                        error={errors.newPassword?.message}
-                        className="w-full max-w-md"
-                      />
-                    )}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Confirm New Password
-                  </label>
-                  <Controller
-                    control={control}
-                    name="confirmedPassword"
-                    render={({ field: { onChange, value } }) => (
-                      <Password
-                        placeholder="Confirm your new password"
-                        onChange={onChange}
-                        error={errors.confirmedPassword?.message}
-                        className="w-full max-w-md"
-                      />
-                    )}
-                  />
-                </div>
-
                 <div className="mt-6 flex gap-3">
                   <Button type="submit" variant="solid" isLoading={isLoading || loading}>
                     Update Password

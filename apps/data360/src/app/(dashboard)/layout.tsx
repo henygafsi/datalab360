@@ -5,6 +5,7 @@ import CarbonLayout from '@/layouts/carbon/carbon-layout';
 import SessionGuard from '@/components/auth/SessionGuard';
 import { CacheInvalidationProvider } from '@/components/providers/CacheInvalidationProvider';
 import AiSessionCounter from '@/app/(dashboard)/intelligent/components/AiSessionCounter';
+import GovernanceDenialListener from '@/app/shared/insights/GovernanceDenialListener';
 
 type LayoutProps = {
   children: React.ReactNode;
@@ -31,6 +32,7 @@ function LayoutProvider({ children }: LayoutProps) {
     <CarbonLayout>
       {children}
       <AiSessionCounter />
+      <GovernanceDenialListener />
     </CarbonLayout>
   );
 }

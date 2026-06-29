@@ -251,6 +251,11 @@ export interface AccountQueries {
   max_execution_time_ms: number;
   total_bytes_scanned: number;
   total_rows_produced: number;
+  // ── Additive (optional): the aggregated /queries endpoint emits a leaner
+  // per-account shape (avg_elapsed_ms + failed_count) than the per-account
+  // detail. Optional so the existing detail shape is unaffected. ──
+  avg_elapsed_ms?: number;
+  failed_count?: number;
 }
 
 export interface QueriesResponse {
@@ -259,6 +264,9 @@ export interface QueriesResponse {
   accounts: AccountQueries[];
   account_count: number;
   execution_time_ms: number;
+  // Honest-degrade note: e.g. "Org-wide query stats unavailable (no
+  // ORGANIZATION_USAGE.QUERY_HISTORY); showing current account only".
+  note?: string;
 }
 
 // =============================================================================
@@ -826,8 +834,15 @@ export interface GovernanceOverviewResponse {
   role_count: number;
   grant_summary: { privilege: string; granted_on: string; grant_count: number }[];
   policies: { masking: number; row_access: number; aggregation: number; total: number };
-  audit_log: { entity_type: string; entity_name: string; action: string; target_type: string; target_name: string; performed_by: string; performed_at: string }[];
+  audit_log?: { entity_type: string; entity_name: string; action: string; target_type: string; target_name: string; performed_by: string; performed_at: string }[];
   execution_time_ms: number;
+  // ── Honest-degrade signalling. The GRANTS_TO_ROLES-backed `grant_summary`
+  // can be slow to compute on large grant histories; when it is still warming
+  // the backend lists its source token (e.g. "gov_grant_summary") here and
+  // sets `partial`. Consumers must show a "Computing…" state for the named
+  // section rather than a fake zero. ──
+  partial?: boolean;
+  degraded_sources?: string[];
 }
 
 // =============================================================================
@@ -920,13 +935,18 @@ export interface AccountHealthScoreResponse {
 
 export interface GrantsOverviewResponse {
   period_days: number;
+  // ── The GRANTS_TO_ROLES-derived totals (`total_role_grants`,
+  // `roles_with_grants`, `unique_privileges`, `object_types_covered`) come back
+  // `null` while the `grants_totals` section is still warming (see
+  // `degraded_sections`). `users_with_roles` / `total_user_role_mappings` are
+  // sourced separately and are NOT degraded. ──
   summary: {
-    total_role_grants: number;
+    total_role_grants: number | null;
     total_user_role_mappings: number;
-    roles_with_grants: number;
+    roles_with_grants: number | null;
     users_with_roles: number;
-    unique_privileges: number;
-    object_types_covered: number;
+    unique_privileges: number | null;
+    object_types_covered: number | null;
   };
   privilege_distribution: { privilege: string; object_type: string; grant_count: number; role_count: number }[];
   role_grant_distribution: { role_name: string; total_grants: number; unique_privileges: number; object_type_count: number; database_count: number }[];
@@ -936,6 +956,13 @@ export interface GrantsOverviewResponse {
   recent_role_grants: { role_name: string; privilege: string; object_type: string; object_name: string; database: string; schema: string; grant_option: string; granted_on: string }[];
   user_role_mappings: { user_name: string; role_name: string; granted_by: string; granted_on: string }[];
   execution_time_ms: number;
+  // ── Honest-degrade signalling. When the GRANTS_TO_ROLES history is large the
+  // backend returns only the cheap sections and lists the warming ones here
+  // (e.g. "grants_totals", "grants_by_priv") with `partial: true` + a `note`.
+  // Sections named here must render a "Computing…" state, not a fake zero. ──
+  partial?: boolean;
+  degraded_sections?: string[];
+  note?: string;
 }
 
 // ─── Projects & Deployments Overview ─────────────────────────────────────────

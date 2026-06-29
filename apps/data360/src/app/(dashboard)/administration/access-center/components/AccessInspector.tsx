@@ -238,6 +238,16 @@ export default function AccessInspector({
             </p>
           );
         }
+        // Count from the LIVE entitlement rows (which `onToggleFeature` patches)
+        // so the meter and disabled chips reflect a toggle immediately, rather
+        // than the static governance-posture snapshot which only reloads on a
+        // full refetch. Fall back to the posture snapshot when no live rows.
+        const hasLive = features.length > 0;
+        const liveEnabled = features.filter((f) => f.enabled).length;
+        const liveDisabled = features
+          .filter((f) => !f.enabled)
+          .map((f) => f.label || f.feature_key);
+        const disabledChips = hasLive ? liveDisabled : (posture.disabled ?? []);
         return (
           <div className="space-y-3">
             {/* Converged onto the shared GovernancePostureCard via its module-posture
@@ -247,20 +257,20 @@ export default function AccessInspector({
               compact
               title="Policies & posture"
               data={{
-                features_enabled: posture.features_enabled,
-                features_total: posture.features_total,
+                features_enabled: hasLive ? liveEnabled : posture.features_enabled,
+                features_total: hasLive ? features.length : posture.features_total,
                 bound_policies:
                   typeof posture.bound_policies === 'number' ? posture.bound_policies : null,
               } satisfies GovernancePostureData}
             />
             {/* Disabled-feature chips are not part of the shared card — keep them. */}
-            {posture.disabled && posture.disabled.length > 0 && (
+            {disabledChips.length > 0 && (
               <div>
                 <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                   Disabled features
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {posture.disabled.map((d) => (
+                  {disabledChips.map((d) => (
                     <Chip key={d} tone="amber">
                       {d}
                     </Chip>
