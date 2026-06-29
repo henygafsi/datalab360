@@ -65,6 +65,8 @@ export default function FunctionalApiView() {
   const [onlyDoc, setOnlyDoc] = useState(false);
   const [onlyUnwired, setOnlyUnwired] = useState(false);
   const [onlyDataUser, setOnlyDataUser] = useState(false);
+  const [tagFilter, setTagFilter] = useState('all');
+  const allTags = useMemo(() => Array.from(new Set(rows.flatMap((e) => e.tags))).sort(), [rows]);
   const [probing, setProbing] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setExpanded((s) => ({ ...s, [k]: !s[k] }));
@@ -122,9 +124,10 @@ export default function FunctionalApiView() {
       (!onlyDoc || e.needsDoc) &&
       (!onlyUnwired || !e.wired) &&
       (!onlyDataUser || e.audience === 'data-user') &&
+      (tagFilter === 'all' || e.tags.includes(tagFilter)) &&
       (!ql || e.path.toLowerCase().includes(ql) || e.action.toLowerCase().includes(ql) || (e.tags.join(' ').toLowerCase().includes(ql)))
     );
-  }, [rows, q, group, onlyAi, onlyFin, onlyDoc, onlyUnwired, onlyDataUser]);
+  }, [rows, q, group, onlyAi, onlyFin, onlyDoc, onlyUnwired, onlyDataUser, tagFilter]);
 
   const rt = (e: CatalogEntry) => {
     const k = keyOf(e.method, e.path);
@@ -177,6 +180,10 @@ export default function FunctionalApiView() {
           <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }}>
             <option value="all">Tous les modules ({meta.groups.length})</option>
             {meta.groups.map(([g, n]) => <option key={g} value={g}>{g} ({n})</option>)}
+          </select>
+          <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} title="Filtrer par tag fonctionnel (taxonomie backend)" style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, maxWidth: 220 }}>
+            <option value="all">Tous les tags ({allTags.length})</option>
+            {allTags.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyAi} onChange={(e) => setOnlyAi(e.target.checked)} /> IA</label>
           <label style={{ fontSize: 13 }}><input type="checkbox" checked={onlyFin} onChange={(e) => setOnlyFin(e.target.checked)} /> FinOps</label>
