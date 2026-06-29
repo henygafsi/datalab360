@@ -724,8 +724,27 @@ export interface ExecuteIngestionResponse {
   rows_affected: number;
 }
 
+/**
+ * Backend cron enum (lowercase). The UI's {@link CronChoice} is mapped onto
+ * this by `toBackendCronChoice` in deployment-utils — the backend rejects the
+ * UI's uppercase values (EVERY_HOUR/DAILY/…) with a 400.
+ */
+export type BackendCronChoice = 'hourly' | 'daily' | 'weekly' | 'monthly' | 'custom';
+
+/**
+ * POST /explore-design/{id}/ingestion/schedule — schedules ONE source→target
+ * table. The source/target/mode fields are REQUIRED by the backend; omitting
+ * them returns a 422. Schedule each table with its own request.
+ */
 export interface IngestionScheduleRequest {
-  cron_choice: CronChoice;
+  source_database: string;
+  source_schema: string;
+  source_table: string;
+  target_database: string;
+  target_schema: string;
+  target_table: string;
+  ingestion_mode: IngestionMode;
+  cron_choice: BackendCronChoice;
   custom_cron?: string | null;
   warehouse?: string | null;
   mappings?: ColumnMappingInput[] | null;
