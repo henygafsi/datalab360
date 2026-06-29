@@ -830,6 +830,12 @@ export const API = {
       `/org-accounts/warehouses/${enc(name)}${days != null ? `?days=${days}` : ''}`,
     /** GET /org-accounts/organization/warehouse-credits[?days=<n>] — per-warehouse credits from ORGANIZATION_USAGE. */
     orgWarehouseCredits:  (days?: number)               => `/org-accounts/organization/warehouse-credits${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/organization/costs[?days=<n>] — org costs by account in currency (W6 FinOps). */
+    orgCosts:             (days?: number)               => `/org-accounts/organization/costs${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/organization/storage — org storage per account (W6 FinOps). */
+    orgStorage:           ()                            => '/org-accounts/organization/storage',
+    /** GET /org-accounts/organization/remaining-balance — org remaining credit balance (W6 FinOps). */
+    orgRemainingBalance:  ()                            => '/org-accounts/organization/remaining-balance',
     /** GET /org-accounts/org-summary — activity rolled up role→module/project→account. */
     orgSummary:           ()                            => '/org-accounts/org-summary',
     /** GET /org-accounts/events[?days=<n>] — platform events audit trail. */
