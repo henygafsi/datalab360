@@ -278,6 +278,27 @@ export const API = {
     glossaryAiDraft: () => '/explore-design/glossary/ai-draft',
     /** DELETE /explore-design/glossary/{term} — delete a glossary term (admin). */
     glossaryDelete: (term: string) => `/explore-design/glossary/${enc(term)}`,
+    // --- Snowflake object management (W6 reintegration: dynamic tables/streams/tasks) ---
+    /** GET|POST /explore-design/dynamic-tables — list / create dynamic tables. */
+    dynamicTables: () => '/explore-design/dynamic-tables',
+    /** GET|PATCH|DELETE /explore-design/dynamic-tables/{name} — describe / alter / drop. */
+    dynamicTable: (name: string) => `/explore-design/dynamic-tables/${enc(name)}`,
+    /** POST /explore-design/dynamic-tables/{name}/{action} — suspend|resume|refresh. */
+    dynamicTableAction: (name: string, action: 'suspend' | 'resume' | 'refresh') =>
+      `/explore-design/dynamic-tables/${enc(name)}/${action}`,
+    /** GET|POST /explore-design/streams — list / create streams. */
+    streams: () => '/explore-design/streams',
+    /** GET|DELETE /explore-design/streams/{name} — describe / drop. */
+    stream: (name: string) => `/explore-design/streams/${enc(name)}`,
+    /** GET /explore-design/streams/{name}/data — peek stream data. */
+    streamData: (name: string) => `/explore-design/streams/${enc(name)}/data`,
+    /** GET /explore-design/tasks — list tasks. */
+    deTasks: () => '/explore-design/tasks',
+    /** GET|PATCH|DELETE /explore-design/tasks/{name} — describe / alter / drop. */
+    deTask: (name: string) => `/explore-design/tasks/${enc(name)}`,
+    /** POST /explore-design/tasks/{name}/{action} — suspend|resume. */
+    deTaskAction: (name: string, action: 'suspend' | 'resume') =>
+      `/explore-design/tasks/${enc(name)}/${action}`,
   },
 
   /**
