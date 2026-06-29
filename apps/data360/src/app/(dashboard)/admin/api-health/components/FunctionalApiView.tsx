@@ -129,6 +129,19 @@ export default function FunctionalApiView() {
     );
   }, [rows, q, group, onlyAi, onlyFin, onlyDoc, onlyUnwired, onlyDataUser, tagFilter]);
 
+  const exportCsv = () => {
+    const cols = ['method', 'path', 'group', 'action', 'tags', 'aiRole', 'finops', 'cache', 'audience', 'wired', 'rbac', 'bodyFields', 'returns'] as const;
+    const esc = (v: unknown) => `"${String(Array.isArray(v) ? v.join(' ') : v ?? '').replace(/"/g, '""')}"`;
+    const lines = [cols.join(',')].concat(
+      filtered.map((e) => cols.map((c) => esc((e as Record<string, unknown>)[c])).join(',')),
+    );
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `api-catalog-${filtered.length}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const rt = (e: CatalogEntry) => {
     const k = keyOf(e.method, e.path);
     const live = latency[k];
@@ -197,6 +210,7 @@ export default function FunctionalApiView() {
             )}
           </span>
           <span style={{ fontSize: 12, color: '#666' }}>{filtered.length} / {rows.length}</span>
+          <button onClick={exportCsv} title="Exporter la sélection filtrée en CSV (inventaire portable)" style={{ fontSize: 11, padding: '5px 10px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }}>⬇ CSV</button>
         </div>
       )}
 
