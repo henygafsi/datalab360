@@ -659,6 +659,10 @@ export const API = {
     budgets: () => '/observability/budgets',
     /** PUT|DELETE /observability/budgets/{name} — update/delete a spend budget. */
     budget: (name: string) => `/observability/budgets/${enc(name)}`,
+    /** POST /observability/probes/batch-check — freshness for many tables in one call. W6. */
+    probesBatchCheck: () => '/observability/probes/batch-check',
+    /** GET /observability/sensors/all — batch sensor check across all modules. W6. */
+    sensorsAll: () => '/observability/sensors/all',
   },
 
   /**

@@ -4,6 +4,8 @@
 
 **Total non-wirés: 691** (sur 913 ops). Priorisé par volume.
 
+> ⚠️ **CAVEAT (vérifié W6 batch 2)** : ce compteur est une **BORNE HAUTE**. Le détecteur `wired` ne capte que les chemins littéraux dans `api-contracts.ts` ; il **rate les chemins construits par template-literals interpolés** (ex. `/observability/cost/monitors/${enc(name)}`). Exemple mesuré : sur 25 "non-wirés" observability, **23 étaient en réalité déjà wirés**, 2 seulement absents. ⇒ le vrai besoin de réintégration est **nettement < 752**. Raffiner le détecteur (préfixes de templates) est un suivi prudent à part. Valider chaque batch manuellement avant de wirer (éviter les doublons).
+
 ## explore-design (146)
 - `POST /explore-design/{project_id}/ddl-actions` — Submit DDL actions
 - `POST /explore-design/{project_id}/ddl-actions/execute` — Execute DDL actions
