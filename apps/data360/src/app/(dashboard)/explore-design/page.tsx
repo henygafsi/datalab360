@@ -3503,7 +3503,7 @@ export default function ExploreDesignPage() {
         (Array.isArray(result) ? result : []);
       setDataEngModal(prev => ({ ...prev, items, loading: false }));
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || `Failed to list ${type.replace('_', ' ')}`);
+      toast.error(toMessage(err, `Failed to list ${type.replace('_', ' ')}`));
       setDataEngModal(prev => ({ ...prev, loading: false }));
     }
   }, [selectedDatabase]);
