@@ -136,7 +136,7 @@ import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 import { useAuth } from '@/hooks/useAuth';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
-import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 import { isAdminRole } from '@/config/constants';
 
 // Lazy-loaded new tabs

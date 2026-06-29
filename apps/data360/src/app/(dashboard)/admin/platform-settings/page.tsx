@@ -25,7 +25,7 @@ import {
 import type { PlatformConfigEntry } from '@/app/services/observability/types';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
-import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 
 /** Render a config value (object/array/scalar) as an editable string. */
 function valueToString(value: unknown): string {

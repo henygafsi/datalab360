@@ -51,6 +51,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { isProbeNoise, splitEndpointTraffic } from '@/lib/probe-noise';
 import { API } from '@/lib/api-contracts';
 import Pager, { usePagination } from '@/components/ui/Pager';
 import ExportButton from '@/components/ui/ExportButton';
@@ -862,6 +863,9 @@ export default function PlatformHealthPanel() {
   const [view, setView] = useState<View>('sm_endpoints');
   const [search, setSearch] = useState(''); // raw search box
   const [debouncedSearch, setDebouncedSearch] = useState(''); // client-side row filter
+  // Live endpoint / error tables default to APPLICATION traffic only — internet
+  // background-noise (scanner & non-API probes) is hidden until toggled on.
+  const [showProbes, setShowProbes] = useState(false);
 
   // Lifted view of the active table (row count + AI top-lines + export rows).
   const [tableView, setTableView] = useState<TableView>({ shown: 0, total: 0, lines: [], columns: [], exportRows: [] });
@@ -944,6 +948,43 @@ export default function PlatformHealthPanel() {
   const errorSeries = useMemo(() => series.map((p) => p.errors), [series]);
   const latencySeries = useMemo(() => series.map((p) => p.p95_latency), [series]);
 
+  // ── Traffic classification — separate genuine application requests from
+  // internet background-noise (vulnerability scanners + non-API infra paths).
+  // The live counter tallies EVERY request to the public host, so on a deployed
+  // environment scanner 404s otherwise dominate the error rate and bury real
+  // endpoints. We hide them from the live tables by default and surface an honest
+  // application-only error rate alongside the (unchanged) all-traffic headline.
+  const endpointSplit = useMemo(
+    () => splitEndpointTraffic(metrics?.top_endpoints ?? []),
+    [metrics?.top_endpoints],
+  );
+  const appRecentErrors = useMemo(
+    () => (metrics?.recent_errors ?? []).filter((e) => !isProbeNoise(e.method, e.path)),
+    [metrics?.recent_errors],
+  );
+
+  // Application-only health, computed from the endpoint breakdown. Only trusted
+  // when that breakdown is ~complete (listed requests cover the server's total);
+  // a truncated top-N can't yield a correct rate, so we then show nothing rather
+  // than a wrong number (honest-states rule).
+  const appHealth = useMemo(() => {
+    if (!metrics) return null;
+    const { app, probes, appRequests, probeRequests, appErrors } = endpointSplit;
+    const total = metrics.total_requests ?? 0;
+    const listed = appRequests + probeRequests;
+    return {
+      appEndpoints: app,
+      appEndpointCount: app.length,
+      probeEndpointCount: probes.length,
+      appRequests,
+      probeRequests,
+      appErrors,
+      appErrorRatePct: appRequests > 0 ? (appErrors / appRequests) * 100 : null,
+      complete: total > 0 && listed >= total * 0.95,
+      hasProbes: probes.length > 0,
+    };
+  }, [metrics, endpointSplit]);
+
   // ── Analyze with AI — same primitive as the Performance page.
   const runAiAnalysis = useCallback(async () => {
     if (!metrics && !data) return;
@@ -968,6 +1009,15 @@ export default function PlatformHealthPanel() {
           `Latency avg/p50/p90/p99: ${fmtMs(metrics.latency.avg_ms)} / ${fmtMs(metrics.latency.p50_ms)} / ${fmtMs(metrics.latency.p90_ms)} / ${fmtMs(metrics.latency.p99_ms)}`,
           `Distinct active users: ${fmtInt(metrics.active_users.length)}`,
           `Uptime: ${fmtUptime(metrics.uptime_seconds)} · Memory: ${fmtBytes(metrics.memory_rss_mb * 1024 * 1024)} · CPU load: ${metrics.cpu_load?.toFixed?.(2) ?? '—'}/${fmtInt(metrics.cpu_count)}`,
+          ...(appHealth?.complete && appHealth.appErrorRatePct != null
+            ? [
+                `Application-only error rate (excludes ${fmtInt(appHealth.probeRequests)} external scanner/probe requests that target the host, not the app): ${fmtPct(appHealth.appErrorRatePct, 2)} (${fmtInt(appHealth.appErrors)} of ${fmtInt(appHealth.appRequests)} application requests). The headline error rate above is inflated by that probe traffic; assess application health from this figure.`,
+              ]
+            : appHealth?.hasProbes
+              ? [
+                  `Note: the headline error rate is inflated by external scanner/probe traffic to the host (${fmtInt(appHealth.probeRequests)}+ requests); it does not reflect application health.`,
+                ]
+              : []),
         ]
       : [];
     const usageLines = k
@@ -1032,7 +1082,7 @@ export default function PlatformHealthPanel() {
         setAiState('error');
       }
     }
-  }, [metrics, data, k, hours, view, userFilter, debouncedSearch]);
+  }, [metrics, data, k, hours, view, userFilter, debouncedSearch, appHealth]);
 
   // ── Active table render (typed per view) ──────────────────────────────────
   const activeTable = useMemo(() => {
@@ -1043,12 +1093,16 @@ export default function PlatformHealthPanel() {
           return (
             <SortableTable
               columns={SM_ENDPOINT_COLS}
-              rows={metrics?.top_endpoints ?? []}
+              rows={showProbes ? metrics?.top_endpoints ?? [] : endpointSplit.app}
               search={debouncedSearch}
               searchText={(r) => `${r.method} ${r.path}`}
               rowLine={smEndpointLine}
               initialSortKey="requests"
-              emptyLabel="No endpoint activity recorded yet."
+              emptyLabel={
+                showProbes
+                  ? 'No endpoint activity recorded yet.'
+                  : 'No application endpoint activity yet — toggle “Show probes” to see scanner traffic.'
+              }
               onView={onView}
             />
           );
@@ -1069,12 +1123,16 @@ export default function PlatformHealthPanel() {
           return (
             <SortableTable
               columns={SM_RECENT_ERROR_COLS}
-              rows={metrics?.recent_errors ?? []}
+              rows={showProbes ? metrics?.recent_errors ?? [] : appRecentErrors}
               search={debouncedSearch}
               searchText={(r) => `${r.status} ${r.method} ${r.path} ${r.username}`}
               rowLine={smRecentErrorLine}
               initialSortKey="ts"
-              emptyLabel="No recent errors — nothing to show."
+              emptyLabel={
+                showProbes
+                  ? 'No recent errors — nothing to show.'
+                  : 'No application errors — nothing to show. Toggle “Show probes” to see scanner noise.'
+              }
               onView={onView}
             />
           );
@@ -1213,7 +1271,7 @@ export default function PlatformHealthPanel() {
       default:
         return null;
     }
-  }, [metrics, data, view, debouncedSearch, onView]);
+  }, [metrics, data, view, debouncedSearch, onView, showProbes, endpointSplit.app, appRecentErrors]);
 
   const filtered = debouncedSearch.trim() !== '';
   const isSmView = view === 'sm_endpoints' || view === 'sm_users' || view === 'sm_errors';
@@ -1510,6 +1568,49 @@ export default function PlatformHealthPanel() {
             </div>
           )}
 
+          {/* Honest noise note — the live headline above counts ALL traffic to the
+              public host (so it reconciles with the Server Metrics tab), but a
+              deployed host is scanned constantly. Call out the excluded probe
+              volume and, when the endpoint breakdown is complete enough to be
+              accurate, the application-only error rate. */}
+          {metrics && appHealth?.hasProbes && (
+            <GlassPanel
+              depth={1}
+              radius="xl"
+              className="flex items-start gap-2 px-3 py-2 text-[11px] text-slate-600 dark:text-slate-300"
+            >
+              <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <span>
+                Headline figures count <strong>all</strong> traffic to the public host, including
+                automated scanner / probe requests that target the host rather than the application.{' '}
+                {appHealth.complete && appHealth.appErrorRatePct != null ? (
+                  <>
+                    Excluding {fmtInt(appHealth.probeRequests)} external probe request
+                    {appHealth.probeRequests === 1 ? '' : 's'}, the application error rate is{' '}
+                    <strong
+                      className={cn(
+                        (appHealth.appErrorRatePct ?? 0) > 5
+                          ? 'text-red-600 dark:text-red-400'
+                          : 'text-emerald-600 dark:text-emerald-400',
+                      )}
+                    >
+                      {fmtPct(appHealth.appErrorRatePct, 2)}
+                    </strong>{' '}
+                    ({fmtInt(appHealth.appErrors)} of {fmtInt(appHealth.appRequests)} application
+                    requests). The live tables below exclude probe traffic by default.
+                  </>
+                ) : (
+                  <>
+                    {fmtInt(appHealth.probeRequests)} request
+                    {appHealth.probeRequests === 1 ? '' : 's'} across {fmtInt(appHealth.probeEndpointCount)}{' '}
+                    path{appHealth.probeEndpointCount === 1 ? '' : 's'} are external probe / scanner
+                    noise; the live endpoint and error tables below exclude them by default.
+                  </>
+                )}
+              </span>
+            </GlassPanel>
+          )}
+
           {/* Native-metadata band — cost (credits) · storage · governance. Renders
               only when the usage-history enrichment returned (usageReady); each
               value is a real figure or "—", never a fabricated 0. Sits alongside
@@ -1623,6 +1724,23 @@ export default function PlatformHealthPanel() {
                     </button>
                   )}
                 </div>
+                {(view === 'sm_endpoints' || view === 'sm_errors') && appHealth?.hasProbes && (
+                  <button
+                    type="button"
+                    onClick={() => setShowProbes((v) => !v)}
+                    aria-pressed={showProbes}
+                    title="Toggle external scanner / probe requests in this table"
+                    className={cn(
+                      'ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-medium transition-colors',
+                      showProbes
+                        ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300'
+                        : 'border-slate-200 text-slate-600 hover:bg-white/50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-white/10',
+                    )}
+                  >
+                    <ShieldAlert className="h-3 w-3" />
+                    {showProbes ? 'Hide probes' : 'Show probes'}
+                  </button>
+                )}
                 <span
                   className={cn(
                     'ml-auto shrink-0 text-[10px] tabular-nums',
