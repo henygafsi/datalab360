@@ -1,0 +1,17 @@
+import { chromium } from '@playwright/test';
+const BASE='http://localhost:3000';
+const b=await chromium.launch();
+const ctx=await b.newContext({storageState:'e2e/.auth/state.json',viewport:{width:1600,height:1000}});
+const p=await ctx.newPage();
+const errs=[];
+p.on('console',m=>{if(m.type()==='error')errs.push(m.text().slice(0,120));});
+await p.goto(`${BASE}/administration?tab=apiHealth`,{waitUntil:'networkidle',timeout:90000}).catch(e=>console.log('nav:',e.message));
+await p.waitForTimeout(6000);
+const body=(await p.locator('body').innerText().catch(()=>'')).replace(/\s+/g,' ');
+console.log('has "API Catalog":', body.includes('API Catalog'));
+console.log('has endpoint paths:', /\/explore-design|\/admin\/|\/projects/.test(body));
+console.log('KPI line snippet:', (body.match(/All \d+ backend endpoints/)||['(none)'])[0]);
+console.log('Wired/Parent/Unwired present:', body.includes('Wired')&&body.includes('Unwired'));
+await p.screenshot({path:'docs/product-readiness-audit/screens/admin-green/api_catalog_tab.png',fullPage:false});
+console.log('console errors:', errs.length, errs.slice(0,4).join(' || '));
+await b.close();
