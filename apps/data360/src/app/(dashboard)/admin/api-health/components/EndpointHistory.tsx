@@ -31,6 +31,7 @@
  * inline error + retry · NotDeployedError (404/501) degrades to a quiet notice.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toMessage } from '@/lib/error-messages';
 
 import {
   listApiHealthRuns,
@@ -304,7 +305,7 @@ export function EndpointHistory({ refreshKey }: { refreshKey: number }) {
       const res = await generateCompletion({ prompt, model: 'claude-3-7-sonnet' } as any);
       setAiResult((res?.response || '').trim() || 'No diagnosis returned.');
     } catch (err: any) {
-      setAiError(err?.response?.data?.detail || err?.message || 'Diagnosis failed. Try again.');
+      setAiError(toMessage(err, 'Diagnosis failed. Try again.'));
     } finally {
       setAiLoading(false);
     }

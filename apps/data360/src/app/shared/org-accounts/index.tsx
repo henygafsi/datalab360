@@ -14,6 +14,7 @@ import {
   PiCpuDuotone,
   PiHeartbeatDuotone,
   PiShareNetworkDuotone,
+  PiShieldCheckDuotone,
   PiWarningCircleDuotone,
 } from 'react-icons/pi';
 import { useAtomValue } from 'jotai';
@@ -31,6 +32,7 @@ import BillingTab from './tabs/billing-tab';
 import ComputeServicesTab from './tabs/compute-services-tab';
 import HealthAlertsTab from './tabs/health-alerts-tab';
 import DataSharingTab from './tabs/data-sharing-tab';
+import GovernanceTab from './tabs/governance-tab';
 
 const TABS = [
   { key: 'overview', label: 'Overview', icon: PiChartLineUpDuotone },
@@ -41,6 +43,7 @@ const TABS = [
   { key: 'compute', label: 'Compute Services', icon: PiCpuDuotone },
   { key: 'health', label: 'Health & Alerts', icon: PiHeartbeatDuotone },
   { key: 'sharing', label: 'Data Sharing', icon: PiShareNetworkDuotone },
+  { key: 'governance', label: 'Governance', icon: PiShieldCheckDuotone },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
@@ -134,6 +137,8 @@ export default function OrgAccountsDashboard() {
         return <HealthAlertsTab refreshKey={refreshKey} />;
       case 'sharing':
         return <DataSharingTab refreshKey={refreshKey} />;
+      case 'governance':
+        return <GovernanceTab refreshKey={refreshKey} />;
       default:
         return null;
     }

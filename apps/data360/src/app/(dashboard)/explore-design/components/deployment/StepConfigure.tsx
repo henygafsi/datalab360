@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { cn } from '@/lib/utils';
 import { Badge, Input, Select } from 'rizzui';
 import {
@@ -119,7 +120,7 @@ export default function StepConfigure() {
         updateConfig('scheduleWarehouse', result.recommendation.suggested_size);
       }
     } catch (err: any) {
-      setSizingError(err?.response?.data?.detail || err?.message || 'Failed to get sizing recommendation');
+      setSizingError(toMessage(err, 'Failed to get sizing recommendation'));
     } finally {
       setSizingLoading(false);
     }
@@ -154,7 +155,7 @@ export default function StepConfigure() {
         }
       }
     } catch (err: any) {
-      setScheduleError(err?.response?.data?.detail || err?.message || 'Failed to get schedule recommendation');
+      setScheduleError(toMessage(err, 'Failed to get schedule recommendation'));
     } finally {
       setScheduleLoading(false);
     }

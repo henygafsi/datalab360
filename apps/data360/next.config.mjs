@@ -1,7 +1,21 @@
 import './src/env.mjs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 /** @type {import('next').NextConfig} */
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const nextConfig = {
+  // Standalone server output for the SPCS/Docker image (Snowflake Native App).
+  // Gated by env so normal Vercel builds are unaffected: only the container
+  // build sets SPCS_STANDALONE=1. See infra/terraform + snowflake-app/.
+  output: process.env.SPCS_STANDALONE === '1' ? 'standalone' : undefined,
+  // Monorepo: trace workspace deps from the repo root so the standalone bundle
+  // includes `core`/workspace packages. Without this the SPCS image 500s on
+  // missing modules. Gated to the container build only.
+  ...(process.env.SPCS_STANDALONE === '1'
+    ? { experimental: { outputFileTracingRoot: path.join(__dirname, '../../') } }
+    : {}),
   reactStrictMode: false, // Disabled to prevent double API calls in development
   // Do NOT 308-strip trailing slashes. The backend's canonical routes (e.g.
   // GET /api/recommendations/) are the trailing-slash form. Without this,

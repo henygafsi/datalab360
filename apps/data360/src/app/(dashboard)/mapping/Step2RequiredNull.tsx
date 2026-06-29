@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import {
     Button,
     Card,
@@ -164,7 +165,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
             updateMappingData({ column_attributes: internalColumnAttributes });
             toast({ title: 'Lengths Updated', description: `${table.table}: column lengths saved.` });
         } catch (error: any) {
-            toast({ title: 'Error', description: error.response?.data?.detail || error.message || 'Failed to update lengths.', variant: 'destructive' });
+            toast({ title: 'Error', description: toMessage(error, 'Failed to update lengths.'), variant: 'destructive' });
         }
     }, [internalColumnAttributes, updateMappingData, toast]);
 
@@ -268,7 +269,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
             
             toast({ title: 'Types Updated', description: `${table.table}: ${changes.length} column(s) updated.` });
         } catch (error: any) {
-            toast({ title: 'Error', description: error.response?.data?.detail || error.message || 'Failed to update data types.', variant: 'destructive' });
+            toast({ title: 'Error', description: toMessage(error, 'Failed to update data types.'), variant: 'destructive' });
         }
     }, [internalColumnAttributes, updateMappingData, toast]);
 

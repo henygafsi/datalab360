@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useState, useCallback } from 'react';
+import RouteFallback from '@/components/ui/RouteFallback';
 import Link from 'next/link';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import {
@@ -230,7 +231,7 @@ export default function PoliciesPage() {
         {/* AI deep-link prefill (?intent=apply&from=scan). Renders nothing on a
             manual visit. useSearchParams() lives inside, wrapped in Suspense so
             the route doesn't deopt to fully client-side rendering at build. */}
-        <Suspense fallback={null}>
+        <Suspense fallback={<RouteFallback />}>
           <ProposedPoliciesPanel />
         </Suspense>
 

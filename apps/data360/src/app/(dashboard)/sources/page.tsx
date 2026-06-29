@@ -1,6 +1,7 @@
 'use client';
 
 import React, { Suspense, useState, useEffect, useCallback } from 'react';
+import RouteFallback from '@/components/ui/RouteFallback';
 import { useAtomValue } from 'jotai';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -233,7 +234,7 @@ export default function SourcesPageWrapper() {
   return (
     <ErrorBoundary>
       {/* Suspense boundary required for useSearchParams() in the App Router. */}
-      <Suspense fallback={null}>
+      <Suspense fallback={<RouteFallback />}>
         <SourcesPage />
       </Suspense>
     </ErrorBoundary>

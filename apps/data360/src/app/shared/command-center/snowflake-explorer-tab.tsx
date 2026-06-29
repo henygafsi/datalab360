@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, memo, type ReactNode } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { Badge, Loader } from 'rizzui';
 import {
   Database, Table2, Columns3, ChevronRight,
@@ -369,7 +370,7 @@ function SnowflakeExplorerTab() {
       setDbTotal(res.data?.pagination?.total ?? items.length);
       setLevel('databases');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || 'Failed to load databases');
+      setError(toMessage(err, 'Failed to load databases'));
     } finally {
       setLoading(false);
     }
@@ -388,7 +389,7 @@ function SnowflakeExplorerTab() {
       setSchemaTotal(res.data?.pagination?.total ?? items.length);
       setLevel('schemas');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || 'Failed to load schemas');
+      setError(toMessage(err, 'Failed to load schemas'));
     } finally {
       setLoading(false);
     }
@@ -416,7 +417,7 @@ function SnowflakeExplorerTab() {
       setObjectTotal(res.data?.pagination?.total ?? items.length);
       setLevel('objects');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || 'Failed to load objects');
+      setError(toMessage(err, 'Failed to load objects'));
     } finally {
       setLoading(false);
     }

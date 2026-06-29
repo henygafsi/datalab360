@@ -40,6 +40,11 @@ export default function RoleGrantsPanel() {
   const [users, setUsers] = useState<UserGrantTableData[]>([]);
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+  // Track the role-list fetch independently of the per-role grant fetch. Without
+  // this, a failed or empty getRoles() leaves `role` empty → loadGrants never
+  // fires → grant `state` stays 'idle' → the skeleton spins forever.
+  const [rolesState, setRolesState] = useState<'loading' | 'done' | 'error'>('loading');
+  const [rolesError, setRolesError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
   const { allowed: canRevoke } = useCanPerform('gouvernance', 'delete');
 
@@ -51,23 +56,32 @@ export default function RoleGrantsPanel() {
     return () => clearTimeout(t);
   }, [search]);
 
+  // Snowflake roles (SHOW GRANTS needs a real Snowflake role, not a D360 app role).
+  const loadRoles = useCallback(async () => {
+    setRolesState('loading');
+    setRolesError(null);
+    try {
+      const rs = await getRoles();
+      const names = rs
+        .map((r) => (r as { role?: string; role_name?: string }).role ?? (r as { role_name?: string }).role_name ?? '')
+        .filter(Boolean);
+      const uniq = Array.from(new Set(names)).sort();
+      setRoles(uniq);
+      setRole((cur) => cur || uniq[0] || '');
+      setRolesState('done');
+    } catch (e) {
+      setRolesError(getApiErrorMessage(e));
+      setRolesState('error');
+    }
+  }, []);
+
   useEffect(() => {
-    // Snowflake roles (SHOW GRANTS needs a real Snowflake role, not a D360 app role).
-    getRoles()
-      .then((rs) => {
-        const names = rs
-          .map((r) => (r as { role?: string; role_name?: string }).role ?? (r as { role_name?: string }).role_name ?? '')
-          .filter(Boolean);
-        setRoles(Array.from(new Set(names)).sort());
-        if (names.length && !role) setRole(names[0]);
-      })
-      .catch(() => {});
+    void loadRoles();
     // Users (best-effort) — drives the "who holds this role" drill-down.
     getUsersWithRolesAndModules()
       .then((u) => setUsers(Array.isArray(u) ? u : []))
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadRoles]);
 
   const loadGrants = useCallback(async (r: string) => {
     if (!r) return;
@@ -219,7 +233,19 @@ export default function RoleGrantsPanel() {
         </div>
       )}
 
-      {state === 'running' || state === 'idle' ? (
+      {rolesState === 'error' ? (
+        <div className="flex items-start gap-1.5 p-3 text-[11px] text-red-600 dark:text-red-400">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1 break-words">
+            {rolesError || 'Failed to load roles.'}{' '}
+            <button type="button" className="underline" onClick={() => void loadRoles()}>
+              Retry
+            </button>
+          </span>
+        </div>
+      ) : rolesState === 'done' && roles.length === 0 ? (
+        <EmptyState icon={ShieldCheck} compact title="No Snowflake roles available" />
+      ) : state === 'running' || state === 'idle' ? (
         <div className="space-y-1.5 p-3" aria-hidden>
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-8 animate-pulse rounded bg-slate-100 dark:bg-slate-800/60" />

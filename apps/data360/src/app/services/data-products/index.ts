@@ -106,9 +106,34 @@ export interface PublishProductResponse {
 // API functions
 // ---------------------------------------------------------------------------
 
+/**
+ * The backend may emit `TAGS` as a JSON-encoded string (e.g. `'["a","b"]'`)
+ * or a comma-separated string rather than a real array — the `DataProduct.TAGS:
+ * string[]` contract. Left raw, `product.TAGS.length` is truthy for a string but
+ * `product.TAGS.map(...)` throws (`map is not a function`), crashing the
+ * ProductCard render into the page error boundary. Normalize to a real array at
+ * the service boundary so every consumer is safe and the contract holds.
+ */
+function normalizeTags(t: unknown): string[] {
+  if (Array.isArray(t)) return t.filter((x): x is string => typeof x === 'string');
+  if (typeof t === 'string' && t.trim()) {
+    try {
+      const parsed = JSON.parse(t);
+      if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === 'string');
+    } catch {
+      /* not JSON — fall back to comma-separated */
+    }
+    return t.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 export async function listDataProducts(): Promise<DataProductListResponse> {
   const { data } = await apiClient.get<DataProductListResponse>(API.dataProducts.list());
-  return data;
+  return {
+    ...data,
+    data: (data?.data ?? []).map((p) => ({ ...p, TAGS: normalizeTags(p.TAGS) })),
+  };
 }
 
 export async function getDataProduct(
@@ -117,7 +142,9 @@ export async function getDataProduct(
   const { data } = await apiClient.get<DataProductDetailResponse>(
     API.dataProducts.get(productId)
   );
-  return data;
+  return data?.data
+    ? { ...data, data: { ...data.data, TAGS: normalizeTags(data.data.TAGS) } }
+    : data;
 }
 
 export async function createDataProduct(

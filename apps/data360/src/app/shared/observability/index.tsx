@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useTransition } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { Loader, Text, Title, Badge, Input, Button } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
@@ -1253,7 +1254,7 @@ function ImpactAnalysisTab() {
         users: Array.from(affectedUsers),
       });
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || err?.message || 'Impact analysis failed');
+      toast.error(toMessage(err, 'Impact analysis failed'));
     } finally {
       setImpactLoading(false);
     }

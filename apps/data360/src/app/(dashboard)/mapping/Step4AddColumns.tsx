@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -262,7 +263,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
             console.error('Error saving columns:', error);
             toast({
                 title: 'Error',
-                description: `Failed to save or add columns: ${error.response?.data?.detail || error.message || 'An unexpected error occurred.'}`,
+                description: `Failed to save or add columns: ${toMessage(error, 'An unexpected error occurred.')}`,
                 variant: 'destructive',
             });
         } finally {

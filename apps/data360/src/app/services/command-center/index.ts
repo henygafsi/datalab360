@@ -136,6 +136,80 @@ export async function getOverviewKpis(
   }
 }
 
+// =============================================================================
+// DWH Action Plan (/command-center/dwh-proposal) — "the platform tells you what
+// to fix": cross-pillar pain points + duplicate-table detail, each carrying CTAs.
+// =============================================================================
+
+export type DwhSeverity = 'critical' | 'high' | 'medium' | 'low' | string;
+
+export interface DwhProposalCta {
+  type: string;
+  label: string;
+  action: string;
+  target?: string;
+  template?: string;
+  safe?: boolean;
+}
+
+export interface DwhProposalItem {
+  id: string;
+  severity: DwhSeverity;
+  title: string;
+  detail: string;
+  evidence?: number | string | null;
+  remediation?: string;
+  safe_reversible?: boolean;
+  ctas?: DwhProposalCta[];
+  example?: string;
+}
+
+export interface DwhProposalPillar {
+  count: number;
+  worst_severity?: DwhSeverity;
+  items: DwhProposalItem[];
+}
+
+export interface DwhProposalDuplicate {
+  table_name: string;
+  copies: number;
+  total_rows?: number;
+  total_gb?: number;
+  // NOTE: the backend serialises this as a JSON-encoded *string* (an array of
+  // fully-qualified table paths), not a JSON array. Parse defensively.
+  locations?: string;
+}
+
+export interface DwhProposalResponse {
+  days: number;
+  dwh_confidence: number;
+  pain_points_total: number;
+  pain_points_critical: number;
+  headline: string;
+  // Pillar keys are: governance | duplicates | performance | cost | data_quality
+  pillars: Record<string, DwhProposalPillar>;
+  duplicates_detail: DwhProposalDuplicate[];
+  execution_time_ms?: number;
+  computed_at?: string | null;
+  meta?: {
+    domain?: string;
+    as_of?: string;
+    lag_seconds?: number | null;
+    cache_age_seconds?: number | null;
+    refresh_endpoint?: string | null;
+    stale?: boolean;
+  };
+}
+
+/** DWH Action Plan — surfaced error (consumer owns the try/catch + retry). */
+export async function getDwhProposal(days = 30): Promise<DwhProposalResponse> {
+  const { data } = await apiClient.get<DwhProposalResponse>(
+    `${PREFIX}/dwh-proposal`,
+    { params: { days }, timeout: 120000 },
+  );
+  return data;
+}
+
 /** User-triggered cache refresh (Refresh button on the Overview header). */
 export async function refreshOverviewKpis(
   range: OverviewRange = '30d'

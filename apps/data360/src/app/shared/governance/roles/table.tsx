@@ -3,6 +3,7 @@
 'use client';
 
 import Table from '@core/components/table';
+import { toMessage } from '@/lib/error-messages';
 import { useTanStackTable } from '@core/components/table/custom/use-TanStack-Table';
 import Filters from './filters'; // Assuming filters for roles is similar to users
 import { roleListColumns } from './columns';
@@ -89,7 +90,7 @@ export default function RolesTable() {
                 await refetch();
               } catch (error: any) {
                 console.error('Error deleting role:', error);
-                const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+                const errorMessage = toMessage(error, 'Erreur inconnue');
                 toast.error(`❌ Erreur lors de la suppression du rôle: ${errorMessage}`);
                 await refetch();
               }
@@ -133,7 +134,7 @@ export default function RolesTable() {
             await refetch();
               } catch (error: any) {
                 console.error('Error deleting multiple roles:', error);
-                const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+                const errorMessage = toMessage(error, 'Erreur inconnue');
                 toast.error(`❌ Erreur lors de la suppression multiple: ${errorMessage}`);
                 await refetch();
               }

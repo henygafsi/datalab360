@@ -1,0 +1,127 @@
+{
+  "generatedFrom": "openapi Data360 v1.0.0",
+  "totalOps": 1020,
+  "totalPaths": 913,
+  "manifestRoutes": 820,
+  "manifestNotInOpenapi": 13,
+  "groups": [
+    [
+      "explore-design",
+      171
+    ],
+    [
+      "gouvernance",
+      148
+    ],
+    [
+      "api",
+      99
+    ],
+    [
+      "org-accounts",
+      84
+    ],
+    [
+      "workflow",
+      81
+    ],
+    [
+      "cortex",
+      70
+    ],
+    [
+      "connect",
+      45
+    ],
+    [
+      "observability",
+      43
+    ],
+    [
+      "command-center",
+      42
+    ],
+    [
+      "catalog",
+      33
+    ],
+    [
+      "data-quality",
+      32
+    ],
+    [
+      "projects",
+      31
+    ],
+    [
+      "bi-dashboard",
+      31
+    ],
+    [
+      "cache",
+      21
+    ],
+    [
+      "admin",
+      14
+    ],
+    [
+      "administration",
+      13
+    ],
+    [
+      "chat",
+      11
+    ],
+    [
+      "user",
+      9
+    ],
+    [
+      "deployments",
+      9
+    ],
+    [
+      "data-products",
+      8
+    ],
+    [
+      "access-requests",
+      6
+    ],
+    [
+      "common",
+      5
+    ],
+    [
+      "cache-stream",
+      5
+    ],
+    [
+      "notifications",
+      5
+    ],
+    [
+      "health",
+      1
+    ],
+    [
+      "ready",
+      1
+    ],
+    [
+      "signin",
+      1
+    ],
+    [
+      "analytics",
+      1
+    ]
+  ],
+  "aiOps": 146,
+  "finopsOps": 132,
+  "needsDoc": 268,
+  "cacheable": 384,
+  "wired": 541,
+  "unwired": 479
+}

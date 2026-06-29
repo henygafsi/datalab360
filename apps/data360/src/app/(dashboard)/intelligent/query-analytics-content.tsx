@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { Badge, Button } from 'rizzui';
 import {
   PiMagnifyingGlass,
@@ -113,7 +114,7 @@ export default function QueryAnalyticsContent() {
       setAnalyzeResult(result);
       await loadData();
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || 'Analysis failed';
+      const msg = toMessage(err, 'Analysis failed');
       setActionError(msg);
     } finally {
       setAnalyzing(false);

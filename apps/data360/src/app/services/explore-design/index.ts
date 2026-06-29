@@ -1,6 +1,7 @@
 /** Explore & Design API: metadata, events, deployments. Data journey: UI → service → /explore-design/guided/*. */
 // ////dependency//// service → lib.api-client (centralized auth+interceptors)
 import apiClient from '@/lib/api-client';
+import { toMessage } from '@/lib/error-messages';
 
 /** Explore-design prefix — unified to match backend router at /explore-design */
 const ED = '/explore-design';
@@ -1450,7 +1451,7 @@ export async function executeIngestion(
       return response.data;
     } catch (error: any) {
       console.error('[executeIngestion] Error:', error);
-      const errorDetail = error.response?.data?.detail || error.message;
+      const errorDetail = toMessage(error);
 
       return {
         status: 'failed',
@@ -1646,10 +1647,7 @@ export async function getSchemaVersions(
     };
   } catch (error: any) {
     console.error('[getSchemaVersions] Version endpoint failed:', error);
-    const detail =
-      error?.response?.data?.detail ||
-      error?.message ||
-      'Version endpoint is unavailable';
+    const detail = toMessage(error, 'Version endpoint is unavailable');
     return {
       project_id: projectId,
       versions: [],
@@ -3655,7 +3653,7 @@ export async function executeEventAction(event: LocalDesignEvent, projectId?: st
     return {
       success: false,
       message: `Failed to execute ${type}`,
-      error: error.response?.data?.detail || error.message,
+      error: toMessage(error),
     };
   }
 }

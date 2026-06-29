@@ -2,6 +2,7 @@
 // Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
 // ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.governance (policies)
 import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import PermissionGate from '@/components/ui/PermissionGate';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { useAtomValue } from 'jotai';
@@ -3445,7 +3446,7 @@ export default function ExploreDesignPage() {
       if (status === 404 || status === 501) {
         setClassifyUnavailable(true);
       } else {
-        const errMsg = err?.response?.data?.message || err?.response?.data?.detail || 'AI classification failed';
+        const errMsg = toMessage(err, 'AI classification failed');
         toast.error(typeof errMsg === 'string' ? errMsg : 'AI classification failed');
       }
     } finally {
@@ -3502,7 +3503,7 @@ export default function ExploreDesignPage() {
         (Array.isArray(result) ? result : []);
       setDataEngModal(prev => ({ ...prev, items, loading: false }));
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || `Failed to list ${type.replace('_', ' ')}`);
+      toast.error(toMessage(err, `Failed to list ${type.replace('_', ' ')}`));
       setDataEngModal(prev => ({ ...prev, loading: false }));
     }
   }, [selectedDatabase]);

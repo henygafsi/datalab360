@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { useParams, useRouter } from 'next/navigation';
 import { HiOutlineUser, HiOutlinePencil, HiOutlineArrowLeft } from 'react-icons/hi2';
 import { Button, Input, Badge, Text } from 'rizzui';
@@ -34,7 +35,7 @@ export default function ViewUserPage() {
         setUserData(data);
       } catch (err: any) {
         console.error('Error fetching user:', err);
-        const errorMessage = err.response?.data?.detail || err.message || 'Failed to fetch user details';
+        const errorMessage = toMessage(err, 'Failed to fetch user details');
         setError(errorMessage);
       } finally {
         setLoading(false);

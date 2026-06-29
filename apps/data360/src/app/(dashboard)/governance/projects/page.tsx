@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import RouteFallback from '@/components/ui/RouteFallback';
 import Link from 'next/link';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { Badge, Button, Input, Tooltip } from 'rizzui';
@@ -931,7 +932,7 @@ function ProjectsGovernancePageInner() {
 // `next build` throws / the whole page de-opts to client rendering).
 export default function ProjectsGovernancePage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<RouteFallback />}>
       <ProjectsGovernancePageInner />
     </Suspense>
   );

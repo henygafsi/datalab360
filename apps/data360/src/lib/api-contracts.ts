@@ -267,6 +267,38 @@ export const API = {
       `/explore-design/${enc(projectId)}/ingestion/operations`,
     /** GET /explore-design/schema-clone/list — list schema clones (project_id as query param) */
     schemaCloneList: () => `/explore-design/schema-clone/list`,
+    // --- Business glossary (W6 reintegration: was unwired) -------------------
+    /** GET /explore-design/glossary — list business glossary terms. */
+    glossaryList: () => '/explore-design/glossary',
+    /** POST /explore-design/glossary — create/update a glossary term (admin). */
+    glossaryUpsert: () => '/explore-design/glossary',
+    /** GET /explore-design/glossary/lookup?q=… — advisor glossary lookup (reuse). */
+    glossaryLookup: (q?: string) => `/explore-design/glossary/lookup${qs({ q })}`,
+    /** POST /explore-design/glossary/ai-draft — AI-draft a definition for review (admin). */
+    glossaryAiDraft: () => '/explore-design/glossary/ai-draft',
+    /** DELETE /explore-design/glossary/{term} — delete a glossary term (admin). */
+    glossaryDelete: (term: string) => `/explore-design/glossary/${enc(term)}`,
+    // --- Snowflake object management (W6 reintegration: dynamic tables/streams/tasks) ---
+    /** GET|POST /explore-design/dynamic-tables — list / create dynamic tables. */
+    dynamicTables: () => '/explore-design/dynamic-tables',
+    /** GET|PATCH|DELETE /explore-design/dynamic-tables/{name} — describe / alter / drop. */
+    dynamicTable: (name: string) => `/explore-design/dynamic-tables/${enc(name)}`,
+    /** POST /explore-design/dynamic-tables/{name}/{action} — suspend|resume|refresh. */
+    dynamicTableAction: (name: string, action: 'suspend' | 'resume' | 'refresh') =>
+      `/explore-design/dynamic-tables/${enc(name)}/${action}`,
+    /** GET|POST /explore-design/streams — list / create streams. */
+    streams: () => '/explore-design/streams',
+    /** GET|DELETE /explore-design/streams/{name} — describe / drop. */
+    stream: (name: string) => `/explore-design/streams/${enc(name)}`,
+    /** GET /explore-design/streams/{name}/data — peek stream data. */
+    streamData: (name: string) => `/explore-design/streams/${enc(name)}/data`,
+    /** GET /explore-design/tasks — list tasks. */
+    deTasks: () => '/explore-design/tasks',
+    /** GET|PATCH|DELETE /explore-design/tasks/{name} — describe / alter / drop. */
+    deTask: (name: string) => `/explore-design/tasks/${enc(name)}`,
+    /** POST /explore-design/tasks/{name}/{action} — suspend|resume. */
+    deTaskAction: (name: string, action: 'suspend' | 'resume') =>
+      `/explore-design/tasks/${enc(name)}/${action}`,
   },
 
   /**
@@ -460,6 +492,35 @@ export const API = {
     complianceScore: () => '/gouvernance/compliance/score',
     /** GET /gouvernance/access-review/summary — access-review findings (mfa gaps, expiring policies, orphan grants). */
     accessReviewSummary: () => '/gouvernance/access-review/summary',
+    // --- Identity & integrations (W6 reintegration: oauth / gui-perms / ent-users) ---
+    /** GET|POST /gouvernance/oauth/integrations — list / create OAuth|SAML security integrations. */
+    oauthIntegrations: () => '/gouvernance/oauth/integrations',
+    /** GET /gouvernance/oauth/network-policies — list network policies. */
+    oauthNetworkPolicies: () => '/gouvernance/oauth/network-policies',
+    /** GET /gouvernance/oauth/api-keys — list service accounts with RSA keys. */
+    oauthApiKeys: () => '/gouvernance/oauth/api-keys',
+    /** POST /gouvernance/oauth/service-users — create a service user (PAT/API access). */
+    oauthServiceUsers: () => '/gouvernance/oauth/service-users',
+    /** POST /gouvernance/oauth/assign-rsa-key — assign an RSA public key to a user. */
+    oauthAssignRsaKey: () => '/gouvernance/oauth/assign-rsa-key',
+    /** DELETE /gouvernance/oauth/revoke-rsa-key/{username} — revoke a user's RSA key. */
+    oauthRevokeRsaKey: (username: string) => `/gouvernance/oauth/revoke-rsa-key/${enc(username)}`,
+    /** POST /gouvernance/oauth/saml-integrations — create a SAML2 SSO integration. */
+    oauthSamlIntegrations: () => '/gouvernance/oauth/saml-integrations',
+    /** GET|POST /gouvernance/gui-permissions — list / upsert GUI page-access permissions. */
+    guiPermissions: () => '/gouvernance/gui-permissions',
+    /** GET /gouvernance/gui-permissions/my-access — caller's effective page access. */
+    guiMyAccess: () => '/gouvernance/gui-permissions/my-access',
+    /** GET /gouvernance/gui-permissions/effective/{username} — effective page access for a user. */
+    guiEffective: (username: string) => `/gouvernance/gui-permissions/effective/${enc(username)}`,
+    /** DELETE /gouvernance/gui-permissions/{permission_id} — delete a GUI permission. */
+    guiPermissionDelete: (permissionId: string) => `/gouvernance/gui-permissions/${enc(permissionId)}`,
+    /** GET /gouvernance/enterprise-users — list enterprise directory users. */
+    enterpriseUsers: () => '/gouvernance/enterprise-users',
+    /** PUT|DELETE /gouvernance/enterprise-users/{username} — update / delete an enterprise user. */
+    enterpriseUser: (username: string) => `/gouvernance/enterprise-users/${enc(username)}`,
+    /** POST /gouvernance/enterprise-users/sync — sync users from Snowflake. */
+    enterpriseUsersSync: () => '/gouvernance/enterprise-users/sync',
   },
 
   /** Cortex (AI) — backend: /cortex/* (modules/cortex). */
@@ -659,6 +720,10 @@ export const API = {
     budgets: () => '/observability/budgets',
     /** PUT|DELETE /observability/budgets/{name} — update/delete a spend budget. */
     budget: (name: string) => `/observability/budgets/${enc(name)}`,
+    /** POST /observability/probes/batch-check — freshness for many tables in one call. W6. */
+    probesBatchCheck: () => '/observability/probes/batch-check',
+    /** GET /observability/sensors/all — batch sensor check across all modules. W6. */
+    sensorsAll: () => '/observability/sensors/all',
   },
 
   /**
@@ -765,6 +830,12 @@ export const API = {
       `/org-accounts/warehouses/${enc(name)}${days != null ? `?days=${days}` : ''}`,
     /** GET /org-accounts/organization/warehouse-credits[?days=<n>] — per-warehouse credits from ORGANIZATION_USAGE. */
     orgWarehouseCredits:  (days?: number)               => `/org-accounts/organization/warehouse-credits${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/organization/costs[?days=<n>] — org costs by account in currency (W6 FinOps). */
+    orgCosts:             (days?: number)               => `/org-accounts/organization/costs${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/organization/storage — org storage per account (W6 FinOps). */
+    orgStorage:           ()                            => '/org-accounts/organization/storage',
+    /** GET /org-accounts/organization/remaining-balance — org remaining credit balance (W6 FinOps). */
+    orgRemainingBalance:  ()                            => '/org-accounts/organization/remaining-balance',
     /** GET /org-accounts/org-summary — activity rolled up role→module/project→account. */
     orgSummary:           ()                            => '/org-accounts/org-summary',
     /** GET /org-accounts/events[?days=<n>] — platform events audit trail. */
@@ -1176,6 +1247,33 @@ export const API = {
      */
     platformHealth: (opts?: { hours?: number; user?: string; module?: string; limit?: number }) =>
       `/administration/platform-health${qs({ hours: opts?.hours, user: opts?.user, module: opts?.module, limit: opts?.limit })}`,
+  },
+
+  /**
+   * Standalone cache-service router (`/cache/*`) — SVC-first cache observability
+   * & control (distinct from `admin.cache` = `/admin/cache/*`). Read endpoints
+   * feed FinOps/cost monitoring; control endpoints (clear/warmup/refresh) are
+   * admin-gated. Reintegration batch W6 (was unwired). [trace: app/modules/cache]
+   */
+  cacheService: {
+    svcHealth:       () => '/cache/svc-health',
+    stats:           () => '/cache/stats',
+    testConnection:  () => '/cache/test-connection',
+    clearPattern:    () => '/cache/clear/pattern',
+    clearAll:        () => '/cache/clear/all',
+    keys:            () => '/cache/keys',
+    keyValue:        (key: string) => `/cache/keys/${enc(key)}`,
+    warmup:          () => '/cache/warmup',
+    health:          () => '/cache/health',
+    performance:     () => '/cache/performance',
+    refreshStatus:   () => '/cache/refresh/status',
+    refreshStart:    () => '/cache/refresh/start',
+    refreshStop:     () => '/cache/refresh/stop',
+    refreshTrigger:  (job: string) => `/cache/refresh/trigger/${enc(job)}`,
+    warmupTrigger:   () => '/cache/warmup/trigger',
+    dashboard:       () => '/cache/dashboard',
+    breakdown:       () => '/cache/breakdown',
+    invalidations:   () => '/cache/invalidations',
   },
 } as const;
 

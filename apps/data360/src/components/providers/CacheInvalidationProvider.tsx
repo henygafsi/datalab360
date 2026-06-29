@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useCallback, useState, ReactNode } from 'react';
+import { createContext, useContext, useCallback, useEffect, useRef, useState, ReactNode } from 'react';
 import { useCacheInvalidation, CACHE_KEYS, CacheKey } from '@/hooks/useCacheInvalidation';
 import { atom, useSetAtom, useAtomValue } from 'jotai';
 import Link from 'next/link';
@@ -166,6 +166,80 @@ export function useCacheInvalidationContext() {
     );
   }
   return context;
+}
+
+/**
+ * Subscribe to real-time cache-invalidation events WITHOUT opening another SSE
+ * stream.
+ *
+ * The single `CacheInvalidationProvider` (mounted once in the dashboard shell)
+ * owns the only `/cache-stream/stream` connection and re-broadcasts every event
+ * through {@link lastInvalidationAtom} (a fresh `{ keys, reason, timestamp }`
+ * object per event). This hook reads that atom and fires `onInvalidate` exactly
+ * once per NEW event — so any number of components can react to invalidations
+ * with zero extra connections.
+ *
+ * IMPORTANT: components must use THIS (or read the atoms directly), never call
+ * {@link useCacheInvalidation} directly — each direct call opens its own SSE
+ * stream (the duplication this hook exists to eliminate).
+ *
+ * @param watchKeys keys to react to; omit/empty to fire on every event. The
+ *   callback may still do its own finer-grained key check (back-compat with the
+ *   previous `onInvalidate` callbacks, which filtered internally).
+ * @param onInvalidate called with the invalidated keys + optional reason.
+ *
+ * @example
+ * useOnCacheInvalidation(undefined, (keys) => {
+ *   if (keys.includes(CACHE_KEYS.GRANTS)) reload();
+ * });
+ */
+export function useOnCacheInvalidation(
+  watchKeys: readonly string[] | ReadonlySet<string> | undefined,
+  onInvalidate: (keys: string[], reason?: string) => void,
+) {
+  const last = useAtomValue(lastInvalidationAtom);
+  // Latest callback / keys held in refs so the effect depends ONLY on `last`
+  // (a new object ref per event) → it fires exactly once per event, not on every
+  // render or whenever an inline callback identity changes.
+  const cbRef = useRef(onInvalidate);
+  cbRef.current = onInvalidate;
+  const keysRef = useRef(watchKeys);
+  keysRef.current = watchKeys;
+  // Seed with the mount-time value so a pre-existing (pre-mount) event is NOT
+  // replayed — matching the old hook, which only fired on events after mount.
+  const seenRef = useRef(last);
+
+  useEffect(() => {
+    if (last === seenRef.current) return; // no new event since last handled (incl. mount)
+    seenRef.current = last;
+    if (!last) return;
+    const watch = keysRef.current;
+    const watchSet = watch ? (watch instanceof Set ? watch : new Set(watch)) : null;
+    if (watchSet && watchSet.size > 0 && !last.keys.some((k) => watchSet.has(k))) return;
+    cbRef.current(last.keys, last.reason);
+  }, [last]);
+}
+
+/**
+ * Drop-in replacement for {@link useCacheInvalidation} that does NOT open its own
+ * SSE stream — it subscribes to the singleton Provider's broadcast instead.
+ *
+ * Same call shape as the old hook (`{ onInvalidate }`) so a component can switch
+ * off the per-component stream by changing only its import, e.g.:
+ *   `import { useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';`
+ *
+ * Only `onInvalidate` is honoured (the other stream-management options —
+ * debug/sseUrl/redirectOnOffline/maxReconnectAttempts — belong to the single
+ * owning connection and are ignored here). Connection status is available via
+ * {@link useCacheInvalidationContext}.
+ */
+export function useCacheInvalidationSubscription(
+  options: { onInvalidate?: (keys: string[], reason?: string) => void } = {},
+) {
+  const { onInvalidate } = options;
+  useOnCacheInvalidation(undefined, (keys, reason) => {
+    onInvalidate?.(keys, reason);
+  });
 }
 
 /**

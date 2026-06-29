@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { PiTag } from 'react-icons/pi';
 import { Badge } from 'rizzui';
 import AuditTable from '@/app/shared/command-center/AuditTable';
@@ -37,7 +38,7 @@ export default function GovernanceTagsPanel() {
       setTags(Array.isArray(t) ? t : []);
       setStatus('ready');
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || 'Failed to load governance tags');
+      setError(toMessage(err, 'Failed to load governance tags'));
       setTags([]);
       setStatus('error');
     }

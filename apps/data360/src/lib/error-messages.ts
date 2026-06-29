@@ -227,6 +227,36 @@ export function getErrorMessageForFeature(
 }
 
 /**
+ * Safe message extractor for component catch blocks. ALWAYS returns a string —
+ * never an object — so a structured backend `detail` (e.g. a 503
+ * `{errorCode, error_code, account, reason, message}`) can never reach JSX and
+ * trigger "Objects are not valid as a React child". Replaces the unsafe idiom
+ * `e?.response?.data?.detail || e?.message` which returns the object when
+ * `detail` is structured.
+ */
+export function toMessage(err: unknown, fallback = 'Une erreur est survenue.'): string {
+  if (err == null) return fallback;
+  if (typeof err === 'string') return err;
+  const e = err as any;
+  const pick = (v: unknown): string | undefined => {
+    if (typeof v === 'string') return v || undefined;
+    if (v && typeof v === 'object') {
+      const o = v as Record<string, unknown>;
+      for (const k of ['detail', 'message', 'reason', 'msg', 'error']) {
+        if (typeof o[k] === 'string' && (o[k] as string).length) return o[k] as string;
+      }
+    }
+    return undefined;
+  };
+  return (
+    pick(e?.response?.data?.detail) ||
+    pick(e?.response?.data) ||
+    (typeof e?.message === 'string' ? e.message : undefined) ||
+    fallback
+  );
+}
+
+/**
  * Helper for axios/API client catch: extract status, detail, error_code, snowflake from error response.
  */
 export function getErrorMessageFromError(

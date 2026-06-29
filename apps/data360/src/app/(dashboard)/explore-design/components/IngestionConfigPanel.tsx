@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { toMessage } from '@/lib/error-messages';
 import { cn } from '@/lib/utils';
 import { Button, Badge, Input, Tooltip, Switch } from 'rizzui';
 import {
@@ -285,7 +286,7 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
       const source = result.resolved_from === 'events' ? ' (based on planned DDL)' : '';
       toast.success(`AI recommends "${mode}" — ${result.recommendation.reason}${source}`);
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Failed to get AI suggestion');
+      toast.error(toMessage(err, 'Failed to get AI suggestion'));
     } finally {
       setIsLoadingModeSuggest(false);
     }
@@ -307,7 +308,7 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
       const reasoning = result.rationale?.join('; ') || result.reasoning || '';
       toast.success(`AI recommends "${recommended}" (${Math.round(result.confidence * 100)}% confidence) — ${reasoning}`);
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'Failed to get SCD recommendation');
+      toast.error(toMessage(err, 'Failed to get SCD recommendation'));
     } finally {
       setIsLoadingScdSuggest(false);
     }

@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CACHE_KEYS, useCacheInvalidation } from '@/hooks/useCacheInvalidation';
+import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import {
   getTableContext,
