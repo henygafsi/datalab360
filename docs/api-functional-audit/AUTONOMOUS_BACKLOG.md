@@ -39,8 +39,9 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 - [ ] Suivi (5 pages avec `fallback={null}` : data360-config, governance projects/policies, sources, bi-dashboard) → même durcissement skeleton, micro-vague.
 - [ ] Pages "backend 200 mais UI vide" : à revoir quand le backend déployé est sain (actuellement tout est SVC-down = cause backend).
 
-### W5 — Réponses stockées / coût (FinOps)
-- [ ] Étendre le store "première réponse" au-delà du Probe manuel : stratégie de cache par endpoint cacheable (384) documentée + hint dans la vue.
+### W5 — Réponses stockées / coût (FinOps) ✅ FAIT (commit 6c03af6)
+- [x] `probe()` court-circuite le réseau si déjà en cache (= appel backend évité) → **store-first = optimisation coût** explicite. Force-refresh via le bouton `✓ cache ⟳`. Résumé `♻ N en cache` + bouton vider. Hint cache (store-first/live/no-cache) déjà par endpoint (384 cacheables). Build VERT.
+- [ ] Approfondissement (non bloquant) : estimation de crédits/coût par endpoint + TTL configurable du store.
 
 ---
 ## Élargissement (PS utilisateur 2026-06-29 ~01:2x) — backend on-disk + nouvelles features
@@ -69,6 +70,7 @@ Mandate utilisateur (2026-06-29) : run autonome ~8h. Construire une vue fonction
 | 2026-06-29 00:3x | W0 (fondation) | Vue fonctionnelle + route + générateur + fix crash snowpark + sweep 64 routes. Commit 769987a. Vérifié Playwright (600 lignes). |
 | 2026-06-29 ~00:5x | W1 (partiel) | Cause racine `extractApiError` durcie (15 consommateurs) + 4 fichiers `toMessage` + fix types FunctionalApiView. **`pnpm iso:build` VERT**. Commit d686e46. Découvert : 769987a ne passait que le dev compile, pas `next build` → garde-fou renforcé. Reste : ~20 fichiers anti-pattern + re-sweep Playwright. |
 | 2026-06-29 01:11 CEST | W1 (FAIT) | Sweep complet: 27 sites / 18 fichiers `toMessage` (commit d109496), build `pnpm iso:build` VERT. **Re-sweep Playwright: client-accounts/ai-advisor/snowpark/costGov = ok, 0 pageerror** (crash object-as-React-child éliminé). Gotcha .next/build-vs-dev documenté. Prochaine: W2 (enrichissement catalogue). |
+| 2026-06-29 03:05 CEST | W5 (FAIT) → **backlog initial W1–W5 bouclé** | Store-first cache : `probe()` court-circuite le réseau si en cache (appel backend évité = coût) + résumé `♻ N en cache`/vider + force-refresh. Build VERT, commit 6c03af6. **W1–W5 tous faits.** Restent W6 (réintégration 769) / W7 (backend deploy-gated, besoin go) / W8 (paiement dry-run) / W9 (chat agentic). Prochaine vague : W6. |
 | 2026-06-29 02:37 CEST | W4 (FAIT) | BLANK élucidés par cause : `/administration` = **faux-blank compile dev** (rend ok runtime, défaute déjà à health) → durci Suspense `null`→skeleton (commit 25fe9e9, build VERT) ; `/administration/access-center` = **backend-cause** (503/500), pas FE. Suivi : 5 autres `fallback={null}`. Prochaine : W5 (cache coût) ou W6 (réintégration). |
 | 2026-06-29 01:4x CEST | W3 (FAIT) | Doc Obsidian consolidé `vault/data360_full_doc/_FUNCTIONAL_API_AUDIT_2026-06-29.md` (5.4KB) : pages × APIs × manquements par cause, tableau runtime sweep, 769 non-wirés par module, wikilinks validés (cibles `pages/*.md` existent). Hors repo front → pas de commit git. Prochaine : W4 (BLANK /administration) ou W6 (réintégration). |
 | 2026-06-29 01:36 CEST | W2 (FAIT) | Catalogue enrichi : `hint` FR synthétisé (371 endpoints sans desc claire) + **filtre data_user** + chip audience + ligne hint dans la vue. FinOps observe/control/optimize confirmés. Build `pnpm iso:build` VERT. Commit 171578b. Reste différé : texte doc-en-ligne réel pour les 268 `needsDoc` (par batches). Prochaine : W3 (doc Obsidian) ou W6 (réintégration endpoints). |
