@@ -1177,6 +1177,33 @@ export const API = {
     platformHealth: (opts?: { hours?: number; user?: string; module?: string; limit?: number }) =>
       `/administration/platform-health${qs({ hours: opts?.hours, user: opts?.user, module: opts?.module, limit: opts?.limit })}`,
   },
+
+  /**
+   * Standalone cache-service router (`/cache/*`) — SVC-first cache observability
+   * & control (distinct from `admin.cache` = `/admin/cache/*`). Read endpoints
+   * feed FinOps/cost monitoring; control endpoints (clear/warmup/refresh) are
+   * admin-gated. Reintegration batch W6 (was unwired). [trace: app/modules/cache]
+   */
+  cacheService: {
+    svcHealth:       () => '/cache/svc-health',
+    stats:           () => '/cache/stats',
+    testConnection:  () => '/cache/test-connection',
+    clearPattern:    () => '/cache/clear/pattern',
+    clearAll:        () => '/cache/clear/all',
+    keys:            () => '/cache/keys',
+    keyValue:        (key: string) => `/cache/keys/${enc(key)}`,
+    warmup:          () => '/cache/warmup',
+    health:          () => '/cache/health',
+    performance:     () => '/cache/performance',
+    refreshStatus:   () => '/cache/refresh/status',
+    refreshStart:    () => '/cache/refresh/start',
+    refreshStop:     () => '/cache/refresh/stop',
+    refreshTrigger:  (job: string) => `/cache/refresh/trigger/${enc(job)}`,
+    warmupTrigger:   () => '/cache/warmup/trigger',
+    dashboard:       () => '/cache/dashboard',
+    breakdown:       () => '/cache/breakdown',
+    invalidations:   () => '/cache/invalidations',
+  },
 } as const;
 
 /** Build an absolute URL from a relative API path (for fetch()/axios callers). */
