@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
+import RouteFallback from '@/components/ui/RouteFallback';
 import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, ExternalLink, Clock, Rocket, AlertTriangle, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -8,7 +9,7 @@ import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
-import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { createDashboard } from '@/app/services/api/biDashboardApi';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
@@ -494,7 +495,7 @@ function BIDashboardPage() {
 // useSearchParams() requires a Suspense boundary in the App Router.
 export default function BIDashboardPageWrapper() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<RouteFallback />}>
       <BIDashboardPage />
     </Suspense>
   );

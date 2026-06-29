@@ -18,6 +18,7 @@
  * redirect links rather than a second editor on the same allow-set.
  */
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import RouteFallback from '@/components/ui/RouteFallback';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -71,7 +72,7 @@ import {
 } from '@/app/services/governance';
 import { getUsersWithRolesAndModules, type UserGrantTableData } from '@/app/services/governance/user_roles';
 import { useCanPerform } from '@/hooks/useCanPerform';
-import { useCacheInvalidation, CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 import { toast } from '@/hooks/use-toast';
 
 type AsyncState = 'idle' | 'running' | 'done' | 'error';
@@ -1454,7 +1455,7 @@ function Data360ConfigPageInner() {
 // `next build` throws / the whole page de-opts to client rendering).
 export default function Data360ConfigPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<RouteFallback />}>
       <Data360ConfigPageInner />
     </Suspense>
   );
