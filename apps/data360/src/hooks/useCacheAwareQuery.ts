@@ -33,12 +33,36 @@ interface UseCacheAwareQueryOptions<T> {
 interface UseCacheAwareQueryResult<T> {
   data: T | null;
   loading: boolean;
+  /**
+   * A GENUINE failure. Null for benign "route not provisioned / not permitted"
+   * responses (403/404/501) — those surface via {@link unavailable} instead, so
+   * the common `if (error) <ErrorDisplay/>` pattern no longer shows a scary,
+   * un-retryable red box for an endpoint that simply isn't deployed for this
+   * account/role. Mirrors the platform's InsightActionButton 404/501 convention.
+   */
   error: Error | null;
   refetch: () => Promise<void>;
   /** Whether the data is stale and a refetch is pending */
   isStale: boolean;
   /** Timestamp of last successful fetch */
   lastFetchedAt: Date | null;
+  /**
+   * True when the last fetch failed with 403/404/501 — i.e. the route is not
+   * provisioned on this backend or not permitted for the current role. Render a
+   * quiet "not available yet" notice, NOT an error. `error` is null in this case.
+   */
+  unavailable: boolean;
+  /** HTTP status of the last failed fetch, when available (else null). */
+  status: number | null;
+}
+
+/** Statuses that mean "expected: route not provisioned / not permitted", not a bug. */
+const BENIGN_STATUSES = new Set([403, 404, 501]);
+
+/** Best-effort extraction of an HTTP status from a thrown fetch/axios error. */
+function statusOf(err: unknown): number | null {
+  const e = err as { response?: { status?: number }; status?: number } | null;
+  return e?.response?.status ?? e?.status ?? null;
 }
 
 /**
@@ -75,6 +99,8 @@ export function useCacheAwareQuery<T>(
   const [error, setError] = useState<Error | null>(null);
   const [isStale, setIsStale] = useState<boolean>(false);
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null);
+  const [unavailable, setUnavailable] = useState<boolean>(false);
+  const [status, setStatus] = useState<number | null>(null);
 
   const invalidatedKeys = useAtomValue(invalidatedKeysAtom);
   const lastInvalidation = useAtomValue(lastInvalidationAtom);
@@ -98,12 +124,24 @@ export function useCacheAwareQuery<T>(
       if (mountedRef.current) {
         setData(result);
         setError(null);
+        setUnavailable(false);
+        setStatus(null);
         setIsStale(false);
         setLastFetchedAt(new Date());
       }
     } catch (err: unknown) {
       if (mountedRef.current) {
-        setError(err instanceof Error ? err : new Error(String(err)));
+        const code = statusOf(err);
+        setStatus(code);
+        if (code != null && BENIGN_STATUSES.has(code)) {
+          // Expected: route not provisioned / not permitted for this role.
+          // Surface as `unavailable`, NOT a hard error (no red retry box).
+          setUnavailable(true);
+          setError(null);
+        } else {
+          setUnavailable(false);
+          setError(err instanceof Error ? err : new Error(String(err)));
+        }
       }
     } finally {
       if (mountedRef.current) {
@@ -165,6 +203,8 @@ export function useCacheAwareQuery<T>(
     refetch,
     isStale,
     lastFetchedAt,
+    unavailable,
+    status,
   };
 }
 
