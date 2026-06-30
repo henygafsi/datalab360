@@ -1,0 +1,41 @@
+# SPCS service specification — Data360 Next.js frontend
+# Used by Track A (direct `CREATE SERVICE ... FROM SPECIFICATION`) and by the
+# Native App setup_script (Track B/C). Image path is relative to the image
+# repository created in infra/terraform (CP_DATA360.APP_TEST.DATA360_REPO).
+#
+# NOTE: External Access Integration (egress to api.datalab360.io) is attached
+# at CREATE SERVICE time via EXTERNAL_ACCESS_INTEGRATIONS=(...), NOT in this spec.
+spec:
+  containers:
+    - name: frontend
+      image: /CP_DATA360/APP_TEST/DATA360_REPO/data360-frontend:dev
+      env:
+        NODE_ENV: production
+        PORT: "3000"
+        HOSTNAME: "0.0.0.0"
+        # The Next.js server-side rewrite proxy targets the external backend.
+        API_PROXY_UPSTREAM: "http://api.datalab360.io"
+        NEXT_PUBLIC_API_URL: "http://api.datalab360.io"
+        # NEXTAUTH_URL must match the public SPCS endpoint once known; the deploy
+        # script patches this after the endpoint is provisioned (two-pass).
+        NEXTAUTH_URL: "https://REPLACE_WITH_PUBLIC_ENDPOINT"
+      secrets:
+        # Map a Snowflake SECRET object to the env var (don't bake secrets in
+        # the image). Create the secret in infra/terraform or manually.
+        - snowflakeSecret: NEXTAUTH_SECRET_OBJ
+          secretKeyRef: secret_string
+          envVarName: NEXTAUTH_SECRET
+      readinessProbe:
+        port: 3000
+        path: /
+      resources:
+        requests:
+          cpu: "0.5"
+          memory: 1Gi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+  endpoints:
+    - name: web
+      port: 3000
+      public: true

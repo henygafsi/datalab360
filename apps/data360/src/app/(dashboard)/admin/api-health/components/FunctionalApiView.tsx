@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState, useCallback, Fragment } from 'react';
 import apiClient from '@/lib/api-client';
 import { getServerMetrics } from '@/app/services/admin-visibility';
 import { toMessage } from '@/lib/error-messages';
+import cacheMapRaw from '../data/endpoint-cache-map.json';
 
 type CatalogEntry = {
   method: string; path: string; group: string; action: string; desc: string; hint: string;
@@ -40,6 +41,49 @@ const isFresh = (p?: Probe): boolean => !!p && (Date.now() - new Date(p.at).getT
 
 const norm = (p: string) => p.replace(/\{[^}]+\}/g, '{}').replace(/\/$/, '');
 const keyOf = (m: string, p: string) => `${m} ${norm(p)}`;
+
+// ── Data-freshness ("température des données") ────────────────────────────────
+// endpoint-cache-map.json carries, per endpoint, whether the served payload is
+// cached, the cache TTL (seconds), the refresh "zone" (cacheType) and the cache
+// key strategy. We join it to the catalog on the same method+normalised-path key
+// so each row can show HOW FRESH the data it returns is.
+type CacheInfo = { cached: boolean; cacheType: string | null; ttl: number | null; strategy: string | null; responseMs: number | null };
+const CACHE_INFO: Record<string, CacheInfo> = (() => {
+  const m: Record<string, CacheInfo> = {};
+  const eps = (cacheMapRaw as { endpoints: ({ path: string; method: string } & CacheInfo)[] }).endpoints || [];
+  for (const e of eps) m[keyOf(e.method, e.path)] = { cached: e.cached, cacheType: e.cacheType, ttl: e.ttl, strategy: e.strategy, responseMs: e.responseMs };
+  return m;
+})();
+const humanizeTtl = (s?: number | null): string | null => {
+  if (s == null) return null;
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  const h = s / 3600;
+  return `${Number.isInteger(h) ? h : Math.round(h * 10) / 10} h`;
+};
+const relTime = (iso: string): string => {
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  return `${Math.round(s / 3600)} h`;
+};
+// neutral labels (no vendor terms) for the refresh zone + cache-key strategy
+const cacheZone: Record<string, string> = {
+  shared_cache: 'partagé (compte)',
+  account_role_cache: 'par rôle',
+  session_cache: 'par session',
+};
+const strategyLabel: Record<string, string> = {
+  query_based: 'par requête', project_based: 'par projet', user_based: 'par utilisateur',
+  metadata_based: 'métadonnées', session: 'session',
+};
+// render desc that may carry "**Pre-hook:** … **Post-hook:** …" markdown bold
+const renderDesc = (txt: string) =>
+  txt.split(/(\*\*[^*]+\*\*)/g).map((p, i) =>
+    p.startsWith('**') && p.endsWith('**')
+      ? <b key={i} style={{ color: '#374151' }}>{p.slice(2, -2)}</b>
+      : <Fragment key={i}>{p}</Fragment>,
+  );
 
 const chip = (txt: string, bg: string, fg: string) => (
   <span style={{ background: bg, color: fg, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>{txt}</span>
@@ -151,6 +195,36 @@ export default function FunctionalApiView() {
     return null;
   };
 
+  // Data-freshness badge for a row: cache policy + TTL + refresh zone, plus a
+  // "data fetched X ago" line when a live probe response is stored locally.
+  const freshness = (e: CatalogEntry, k: string) => {
+    const ci = CACHE_INFO[k];
+    const probe = isFresh(store[k]) ? store[k] : undefined;
+    const isMutation = e.cache.startsWith('no-cache');
+    const cached = (ci?.cached ?? false) || e.cache.startsWith('cacheable');
+    const ttlH = humanizeTtl(ci?.ttl);
+    const zone = ci?.cacheType ? cacheZone[ci.cacheType] ?? ci.cacheType : null;
+    let label: string, bg: string, fg: string, title: string;
+    if (isMutation) {
+      label = 'écriture'; bg = '#f3f4f6'; fg = '#6b7280';
+      title = 'Mutation — écrit des données, pas de cache de lecture';
+    } else if (cached) {
+      label = ttlH ? `≤ ${ttlH}` : 'mis en cache'; bg = '#ecfdf5'; fg = '#15803d';
+      title = `Données mises en cache${ttlH ? `, rafraîchies au plus tard toutes les ${ttlH}` : ''}${zone ? ` · périmètre ${zone}` : ''}`;
+    } else {
+      label = 'live'; bg = '#eff6ff'; fg = '#1d4ed8';
+      title = 'Données en temps réel (no-store) — recalculées à chaque appel';
+    }
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span title={title} style={{ background: bg, color: fg, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', width: 'fit-content' }}>
+          🕒 {label}{zone && !isMutation && <span style={{ fontWeight: 400, opacity: 0.75 }}> · {zone}</span>}
+        </span>
+        {probe && <span style={{ fontSize: 10, color: '#9ca3af', whiteSpace: 'nowrap' }}>récupéré il y a {relTime(probe.at)}</span>}
+      </div>
+    );
+  };
+
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} style={{
@@ -224,7 +298,7 @@ export default function FunctionalApiView() {
                 <th style={{ padding: '8px 10px' }}>Temps</th>
                 <th style={{ padding: '8px 10px' }}>IA</th>
                 <th style={{ padding: '8px 10px' }}>FinOps</th>
-                <th style={{ padding: '8px 10px' }}>Cache</th>
+                <th style={{ padding: '8px 10px' }} title="Température des données : à quel point la donnée servie est fraîche / mise en cache (TTL · périmètre de rafraîchissement)">Fraîcheur</th>
                 <th style={{ padding: '8px 10px' }}>Probe</th>
               </tr>
             </thead>
@@ -248,7 +322,7 @@ export default function FunctionalApiView() {
                     </td>
                     <td style={{ padding: '6px 10px' }}>{aiChip(e.aiRole)}</td>
                     <td style={{ padding: '6px 10px' }}>{finChip(e.finops)}</td>
-                    <td style={{ padding: '6px 10px', color: e.cache.startsWith('cacheable') ? '#16a34a' : '#999', fontSize: 11 }}>{e.cache.startsWith('cacheable') ? 'store-first' : e.cache.startsWith('live') ? 'live' : 'no-cache'}</td>
+                    <td style={{ padding: '6px 10px' }}>{freshness(e, k)}</td>
                     <td style={{ padding: '6px 10px' }}>
                       {safeGet ? (
                         <button onClick={() => probe(e, isFresh(store[k]))} disabled={probing === k} title={isFresh(store[k]) ? `En cache (${store[k].ms}ms, <1h) — cliquer pour rafraîchir` : 'Récupère et stocke la 1ʳᵉ réponse'} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #6d28d9', background: isFresh(store[k]) ? '#ecfdf5' : '#fff', color: isFresh(store[k]) ? '#15803d' : '#6d28d9', cursor: 'pointer' }}>
@@ -260,21 +334,57 @@ export default function FunctionalApiView() {
                   {isOpen && (
                     <tr style={{ background: '#fafaff' }}>
                       <td colSpan={7} style={{ padding: '8px 14px 12px 30px', fontSize: 11.5, color: '#555' }}>
-                        {(e.desc || e.hint) && <div style={{ marginBottom: 6 }}><b>Description :</b> {e.desc || e.hint}</div>}
+                        <div style={{ marginBottom: 6 }}><b>Action :</b> {e.action}</div>
+                        {(e.desc || e.hint) && <div style={{ marginBottom: 6, lineHeight: 1.5 }}><b>Description :</b> {renderDesc(e.desc || e.hint)}</div>}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
                           <span><b>Audience :</b> {e.audience}{e.needsDoc ? ' (doc à clarifier)' : ''}</span>
                           <span><b>RBAC :</b> <code>{e.rbac}</code></span>
-                          <span><b>Cache :</b> {e.cache}</span>
                           <span><b>IA :</b> {e.aiRole}</span>
                           <span><b>FinOps :</b> {e.finops}</span>
                           <span><b>Wiré FE :</b> {e.wired ? 'oui' : 'non — à réintégrer'}</span>
                           {e.tags?.length > 0 && <span><b>Tags :</b> {e.tags.join(', ')}</span>}
                         </div>
+                        {/* Data-freshness ("température des données") — TTL · périmètre · clé de cache */}
+                        <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px dashed #ececff' }}>
+                          <b>Fraîcheur des données :</b>{' '}
+                          {(() => {
+                            const ci = CACHE_INFO[k];
+                            const bits: string[] = [];
+                            if (e.cache.startsWith('no-cache')) bits.push('mutation (écrit des données, pas de cache de lecture)');
+                            else if ((ci?.cached ?? false) || e.cache.startsWith('cacheable')) {
+                              const ttlH = humanizeTtl(ci?.ttl);
+                              bits.push(ttlH ? `mis en cache (TTL ${ttlH})` : 'mis en cache (réponse stockée)');
+                              if (ci?.cacheType) bits.push(`périmètre ${cacheZone[ci.cacheType] ?? ci.cacheType}`);
+                              if (ci?.strategy) bits.push(`clé ${strategyLabel[ci.strategy] ?? ci.strategy}`);
+                            } else bits.push('temps réel (no-store) — recalculée à chaque appel');
+                            return bits.join(' · ');
+                          })()}
+                          {isFresh(store[k]) && <span style={{ color: '#15803d' }}> · dernière récupération il y a {relTime(store[k].at)}</span>}
+                        </div>
                         {e.params.length > 0 && (
-                          <div style={{ marginTop: 6 }}><b>Paramètres :</b> {e.params.map((p) => `${p.n}${p.req ? '*' : ''} (${p.in})`).join(' · ')}</div>
+                          <div style={{ marginTop: 6 }}>
+                            <b>Paramètres :</b>{' '}
+                            {e.params.map((p, i) => (
+                              <span key={p.n + p.in + i} style={{ display: 'inline-block', marginRight: 10 }}>
+                                <code style={{ background: '#f3f4f6', borderRadius: 4, padding: '0 4px' }}>{p.n}</code>
+                                <span style={{ color: '#9ca3af' }}> · {p.in}</span>
+                                {p.req
+                                  ? <span style={{ color: '#dc2626', fontWeight: 700 }} title="Paramètre requis"> · requis</span>
+                                  : <span style={{ color: '#9ca3af' }} title="Paramètre optionnel"> · opt.</span>}
+                              </span>
+                            ))}
+                          </div>
                         )}
                         {e.bodyFields && e.bodyFields.length > 0 && (
-                          <div style={{ marginTop: 4 }}><b>Body :</b> <code>{`{ ${e.bodyFields.join(', ')} }`}</code></div>
+                          <div style={{ marginTop: 4 }}>
+                            <b>Corps (body) :</b>{' '}
+                            {e.bodyFields.map((f, i) => (
+                              <code key={f + i} style={{ background: '#f3f4f6', borderRadius: 4, padding: '0 4px', marginRight: 6 }}>{f}</code>
+                            ))}
+                          </div>
+                        )}
+                        {e.hasBody && (!e.bodyFields || e.bodyFields.length === 0) && (
+                          <div style={{ marginTop: 4, color: '#9ca3af' }}><b>Corps (body) :</b> requis — schéma non documenté</div>
                         )}
                         {e.returns && e.returns.length > 0 && (
                           <div style={{ marginTop: 4 }}><b>Retourne :</b> <code>{e.returns[0] === '(payload)' ? 'payload' : `{ ${e.returns.join(', ')} }`}</code></div>

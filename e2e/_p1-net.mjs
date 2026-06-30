@@ -1,0 +1,13 @@
+import { chromium } from '@playwright/test';
+const BASE='http://localhost:3000', STATE='/Users/datalab360/Documents/data360_pro/datalab360Front/e2e/.auth/state-minted.json';
+const b=await chromium.launch();
+const ctx=await b.newContext({storageState:STATE,viewport:{width:1700,height:1050}});
+const p=await ctx.newPage();
+const calls=[], errs=[];
+p.on('response',r=>{const u=r.url(); if(/catalog|product|scores/i.test(u)) calls.push(r.status()+' '+u.replace(BASE,'').replace('/api-proxy','').split('?')[0]);});
+p.on('console',m=>{if(m.type()==='error')errs.push(m.text().slice(0,120));});
+await p.goto(`${BASE}/data-products`,{waitUntil:'domcontentloaded',timeout:120000}).catch(()=>{});
+await p.waitForTimeout(18000);
+console.log('catalog/product/scores calls:'); [...new Set(calls)].forEach(c=>console.log('  ',c));
+console.log('console errors:', errs.length); [...new Set(errs)].slice(0,6).forEach(e=>console.log('  ',e));
+await b.close();

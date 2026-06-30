@@ -1,6 +1,20 @@
 {
   "permissions": {
+  
     "allow": [
+      "Bash(npx tsc:*)", "Bash(pnpm exec tsc:*)", "Bash(curl:*)",
+      "Bash(pnpm run iso:lint:*)", "Bash(pnpm run lint:*)", "Bash(find:*)",
+      "Bash(ls:*)", "Bash(grep:*)", "Bash(git checkout:*)", "Bash(git add:*)",
+      "Bash(git commit:*)", "Bash(python:*)", "Bash(python3:*)",
+      "Bash(pip show:*)", "Bash(pip install:*)", "Bash(playwright install:*)",
+      "Bash(cat:*)", "Bash(wc:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(sed:*)",
+      "Bash(node:*)", "Bash(pnpm iso:build)", "Bash(pnpm iso:start)",
+      "Bash(pnpm iso:dev:*)", "Bash(npx playwright:*)", "Bash(pnpm exec playwright:*)",
+      "Bash(mkdir:*)", "Bash(lsof:*)", "Bash(pgrep:*)", "Bash(kill:*)",
+      "Bash(ssh -i ~/.ssh/id_ed25519 root@167.172.162.172:*)",
+      "Bash(ssh root@167.172.162.172:*)", "Bash(sshpass:*)", "Bash(scp:*)",
+      "Bash(git push origin feat/backlog-v1:*)",
+      "mcp__ide__getDiagnostics",
       "Bash(npx tsc:*)",
       "Bash(pnpm exec tsc:*)",
       "Bash(curl:*)",
@@ -29,5 +43,12 @@
       "Bash(ssh -i ~/.ssh/id_ed25519 root@167.172.162.172:*)"
     ]
   },
+  "disabledMcpjsonServers": [
+    "data360-health",
+    "data360-ux",
+    "data360-roles",
+    "data360-snowflake"
+  ],
+  "enableAllProjectMcpServers": true,
   "prefersReducedMotion": true
 }

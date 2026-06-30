@@ -234,7 +234,8 @@ function DataProductsPage() {
 
   const sel = products.find((p) => p.PRODUCT_ID === selectedProduct);
 
-  const trustAvg = catalogScores?.averages?.trust_avg;
+  // Backend GET /catalog/scores returns averages.trust (not trust_avg) — see QA P1-5.
+  const trustAvg = catalogScores?.averages?.trust ?? catalogScores?.averages?.trust_avg;
 
   const kpis: { label: string; value: string; icon: React.ReactNode; color: string; sub: string; help?: MetricHelpProps }[] = [
     {

@@ -14,8 +14,14 @@ type KpiStripProps = {
   failing: number | null;
   slow: number | null;
   avgLatencyMs: number | null;
-  /** Honest success rate (healthy / total, 0..1). Null until a probe has run. */
+  /**
+   * Operational rate (0..1) — share of probes the API handled correctly
+   * (healthy + slow + expected rejections + known gaps + config-dependent).
+   * This is the HEADLINE. Null until a probe has run.
+   */
   successRate?: number | null;
+  /** Strict healthy rate (genuine 2xx / total, 0..1) — the conservative number. */
+  healthyRate?: number | null;
   /** Latency percentiles over reachable probes. Null until a probe has run. */
   p50Ms?: number | null;
   p95Ms?: number | null;
@@ -39,7 +45,8 @@ function fmtMs(value: number | null | undefined): string {
 
 const cards: { key: keyof KpiStripProps; label: string; tone: string }[] = [
   { key: 'total', label: 'Total endpoints', tone: '#334155' },
-  { key: 'successRate', label: 'Success rate', tone: '#16a34a' },
+  { key: 'successRate', label: 'Operational rate', tone: '#16a34a' },
+  { key: 'healthyRate', label: 'Healthy rate', tone: '#16a34a' },
   { key: 'healthy', label: 'Healthy', tone: '#16a34a' },
   { key: 'expected', label: 'Expected', tone: '#64748b' },
   { key: 'defects', label: 'Defects', tone: '#a21caf' },
@@ -58,7 +65,7 @@ export function KpiStrip(props: KpiStripProps) {
       {cards.map((c) => {
         const raw = props[c.key];
         const display =
-          c.key === 'successRate'
+          c.key === 'successRate' || c.key === 'healthyRate'
             ? fmtPct(raw as number | null | undefined)
             : c.key === 'avgLatencyMs' || c.key === 'p50Ms' || c.key === 'p95Ms'
               ? fmtMs(raw as number | null | undefined)

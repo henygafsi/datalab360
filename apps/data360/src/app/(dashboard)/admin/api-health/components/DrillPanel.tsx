@@ -5,6 +5,53 @@ import { Button, Text, Title } from 'rizzui';
 import { generateCompletion } from '@/app/services/cortex/ml-features';
 import { isDefect, isExpected, parseErrorBody, SLOW_THRESHOLD_MS, type ProbeDetail } from './types';
 import { QueryIntrospect } from './QueryIntrospect';
+import cacheMap from '../data/endpoint-cache-map.json';
+
+// ── Data freshness ("temp of data entries") ────────────────────────────────
+// Joins a probed row to the backend cache contract (endpoint-cache-map.json) by
+// its request path, so the drill panel can state how fresh the data this
+// endpoint serves is: real-time, or cached with a TTL + refresh scope.
+type CacheEntry = {
+  path: string; method: string; module: string; cached: boolean;
+  cacheType: string | null; ttl: number | null; strategy: string | null;
+  invalidation: string | null; responseMs: number | null;
+};
+const CACHE_ENTRIES: CacheEntry[] = ((cacheMap as any)?.endpoints ?? []) as CacheEntry[];
+// Normalise a concrete url to the catalog's `{param}` template shape so a probed
+// `/projects/abc123/versions` matches `/projects/{project_id}/versions`.
+const normPath = (p: string): string =>
+  p.replace(/\/api-proxy/, '')
+    .split('?')[0]
+    .replace(/\/$/, '')
+    .replace(/\/[0-9a-fA-F-]{8,}/g, '/{}')   // uuid-ish segments
+    .replace(/\/\d+/g, '/{}')                // numeric ids
+    .replace(/\{[^}]+\}/g, '{}');
+const TTL_HUMAN = (s: number): string =>
+  s >= 3600 ? `${Math.round(s / 3600)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`;
+// Neutral refresh-scope label — never leak the warehouse vendor / internal enum.
+const SCOPE_LABEL: Record<string, string> = {
+  shared_cache: 'shared across the account',
+  account_role_cache: 'per role',
+  session_cache: 'per session',
+};
+function freshnessFor(method?: string, url?: string): { label: string; detail: string } | null {
+  if (!url) return null;
+  const np = normPath(url);
+  const m = (method || 'GET').toUpperCase();
+  const hit =
+    CACHE_ENTRIES.find(e => e.method === m && normPath(e.path) === np) ||
+    CACHE_ENTRIES.find(e => normPath(e.path) === np);
+  if (!hit) return null;
+  if (!hit.cached) {
+    return { label: 'Real-time', detail: 'Served live on every call (no caching).' };
+  }
+  const ttl = hit.ttl != null ? `refreshes every ${TTL_HUMAN(hit.ttl)}` : 'cached';
+  const scope = hit.cacheType ? SCOPE_LABEL[hit.cacheType] ?? hit.cacheType : null;
+  return {
+    label: hit.ttl != null ? `Cached · ≤ ${TTL_HUMAN(hit.ttl)}` : 'Cached',
+    detail: [ttl, scope ? `scope: ${scope}` : null].filter(Boolean).join(' · '),
+  };
+}
 
 type DrillPanelProps = {
   detail: ProbeDetail | null;
@@ -105,6 +152,10 @@ export function DrillPanel({ detail, onClose, onReprobe, reprobing }: DrillPanel
   // (some success responses echo the warehouse query id). Try both.
   const queryId = parsed.queryId || parseErrorBody(r?.data).queryId;
 
+  // Data freshness ("temp of data entries") — how fresh the data this endpoint
+  // serves is, joined from the backend cache contract by request path.
+  const freshness = freshnessFor(r?.method, r?.url);
+
   const askCoco = async () => {
     setAiLoading(true);
     setAiError(null);
@@ -177,6 +228,22 @@ export function DrillPanel({ detail, onClose, onReprobe, reprobing }: DrillPanel
         <Row label="Route" value={route} mono />
         <Row label="Latency" value={r?.ms != null ? `${r.ms} ms` : '—'} mono />
         <Row label="HTTP" value={r?.httpStatus != null ? String(r.httpStatus) : '—'} mono />
+
+        {/* Data freshness — how fresh the data this endpoint serves is. */}
+        {freshness && (
+          <div className="border-b border-gray-100 py-2 dark:border-gray-200">
+            <Text className="text-[11px] uppercase tracking-wide text-gray-400">
+              Data freshness
+            </Text>
+            <span
+              className="mt-1 inline-block rounded px-2 py-0.5 text-xs font-bold"
+              style={{ color: '#0369a1', background: '#0369a11a' }}
+            >
+              {freshness.label}
+            </span>
+            <Text className="mt-1 text-sm leading-snug text-gray-600">{freshness.detail}</Text>
+          </div>
+        )}
 
         {hasStructured && (
           <>

@@ -32,6 +32,8 @@ export const routes = {
     editUser: (id: string) => `/governance/users/edit/${encodeURIComponent(id)}`,
     roles: '/governance/roles',
     grants: '/governance/grants',
+    /** User × Data360-page access matrix (real users, governance-resolved access). */
+    accessMatrix: '/governance/access-matrix',
     policies: '/governance/policies', // Unified policies page (RLS, Masking, Aggregation, Tags, Network, Password, Session)
     securityMatrix: '/governance/security-matrix',
     oauth: '/governance/oauth',

@@ -415,7 +415,11 @@ export default function CostGovernancePanel() {
     let cancelled = false;
     setWhLoading(true);
     setWhError(null);
-    getAccountWarehouses(account, 30)
+    // QA P1-7: the warehouses endpoint keys on the BARE account locator (e.g.
+    // "HAHA"), not the org-prefixed name ("UCHSFVB-HAHA") → the prefixed value
+    // 404s. Mirror the backend's acct_key derivation: last "-"-segment.
+    const bareAccount = account.split('.')[0].split('-').pop() || account;
+    getAccountWarehouses(bareAccount, 30)
       .then((data) => {
         if (!cancelled) setWarehouses(Array.isArray(data.warehouses) ? data.warehouses : []);
       })
@@ -604,26 +608,38 @@ export default function CostGovernancePanel() {
                 </tr>
               </thead>
               <tbody>
-                {anomalies.slice(0, 12).map((a, i) => (
+                {anomalies.slice(0, 12).map((a: any, i) => {
+                  // QA P1-6: backend /org-accounts/anomalies returns
+                  // {usage_date, credits, mean_credits, std_credits} — the old
+                  // {date, actual_value, forecasted_value, upper_bound} reads were
+                  // all undefined → every cell printed '—'. Map to the real shape;
+                  // upper bound = mean + 2·std (the anomaly threshold).
+                  const date = a.usage_date ?? a.date;
+                  const actual = a.credits ?? a.actual_value;
+                  const forecast = a.mean_credits ?? a.forecasted_value;
+                  const upper = a.upper_bound ?? (a.mean_credits != null && a.std_credits != null
+                    ? a.mean_credits + 2 * a.std_credits : undefined);
+                  return (
                   <tr
-                    key={`${a.account_name}-${a.date}-${i}`}
+                    key={`${a.account_name}-${date}-${i}`}
                     className="border-b border-slate-100 dark:border-slate-800"
                   >
-                    <td className="px-2 py-1.5 text-slate-500 dark:text-slate-400">{a.date}</td>
+                    <td className="px-2 py-1.5 text-slate-500 dark:text-slate-400">{date}</td>
                     <td className="px-2 py-1.5 font-medium text-slate-800 dark:text-slate-100">
                       {a.account_name}
                     </td>
                     <td className="px-2 py-1.5 text-right font-semibold text-amber-600 dark:text-amber-400">
-                      {formatCredits(a.actual_value)}
+                      {formatCredits(actual)}
                     </td>
                     <td className="px-2 py-1.5 text-right text-slate-500 dark:text-slate-400">
-                      {formatCredits(a.forecasted_value)}
+                      {formatCredits(forecast)}
                     </td>
                     <td className="px-2 py-1.5 text-right text-slate-500 dark:text-slate-400">
-                      {formatCredits(a.upper_bound)}
+                      {formatCredits(upper)}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -1,0 +1,41 @@
+{
+  "done": [
+    "sources-page-header-renders",
+    "sources-tab-visible",
+    "detected-models-tab-visible",
+    "catalog-tree-panel-renders",
+    "catalog-tree-has-expandable-nodes (22)",
+    "catalog-tree-expand-click",
+    "sources-overview-main-content-renders",
+    "refresh-catalog-button-visible",
+    "refresh-catalog-status-badge-shown: \"\"",
+    "add-source-button-visible",
+    "detected-models-tab-navigable",
+    "connector-cards-partially-rendered (2/9)",
+    "active-connections-section-visible",
+    "connector-select-shows-connect-button",
+    "ai-connector-helper-button-visible"
+  ],
+  "not_done": [
+    "dsc-page-breadcrumb-visible",
+    "active-connections-cards-shown",
+    "ai-connector-helper-opens-panel",
+    "connector-health-strip-renders",
+    "source-hub-catalog-section-visible"
+  ],
+  "defects": [
+    "/data-source-connection: only 2 connector cards visible, expected ≥6"
+  ],
+  "screenshots": [
+    "/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/overnight/sources/01_sources_loaded.png",
+    "/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/overnight/sources/02_sources_tree_expanded.png",
+    "/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/overnight/sources/03_sources_tree_state.png",
+    "/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/overnight/sources/04_sources_refresh_result.png",
+    "/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/overnight/sources/05_detected_models_tab.png",
+    "/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/overnight/sources/06_dsc_loaded.png",
+    "/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/overnight/sources/07_dsc_connectors.png",
+    "/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/overnight/sources/08_dsc_snowflake_selected.png",
+    "/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/overnight/sources/09_dsc_ai_helper.png",
+    "/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/overnight/sources/10_dsc_final.png"
+  ]
+}

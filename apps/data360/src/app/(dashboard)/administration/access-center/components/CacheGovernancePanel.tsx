@@ -467,12 +467,18 @@ function ControlsSection({ onWarmed }: { onWarmed: () => void }) {
 
   const onInvalidate = async () => {
     if (!canSubmit) return;
+    // The backend REQUIRES `page` for invalidate-surface (a 400 otherwise) — guard
+    // here so the action can't fire a guaranteed-failing request. Warm doesn't need it.
+    if (!page.trim()) {
+      toast.error('Enter a page to invalidate (e.g. "governance", "explore-design").');
+      return;
+    }
     setBusy('invalidate');
     try {
       const res = await invalidateCacheSurface({
         account: accountTrim,
         module: module.trim() || undefined,
-        page: page.trim() || undefined,
+        page: page.trim(),
         dry_run: dryRun,
       });
       if (res.dry_run) {

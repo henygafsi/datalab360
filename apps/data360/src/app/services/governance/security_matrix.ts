@@ -242,8 +242,7 @@ export interface RLSPolicy {
  * applyRLSPolicy / removeRLSPolicy delegate to the canonical RLS service in
  * policies.ts (POST /gouvernance/policies/row-access/{apply,remove}) — those are
  * the routes the backend actually serves (query-param based).
- * NOTE: createRLSPolicy below still posts to /gouvernance/rls-policies, which the
- * backend exposes only as GET; the canonical create lives in policies.ts.
+ * createRLSPolicy is @deprecated: the canonical create lives in policies.ts.
  */
 export async function getRLSPolicies(): Promise<RLSPolicy[]> {
   try {
@@ -255,15 +254,21 @@ export async function getRLSPolicies(): Promise<RLSPolicy[]> {
   }
 }
 
+/**
+ * @deprecated Use `createRLSPolicy` from `services/governance/policies.ts`.
+ *
+ * This variant previously POSTed to `/gouvernance/rls-policies`, which the
+ * backend serves only as GET (dead route — verified 2026-06-07). It cannot
+ * delegate to the canonical create either: `CreateRLSPolicyRequest` requires a
+ * `signature` (the row-access policy's typed column list) that this shape does
+ * not carry, and fabricating one would create an invalid policy. It therefore
+ * throws instead of hitting the dead route. Has no live callers.
+ */
 export async function createRLSPolicy(policy: Omit<RLSPolicy, 'active'>): Promise<RLSPolicy> {
-  // TODO(henry-P1): method gap — FE sends POST /gouvernance/rls-policies, backend only has GET (verified 2026-06-07)
-  try {
-    const response = await apiClient.post('/gouvernance/rls-policies', policy);
-    return response.data;
-  } catch (error: any) {
-    console.error('createRLSPolicy: POST /gouvernance/rls-policies not available — use policies.ts createRLSPolicy instead', error);
-    throw error;
-  }
+  throw new Error(
+    `createRLSPolicy (security_matrix) is deprecated and cannot create "${policy.policy_name}": ` +
+      'use createRLSPolicy from services/governance/policies.ts (it supplies the required policy signature).',
+  );
 }
 
 export async function applyRLSPolicy(

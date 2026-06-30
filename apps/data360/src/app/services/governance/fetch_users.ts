@@ -173,6 +173,27 @@ export async function assignRoleToUser(username: string, roleName: string): Prom
 }
 
 /**
+ * Revokes a role from a user. Mirror of {@link assignRoleToUser} — the backend
+ * serves the inverse as DELETE /gouvernance/unassign-role with the SAME body
+ * shape ({ username, role_name }), passed via axios `data` on the DELETE.
+ * @param username The username to revoke the role from.
+ * @param roleName The name of the role to revoke.
+ */
+export async function unassignRole(username: string, roleName: string): Promise<string> {
+  try {
+    const response = await apiClient.delete('/gouvernance/unassign-role', {
+      data: { username, role_name: roleName },
+    });
+    // Revoking a role can narrow the caller's own effective permissions — refresh.
+    invalidateMyPermissions();
+    return response.data as string;
+  } catch (error) {
+    console.error('Error unassigning role:', error);
+    throw error;
+  }
+}
+
+/**
  * Fetches details for a specific user.
  * @param username The username to fetch.
  */

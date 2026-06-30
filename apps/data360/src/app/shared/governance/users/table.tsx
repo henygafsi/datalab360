@@ -21,6 +21,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from 'react-hot-toast';
 import { toServiceError } from '@/app/services/_errors';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
+import BulkRoleBar from './bulk-role-bar';
 
 // Define the UserTableDataType based on your frontend needs, including first and last name
 export type UserTableDataType = {
@@ -240,6 +241,14 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) {
         </div>
         {/* AddUserButton is now rendered in TableLayout, not here */}
       </div>
+      {/* Docked bulk-action bar — appears when ≥1 row is selected. Affords
+          per-role grant/revoke + enable/disable across the selection, each gated
+          by useCanPerform and confirmed before it runs. */}
+      <BulkRoleBar
+        usernames={table.getSelectedRowModel().rows.map((r) => r.original.id)}
+        onDone={refetch}
+        onClear={() => table.resetRowSelection()}
+      />
       <Table
         table={table}
         variant="modern"

@@ -1,0 +1,13 @@
+import { chromium } from '@playwright/test';
+const BASE='http://localhost:3000';
+const b=await chromium.launch();
+const ctx=await b.newContext({storageState:'e2e/.auth/state.json',viewport:{width:1600,height:1100}});
+const p=await ctx.newPage();
+await p.goto(`${BASE}/administration?tab=serverMetrics`,{waitUntil:'domcontentloaded'}).catch(()=>{});
+await p.waitForTimeout(12000);
+const txt = await p.evaluate(()=> document.body ? (document.body.innerText||document.body.textContent||'') : 'NO BODY');
+console.log('innerText/textContent len:', txt.length);
+console.log(txt.slice(0,1500));
+console.log('--- has Requests/min?', /Requests \/ min/i.test(txt), 'has total?', /total/i.test(txt), 'has Verifying?', /verifying/i.test(txt));
+await p.screenshot({path:'docs/product-readiness-audit/screens/admin-green/admin-serverMetrics-recheck.png',fullPage:true});
+await b.close();

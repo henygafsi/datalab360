@@ -62,6 +62,8 @@ import PlatformHealthPanel from './PlatformHealthPanel';
 import CostGovernancePanel from './CostGovernancePanel';
 import ProjectsMonitoringPanel from '../access-center/components/ProjectsMonitoringPanel';
 import ApiCatalogPanel from './ApiCatalogPanel';
+import PerformanceKpiPanel from './PerformanceKpiPanel';
+import ServiceHealthPanel from './ServiceHealthPanel';
 
 type TabId =
   | 'health'
@@ -317,47 +319,37 @@ export default function AdministrationHub() {
                     </OpenLink>
                   </CtaRow>
                 </div>
+                <ServiceHealthPanel />
                 <PlatformHealthPanel />
               </div>
             )}
 
             {/* 2. Performance — existing full page */}
             {tab === 'performance' && (
-              <SectionCard
-                icon={Gauge}
-                title="Performance"
-                description="Per-account, multi-axis drill-down: endpoints, users, cache, modules, projects and errors."
-                note="Audit-backed metrics are richest in production; some axes rely on a service account and may read as quiet in local dev."
-              >
-                <div className="space-y-3">
-                  <OpenLink
-                    href={routes.adminPerformance.view}
-                    onClick={() => trackFeatureClick('open_performance', { from: 'performance' })}
-                  >
-                    Open Performance
-                  </OpenLink>
+              <div className="space-y-3">
+                <SectionCard
+                  icon={Gauge}
+                  title="Performance"
+                  description="Real per-endpoint KPIs — usage, errors, distinct users, latency (avg/max) and cache strategy. Live from server metrics + endpoint usage."
+                >
                   <CtaRow>
+                    <OpenLink
+                      href={routes.adminPerformance.view}
+                      onClick={() => trackFeatureClick('open_performance', { from: 'performance' })}
+                    >
+                      Full performance drill-down
+                    </OpenLink>
                     <OpenLink
                       href={routes.observability.dashboard}
                       variant="secondary"
-                      onClick={() =>
-                        trackFeatureClick('open_observability', { from: 'performance' })
-                      }
+                      onClick={() => trackFeatureClick('open_observability', { from: 'performance' })}
                     >
                       Open Observability
                     </OpenLink>
-                    <OpenLink
-                      href={routes.accountOverview}
-                      variant="secondary"
-                      onClick={() =>
-                        trackFeatureClick('open_account_overview', { from: 'performance' })
-                      }
-                    >
-                      Open Account Overview
-                    </OpenLink>
                   </CtaRow>
-                </div>
-              </SectionCard>
+                </SectionCard>
+                <PerformanceKpiPanel />
+              </div>
             )}
 
             {/* 3. Access Control — link to the center + embedded standalone RBAC panels */}

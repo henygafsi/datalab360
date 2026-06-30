@@ -1,0 +1,23 @@
+import { chromium } from '@playwright/test';
+const BASE='http://localhost:3000';
+const browser = await chromium.launch({ headless: true });
+const ctx = await browser.newContext({ storageState: 'e2e/.auth/state.json', viewport:{width:1600,height:1000} });
+const page = await ctx.newPage();
+const cons=[], serverErr=[], dqResp=[];
+page.on('response', async (r)=>{ const u=r.url(); if(u.includes('data-quality')){ const s=r.status(); if(s>=500) serverErr.push({u:u.split('/api-proxy/').pop()||u,s}); if(u.includes('/api-proxy/')) dqResp.push({u:u.split('/api-proxy/').pop(),s}); } });
+page.on('console', m=>{ if(m.type()==='error') cons.push(m.text().slice(0,140)); });
+// warm compile
+await page.goto(`${BASE}/data-quality`, { waitUntil:'domcontentloaded', timeout:60000 }).catch(()=>{});
+await page.waitForTimeout(8000);
+await page.reload({ waitUntil:'networkidle', timeout:60000 }).catch(e=>console.log('reload:',String(e).slice(0,80)));
+await page.waitForTimeout(8000);
+await page.screenshot({ path:'docs/product-readiness-audit/screens/module-green/data-quality.png', fullPage:true });
+const t = await page.evaluate(()=>document.body.innerText);
+console.log('bodyLen', t.length);
+console.log('serverErrors', JSON.stringify(serverErr));
+console.log('dqApiCalls', JSON.stringify(dqResp.slice(0,20)));
+console.log('hasErrorPanel', /could not load|failed to load|something went wrong/i.test(t));
+const hs = t.match(/(\d+\.?\d*)\s*\/?\s*100|health[^0-9]{0,30}(\d+\.?\d*)/i);
+console.log('healthScoreVisible', hs?JSON.stringify(hs.slice(1).filter(Boolean)):'no');
+console.log('SAMPLE', t.slice(0,700).replace(/\n+/g,' | '));
+await browser.close();

@@ -18,6 +18,7 @@ import {
   Search, CircleCheck, CircleSlash, CircleDot, Loader2, Play, FileCode2, ChevronRight,
 } from 'lucide-react';
 import catalog from '../../admin/api-health/data/endpoint-file-map.json';
+import cacheMap from '../../admin/api-health/data/endpoint-cache-map.json';
 
 type Coverage = 'exact' | 'parent' | 'none';
 interface EndpointRow {
@@ -45,6 +46,28 @@ const METHOD_CLS: Record<string, string> = {
 };
 
 const ENDPOINTS = (catalog.endpoints as EndpointRow[]) || [];
+
+// Cache/KPI metadata keyed by path (prefer the GET row). Powers the
+// cached/TTL/strategy(=invalidation pattern)/response-time columns.
+interface CacheMeta { cached: boolean; cacheType: string | null; ttl: number | null; strategy: string | null; invalidation: string | null; responseMs: number | null; method: string }
+const CACHE_BY_PATH: Record<string, CacheMeta> = (() => {
+  const out: Record<string, CacheMeta> = {};
+  for (const e of ((cacheMap.endpoints as CacheMeta[]) || [])) {
+    const cur = out[(e as any).path];
+    // prefer GET, then a cached row, then anything
+    if (!cur || (e.method === 'GET' && cur.method !== 'GET') || (e.cached && !cur.cached)) {
+      out[(e as any).path] = e;
+    }
+  }
+  return out;
+})();
+const STRATEGY_LABEL: Record<string, string> = {
+  query_based: 'per-query', metadata_based: 'per-metadata', user_based: 'per-user',
+  project_based: 'per-project', account_role_based: 'per-role', session: 'per-session', custom: 'custom',
+};
+const CACHE_TYPE_LABEL: Record<string, string> = {
+  shared_cache: 'shared', session_cache: 'session', account_role_cache: 'role',
+};
 
 /** Only parameterless GETs are safe to probe blindly (no fake-param 404 noise). */
 function isProbable(e: EndpointRow): boolean {
@@ -118,7 +141,8 @@ export default function ApiCatalogPanel() {
     const exact = ENDPOINTS.filter((e) => e.coverage === 'exact').length;
     const parent = ENDPOINTS.filter((e) => e.coverage === 'parent').length;
     const none = ENDPOINTS.filter((e) => e.coverage === 'none').length;
-    return { exact, parent, none, total: ENDPOINTS.length };
+    const cached = (cacheMap.cachedEndpoints as number) || 0;
+    return { exact, parent, none, total: ENDPOINTS.length, cached };
   }, []);
 
   return (
@@ -128,12 +152,12 @@ export default function ApiCatalogPanel() {
         <div>
           <h2 className="text-sm font-semibold text-slate-900 dark:text-white">API Catalog</h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            All {stats.total} backend endpoints with the frontend files that call them. Source: live OpenAPI.
+            All {stats.total} backend endpoints — frontend file, cache strategy/TTL, invalidation pattern, and live response time. Source: live OpenAPI + backend cache decorators.
           </p>
         </div>
         <div className="flex items-center gap-2 text-[11px]">
           <Kpi label="Wired" value={stats.exact} cls="text-emerald-600" />
-          <Kpi label="Parent" value={stats.parent} cls="text-amber-600" />
+          <Kpi label="Cached" value={stats.cached} cls="text-indigo-600" />
           <Kpi label="Unwired" value={stats.none} cls="text-slate-500" />
           <button
             type="button"
@@ -187,7 +211,10 @@ export default function ApiCatalogPanel() {
               <th className="px-3 py-2 font-medium">Method</th>
               <th className="px-3 py-2 font-medium">Endpoint</th>
               <th className="px-3 py-2 font-medium">Coverage</th>
+              <th className="px-3 py-2 font-medium">Cache</th>
+              <th className="px-3 py-2 font-medium">Invalidation</th>
               <th className="px-3 py-2 font-medium">Frontend file</th>
+              <th className="px-3 py-2 font-medium text-right">Resp.</th>
               <th className="px-3 py-2 font-medium text-right">Status</th>
             </tr>
           </thead>
@@ -195,6 +222,7 @@ export default function ApiCatalogPanel() {
             {filtered.slice(0, 400).map((e) => {
               const cov = COVERAGE_META[e.coverage];
               const probe = probes[e.path];
+              const meta = CACHE_BY_PATH[e.path];
               return (
                 <tr key={e.path} className="border-t border-slate-100 hover:bg-slate-50/60 dark:border-slate-800 dark:hover:bg-slate-800/30">
                   <td className="px-3 py-1.5 whitespace-nowrap">
@@ -210,6 +238,18 @@ export default function ApiCatalogPanel() {
                       <cov.Icon className="h-3 w-3" /> {cov.label}
                     </span>
                   </td>
+                  <td className="px-3 py-1.5">
+                    {meta?.cached ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600 dark:bg-indigo-500/10" title={`${meta.cacheType} · TTL ${meta.ttl ?? '—'}s`}>
+                        {CACHE_TYPE_LABEL[meta.cacheType || ''] || 'cached'}{meta.ttl != null && <span className="text-indigo-400">{meta.ttl}s</span>}
+                      </span>
+                    ) : meta ? (
+                      <span className="text-[10px] text-slate-400">realtime</span>
+                    ) : '—'}
+                  </td>
+                  <td className="px-3 py-1.5 text-[10px] text-slate-500 dark:text-slate-400">
+                    {meta?.cached ? (STRATEGY_LABEL[meta.strategy || ''] || meta.strategy || '—') : '—'}
+                  </td>
                   <td className="px-3 py-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                     {e.files.length > 0 ? (
                       <span className="inline-flex items-center gap-1" title={e.files.join('\n')}>
@@ -217,6 +257,11 @@ export default function ApiCatalogPanel() {
                         <span className="truncate max-w-[260px]">{e.files[0].replace('apps/data360/src/', '')}</span>
                         {e.files.length > 1 && <span className="text-slate-400">+{e.files.length - 1}</span>}
                       </span>
+                    ) : '—'}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-[10px] text-slate-500 dark:text-slate-400">
+                    {meta?.responseMs != null ? (
+                      <span className={cn(meta.responseMs > 1500 ? 'text-rose-500' : meta.responseMs > 500 ? 'text-amber-500' : 'text-slate-500')}>{meta.responseMs}ms</span>
                     ) : '—'}
                   </td>
                   <td className="px-3 py-1.5 text-right">

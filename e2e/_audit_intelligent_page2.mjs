@@ -1,0 +1,18 @@
+import { chromium } from '@playwright/test';
+import fs from 'fs';
+const dir='docs/product-readiness-audit/screens/module-green';
+const b=await chromium.launch();
+const ctx=await b.newContext({storageState:'e2e/.auth/state.json'});
+const pg=await ctx.newPage();
+const b400=[];
+pg.on('response',r=>{ if(r.status()>=400) b400.push(`${r.status()} ${r.url().replace('http://localhost:3000','').replace('http://localhost:8000','BE')}`); });
+await pg.goto('http://localhost:3000/intelligent',{waitUntil:'domcontentloaded',timeout:60000}).catch(e=>console.log('goto',e.message));
+await pg.waitForTimeout(9000);
+console.log('URL:',pg.url());
+console.log('TITLE:',await pg.title());
+const txt=await pg.evaluate(()=>document.body?document.body.innerText:'NOBODY');
+console.log('textLen',txt.length);
+console.log(txt.slice(0,1800));
+await pg.screenshot({path:`${dir}/intelligent.png`,fullPage:true});
+console.log('=== >=400 ===\n'+[...new Set(b400)].join('\n'));
+await b.close();

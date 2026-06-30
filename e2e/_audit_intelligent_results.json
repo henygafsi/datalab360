@@ -1,0 +1,134 @@
+[
+  {
+    "path": "/cortex/kpis",
+    "status": 200,
+    "len": 401,
+    "snippet": "{\"status\": \"success\", \"message\": \"AI KPIs\", \"data\": {\"models_active\": 1, \"queries_today\": 0, \"avg_response_sec\": null, \"accuracy_rate\": null, \"cortex_usage\": {\""
+  },
+  {
+    "path": "/cortex/models",
+    "status": 200,
+    "len": 1052,
+    "snippet": "{\"status\": \"success\", \"message\": \"AI models retrieved\", \"data\": {\"completion\": [\"mistral-7b\", \"mistral-large\", \"mistral-large2\", \"llama2-70b-chat\", \"llama3-8b\","
+  },
+  {
+    "path": "/cortex/agents?database=CP_DATA360",
+    "status": 200,
+    "len": 50,
+    "snippet": "{\"agents\": [], \"total\": 0, \"execution_time_ms\": 1}"
+  },
+  {
+    "path": "/cortex/semantic-views?database=CP_DATA360",
+    "status": 200,
+    "len": 7623,
+    "snippet": "{\"semantic_views\":[{\"name\":\"NOTIFICATIONS_INBOX\",\"database\":\"CP_DATA360\",\"schema\":\"CP_DATA360\",\"created\":\"2026-06-22 10:29:35.709000-07:00\"},{\"name\":\"V_DATA360_"
+  },
+  {
+    "path": "/cortex/vectors/columns?database=CP_DATA360",
+    "status": 200,
+    "len": 141,
+    "snippet": "{\"vector_columns\": [], \"total\": 0, \"summary\": {\"total_vector_columns\": 0, \"tables_with_vectors\": 0, \"by_schema\": {}}, \"execution_time_ms\": 1}"
+  },
+  {
+    "path": "/cortex/semantic-models/list",
+    "status": 200,
+    "len": 445,
+    "snippet": "{\"status\": \"success\", \"message\": \"Semantic models listed successfully\", \"data\": {\"models\": [{\"name\": \"retail_dwh_e2e_semantic_model.yaml\", \"path\": \"semantic_sta"
+  },
+  {
+    "path": "/cortex/ml/classification/models",
+    "status": 200,
+    "len": 50,
+    "snippet": "{\"models\": [], \"count\": 0, \"execution_time_ms\": 1}"
+  },
+  {
+    "path": "/cortex/ml/document-ai/models",
+    "status": 200,
+    "len": 50,
+    "snippet": "{\"models\": [], \"count\": 0, \"execution_time_ms\": 1}"
+  },
+  {
+    "path": "/cortex/ml/finetune/jobs",
+    "status": 200,
+    "len": 38,
+    "snippet": "{\"jobs\": \"[]\", \"execution_time_ms\": 1}"
+  },
+  {
+    "path": "/cortex/ml/top-insights",
+    "status": 200,
+    "len": 307,
+    "snippet": "{\"instances\": [{\"created_on\": \"2026-05-14T07:44:37.899000-07:00\", \"name\": \"audit_test_20260514_164354_instance_name\", \"database_name\": \"CP_DATA360\", \"schema_nam"
+  },
+  {
+    "path": "/cortex/snowpark/compute-pools",
+    "status": 200,
+    "len": 982,
+    "snippet": "{\"pools\": [{\"name\": \"ZZZ\", \"state\": \"SUSPENDED\", \"min_nodes\": 1, \"max_nodes\": 1, \"instance_family\": \"CPU_X64_XS\", \"num_services\": 0, \"num_jobs\": 0, \"auto_suspen"
+  },
+  {
+    "path": "/cortex/snowpark/services",
+    "status": 200,
+    "len": 131,
+    "snippet": "{\"services\": [], \"count\": 0, \"summary\": {\"total\": 0, \"running\": 0, \"by_status\": {}, \"by_compute_pool\": {}}, \"execution_time_ms\": 1}"
+  },
+  {
+    "path": "/cortex/snowpark/streamlit",
+    "status": 200,
+    "len": 48,
+    "snippet": "{\"apps\": [], \"count\": 0, \"execution_time_ms\": 1}"
+  },
+  {
+    "path": "/cortex/snowpark/image-repos",
+    "status": 200,
+    "len": 56,
+    "snippet": "{\"repositories\": [], \"count\": 0, \"execution_time_ms\": 1}"
+  },
+  {
+    "path": "/cortex/query-analytics/results",
+    "status": 200,
+    "len": 51,
+    "snippet": "{\"results\": [], \"count\": 0, \"execution_time_ms\": 1}"
+  },
+  {
+    "path": "/cortex/query-analytics/summary",
+    "status": 200,
+    "len": 426,
+    "snippet": "{\"TOTAL_ANALYZED\": 0, \"REDUNDANT_COUNT\": null, \"ERROR_COUNT\": null, \"OPTIMIZATION_COUNT\": null, \"SLOW_QUERY_COUNT\": null, \"CRITICAL_COUNT\": null, \"WARNING_COUNT"
+  },
+  {
+    "path": "/cortex/query-analytics/redundant-groups",
+    "status": 200,
+    "len": 50,
+    "snippet": "{\"groups\": [], \"count\": 0, \"execution_time_ms\": 1}"
+  },
+  {
+    "path": "/cortex/duckdb/datasets",
+    "status": 200,
+    "len": 5215,
+    "snippet": "{\"datasets\":[{\"stage\":\"CODE_DEPLOY\",\"stage_fqn\":\"CP_DATA360.CODING.CODE_DEPLOY\",\"schema\":\"CODING\",\"database\":\"CP_DATA360\",\"file\":\"code_deploy/uchsfvb-HAHA/HAHA/"
+  },
+  {
+    "path": "/cortex/explore/databases",
+    "status": 200,
+    "len": 1097,
+    "snippet": "{\"status\": \"success\", \"message\": \"Databases listed successfully\", \"data\": {\"databases\": [{\"created_on\": \"2026-05-11T05:55:56.753000-07:00\", \"name\": \"CP_DATA360\""
+  },
+  {
+    "path": "/cortex/explore/schemas?database=CP_DATA360",
+    "status": 200,
+    "len": 6943,
+    "snippet": "{\"status\":\"success\",\"message\":\"Schemas listed successfully\",\"data\":{\"schemas\":[{\"created_on\":\"2026-05-23T10:10:11.361000-07:00\",\"name\":\"AHAH\",\"is_default\":\"N\",\""
+  },
+  {
+    "path": "/cortex/conversations?limit=10",
+    "status": 200,
+    "len": 2464,
+    "snippet": "{\"status\":\"success\",\"message\":\"AI conversations retrieved\",\"data\":{\"conversations\":[{\"id\":2701,\"preview\":\"You are a platform performance analyst. Write a concis"
+  },
+  {
+    "path": "/api/recommendations/?module=intelligent&limit=10",
+    "status": 200,
+    "len": 171,
+    "snippet": "{\"account_id\": \"UCHSFVB-HAHA\", \"page\": null, \"module\": \"intelligent\", \"scope\": null, \"target\": null, \"items\": [], \"count\": 0, \"degraded\": false, \"execution_time"
+  }
+]

@@ -5,12 +5,22 @@ interface TableToolbarProps<TData extends Record<string, any>> {
   table: ReactTableType<TData>;
   showDownloadButton?: boolean;
   onExport?: () => void;
+  /**
+   * Singular noun for the selected rows (e.g. 'user', 'role'). Defaults to the
+   * neutral 'item'. Callers should pass the entity they render so the footer
+   * reads "2 users selected" instead of a hardcoded "2 Categories selected".
+   */
+  entityLabel?: string;
+  /** Optional plural override for irregular nouns; defaults to `${entityLabel}s`. */
+  entityLabelPlural?: string;
 }
 
 export default function TableFooter<TData extends Record<string, any>>({
   table,
   showDownloadButton = true,
   onExport,
+  entityLabel = "item",
+  entityLabelPlural,
 }: TableToolbarProps<TData>) {
   const checkedItems = table.getSelectedRowModel().rows.map((row) => row.original);
   const meta = table.options.meta;
@@ -19,11 +29,13 @@ export default function TableFooter<TData extends Record<string, any>>({
     return null;
   }
 
+  const plural = entityLabelPlural ?? `${entityLabel}s`;
+
   return (
     <div className="sticky bottom-0 left-0 z-10 mt-2.5 flex w-full items-center justify-between rounded-md border border-gray-300 bg-gray-0 px-5 py-3.5 text-gray-900 shadow-sm dark:border-gray-300 dark:bg-gray-100 dark:text-white dark:active:bg-gray-100">
       <div>
         <Text as="strong">{checkedItems.length}</Text>
-        {checkedItems.length >= 2 ? " Categories" : " Category"} selected{" "}
+        {checkedItems.length >= 2 ? ` ${plural}` : ` ${entityLabel}`} selected{" "}
         <Button
           size="sm"
           variant="text"

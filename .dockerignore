@@ -1,0 +1,16 @@
+**/node_modules
+**/.next
+**/.turbo
+**/.cache
+**/dist
+.git
+.github
+.gitlab-ci.yml
+e2e
+docs
+**/*.log
+**/.env*
+!**/.env.example
+.claude
+.vercel
+coverage

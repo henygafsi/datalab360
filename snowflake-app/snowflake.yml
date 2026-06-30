@@ -1,0 +1,24 @@
+# Snowflake CLI native-app project (snow app ...).
+# Driven by `scripts/deploy-live.sh`. Requires `snow` CLI >= 3.x.
+# [À VÉRIFIER DOC] definition schema version vs your installed snow CLI.
+definition_version: 2
+
+entities:
+  pkg:
+    type: application package
+    identifier: DATA360_APP_PKG
+    manifest: manifest.yml
+    stage: stage_content
+    artifacts:
+      - src: app/*
+        dest: ./
+      - src: specs/*
+        dest: specs/
+
+  app:
+    type: application
+    identifier: DATA360_APP
+    from:
+      target: pkg
+    # debug mode lets the provider account install + inspect before listing
+    debug: true

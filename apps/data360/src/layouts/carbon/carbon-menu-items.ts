@@ -147,6 +147,12 @@ export const carbonMenuItems: MenuItemsType[] = [
         icon: PiCurrencyDollarDuotone,
       },
       {
+        name: 'Access Matrix',
+        description: 'Who can reach which page, per role',
+        href: routes.governance.accessMatrix,
+        icon: PiShieldCheckDuotone,
+      },
+      {
         name: 'Policies',
         description: 'RLS, Network & Masking policies',
         href: routes.governance.policies,
