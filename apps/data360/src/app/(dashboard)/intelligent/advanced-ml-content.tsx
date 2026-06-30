@@ -414,11 +414,11 @@ function FineTuningSection() {
                   <Badge className={job.status === 'COMPLETED' || job.STATUS === 'COMPLETED' ? 'bg-green-100 text-green-800' : job.status === 'RUNNING' || job.STATUS === 'RUNNING' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-800'}>
                     {job.status || job.STATUS || 'UNKNOWN'}
                   </Badge>
-                  <Button variant="outline" size="sm" onClick={() => handleDescribe(jobId)} aria-expanded={detailJobId === jobId}>
+                  <Button variant="outline" size="sm" onClick={() => handleDescribe(jobId)} aria-expanded={detailJobId === jobId} aria-label="View job details">
                     <PiInfo className="w-4 h-4" />
                   </Button>
                   {(job.status === 'RUNNING' || job.STATUS === 'RUNNING') && confirmCancelJob !== jobId && (
-                    <Button variant="outline" size="sm" onClick={() => setConfirmCancelJob(jobId)} className="text-red-600">
+                    <Button variant="outline" size="sm" onClick={() => setConfirmCancelJob(jobId)} aria-label="Cancel job" className="text-red-600">
                       <PiStop className="w-4 h-4" />
                     </Button>
                   )}

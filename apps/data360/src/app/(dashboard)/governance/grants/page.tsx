@@ -28,6 +28,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import {
@@ -601,6 +602,7 @@ function D360RolesPanel() {
 }
 
 export default function GrantsManagementPage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
   const [activeTab, setActiveTab] = useState<TabType>('role-grants');
 
   return (

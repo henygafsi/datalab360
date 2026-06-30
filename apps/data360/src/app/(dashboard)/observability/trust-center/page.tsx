@@ -6,6 +6,7 @@ import Breadcrumb from '@/components/ui/Breadcrumb';
 import TrustCenterCard from '@/app/shared/observability/trust-center-card';
 import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 
 /**
@@ -14,6 +15,8 @@ import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationPr
  * error states and surfaces backend failures inline.
  */
 export default function TrustCenterPage() {
+  // Fire-and-forget PAGE_VIEW on mount/route change (TrustCenterCard does not track).
+  useTrackEvent();
   // TrustCenterCard is prop-less and self-fetching, so a keyed remount is the
   // minimal way to re-pull it when the backend pushes an observability/trust-
   // center cache-invalidation (probe checks). Mirrors the main dashboard's SSE

@@ -11,8 +11,10 @@ import { RoleTableDataType } from '@/app/shared/governance/roles/table';
 import { toast } from 'react-hot-toast';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 
 export default function EditRolePage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
   const params = useParams();
   const router = useRouter();
   const roleId = params?.id as string;

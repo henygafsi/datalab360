@@ -260,6 +260,9 @@ function AIAssistantTab() {
         <div className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-slate-700 p-3">
           <button
             type="button"
+            role="switch"
+            aria-checked={guardrails}
+            aria-label="Content Guard"
             onClick={() => setGuardrails(!guardrails)}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
               guardrails ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'
@@ -567,7 +570,9 @@ function TranslatorTab() {
         </div>
 
         <button
+          type="button"
           onClick={swapLanguages}
+          aria-label="Swap source and target languages"
           className="mt-6 rounded-full bg-slate-100 p-2.5 text-slate-600 transition-all hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
         >
           <PiArrowsLeftRightBold className="h-5 w-5" />
@@ -625,7 +630,9 @@ function TranslatorTab() {
             />
             {translatedText && (
               <button
+                type="button"
                 onClick={copyTranslation}
+                aria-label="Copy translation"
                 className="absolute right-2 top-2 rounded-lg bg-white p-2 shadow-sm hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700"
               >
                 <PiCopySimple className="h-4 w-4 text-slate-500" />

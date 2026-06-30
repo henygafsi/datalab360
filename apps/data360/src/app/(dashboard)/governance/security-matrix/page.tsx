@@ -60,6 +60,7 @@ import TableSkeleton from '@/components/ui/TableSkeleton';
 import { formatApiDetail } from '@/lib/utils';
 import { dash } from '@/app/shared/ui/format';
 import { useCanPerform, invalidateMyPermissions } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import {
   getAccessReviewSummary,
   getComplianceScore,
@@ -136,6 +137,7 @@ const TABS = [
 // ============= PAGE COMPONENT =============
 
 export default function SecurityMatrixPage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
   // System 2 Action-RBAC: deleting a matrix entry or an enterprise user both
   // map to gouvernance:delete; creating/editing axes, rows, syncing and saving
   // map to gouvernance:edit; the read-only posture header maps to gouvernance:view.

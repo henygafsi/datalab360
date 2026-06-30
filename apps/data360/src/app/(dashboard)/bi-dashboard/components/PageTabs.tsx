@@ -227,6 +227,7 @@ export default function PageTabs({
             className="flex items-center gap-1 px-2 py-1.5 text-xs text-slate-400 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400"
             onClick={() => setIsAdding(true)}
             disabled={!canCreate}
+            aria-label="Add page"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>

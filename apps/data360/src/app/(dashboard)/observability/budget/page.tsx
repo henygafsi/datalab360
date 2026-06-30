@@ -30,6 +30,7 @@ import type {
 import { getResourceMonitors } from '@/app/services/org-accounts/hooks';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 
@@ -213,6 +214,8 @@ function normalizeMonitor(raw: unknown): ResourceMonitorRow {
 }
 
 export default function BudgetPage() {
+  // Fire-and-forget PAGE_VIEW on mount/route change; trackFeatureClick on Create Monitor.
+  const { trackFeatureClick } = useTrackEvent();
   const [warehouse, setWarehouse] = useState<WarehouseUsageSummary | null>(null);
   const [storage, setStorage] = useState<StorageMetrics | null>(null);
   const [daily, setDaily] = useState<DailyCreditUsage[] | null>(null);
@@ -349,7 +352,7 @@ export default function BudgetPage() {
                 className="gap-1 bg-green-600 text-white hover:bg-green-700"
                 disabled={!canCreateMonitor}
                 title={!canCreateMonitor ? monitorDeniedTitle : undefined}
-                onClick={() => setCreateOpen(true)}
+                onClick={() => { trackFeatureClick('create_monitor_open'); setCreateOpen(true); }}
               >
                 <PiPlusBold className="h-3.5 w-3.5" />
                 Create Monitor
@@ -383,7 +386,7 @@ export default function BudgetPage() {
                     className="mt-3 gap-1 bg-green-600 text-white hover:bg-green-700"
                     disabled={!canCreateMonitor}
                     title={!canCreateMonitor ? monitorDeniedTitle : undefined}
-                    onClick={() => setCreateOpen(true)}
+                    onClick={() => { trackFeatureClick('create_monitor_open'); setCreateOpen(true); }}
                   >
                     <PiPlusBold className="h-3.5 w-3.5" />
                     Create Monitor

@@ -13,6 +13,7 @@ import { useAtomValue } from 'jotai';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import {
@@ -446,7 +447,9 @@ function IntegrationWizard({
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close"
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -518,7 +521,9 @@ function IntegrationWizard({
           </div>
         </div>
         <button
+          type="button"
           onClick={onClose}
+          aria-label="Close"
           className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
         >
           <X className="w-5 h-5" />
@@ -1276,7 +1281,9 @@ function ApiKeysTab({
               Assign RSA Key to <span className="text-amber-600 dark:text-amber-400">{assigningUser}</span>
             </h3>
             <button
+              type="button"
               onClick={() => { setAssigningUser(null); setRsaKey(''); setGeneratedPublicKey(''); setGeneratedPrivateKey(''); }}
+              aria-label="Close"
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
             >
               <X className="w-4 h-4" />
@@ -1575,6 +1582,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 // Main Page
 // ---------------------------------------------------------------------------
 export default function OAuthManagementPage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
   const [activeTab, setActiveTab] = useState<TabType>('integrations');
   const [search, setSearch] = useState('');
 

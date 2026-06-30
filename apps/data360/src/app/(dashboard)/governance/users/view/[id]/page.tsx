@@ -10,8 +10,10 @@ import { getUserDetails } from '@/app/services/governance/fetch_users';
 import { UserTableDataType } from '@/app/shared/governance/users/table';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 
 export default function ViewUserPage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
   const params = useParams();
   const router = useRouter();
   const userId = params?.id as string;

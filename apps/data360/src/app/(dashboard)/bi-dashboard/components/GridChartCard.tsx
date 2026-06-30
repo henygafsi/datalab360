@@ -375,6 +375,7 @@ export default function WidgetCard({
                 className="p-1 rounded hover:bg-green-100 dark:hover:bg-green-900/30 text-slate-400 hover:text-green-600 transition-colors"
                 onClick={() => onExecuteSingle(widget)}
                 disabled={executing}
+                aria-label="Load data"
               >
                 {executing ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -389,6 +390,7 @@ export default function WidgetCard({
               <button
                 className="p-1 rounded hover:bg-violet-100 dark:hover:bg-violet-900/30 text-slate-400 hover:text-violet-600 transition-colors"
                 onClick={() => onDrillThrough(widget)}
+                aria-label="Drill through"
               >
                 <Search className="h-3.5 w-3.5" />
               </button>
@@ -435,6 +437,7 @@ export default function WidgetCard({
               className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-900/30 text-slate-400 hover:text-blue-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-slate-400"
               onClick={() => onConfigure(widget)}
               disabled={!canEdit}
+              aria-label="Configure widget"
             >
               <Settings className="h-3.5 w-3.5" />
             </button>
@@ -461,6 +464,7 @@ export default function WidgetCard({
                 className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-slate-400"
                 onClick={() => setConfirmDelete(true)}
                 disabled={!canDelete}
+                aria-label="Delete widget"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>

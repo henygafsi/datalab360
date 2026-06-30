@@ -13,8 +13,10 @@ import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
 import RoleInspectorPanel from './components/RoleInspectorPanel';
 import RoleHierarchyPanel from './components/RoleHierarchyPanel';
 import { getRoles } from '@/app/services/governance/fetch_roles';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 
 export default function RolesManagementPage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Role inspector (docked right-tab) — pick a role, inspect/edit its grants.

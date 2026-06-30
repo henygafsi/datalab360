@@ -103,7 +103,7 @@ function ErrorBar({ error, onRetry }: { error: string; onRetry: () => void }) {
 }
 
 function RefreshBtn({ loading, onClick }: { loading: boolean; onClick: () => void }) {
-  return <Button variant="outline" size="sm" onClick={onClick} disabled={loading}><PiArrowsClockwise className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></Button>;
+  return <Button variant="outline" size="sm" onClick={onClick} disabled={loading} aria-label="Refresh"><PiArrowsClockwise className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></Button>;
 }
 
 // States that resolve on their own — while any row sits in one of these,
@@ -700,7 +700,7 @@ function ImageReposPanel() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <KPIBadge label="Repositories" value={loading ? '—' : repos.length} />
-        <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><PiArrowsClockwise className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></Button>
+        <Button variant="outline" size="sm" onClick={() => load()} disabled={loading} aria-label="Refresh"><PiArrowsClockwise className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /></Button>
       </div>
 
       {error && <ErrorBar error={error} onRetry={load} />}

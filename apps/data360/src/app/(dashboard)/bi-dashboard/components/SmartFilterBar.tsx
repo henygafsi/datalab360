@@ -268,9 +268,17 @@ function FilterChip({
           <span
             role="button"
             tabIndex={0}
+            aria-label={`Clear ${candidate.column} filter`}
             onClick={(e) => {
               e.stopPropagation();
               onClear();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                onClear();
+              }
             }}
             className="rounded p-0.5 text-slate-400 hover:bg-red-100 hover:text-red-500 dark:hover:bg-red-900/30"
           >
@@ -455,7 +463,7 @@ function CategoryEditor({
               className="flex items-center gap-1 rounded bg-cyan-50 px-1.5 py-0.5 text-[10px] text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300"
             >
               {v}
-              <button onClick={() => toggle(v)} className="hover:text-red-500">
+              <button onClick={() => toggle(v)} aria-label={`Remove ${v}`} className="hover:text-red-500">
                 <X className="h-2.5 w-2.5" />
               </button>
             </span>

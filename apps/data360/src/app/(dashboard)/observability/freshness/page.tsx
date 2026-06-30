@@ -2,6 +2,7 @@
 
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import FreshnessProbePanel from './FreshnessProbePanel';
 
 /**
@@ -12,6 +13,9 @@ import FreshnessProbePanel from './FreshnessProbePanel';
  * so they are near-real-time — the disclaimer below clarifies that distinction.
  */
 export default function FreshnessProbesPage() {
+  // Fire-and-forget PAGE_VIEW on mount/route change. Tracking lives here on the top
+  // routed component only — never in FreshnessProbePanel (a child would double-fire).
+  useTrackEvent();
   return (
     <div className="@container p-4">
       <Breadcrumb
