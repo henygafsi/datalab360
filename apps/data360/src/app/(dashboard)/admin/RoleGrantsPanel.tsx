@@ -224,6 +224,7 @@ export default function RoleGrantsPanel() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter privilege / object…"
+              aria-label="Filter grants by privilege or object"
               className="w-full rounded border border-slate-200 bg-transparent py-1 pl-7 pr-2 text-[11px] outline-none focus:border-[hsl(var(--primary))] dark:border-slate-700"
             />
           </div>

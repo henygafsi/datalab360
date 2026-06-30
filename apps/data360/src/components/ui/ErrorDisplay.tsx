@@ -6,7 +6,8 @@ import { RefreshCw, AlertCircle, Wifi, Clock, Lock, Server } from 'lucide-react'
 export interface ErrorDisplayProps {
   error: Error | string | null;
   onRetry?: () => void;
-  context?: 'users' | 'roles' | 'grants' | 'general' | 'policy-grants';
+  /** Known contexts get a localized noun; any other string falls back to the generic noun. */
+  context?: 'users' | 'roles' | 'grants' | 'general' | 'policy-grants' | (string & {});
   className?: string;
 }
 
@@ -55,7 +56,7 @@ function getErrorConfig(type: ErrorType, context?: string): ErrorConfig {
       return {
         icon: <Clock className="h-16 w-16 text-amber-600" />,
         title: 'Le chargement prend trop de temps',
-        description: `Le serveur met plus de 15 secondes à charger les ${contextName}. Cela peut arriver lors de grosses requêtes sur Snowflake.`,
+        description: `Le serveur met plus de 15 secondes à charger les ${contextName}. Cela peut arriver lors de requêtes volumineuses sur la plateforme de données.`,
         advice: '💡 Conseil : Contactez votre administrateur système pour optimiser les requêtes. En attendant, essayez de rafraîchir la page.',
       };
 

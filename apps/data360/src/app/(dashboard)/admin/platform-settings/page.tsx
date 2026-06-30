@@ -25,6 +25,7 @@ import {
 import type { PlatformConfigEntry } from '@/app/services/observability/types';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 
 /** Render a config value (object/array/scalar) as an editable string. */
@@ -85,6 +86,8 @@ export default function PlatformSettingsPage() {
   // Mutating-action gate (shared key used across this admin surface).
   const canApply = useCanPerform('gouvernance', 'apply');
   const writeBlocked = !canApply.allowed && !canApply.loading;
+  // Fire-and-forget tracing: auto page-view on mount + key write actions below.
+  const { trackFeatureClick } = useTrackEvent();
 
   // Debounced search + category filter (over the loaded entries).
   const [search, setSearch] = useState('');
@@ -167,6 +170,7 @@ export default function PlatformSettingsPage() {
         description: newDescription.trim() || undefined,
       });
       toast.success(`Created ${newKey.trim()}`);
+      trackFeatureClick('create_setting');
       setNewKey('');
       setNewValue('');
       setNewDescription('');
@@ -177,7 +181,7 @@ export default function PlatformSettingsPage() {
     } finally {
       setCreating(false);
     }
-  }, [newKey, newValue, newDescription, close, load]);
+  }, [newKey, newValue, newDescription, close, load, trackFeatureClick]);
 
   const doReset = useCallback(async () => {
     setConfirmReset(false);
@@ -185,13 +189,14 @@ export default function PlatformSettingsPage() {
     try {
       await resetPlatformConfig();
       toast.success('Platform configuration reset to defaults');
+      trackFeatureClick('reset_platform_config');
       await load();
     } catch (err) {
       toast.error(getApiErrorMessage(err));
     } finally {
       setResetting(false);
     }
-  }, [load]);
+  }, [load, trackFeatureClick]);
 
   // Distinct categories for the filter chips (only when more than one exists).
   const categories = useMemo(() => {

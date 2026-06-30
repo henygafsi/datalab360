@@ -72,6 +72,7 @@ import {
 } from '@/app/services/governance';
 import { getUsersWithRolesAndModules, type UserGrantTableData } from '@/app/services/governance/user_roles';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 import { toast } from '@/hooks/use-toast';
 
@@ -139,6 +140,7 @@ function SearchBox({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        aria-label={placeholder}
         className="w-56 rounded-lg border border-slate-200 bg-white py-1 pl-8 pr-7 text-[11px] text-slate-700 outline-none focus:border-[hsl(var(--primary))] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
       />
       {value && (
@@ -1375,6 +1377,8 @@ function Data360ConfigPageInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  // Fire-and-forget tracing: auto page-view on mount + a TAB_SWITCH per tab change.
+  const { trackTabSwitch } = useTrackEvent();
 
   // Lazy-init from the URL so the first paint already reflects the deep-link.
   const [tab, setTab] = useState<TabKey>(() => parseTab(searchParams.get('tab')));
@@ -1389,11 +1393,12 @@ function Data360ConfigPageInner() {
   const selectTab = useCallback(
     (next: TabKey) => {
       setTab(next);
+      trackTabSwitch(next);
       const params = new URLSearchParams(searchParams.toString());
       params.set('tab', next);
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     },
-    [router, pathname, searchParams],
+    [router, pathname, searchParams, trackTabSwitch],
   );
 
   return (

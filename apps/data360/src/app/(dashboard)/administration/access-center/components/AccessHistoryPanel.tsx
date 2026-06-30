@@ -150,6 +150,7 @@ export default function AccessHistoryPanel({ days = 7 }: { days?: number }) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter database / schema / object…"
+              aria-label="Filter accessed objects by database, schema or name"
               className="w-full rounded border border-slate-200 bg-transparent py-1 pl-7 pr-2 text-[11px] outline-none focus:border-[hsl(var(--primary))] dark:border-slate-700"
             />
           </div>

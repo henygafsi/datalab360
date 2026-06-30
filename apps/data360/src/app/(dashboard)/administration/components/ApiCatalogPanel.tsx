@@ -176,15 +176,18 @@ export default function ApiCatalogPanel() {
         <div className="relative flex-1 min-w-[220px]">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <input
+            type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search path, method or file…"
+            aria-label="Search endpoints by path, method or frontend file"
             className="w-full rounded-lg border border-slate-200 bg-white/70 py-1.5 pl-8 pr-3 text-xs text-slate-700 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-200 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
           />
         </div>
         <select
           value={moduleFilter}
           onChange={(e) => setModuleFilter(e.target.value)}
+          aria-label="Filter endpoints by module"
           className="rounded-lg border border-slate-200 bg-white/70 py-1.5 px-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
         >
           <option value="all">All modules ({modules.length})</option>
@@ -193,6 +196,7 @@ export default function ApiCatalogPanel() {
         <select
           value={coverageFilter}
           onChange={(e) => setCoverageFilter(e.target.value as 'all' | Coverage)}
+          aria-label="Filter endpoints by frontend coverage"
           className="rounded-lg border border-slate-200 bg-white/70 py-1.5 px-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200"
         >
           <option value="all">All coverage</option>
@@ -219,6 +223,13 @@ export default function ApiCatalogPanel() {
             </tr>
           </thead>
           <tbody>
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-3 py-10 text-center text-xs text-slate-400 dark:text-slate-500">
+                  No endpoints match your filters. Clear the search or pick a different module / coverage.
+                </td>
+              </tr>
+            )}
             {filtered.slice(0, 400).map((e) => {
               const cov = COVERAGE_META[e.coverage];
               const probe = probes[e.path];

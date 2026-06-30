@@ -13,7 +13,7 @@ import {
   getCacheKpis, getServiceAccountHealth, getSvcRegistry, getCacheStreamStats,
   type CacheKpis, type ServiceAccountHealth, type SvcRegistry, type CacheStreamStats,
 } from '@/app/services/cache/admin';
-import { Loader2, Gauge, ServerCog, Radio, CheckCircle2, XCircle, Database } from 'lucide-react';
+import { Loader2, Gauge, ServerCog, Radio, CheckCircle2, XCircle, Database, AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function ServiceHealthPanel() {
   const [kpis, setKpis] = useState<CacheKpis | null>(null);
@@ -21,26 +21,46 @@ export default function ServiceHealthPanel() {
   const [reg, setReg] = useState<SvcRegistry | null>(null);
   const [stream, setStream] = useState<CacheStreamStats | null>(null);
   const [loading, setLoading] = useState(true);
+  // True only when EVERY read failed — a single failed read degrades to "—" in place.
+  const [allFailed, setAllFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setAllFailed(false);
       const [k, s, r, st] = await Promise.allSettled([
         getCacheKpis(), getServiceAccountHealth(), getSvcRegistry(), getCacheStreamStats(),
       ]);
       if (cancelled) return;
-      if (k.status === 'fulfilled') setKpis(k.value);
-      if (s.status === 'fulfilled') setSvc(s.value);
-      if (r.status === 'fulfilled') setReg(r.value);
-      if (st.status === 'fulfilled') setStream(st.value);
+      setKpis(k.status === 'fulfilled' ? k.value : null);
+      setSvc(s.status === 'fulfilled' ? s.value : null);
+      setReg(r.status === 'fulfilled' ? r.value : null);
+      setStream(st.status === 'fulfilled' ? st.value : null);
+      setAllFailed([k, s, r, st].every((x) => x.status === 'rejected'));
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadKey]);
 
   if (loading) {
-    return <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading service & cache health…</div>;
+    return <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Loading service &amp; cache health…</div>;
+  }
+
+  if (allFailed) {
+    return (
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+        <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Service &amp; cache health is unavailable right now.</span>
+        <button
+          type="button"
+          onClick={() => setReloadKey((n) => n + 1)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white/60 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-white dark:border-amber-500/40 dark:bg-transparent dark:text-amber-200"
+        >
+          <RefreshCw className="h-3.5 w-3.5" /> Retry
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -56,10 +76,17 @@ export default function ServiceHealthPanel() {
       {/* SVC health line */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-700">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Service account</span>
-        <Health ok={!!svc?.connection_alive} label={svc?.connection_alive ? 'connection alive' : 'connection down'} />
-        <Health ok={!!svc?.configured} label={svc?.configured ? 'configured' : 'not configured'} />
-        <Health ok={!svc?.degraded} label={svc?.degraded ? 'degraded' : 'healthy'} />
-        {svc?.role && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800">role: {svc.role}</span>}
+        {svc ? (
+          <>
+            <Health ok={!!svc.connection_alive} label={svc.connection_alive ? 'connection alive' : 'connection down'} />
+            <Health ok={!!svc.configured} label={svc.configured ? 'configured' : 'not configured'} />
+            <Health ok={!svc.degraded} label={svc.degraded ? 'degraded' : 'healthy'} />
+            {svc.role && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800">role: {svc.role}</span>}
+          </>
+        ) : (
+          // No SVC read → "status unavailable", not a misleading red "down".
+          <span className="text-[11px] text-slate-400">status unavailable —</span>
+        )}
         {stream?.data?.tracked_cache_keys != null && <span className="text-[10px] text-slate-400">· {stream.data.tracked_cache_keys} tracked keys</span>}
       </div>
 

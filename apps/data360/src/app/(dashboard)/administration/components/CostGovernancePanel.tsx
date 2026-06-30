@@ -463,6 +463,16 @@ export default function CostGovernancePanel() {
     setFormError(null);
   }, [formBusy]);
 
+  // Escape closes the warehouse-cap modal (unless a mutation is in flight).
+  useEffect(() => {
+    if (!whTarget) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeForm();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [whTarget, closeForm]);
+
   const applyForm = async () => {
     if (!whTarget) return;
     const name = whTarget.wh.warehouse_name;
@@ -954,9 +964,18 @@ export default function CostGovernancePanel() {
 
       {/* Resize / auto-suspend form modal */}
       {whTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={closeForm}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wh-cap-title"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+          >
+            <h3 id="wh-cap-title" className="text-sm font-semibold text-slate-900 dark:text-white">
               {whTarget.mode === 'resize' ? 'Cap warehouse size' : 'Set idle auto-suspend'}
             </h3>
             <p className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-400">

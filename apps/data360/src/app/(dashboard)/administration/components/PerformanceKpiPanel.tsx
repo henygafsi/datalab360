@@ -120,7 +120,7 @@ export default function PerformanceKpiPanel() {
           <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Per-endpoint KPIs <span className="font-normal text-slate-400">· usage · errors · latency · cache (7d)</span></h3>
           <div className="relative w-56">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter endpoint / module…" className="w-full rounded-lg border border-slate-200 bg-white/70 py-1.5 pl-8 pr-3 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-200 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200" />
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter endpoint / module…" aria-label="Filter endpoints by name or module" className="w-full rounded-lg border border-slate-200 bg-white/70 py-1.5 pl-8 pr-3 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-200 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200" />
           </div>
         </div>
         {rows.length === 0 ? (
