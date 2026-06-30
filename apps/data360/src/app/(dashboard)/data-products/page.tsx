@@ -33,6 +33,7 @@ import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { toast } from '@/hooks/use-toast';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import Object360Panel from './components/Object360Panel';
 import KpiLifecyclePanel from './components/KpiLifecyclePanel';
 import PublishGate from './components/PublishGate';
@@ -92,6 +93,17 @@ function DataProductsPage() {
   // Fail-open while the allow-set loads (no flash of disabled).
   const createPerm = useCanPerform('data_products', 'create');
   const canCreateProduct = createPerm.allowed || createPerm.loading;
+
+  // Fire-and-forget usage tracking. The hook auto-emits a PAGE_VIEW on mount, but
+  // `detectModule` has no `data-products` case (it buckets this route as
+  // 'unknown'), so we also emit a manual page_view carrying the real module — the
+  // same compensation bi-dashboard uses. Key feature clicks are tracked at their
+  // JSX handlers below.
+  const { trackFeatureClick } = useTrackEvent();
+  useEffect(() => {
+    trackFeatureClick('page_view', { module: 'data_products' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [products, setProducts] = useState<DataProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -298,7 +310,10 @@ function DataProductsPage() {
             </Button>
             <Button
               size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={() => setShowCreate((v) => !v)}
+              onClick={() => {
+                trackFeatureClick('create_product_toggle', { module: 'data_products' });
+                setShowCreate((v) => !v);
+              }}
               aria-expanded={showCreate}
               disabled={!canCreateProduct}
               title={!canCreateProduct ? 'You lack the "create" permission on data products. Ask an administrator to grant it.' : undefined}
@@ -348,7 +363,10 @@ function DataProductsPage() {
           </div>
           <select
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
+            onChange={(e) => {
+              setFilterStatus(e.target.value);
+              trackFeatureClick('filter_status', { module: 'data_products', status: e.target.value || 'all' });
+            }}
             aria-label="Filter by status"
             className="text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
           >
@@ -407,7 +425,10 @@ function DataProductsPage() {
                   product={product}
                   isSelected={selectedProduct === product.PRODUCT_ID}
                   onSelect={() => setSelectedProduct(selectedProduct === product.PRODUCT_ID ? null : product.PRODUCT_ID)}
-                  onSubscribe={() => handleSubscribe(product.PRODUCT_ID)}
+                  onSubscribe={() => {
+                    trackFeatureClick('subscribe_product', { module: 'data_products' });
+                    void handleSubscribe(product.PRODUCT_ID);
+                  }}
                   subscribing={subscribing === product.PRODUCT_ID}
                   subscribeError={subscribeError?.id === product.PRODUCT_ID ? subscribeError.message : null}
                 />

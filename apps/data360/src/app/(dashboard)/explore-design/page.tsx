@@ -630,7 +630,7 @@ const CompactSourceSelector: React.FC<{
                     <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                       Schema Health
                     </span>
-                    <button onClick={() => setHealthOpen(false)} className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded">
+                    <button aria-label="Close schema health" onClick={() => setHealthOpen(false)} className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded">
                       <X className="h-3 w-3 text-slate-400" />
                     </button>
                   </div>

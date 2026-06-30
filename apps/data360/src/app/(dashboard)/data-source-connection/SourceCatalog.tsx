@@ -413,6 +413,7 @@ export default function SourceCatalog() {
             <select
               value={selectedDb}
               onChange={(e) => setSelectedDb(e.target.value)}
+              aria-label="Select database"
               className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-blue-500"
             >
               {databases.map(db => (
@@ -427,6 +428,7 @@ export default function SourceCatalog() {
                 placeholder="Search tables..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                aria-label="Search tables"
                 className="pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 focus:ring-2 focus:ring-blue-500 w-56"
               />
             </div>
@@ -440,6 +442,7 @@ export default function SourceCatalog() {
             <select
               value={filterDomain}
               onChange={(e) => setFilterDomain(e.target.value)}
+              aria-label="Filter by domain"
               className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200"
             >
               <option value="">All Domains</option>
@@ -450,6 +453,7 @@ export default function SourceCatalog() {
             <select
               value={filterIngestion}
               onChange={(e) => setFilterIngestion(e.target.value)}
+              aria-label="Filter by ingestion type"
               className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200"
             >
               <option value="">All Ingestion Types</option>

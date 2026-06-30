@@ -54,6 +54,7 @@ import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 import SmartRightBar from './components/SmartRightBar';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import { useProjectContext } from '@/hooks/useProjectContext';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { safeLocale, safeArray } from '@/lib/format-number';
 
 // ── Types ──
@@ -651,9 +652,18 @@ function AuditTable({
               <tr
                 key={i}
                 onClick={() => onRowClick?.(row)}
+                role={onRowClick ? 'button' : undefined}
+                tabIndex={onRowClick ? 0 : undefined}
+                aria-pressed={onRowClick ? isSelected : undefined}
+                onKeyDown={onRowClick ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onRowClick?.(row);
+                  }
+                } : undefined}
                 className={cn(
                   'border-b border-gray-100 dark:border-gray-800 transition-colors',
-                  onRowClick ? 'cursor-pointer' : '',
+                  onRowClick ? 'cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500' : '',
                   isSelected
                     ? 'bg-blue-50 dark:bg-blue-900/20'
                     : 'hover:bg-gray-50 dark:hover:bg-gray-800/50',
@@ -755,7 +765,7 @@ function getTabColumns(tab: string): { key: string; label: string; format?: (v: 
         { key: 'TABLE_NAME', label: 'Table' },
         { key: 'COLUMN_NAME', label: 'Column' },
         { key: 'TOTAL_ROWS', label: 'Rows', format: (v) => Number(v || 0).toLocaleString() },
-        { key: 'NULL_COUNT', label: 'Nulls', format: (v) => Number(v || 0).toLocaleString() },
+        { key: 'NULL_COUNT', label: 'Nulls', format: (v) => v == null ? <span className="text-gray-400 dark:text-gray-500">—</span> : Number(v).toLocaleString() },
         {
           key: 'COMPLETENESS_PCT', label: 'Complete', format: (v) => {
             if (v == null) return <span className="text-gray-400 dark:text-gray-500">—</span>;
@@ -775,7 +785,8 @@ function getTabColumns(tab: string): { key: string; label: string; format?: (v: 
         }},
         { key: 'TOTAL_ROWS', label: 'Rows', format: (v) => Number(v || 0).toLocaleString() },
         { key: 'DUPLICATE_COUNT', label: 'Dupes', format: (v) => {
-          const n = Number(v || 0);
+          if (v == null) return <span className="text-gray-400 dark:text-gray-500">—</span>;
+          const n = Number(v);
           return <span className={n > 0 ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-green-600 dark:text-green-400'}>{n.toLocaleString()}</span>;
         }},
         { key: 'STATUS', label: 'Status', format: (v) => <StatusBadge status={v} /> },
@@ -799,7 +810,8 @@ function getTabColumns(tab: string): { key: string; label: string; format?: (v: 
         { key: 'STATUS', label: 'Status', format: (v) => <StatusBadge status={v} /> },
         { key: 'ROW_COUNT', label: 'Loaded', format: (v) => Number(v || 0).toLocaleString() },
         { key: 'ERROR_COUNT', label: 'Errors', format: (v) => {
-          const n = Number(v || 0);
+          if (v == null) return <span className="text-gray-400 dark:text-gray-500">—</span>;
+          const n = Number(v);
           return <span className={n > 0 ? 'text-red-600 dark:text-red-400 font-semibold' : ''}>{n.toLocaleString()}</span>;
         }},
         { key: 'LAST_LOAD_TIME', label: 'Loaded At' },
@@ -1093,6 +1105,10 @@ export default function DataQualityPage() {
   // (honest — no fabricated account-level ADN). Lights up if/when this module
   // gains project scoping or a per-project DQ source ships on the backend.
   const { lastProjectId } = useProjectContext('data_quality');
+  // User tracing — auto-fires PAGE_VIEW on mount (single hook instance on the
+  // top routed component; SmartRightBar deliberately does NOT call this hook to
+  // avoid duplicate page views). Manual helpers track tab switches + key actions.
+  const { trackTabSwitch, trackFeatureClick, trackExport } = useTrackEvent();
   const [activeTab, setActiveTab] = useState('completeness');
   const [loading, setLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
@@ -1365,6 +1381,7 @@ export default function DataQualityPage() {
   }, [tabData]);
 
   const handleRefresh = async () => {
+    trackFeatureClick('force_refresh', { tab: activeTab });
     setRefreshing(true);
     setError(null);
     try {
@@ -1536,6 +1553,7 @@ export default function DataQualityPage() {
   }, []);
 
   const openDmfPanel = useCallback((which: 'associate' | 'custom' | 'schedule' | 'manage') => {
+    trackFeatureClick('dmf_panel_open', { panel: which });
     setDmfActionError(null);
     setDmfActionNotice(null);
     thresholdPanel.close(); // only one right-rail open at a time
@@ -1563,7 +1581,7 @@ export default function DataQualityPage() {
     }
     dmfPanel.open(which);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadDmfDefs, loadDmfReferences, selectedRow]);
+  }, [loadDmfDefs, loadDmfReferences, selectedRow, trackFeatureClick]);
 
   // Elapsed timer while a DMF DDL action runs (visible feedback for long
   // Snowflake operations).
@@ -1780,6 +1798,7 @@ export default function DataQualityPage() {
   // today — no DQ project selector), we surface an honest notice rather than
   // fabricating a call with a guess-id.
   const handleSuggestDmfs = useCallback(async () => {
+    trackFeatureClick('suggest_dmfs_ai', { hasTable: !!selectedRow, hasProject: !!lastProjectId });
     setDmfSuggestError(null);
     setDmfSuggestions(null);
     setShowDmfSuggestions(true);
@@ -1805,7 +1824,7 @@ export default function DataQualityPage() {
     } finally {
       setDmfSuggestLoading(false);
     }
-  }, [lastProjectId, selectedRow]);
+  }, [lastProjectId, selectedRow, trackFeatureClick]);
 
   // Suggest → Associate: open the associate panel prefilled from an AI suggestion
   // (DMF name + applicable columns), so the steward can apply it in one click.
@@ -1829,6 +1848,7 @@ export default function DataQualityPage() {
 
   // ── Threshold check handler — wired to the real /data-quality/run-check ──
   const handleRunThresholdCheck = useCallback(async () => {
+    trackFeatureClick('run_check');
     setThError(null);
     setThResult(null);
     const table = thTable.trim();
@@ -1859,7 +1879,7 @@ export default function DataQualityPage() {
     } finally {
       setThRunning(false);
     }
-  }, [thTable, thCompletenessCols, thUniquenessCols, thFreshnessCol, thMaxAgeHours]);
+  }, [thTable, thCompletenessCols, thUniquenessCols, thFreshnessCol, thMaxAgeHours, trackFeatureClick]);
 
   // Compute filtered data
   const filteredData = useMemo(() => {
@@ -2347,6 +2367,7 @@ export default function DataQualityPage() {
               onClick={() => {
                 const rows = filteredData;
                 if (!rows.length) return;
+                trackExport('csv', { tab: activeTab, rows: rows.length });
                 const headers = Object.keys(rows[0]);
                 const csv = [headers.join(','), ...rows.map(row => headers.map(h => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(','))].join('\n');
                 const blob = new Blob([csv], { type: 'text/csv' });
@@ -2408,7 +2429,7 @@ export default function DataQualityPage() {
                   key={tabId}
                   whileHover={{ y: -1 }}
                   whileTap={{ scale: 0.97 }}
-                  onClick={() => setActiveTab(tabId)}
+                  onClick={() => { trackTabSwitch(tabId); setActiveTab(tabId); }}
                   className={cn(
                     'group relative flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium whitespace-nowrap transition-colors',
                     isActive
@@ -2552,9 +2573,9 @@ export default function DataQualityPage() {
                   </p>
                 ) : dmfSuggestions && dmfSuggestions.length > 0 ? (
                   <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1">
-                    {dmfSuggestions.map((s, i) => (
+                    {dmfSuggestions.map((s) => (
                       <div
-                        key={i}
+                        key={`${s.dmf_name}-${(s.applicable_columns ?? []).join('_')}`}
                         className="rounded-lg border border-violet-100 dark:border-violet-800/50 bg-white dark:bg-gray-900 px-3 py-2"
                       >
                         <div className="flex items-center gap-2 flex-wrap">
@@ -3075,7 +3096,7 @@ export default function DataQualityPage() {
             ) : null}
 
             <p className="text-[11px] text-gray-500 dark:text-gray-400">
-              Removing a DMF stops its scheduled evaluation. Built-in metrics are resolved under SNOWFLAKE.CORE; custom metrics under the governance schema.
+              Removing a DMF stops its scheduled evaluation. Built-in metrics resolve under the platform&apos;s system schema; custom metrics under the governance schema.
             </p>
           </div>
         )}
@@ -3158,10 +3179,10 @@ export default function DataQualityPage() {
                 </div>
               )}
               <div className="space-y-1.5">
-                {safeArray(thResult.checks).map((c, i) => {
+                {safeArray(thResult.checks).map((c) => {
                   const s = String(c.status ?? '').toUpperCase();
                   return (
-                    <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5">
+                    <div key={`${String(c.check_type ?? '')}-${String(c.column ?? '')}`} className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5">
                       <div className="min-w-0">
                         <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{c.check_type}{c.column ? ` · ${c.column}` : ''}</span>
                         {c.error && <p className="text-[11px] text-red-500 break-words">{c.error}</p>}

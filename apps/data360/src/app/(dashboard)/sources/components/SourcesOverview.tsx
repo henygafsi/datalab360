@@ -221,12 +221,18 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
 
         <div className="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
           <button
+            type="button"
+            aria-label="List view"
+            aria-pressed={viewMode === 'list'}
             onClick={() => setViewMode('list')}
             className={cn('p-2', viewMode === 'list' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600' : 'text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800')}
           >
             <List className="h-4 w-4" />
           </button>
           <button
+            type="button"
+            aria-label="Grid view"
+            aria-pressed={viewMode === 'grid'}
             onClick={() => setViewMode('grid')}
             className={cn('p-2', viewMode === 'grid' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600' : 'text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800')}
           >

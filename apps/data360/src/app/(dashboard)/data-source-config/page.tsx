@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Text, Button } from 'rizzui';
 import { PiArrowRight } from 'react-icons/pi';
 import { routes } from '@/config/routes';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 
 /**
  * Data Source Configuration was folded into Data Source Connection.
@@ -15,10 +16,15 @@ import { routes } from '@/config/routes';
  */
 export default function DataSourceConfigRedirectPage() {
   const router = useRouter();
+  const { trackFeatureClick } = useTrackEvent();
 
   useEffect(() => {
+    // The auto PAGE_VIEW is debounced and gets cancelled by the immediate
+    // unmount, so we emit a manual (synchronously-queued) event to capture
+    // hits on this deprecated route before redirecting.
+    trackFeatureClick('legacy_data_source_config_redirect');
     router.replace(routes.connexion.dataSourceConnection);
-  }, [router]);
+  }, [router, trackFeatureClick]);
 
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-6 p-8">
@@ -35,7 +41,7 @@ export default function DataSourceConfigRedirectPage() {
           onClick={() => router.push(routes.connexion.dataSourceConnection)}
         >
           Open Data Source Connection
-          <PiArrowRight className="ml-2 h-4 w-4" />
+          <PiArrowRight aria-hidden="true" className="ml-2 h-4 w-4" />
         </Button>
       </div>
     </div>

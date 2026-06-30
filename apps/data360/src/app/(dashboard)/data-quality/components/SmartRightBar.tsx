@@ -340,7 +340,10 @@ export default function SmartRightBar({
         data?.dmfHistory && data.dmfHistory.length > 0 ? (
           <div className="space-y-1">
             {data.dmfHistory.map((h, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 rounded border border-gray-100 dark:border-gray-800 px-2 py-1">
+              <div
+                key={`${String(h.METRIC_NAME || h.metric_name || '')}-${String(h.COLUMN_NAME || h.column_name || '')}-${String(h.MEASUREMENT_TIME || h.measured_at || i)}`}
+                className="flex items-center justify-between gap-2 rounded border border-gray-100 dark:border-gray-800 px-2 py-1"
+              >
                 <div className="min-w-0">
                   <p className="text-[10px] font-medium text-gray-700 dark:text-gray-300 truncate">{String(h.METRIC_NAME || h.metric_name || '—')}</p>
                   <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{String(h.MEASUREMENT_TIME || h.measured_at || '—')}</p>
