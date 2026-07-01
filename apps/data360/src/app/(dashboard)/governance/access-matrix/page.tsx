@@ -7,6 +7,7 @@ import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import EmptyState from '@/components/ui/EmptyState';
 import UserAccessMatrix from '../components/UserAccessMatrix';
 import { useAuth } from '@/hooks/useAuth';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { isAdminRole } from '@/config/constants';
 
 /**
@@ -17,6 +18,8 @@ import { isAdminRole } from '@/config/constants';
  */
 export default function AccessMatrixPage() {
   const { role } = useAuth();
+  // Auto-emits PAGE_VIEW on mount (this is the top routed component for the route).
+  useTrackEvent();
 
   if (!isAdminRole(role)) {
     return (
