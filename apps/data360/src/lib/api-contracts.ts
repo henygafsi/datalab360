@@ -1010,6 +1010,8 @@ export const API = {
     snapshot: () => '/data-quality/snapshot',
     /** POST /data-quality/run-check — threshold check on a single table */
     runCheck: () => '/data-quality/run-check',
+    /** POST /data-quality/auto-profile — recompute/refresh a table's column stats (row/null/distinct counts + score) */
+    autoProfile: () => '/data-quality/auto-profile',
     /** POST /data-quality/dmf/schedule — schedule a recurring DMF quality check (verified vs backend route dump). */
     dmfSchedule: () => '/data-quality/dmf/schedule',
     /** POST /data-quality/dmf/thresholds — persist a DMF threshold rule */

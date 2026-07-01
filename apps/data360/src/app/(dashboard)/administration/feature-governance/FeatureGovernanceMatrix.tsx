@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils';
 import { GlassPanel } from '@/app/shared/glass';
 import { dash } from '@/app/shared/ui/format';
 import EmptyState from '@/components/ui/EmptyState';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import Pager, { usePagination } from '@/components/ui/Pager';
 import ExportButton from '@/components/ui/ExportButton';
 import { type ReportInput } from '@/lib/export-report';
@@ -134,6 +135,13 @@ export default function FeatureGovernanceMatrix() {
   const [rowError, setRowError] = useState<Record<string, string>>({});
   // Per-module bulk action in flight, keyed by module slug.
   const [bulkPending, setBulkPending] = useState<Record<string, boolean>>({});
+  // Pending "Disable all" confirmation — bulk-disable turns a whole module's
+  // governance features off account-wide (blast radius), so it confirms first
+  // (mirrors the per-role template-apply confirm). Enable-all stays direct.
+  const [confirmDisableAll, setConfirmDisableAll] = useState<{
+    slug: string;
+    feats: EntitlementFeature[];
+  } | null>(null);
 
   // ── Sort ─────────────────────────────────────────────────────────────────────
   const [sortKey, setSortKey] = useState<SortKey>('module');
@@ -829,7 +837,7 @@ export default function FeatureGovernanceMatrix() {
                               <button
                                 type="button"
                                 disabled={busy || allOff}
-                                onClick={() => void handleBulk(slug, feats, false)}
+                                onClick={() => setConfirmDisableAll({ slug, feats })}
                                 className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                               >
                                 <Minus className="h-3 w-3" /> Disable all
@@ -946,6 +954,28 @@ export default function FeatureGovernanceMatrix() {
           </div>
         </GlassPanel>
       )}
+
+      {confirmDisableAll &&
+        (() => {
+          const { slug, feats } = confirmDisableAll;
+          const moduleLabel = slug.replace(/_/g, ' ');
+          const count = feats.filter((f) => f.enabled).length;
+          return (
+            <ConfirmDialog
+              open
+              title={`Disable all ${moduleLabel} features?`}
+              message={`This turns off ${count} enabled ${moduleLabel} feature${
+                count === 1 ? '' : 's'
+              } for the entire account. Every user loses these capabilities until an admin re-enables them.`}
+              confirmLabel="Disable all"
+              onConfirm={() => {
+                setConfirmDisableAll(null);
+                void handleBulk(slug, feats, false);
+              }}
+              onCancel={() => setConfirmDisableAll(null)}
+            />
+          );
+        })()}
     </div>
   );
 }

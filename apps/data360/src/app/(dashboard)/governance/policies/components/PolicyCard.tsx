@@ -20,6 +20,7 @@ import { useCanPerform } from '@/hooks/useCanPerform';
 import type { EnrichedPolicy, GrantedObject } from '@/app/services/governance/policies';
 import { unapplyPolicyFromAll, formatPolicyError } from '@/app/services/governance/policies';
 import BulkPolicyApplyPanel, { type BulkApplyMode } from './BulkPolicyApplyPanel';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 interface PolicyCardProps {
   policy: EnrichedPolicy;
@@ -62,6 +63,11 @@ export default function PolicyCard({
 }: PolicyCardProps) {
   const [showAllObjects, setShowAllObjects] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
+  // Object pending revoke confirmation. Un-applying a data-plane policy
+  // (masking / row-access / aggregation) from an object immediately lowers
+  // protection on that object, so it goes through the same confirm gate as
+  // delete rather than firing on a single click.
+  const [revokeTarget, setRevokeTarget] = useState<GrantedObject | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showBulkApply, setShowBulkApply] = useState(false);
@@ -96,6 +102,7 @@ export default function PolicyCard({
 
   const handleRevoke = async (obj: GrantedObject) => {
     if (!onRevokeObject) return;
+    setRevokeTarget(null);
     setRevoking(obj.display);
     try {
       await onRevokeObject(policy, obj);
@@ -182,7 +189,7 @@ export default function PolicyCard({
                   <span className="text-xs font-mono text-slate-700 dark:text-slate-300 truncate">{obj.display}</span>
                   <button
                     type="button"
-                    onClick={() => handleRevoke(obj)}
+                    onClick={() => setRevokeTarget(obj)}
                     disabled={revoking === obj.display || !canRevokePolicy}
                     className="shrink-0 text-red-500 hover:text-red-700 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
                     title={canRevokePolicy ? 'Revoke' : 'You lack the "revoke" permission on governance. Ask an administrator to grant it.'}
@@ -314,6 +321,17 @@ export default function PolicyCard({
           <PiTrash className="w-3.5 h-3.5" /> Delete
         </Button>
       </div>
+
+      {/* Confirm un-applying the policy from a specific object — removing it
+          lowers protection on that object immediately. */}
+      <ConfirmDialog
+        open={revokeTarget !== null}
+        title={`Remove policy from ${entityLabel.replace(/\(s\)$/, '')}`}
+        message={`Remove "${policy.name}" from ${revokeTarget?.display ?? 'this object'}? This un-applies the policy and lowers protection on that object until it is re-applied.`}
+        confirmLabel="Remove"
+        onConfirm={() => { if (revokeTarget) void handleRevoke(revokeTarget); }}
+        onCancel={() => setRevokeTarget(null)}
+      />
     </div>
   );
 }

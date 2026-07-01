@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
 import RouteFallback from '@/components/ui/RouteFallback';
-import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, ExternalLink, Clock, Rocket, AlertTriangle, RefreshCw } from 'lucide-react';
+import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, Wand2, ExternalLink, Clock, Rocket, AlertTriangle, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -16,6 +16,7 @@ import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/proj
 import ActionRail from '@/app/shared/action-rail/ActionRail';
 import ScoreCards from '@/app/shared/score-cards/ScoreCards';
 import AutoCreateModal from './components/AutoCreateModal';
+import AiDashboardWizard from './components/AiDashboardWizard';
 import CloneDashboardButton from './components/CloneDashboardButton';
 
 // ---------------------------------------------------------------------------
@@ -306,6 +307,7 @@ function BIDashboardPage() {
   const urlProjectId = searchParams.get('project');
   const [showCreate, setShowCreate] = useState(false);
   const [showAutoCreate, setShowAutoCreate] = useState(false);
+  const [showAiWizard, setShowAiWizard] = useState(false);
   const [projects, setProjects] = useState<UnifiedProject[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   // A fetch failure must NOT read as "no dashboards yet" (an empty state implies
@@ -384,6 +386,15 @@ function BIDashboardPage() {
     window.location.href = `/bi-dashboard/${projectId}`;
   }, [trackFeatureClick]);
 
+  // AI Wizard hands off (projectId, name) once the dashboard + its widgets are
+  // created; the extra name arg is surfaced in tracking only. The wizard
+  // self-closes after onCreated, so we mirror handleAutoCreated's navigation.
+  const handleAiWizardCreated = useCallback((projectId: string, name: string) => {
+    trackFeatureClick('bi_dashboard_ai_wizard_created', { projectId, name });
+    setShowAiWizard(false);
+    window.location.href = `/bi-dashboard/${projectId}`;
+  }, [trackFeatureClick]);
+
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
@@ -402,6 +413,18 @@ function BIDashboardPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  trackFeatureClick('bi_dashboard_open_ai_wizard');
+                  setShowAiWizard(true);
+                }}
+                disabled={!canCreate}
+                title={!canCreate ? CREATE_DENIED_REASON : undefined}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-700 hover:to-fuchsia-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Wand2 className="w-4 h-4" />
+                AI Wizard
+              </button>
               <button
                 onClick={() => {
                   trackFeatureClick('bi_dashboard_open_auto_create');
@@ -487,6 +510,18 @@ function BIDashboardPage() {
           onClose={() => setShowAutoCreate(false)}
           onCreated={(projectId) => handleAutoCreated(projectId)}
         />
+
+        {/* AI Wizard — describe → propose (POST /bi-dashboard/nl-to-chart) →
+            create (POST /bi-dashboard + /bi-dashboard/{id}/widgets). Rendered
+            only while open: useDataSourcePicker fetches databases on mount, so
+            keeping it unmounted avoids that cost on every landing-page load. */}
+        {showAiWizard && (
+          <AiDashboardWizard
+            isOpen
+            onClose={() => setShowAiWizard(false)}
+            onCreated={handleAiWizardCreated}
+          />
+        )}
       </div>
     </ErrorBoundary>
   );

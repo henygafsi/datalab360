@@ -50,6 +50,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { Tooltip } from '@/app/shared/ui/Tooltip';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 // ── Deployment status → badge style ──────────────────────────────────────────
 
@@ -193,6 +194,9 @@ function CommentsThread({ projectId }: { projectId: string }) {
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Comment pending delete confirmation — deletion is not reversible from the UI,
+  // so it goes through the app's ConfirmDialog rather than firing on one click.
+  const [pendingDelete, setPendingDelete] = useState<ProjectComment | null>(null);
 
   const refresh = useCallback(() => {
     let ignore = false;
@@ -224,6 +228,7 @@ function CommentsThread({ projectId }: { projectId: string }) {
   }, [draft, posting, projectId, replyTo]);
 
   const handleDelete = useCallback(async (c: ProjectComment) => {
+    setPendingDelete(null);
     setDeletingId(c.comment_id);
     try {
       await deleteComment(projectId, c.comment_id);
@@ -301,7 +306,7 @@ function CommentsThread({ projectId }: { projectId: string }) {
                 isReply={false}
                 canDelete={canDelete(c)}
                 onReply={setReplyTo}
-                onDelete={handleDelete}
+                onDelete={setPendingDelete}
                 deleting={deletingId === c.comment_id}
               />
               {repliesOf(c.comment_id).map((r) => (
@@ -311,7 +316,7 @@ function CommentsThread({ projectId }: { projectId: string }) {
                   isReply
                   canDelete={canDelete(r)}
                   onReply={setReplyTo}
-                  onDelete={handleDelete}
+                  onDelete={setPendingDelete}
                   deleting={deletingId === r.comment_id}
                 />
               ))}
@@ -319,6 +324,15 @@ function CommentsThread({ projectId }: { projectId: string }) {
           ))}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete comment"
+        message={`Delete this comment${pendingDelete?.author ? ` by ${pendingDelete.author}` : ''}? This cannot be undone.`}
+        confirmLabel="Delete"
+        onConfirm={() => { if (pendingDelete) void handleDelete(pendingDelete); }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

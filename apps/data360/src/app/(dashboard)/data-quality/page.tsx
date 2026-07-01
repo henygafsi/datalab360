@@ -15,7 +15,7 @@ import {
   Activity, Search, X, Filter,
   Lightbulb, ChevronDown, ChevronUp,
   Info, Play, Download, Plus, Link2, CalendarClock, Loader2, Sparkles,
-  ListChecks, Trash2,
+  ListChecks, Trash2, ScanSearch,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -28,6 +28,7 @@ import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import {
   runQualityCheckOnTable,
+  autoProfileTable,
   listDmfs,
   createCustomDmf,
   associateDmf,
@@ -50,6 +51,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
+import InsightActionButton from '@/app/shared/insights/InsightActionButton';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 import SmartRightBar from './components/SmartRightBar';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
@@ -2073,6 +2075,36 @@ export default function DataQualityPage() {
             <Play className="h-3.5 w-3.5" />
             Run Check
           </Button>
+          {/* Per-table auto-profiler — recomputes column stats (row/null/distinct
+              counts + score) for the selected table, then refreshes the DQ metrics.
+              Only shown once a table row is selected (nothing to profile otherwise).
+              InsightActionButton self-disables on 404/501 if the route isn't live. */}
+          {selectedRow && buildFqnFromRow(selectedRow) && (
+            <InsightActionButton
+              label="Profiler"
+              icon={ScanSearch}
+              size="md"
+              variant="subtle"
+              capable={canRunCheck}
+              pingBell
+              successToast={`Column stats refreshed for ${String(selectedRow.TABLE_NAME ?? '')}`}
+              unavailableHint={canRunCheck ? 'Table profiling is not available on this backend yet' : 'You lack the "run" permission on data quality. Ask an administrator to grant it.'}
+              className="h-8 border-white/30 bg-white/15 text-white hover:bg-white/25 dark:border-white/30 dark:text-white dark:hover:bg-white/25"
+              onAction={() => {
+                const parts = buildFqnFromRow(selectedRow).split('.');
+                const table = parts.pop() || String(selectedRow.TABLE_NAME ?? '');
+                const schema = parts.pop() || String(selectedRow.SCHEMA_NAME ?? selectedRow.TABLE_SCHEMA ?? 'PUBLIC');
+                const database = parts.join('.') || 'CP_DATA360';
+                trackFeatureClick('auto_profile_table', { table: `${database}.${schema}.${table}` });
+                return autoProfileTable(database, schema, table);
+              }}
+              onDone={() => {
+                void loadSummary(true);
+                void loadTabData(activeTab, true);
+                if (selectedRow) void loadRightbarData(selectedRow);
+              }}
+            />
+          )}
           <Button
             onClick={() => openDmfPanel('associate')}
             disabled={!canAssociateDmf}
