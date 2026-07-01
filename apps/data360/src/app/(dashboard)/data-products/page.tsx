@@ -642,12 +642,14 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
   const subscribePerm = useCanPerform('data_products', 'subscribe');
   const canSubscribe = subscribePerm.allowed || subscribePerm.loading;
 
-  // Subscribe requires a PUBLISHED product (the backend 409s on a DRAFT with no
+  // Subscribe requires a live product (the backend 409s on a DRAFT with no
   // SHARE_NAME). Gate the affordance on the backend-derived `is_published`,
-  // falling back to a raw STATUS check when an older backend omits the field, so
-  // the button isn't offered on products that can't accept subscribers yet.
+  // falling back to the normalized lifecycle status when an older backend omits
+  // the field. A raw `STATUS === 'PUBLISHED'` fallback wrongly excluded CERTIFIED
+  // products (a more-advanced live state), so use normalizeProductStatus to treat
+  // both 'active' (published/live) and 'certified' as subscribable.
   const isPublished =
-    product.is_published ?? (product.STATUS || '').toUpperCase() === 'PUBLISHED';
+    product.is_published ?? ['active', 'certified'].includes(normalizeProductStatus(product));
   const subscribeDisabledReason = !canSubscribe
     ? 'You lack the "subscribe" permission on data products. Ask an administrator to grant it.'
     : !isPublished
@@ -866,7 +868,7 @@ function ProductDetailPanel({
       <ProductLifecycleActions
         productId={product.PRODUCT_ID}
         productName={product.NAME}
-        isPublished={product.is_published ?? (product.STATUS || '').toUpperCase() === 'PUBLISHED'}
+        isPublished={product.is_published ?? ['active', 'certified'].includes(normalizeProductStatus(product))}
         onChanged={onPublished}
       />
 
