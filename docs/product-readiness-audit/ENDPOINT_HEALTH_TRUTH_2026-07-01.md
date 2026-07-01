@@ -50,6 +50,42 @@ That is exactly "all info of functional and params and temp of data entries per 
 5. **Per-module data-journey UI gaps** — missing UI that breaks an end-to-end journey (NOT the
    4-axis/a11y pass — that was done 2026-07-01 in `UX_AUDIT_OVERNIGHT_2026-07-01.md`).
 
+## Applied this session (local, feat/backlog-v1, build-green, NOT pushed)
+1. **backend** `finops_router.get_storage_databases` — 500 fixed (org→account fallback + `_report_query`
+   deadline). Commit on backend `feat/backlog-v1`. **Needs `:8000` restart to go live.**
+2. **front** `api-health/components/types.ts` — `isFakeIdRejection()`: fake-input SQL-compile 4xx no
+   longer counted as a defect (Defects 4→~1); 4xx-gated + after the 5xx/405/408 returns so a genuine
+   defect can never be masked. Commit `6145f01`.
+3. **front** `data-products/page.tsx` — CERTIFIED products no longer wrongly gated "Not published yet"
+   in the `is_published` fallback (both card + lifecycle sites). Commit `2bf5679`.
+
+Workflow `wf_87e17a97` (18 agents) also verified the 13 Explore-Design `not implemented` stubs are
+correct dead-graceful sentinels (only consumed by the api-health prober) — **no change needed**.
+
+## Verified backlog (adversarially-checked, NOT applied — need a decision / carry risk)
+OWNED (module-local, safe to implement):
+- **data-products · S** — done (this session).
+- **bi-dashboard · M** — persist applied filters: `createFilter`/`deleteFilter` exist in `biDashboardApi.ts`
+  with **zero UI callers**; `SmartFilterBar` emits ephemeral `AppliedFilter[]`. (Product ambiguity: should
+  auto-detected filters persist as saved? — needs a call. Finding's `handleFiltersApply` name was inexact.)
+- **bi-dashboard · S** — orphaned `AiDashboardWizard` (mounted nowhere): mount behind a header button or delete + record in `_DROPPED.md`.
+- **intelligent · M** — add Snooze + resolved/dismissed filter w/ Reopen (`snoozeRecommendation`/`reopenRecommendation` already exist, no UI).
+- **intelligent · M** — AI-Advisor "act" CTA: DO NOT ship the naive `router.push(drilldown_url)` (drilldown_url
+  is an API-filter querystring, not a route; and the tab's glossary scope surfaces zero drilldown recos today). Backend-coupled.
+
+SHARED components (route to owner — ripple risk):
+- **account-overview · S** — two CTAs paint a false-success ✓ but never switch tab (mount-only `?tab=` reader);
+  use `onNavigateTab`/`window.location.assign`. Also drop the circular "Review inactive accounts" CTA.
+- **observability · M** — compliance card drops `findings[]`/`recommendations[]` already in the `report` prop; render + `onViewDetails` drawer.
+
+Reverse-gap capabilities to surface later (additive, verified genuinely unsurfaced) — highest value:
+- **governance /access-matrix**: access-simulator, permission-matrix (tab-granular, single-call consolidation),
+  object-permission-matrix, per-user effective-grants, data-scope grants. `API.platform.*` + `services/platform`.
+- **data-quality · S–M**: `POST /data-quality/auto-profile` as a gated per-table "Profile / refresh" button.
+- **admin · S–M**: `/administration/performance/audit/by-account` cross-account rollup.
+- **catalog "My Workspace" · L**: `/api/workspace/*` (recently-opened, saved-views CRUD, watchlist) +
+  explorer audit-views/recent-activity/selection-review — new `services/workspace` + `API.workspace.*`.
+
 ## Board "4 Defects / 2 5xx" vs "1 genuine" — reconciliation
 - 2 5xx = `getStorageDatabases` 500 + (`setUserMfa` surfaces a 501 which some counters bucket high).
 - 4 Defects = `isDefect()` also flags fake-input SQL-compile errors → over-counts. Item (2) fixes this.
