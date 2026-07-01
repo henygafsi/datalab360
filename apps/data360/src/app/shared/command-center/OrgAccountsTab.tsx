@@ -126,7 +126,7 @@ function isApiError(data: unknown): boolean {
   );
 }
 
-export default function OrgAccountsTab() {
+export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id: string) => void } = {}) {
   const [state, setState] = useState<OrgAccountsState>({
     overview: null,
     accounts: null,
@@ -767,7 +767,17 @@ export default function OrgAccountsTab() {
                           variant="subtle"
                           size="sm"
                           onAction={async () => {
-                            router.push(c.href);
+                            // Same-page tab CTAs (/account-overview?tab=…) must switch
+                            // tabs via the parent navigator — a router.push of a same-page
+                            // ?tab= is a soft nav the mount-only tab reader ignores (it
+                            // painted a false-success ✓ and, for 'inactive accounts', was
+                            // circular). Cross-page hrefs stay a real navigation.
+                            const m = c.href.match(/[?&]tab=([^&]+)/);
+                            if (m && c.href.startsWith('/account-overview') && onNavigateTab) {
+                              onNavigateTab(decodeURIComponent(m[1]));
+                            } else {
+                              router.push(c.href);
+                            }
                           }}
                         />
                       ) : (

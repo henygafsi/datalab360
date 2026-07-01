@@ -2320,13 +2320,13 @@ function CommandCenterDashboardInner() {
                     <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Org accounts
                     </h2>
-                    <OrgAccountsTab />
+                    <OrgAccountsTab onNavigateTab={goToTab} />
                   </section>
                   <section>
                     <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Connected Accounts
                     </h2>
-                    <SnowflakeAccountsTab />
+                    <SnowflakeAccountsTab onNavigateTab={goToTab} />
                   </section>
                 </div>
               </Suspense>

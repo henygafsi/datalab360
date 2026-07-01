@@ -130,7 +130,7 @@ function isApiError(data: unknown): boolean {
   );
 }
 
-export default function SnowflakeAccountsTab() {
+export default function SnowflakeAccountsTab({ onNavigateTab }: { onNavigateTab?: (id: string) => void } = {}) {
   const router = useRouter();
   const [state, setState] = useState<SfAccountsState>({
     accounts: null,
@@ -453,7 +453,13 @@ export default function SnowflakeAccountsTab() {
               variant="subtle"
               size="sm"
               onAction={async () => {
-                router.push('/account-overview?tab=security');
+                // Same-page tab switch: use the parent's tab navigator so the
+                // active tab actually changes. A router.push of a same-page
+                // ?tab= is a soft nav the mount-only tab reader ignores, which
+                // left this action painting a false-success ✓ without moving.
+                // Falls back to full navigation when rendered standalone.
+                if (onNavigateTab) onNavigateTab('security');
+                else router.push('/account-overview?tab=security');
               }}
             />
           )}
