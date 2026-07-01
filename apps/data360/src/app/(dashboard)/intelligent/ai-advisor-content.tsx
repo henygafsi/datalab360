@@ -7,11 +7,13 @@ import toast from 'react-hot-toast';
 import {
   PiSparkle,
   PiArrowsClockwise,
+  PiArrowCounterClockwise,
   PiWarningCircle,
   PiLightning,
   PiCheckCircle,
   PiEye,
   PiClock,
+  PiMoon,
   PiXCircle,
   PiCurrencyDollar,
 } from 'react-icons/pi';
@@ -24,7 +26,10 @@ import {
   acknowledgeRecommendation,
   resolveRecommendation,
   dismissRecommendation,
+  snoozeRecommendation,
+  reopenRecommendation,
   type Recommendation,
+  type RecoStatus,
 } from '@/app/services/recommendations';
 
 // ── Constants ────────────────────────────────────────────────────────────
@@ -61,6 +66,24 @@ function errMsg(e: any): string {
   // structured object (503 cache/svc states) — prevents "object as React child".
   return toMessage(e, 'Something went wrong');
 }
+
+// Status buckets for the Active / Archived filter. Snoozed rows stay "active"
+// (they auto-reopen once their snooze date passes); resolved/dismissed are the
+// recoverable archive, where the Reopen action lives.
+const ACTIVE_STATUSES: RecoStatus[] = ['open', 'acknowledged', 'snoozed'];
+const ARCHIVED_STATUSES: RecoStatus[] = ['resolved', 'dismissed'];
+
+function isArchivedStatus(s: string | null | undefined): boolean {
+  const v = (s || '').toLowerCase();
+  return v === 'resolved' || v === 'dismissed';
+}
+
+// Quick snooze presets (days) offered in the detail rail.
+const SNOOZE_PRESETS: { days: number; label: string }[] = [
+  { days: 1, label: 'Tomorrow' },
+  { days: 7, label: '7 days' },
+  { days: 30, label: '30 days' },
+];
 
 // ── Elapsed timer (visible during long analyze) ──────────────────────────
 
@@ -121,11 +144,15 @@ export default function AiAdvisorContent() {
   const [narrative, setNarrative] = useState<string | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
 
+  // Active vs Archived (resolved/dismissed) status filter.
+  const [view, setView] = useState<'active' | 'archived'>('active');
+
   // Detail rail (non-blocking; destructive dismiss uses inline confirm in rail)
   const { isOpen, open, close } = useActionPanel<'details'>();
   const [selected, setSelected] = useState<Recommendation | null>(null);
   const [dismissReason, setDismissReason] = useState('');
   const [confirmingDismiss, setConfirmingDismiss] = useState(false);
+  const [snoozing, setSnoozing] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
 
   // ── Load stored recommendations (pure read) ─────────────────────────────
@@ -136,7 +163,7 @@ export default function AiAdvisorContent() {
       const res = await listRecommendations({
         page: PAGE,
         module: MODULE,
-        statuses: ['open', 'acknowledged', 'snoozed'],
+        statuses: view === 'archived' ? ARCHIVED_STATUSES : ACTIVE_STATUSES,
         limit: 100,
       });
       setRecos(res.items ?? []);
@@ -146,7 +173,7 @@ export default function AiAdvisorContent() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [view]);
 
   useEffect(() => {
     load();
@@ -154,6 +181,9 @@ export default function AiAdvisorContent() {
 
   // ── Recompute (long Snowflake op) ───────────────────────────────────────
   const handleAnalyze = async () => {
+    // Analyze recomputes the active recommendation set — surface results in the
+    // Active view so the returned items are not masked by the Archived filter.
+    setView('active');
     setAnalyzing(true);
     setAnalyzeError(null);
     try {
@@ -180,6 +210,7 @@ export default function AiAdvisorContent() {
     setSelected(reco);
     setConfirmingDismiss(false);
     setDismissReason('');
+    setSnoozing(false);
     open('details');
   };
 
@@ -198,6 +229,37 @@ export default function AiAdvisorContent() {
       const updated = await acknowledgeRecommendation(reco.reco_id);
       replaceReco(updated);
       toast.success('Acknowledged');
+    } catch (e: any) {
+      toast.error(errMsg(e));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSnooze = async (reco: Recommendation, days: number) => {
+    setActionBusy(true);
+    try {
+      const until = new Date(Date.now() + days * 86_400_000).toISOString();
+      await snoozeRecommendation(reco.reco_id, until);
+      toast.success(`Snoozed for ${days} day${days > 1 ? 's' : ''}`);
+      setSnoozing(false);
+      close();
+      await load();
+    } catch (e: any) {
+      toast.error(errMsg(e));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleReopen = async (reco: Recommendation) => {
+    setActionBusy(true);
+    try {
+      await reopenRecommendation(reco.reco_id);
+      // Reopened rows return to 'open' and leave the Archived list.
+      removeReco(reco.reco_id);
+      toast.success('Reopened');
+      close();
     } catch (e: any) {
       toast.error(errMsg(e));
     } finally {
@@ -263,10 +325,38 @@ export default function AiAdvisorContent() {
         </div>
       </div>
 
+      {/* Status filter — Active vs recoverable Archived (resolved/dismissed) */}
+      <div
+        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-0.5"
+        role="group"
+        aria-label="Recommendation status filter"
+      >
+        {([
+          { key: 'active', label: 'Active' },
+          { key: 'archived', label: 'Resolved / Dismissed' },
+        ] as const).map((opt) => (
+          <button
+            key={opt.key}
+            type="button"
+            aria-pressed={view === opt.key}
+            onClick={() => setView(opt.key)}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+              view === opt.key
+                ? 'bg-violet-500 text-white'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       {/* KPI strip */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Active recommendations</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {view === 'archived' ? 'Archived recommendations' : 'Active recommendations'}
+          </p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
             {loading ? '…' : loadError ? '—' : recos.length}
           </p>
@@ -330,17 +420,30 @@ export default function AiAdvisorContent() {
       {loading ? (
         <SkeletonCards count={3} />
       ) : loadError ? null : recos.length === 0 ? (
-        <EmptyState
-          icon={Inbox}
-          title="No recommendations yet"
-          description="Run an analysis to scan this account for cost, performance, and governance improvements."
-          action={
-            <Button className="gap-2" onClick={handleAnalyze} disabled={analyzing}>
-              <PiSparkle className="w-4 h-4" />
-              Run Analysis
-            </Button>
-          }
-        />
+        view === 'archived' ? (
+          <EmptyState
+            icon={Inbox}
+            title="Nothing archived yet"
+            description="Resolved and dismissed recommendations appear here, where you can reopen them if they become relevant again."
+            action={
+              <Button variant="outline" className="gap-2" onClick={() => setView('active')}>
+                View active recommendations
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={Inbox}
+            title="No recommendations yet"
+            description="Run an analysis to scan this account for cost, performance, and governance improvements."
+            action={
+              <Button className="gap-2" onClick={handleAnalyze} disabled={analyzing}>
+                <PiSparkle className="w-4 h-4" />
+                Run Analysis
+              </Button>
+            }
+          />
+        )
       ) : (
         <div className="space-y-3">
           {recos.map((reco) => (
@@ -405,27 +508,54 @@ export default function AiAdvisorContent() {
         accentClassName="bg-violet-500"
         footer={
           selected ? (
-            <div className="flex w-full items-center justify-between gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => handleAcknowledge(selected)}
-                disabled={actionBusy || selected.status === 'acknowledged'}
-              >
-                <PiEye className="w-3.5 h-3.5" />
-                Acknowledge
-              </Button>
-              <Button
-                size="sm"
-                className="gap-1.5"
-                onClick={() => handleResolve(selected)}
-                disabled={actionBusy}
-              >
-                {actionBusy ? <Loader size="sm" /> : <PiCheckCircle className="w-3.5 h-3.5" />}
-                Resolve
-              </Button>
-            </div>
+            isArchivedStatus(selected.status) ? (
+              // Archived (resolved/dismissed) — recoverable via Reopen.
+              <div className="flex w-full justify-end">
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => handleReopen(selected)}
+                  disabled={actionBusy}
+                >
+                  {actionBusy ? <Loader size="sm" /> : <PiArrowCounterClockwise className="w-3.5 h-3.5" />}
+                  Reopen
+                </Button>
+              </div>
+            ) : (
+              <div className="flex w-full items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => handleAcknowledge(selected)}
+                    disabled={actionBusy || selected.status === 'acknowledged'}
+                  >
+                    <PiEye className="w-3.5 h-3.5" />
+                    Acknowledge
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => setSnoozing((v) => !v)}
+                    disabled={actionBusy}
+                  >
+                    <PiMoon className="w-3.5 h-3.5" />
+                    Snooze
+                  </Button>
+                </div>
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => handleResolve(selected)}
+                  disabled={actionBusy}
+                >
+                  {actionBusy ? <Loader size="sm" /> : <PiCheckCircle className="w-3.5 h-3.5" />}
+                  Resolve
+                </Button>
+              </div>
+            )
           ) : undefined
         }
       >
@@ -492,7 +622,39 @@ export default function AiAdvisorContent() {
               </div>
             )}
 
+            {/* Snooze — inline duration picker inside the rail (no popup) */}
+            {snoozing && !isArchivedStatus(selected.status) && (
+              <div className="border-t border-gray-100 dark:border-gray-800 pt-4 space-y-2">
+                <p className="text-xs font-medium text-violet-600 dark:text-violet-400 flex items-center gap-1.5">
+                  <PiMoon className="w-3.5 h-3.5" />
+                  Snooze until…
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {SNOOZE_PRESETS.map((p) => (
+                    <Button
+                      key={p.days}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleSnooze(selected, p.days)}
+                      disabled={actionBusy}
+                    >
+                      {p.label}
+                    </Button>
+                  ))}
+                  <Button
+                    variant="text"
+                    size="sm"
+                    onClick={() => setSnoozing(false)}
+                    disabled={actionBusy}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Destructive dismiss — inline confirm inside the rail */}
+            {!isArchivedStatus(selected.status) && (
             <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
               {!confirmingDismiss ? (
                 <Button
@@ -535,6 +697,7 @@ export default function AiAdvisorContent() {
                 </div>
               )}
             </div>
+            )}
           </div>
         )}
       </ActionRail>

@@ -363,6 +363,51 @@ export async function runQualityCheckOnTable(config: QualityCheckConfig): Promis
   return data?.data || data;
 }
 
+/** Column-level profile row returned by the auto-profiler. */
+export interface ColumnProfile {
+  column?: string;
+  data_type?: string;
+  null_count?: number;
+  distinct_count?: number;
+  [key: string]: unknown;
+}
+
+/** Response of POST /data-quality/auto-profile. */
+export interface AutoProfileResult {
+  success?: boolean;
+  table: string;
+  profiled_at?: string;
+  profile?: {
+    row_count?: number;
+    quality_score?: number;
+    columns?: ColumnProfile[];
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/**
+ * Auto-profile a single table — recompute/refresh its column statistics
+ * (row count, per-column null/distinct counts and an aggregate quality score).
+ * Thin DQ wrapper over the canonical table profiler.
+ * POST /data-quality/auto-profile
+ *
+ * Backend AutoProfileRequest fields: `database`, `schema` (alias of `schema_name`,
+ * accepted via populate_by_name), `table`.
+ */
+export async function autoProfileTable(
+  database: string,
+  schema: string,
+  table: string,
+): Promise<AutoProfileResult> {
+  const { data } = await apiClient.post(API.dataQuality.autoProfile(), {
+    database,
+    schema,
+    table,
+  });
+  return data?.data || data;
+}
+
 /**
  * @deprecated The backend /run-check requires a {@link QualityCheckConfig} with a
  * `table` — a bare `{database}` body never validated. Kept only so existing

@@ -43,6 +43,7 @@ import { useEventStore, createColumnMappingEvent, createTableRenameEvent } from 
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { getPolicyGrantedRolesMap, type PolicyGrantedRolesMap } from '@/app/services/governance/policies';
+import { saveERDLayout } from '@/app/services/explore-design';
 
 // Custom node types
 const nodeTypes = {
@@ -309,7 +310,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   onToggleEventPanel,
 }) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const { fitView, zoomIn, zoomOut, getNodes, getEdges } = useReactFlow();
+  const { fitView, zoomIn, zoomOut, getNodes, getEdges, getViewport } = useReactFlow();
   const { addEvent, undoEvent, redoEvent, canUndo, canRedo, events } = useEventStore(projectId);
 
   // System 2 Action-RBAC — gate every mutating context-menu / sidebar action.
@@ -785,6 +786,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   const [isLocked, setIsLocked] = useState(false);
   // Canvas "+ Add table" menu (manual / empty-fed-by-sources).
   const [showAddTableMenu, setShowAddTableMenu] = useState(false);
+  const [isSavingLayout, setIsSavingLayout] = useState(false);
   const [relationMode, setRelationMode] = useState(false);
   const [pendingConnection, setPendingConnection] = useState<{
     sourceNode: string;
@@ -1546,6 +1548,42 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     toast.success('Layout applied');
   }, [setNodes, getEdges, fitView]);
 
+  // Persist the current node arrangement (positions) + canvas viewport to the
+  // backend so the diagram reopens exactly as the user left it. Without this the
+  // canvas re-runs auto-layout on every mount and manual positioning is lost.
+  const handleSaveLayout = useCallback(async () => {
+    if (!projectId) {
+      toast.error('Select a project before saving the layout');
+      return;
+    }
+    if (!canWrite) {
+      toast.error('You do not have permission to save the ERD layout');
+      return;
+    }
+    setIsSavingLayout(true);
+    try {
+      const tables = getNodes().map((n) => ({
+        id: n.id,
+        position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
+      }));
+      const vp = getViewport();
+      await saveERDLayout(projectId, {
+        tables,
+        canvas: { zoom: vp.zoom, offset: { x: Math.round(vp.x), y: Math.round(vp.y) } },
+      });
+      toast.success('Layout saved');
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      toast.error(
+        status === 404 || status === 501
+          ? 'Saving layouts is not available for this project yet'
+          : 'Could not save the layout',
+      );
+    } finally {
+      setIsSavingLayout(false);
+    }
+  }, [projectId, canWrite, getNodes, getViewport]);
+
   return (
     <div ref={reactFlowWrapper} className={cn('w-full h-full', className)}>
       <ReactFlow
@@ -1614,6 +1652,24 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 <LayoutGrid className="h-4 w-4" />
               </Button>
             </Tooltip>
+            {!isReadOnly && canWrite && (
+              <Tooltip content="Save layout (positions persist across reloads)">
+                <Button
+                  variant="text"
+                  size="sm"
+                  onClick={handleSaveLayout}
+                  disabled={isSavingLayout}
+                  aria-busy={isSavingLayout}
+                  className="p-2"
+                >
+                  {isSavingLayout ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                </Button>
+              </Tooltip>
+            )}
           </div>
 
           {/* + Add table — drops a new table straight onto the canvas:
