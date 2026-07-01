@@ -186,6 +186,25 @@ function formatKpiValue(value: number | null | undefined, format: 'number' | 'pe
   return String(value);
 }
 
+/**
+ * Quiet "feature not provisioned" notice — shown when a read returns 403/404/501
+ * (useCacheAwareQuery flags it as `unavailable`, not an error). Explains WHY the
+ * tab is empty instead of leaving it silently blank, without a scary red box.
+ */
+function FeatureUnavailableNotice({ label }: { label: string }) {
+  return (
+    <div
+      role="status"
+      className="flex items-center gap-3 px-4 py-3 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg"
+    >
+      <PiCloudArrowUp className="w-5 h-5 text-slate-400 shrink-0" />
+      <p className="text-sm text-slate-600 dark:text-slate-300">
+        {label} isn’t provisioned on this account yet. Once it’s enabled it will appear here automatically — nothing to fix.
+      </p>
+    </div>
+  );
+}
+
 export default function IntelligentPage() {
   const searchParams = useSearchParams();
   // useTrackEvent auto-fires PAGE_VIEW on mount via pathname; call trackTabSwitch on tab changes.
@@ -203,7 +222,7 @@ export default function IntelligentPage() {
 
   // ── KPIs via useCacheAwareQuery ──
   const fetchKpis = useCallback(() => getCortexKpis(), []);
-  const { data: kpis, loading: kpisLoading, error: kpisErrorObj, refetch: loadKpis } = useCacheAwareQuery<CortexKpis>(
+  const { data: kpis, loading: kpisLoading, error: kpisErrorObj, unavailable: kpisUnavailable, refetch: loadKpis } = useCacheAwareQuery<CortexKpis>(
     fetchKpis,
     { cacheKeys: [CACHE_KEYS.CORTEX] }
   );
@@ -222,7 +241,7 @@ export default function IntelligentPage() {
     const res = await apiClient.get<{ agents?: CortexAgent[] }>(API.cortex.agents('CP_DATA360'));
     return res.data?.agents ?? [];
   }, []);
-  const { data: agents, loading: agentsLoading, error: agentsErrorObj, refetch: loadAgents } = useCacheAwareQuery<CortexAgent[]>(
+  const { data: agents, loading: agentsLoading, error: agentsErrorObj, unavailable: agentsUnavailable, refetch: loadAgents } = useCacheAwareQuery<CortexAgent[]>(
     fetchAgents,
     { cacheKeys: [CACHE_KEYS.CORTEX, CACHE_KEYS.AGENTS], enabled: activeTab === 'cortex-agents', initialData: [] }
   );
@@ -233,7 +252,7 @@ export default function IntelligentPage() {
     const res = await apiClient.get<{ semantic_views?: CortexSemanticView[] }>(API.cortex.semanticViews('CP_DATA360'));
     return res.data?.semantic_views ?? [];
   }, []);
-  const { data: semanticViews, loading: semanticViewsLoading, error: semanticViewsErrorObj, refetch: loadSemanticViews } = useCacheAwareQuery<CortexSemanticView[]>(
+  const { data: semanticViews, loading: semanticViewsLoading, error: semanticViewsErrorObj, unavailable: semanticViewsUnavailable, refetch: loadSemanticViews } = useCacheAwareQuery<CortexSemanticView[]>(
     fetchSemanticViews,
     { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS, CACHE_KEYS.CORTEX], enabled: activeTab === 'semantic-views', initialData: [] }
   );
@@ -244,7 +263,7 @@ export default function IntelligentPage() {
     const res = await apiClient.get<{ vector_columns?: CortexVectorColumn[] }>(API.cortex.vectorColumns('CP_DATA360'));
     return res.data?.vector_columns ?? [];
   }, []);
-  const { data: vectorColumns, loading: vectorColumnsLoading, error: vectorColumnsErrorObj, refetch: loadVectorColumns } = useCacheAwareQuery<CortexVectorColumn[]>(
+  const { data: vectorColumns, loading: vectorColumnsLoading, error: vectorColumnsErrorObj, unavailable: vectorColumnsUnavailable, refetch: loadVectorColumns } = useCacheAwareQuery<CortexVectorColumn[]>(
     fetchVectorColumns,
     { cacheKeys: [CACHE_KEYS.CORTEX, CACHE_KEYS.VECTORS], enabled: activeTab === 'vector-search', initialData: [] }
   );
@@ -296,6 +315,7 @@ export default function IntelligentPage() {
       </div>
 
       {/* KPI Stats Grid - from GET /cortex/kpis (no static data) */}
+      {kpisUnavailable && !kpisLoading && <div className="mb-3"><FeatureUnavailableNotice label="AI usage metrics" /></div>}
       {kpisError && !kpisLoading && (
         <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <PiLightning className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -443,6 +463,7 @@ export default function IntelligentPage() {
                 </Button>
               </div>
 
+              {agentsUnavailable && !agentsLoading && <div className="mb-3"><FeatureUnavailableNotice label="AI agents" /></div>}
               {agentsError && !agentsLoading && (
                 <div className="flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                   <PiLightning className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
@@ -533,6 +554,7 @@ export default function IntelligentPage() {
                 </Button>
               </div>
 
+              {semanticViewsUnavailable && !semanticViewsLoading && <div className="mb-3"><FeatureUnavailableNotice label="Semantic views" /></div>}
               {semanticViewsError && !semanticViewsLoading && (
                 <div className="flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                   <PiLightning className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
@@ -629,6 +651,7 @@ export default function IntelligentPage() {
                 </Button>
               </div>
 
+              {vectorColumnsUnavailable && !vectorColumnsLoading && <div className="mb-3"><FeatureUnavailableNotice label="Vector search" /></div>}
               {vectorColumnsError && !vectorColumnsLoading && (
                 <div className="flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                   <PiLightning className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
