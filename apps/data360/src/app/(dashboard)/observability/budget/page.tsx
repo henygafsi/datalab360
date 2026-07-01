@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAtomValue } from 'jotai';
 import { Badge, Button, Input, Loader, Select } from 'rizzui';
-import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold } from 'react-icons/pi';
+import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold, PiTrashBold } from 'react-icons/pi';
 import { Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import cn from '@core/utils/class-names';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import CostOverviewCard from '@/app/shared/observability/cost-overview-card';
 import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
@@ -18,6 +19,7 @@ import {
   getStorageMetrics,
   getDailyCredits,
   createCostMonitor,
+  deleteCostMonitor,
   isRouteNotDeployed,
 } from '@/app/services/observability';
 import type {
@@ -226,6 +228,10 @@ export default function BudgetPage() {
   const [monitorsError, setMonitorsError] = useState<string | null>(null);
   const [monitorsNotDeployed, setMonitorsNotDeployed] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  // Destructive DROP RESOURCE MONITOR — the name pending confirmation, plus the
+  // per-row in-flight name so only the row being dropped shows its spinner.
+  const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(null);
+  const [deletingName, setDeletingName] = useState<string | null>(null);
 
   // Action-RBAC gate (H8): creating a resource monitor sets a credit budget — an
   // observability cost-control write. `set-budget` is the action-registry key for
@@ -286,6 +292,23 @@ export default function BudgetPage() {
     loadCost();
     loadMonitors();
   }, [loadCost, loadMonitors]);
+
+  // Drop a resource monitor (DELETE /observability/cost/monitors/{name}?confirm=true).
+  // Gated by the same `set-budget` action as create; the ConfirmDialog is the
+  // destructive gate. Toast + re-pull so the removed row disappears.
+  const handleDeleteMonitor = useCallback(async (name: string) => {
+    setConfirmDeleteName(null);
+    setDeletingName(name);
+    try {
+      await deleteCostMonitor(name);
+      toast.success(`Monitor "${name}" deleted`);
+      loadMonitors();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setDeletingName(null);
+    }
+  }, [loadMonitors]);
 
   // Real-time refresh: re-pull cost + monitors when the backend pushes an
   // observability/cost cache-invalidation (probe checks, warehouse/storage
@@ -404,6 +427,7 @@ export default function BudgetPage() {
                       <th className="px-3 py-2">Remaining</th>
                       <th className="px-3 py-2">Usage</th>
                       <th className="px-3 py-2">Frequency</th>
+                      <th className="px-3 py-2" />
                     </tr>
                   </thead>
                   <tbody>
@@ -435,6 +459,22 @@ export default function BudgetPage() {
                             </Badge>
                           </td>
                           <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">{m.frequency ?? '—'}</td>
+                          <td className="px-3 py-2 text-right">
+                            {m.name && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                isLoading={deletingName === m.name}
+                                disabled={deletingName !== null || !canCreateMonitor}
+                                title={!canCreateMonitor ? monitorDeniedTitle : 'Delete this resource monitor'}
+                                className="gap-1 border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                                onClick={() => setConfirmDeleteName(m.name!)}
+                              >
+                                <PiTrashBold className="h-3 w-3" />
+                                Delete
+                              </Button>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -452,6 +492,17 @@ export default function BudgetPage() {
             setCreateOpen(false);
             loadMonitors();
           }}
+        />
+
+        <ConfirmDialog
+          open={confirmDeleteName !== null}
+          title="Delete resource monitor?"
+          message={`This drops the resource monitor "${confirmDeleteName ?? ''}" and removes the credit budget it enforces on any assigned warehouses. This cannot be undone.`}
+          confirmLabel="Delete monitor"
+          cancelLabel="Cancel"
+          destructive
+          onConfirm={() => { if (confirmDeleteName) handleDeleteMonitor(confirmDeleteName); }}
+          onCancel={() => setConfirmDeleteName(null)}
         />
       </div>
     </div>
