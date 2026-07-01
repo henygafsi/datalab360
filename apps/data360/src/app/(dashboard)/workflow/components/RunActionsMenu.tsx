@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   ShieldX,
   Square,
+  ScrollText,
   Copy as CopyIcon,
 } from 'lucide-react';
 
@@ -42,6 +43,8 @@ export interface RunActionsMenuProps {
   onCompare: () => void;
   onToggleExpected: () => void;
   onKill: () => void;
+  /** Open the read-only logs drawer for this run. */
+  onViewLogs: () => void;
   /** RBAC gate for the workflow-level cancel (execute permission). */
   canKill?: boolean;
   /** RBAC gate for re-executing the workflow (execute permission). */
@@ -72,6 +75,7 @@ const RunActionsMenu: React.FC<RunActionsMenuProps> = ({
   onCompare,
   onToggleExpected,
   onKill,
+  onViewLogs,
   canKill = true,
   canRerun = true,
   onCopyId,
@@ -86,10 +90,19 @@ const RunActionsMenu: React.FC<RunActionsMenuProps> = ({
   // Build menu definition (status-aware)
   const items: MenuItemDef[] = [
     {
+      key: 'view-logs',
+      label: 'View logs',
+      icon: ScrollText,
+      onClick: onViewLogs,
+      // Read-only — always available (page access already gates the panel).
+      title: 'View the log lines for this run',
+    },
+    {
       key: 'rerun-same',
       label: 'Re-run with same inputs',
       icon: RotateCcw,
       onClick: onRerunSame,
+      dividerBefore: true,
       disabled: isRunning || !canRerun,
       title: !canRerun
         ? "You don't have permission to re-run this workflow"

@@ -60,14 +60,11 @@ export const API = {
     sourceCatalog: () => '/connect/source-catalog',
     /** POST /connect/connectors — create a new connector. */
     createConnector: () => '/connect/connectors',
-    // TODO(henry-P1): the 3 per-connector routes below are NOT in the backend (verified
-    // 2026-06-07 against 896-route dump — only GET /connect/connectors + /health exist).
-    // UI consumers must use the 404-self-disable pattern until backend ships them.
-    /** GET /connect/connectors/{id} — get connector by id. (backend gap) */
+    /** GET /connect/connectors/{id} — get connector by id. */
     getConnector: (id: string) => `/connect/connectors/${enc(id)}`,
-    /** POST /connect/connectors/{id}/test — test a connector connection. (backend gap) */
+    /** POST /connect/connectors/{id}/test — test a connector connection. */
     testConnector: (id: string) => `/connect/connectors/${enc(id)}/test`,
-    /** POST /connect/connectors/{id}/sync — trigger a manual sync. (backend gap) */
+    /** POST /connect/connectors/{id}/sync — trigger a manual sync. */
     syncConnector: (id: string) => `/connect/connectors/${enc(id)}/sync`,
     createInternalStage: () => '/connect/stages/internal',
     listStages: () => '/connect/stages',

@@ -300,6 +300,42 @@ export async function setDmfThreshold(
   return data?.data || data;
 }
 
+/**
+ * A persisted DMF threshold rule, as returned by GET /data-quality/dmf/thresholds.
+ * Backend DQ reads surface UPPERCASE Snowflake columns; lowercase keys are kept as
+ * defensive fallbacks. The `metric`/`METRIC` value must match a DMF's METRIC_NAME
+ * for a stored bound to be evaluated as a breach.
+ */
+export interface DmfThresholdRule {
+  TABLE_NAME?: string;
+  METRIC?: string;
+  METRIC_NAME?: string;
+  THRESHOLD?: number;
+  OPERATOR?: string;
+  COLUMN_NAME?: string;
+  CREATED_AT?: string;
+  table_name?: string;
+  metric?: string;
+  threshold?: number;
+  operator?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * List the persisted DMF threshold rules.
+ * GET /data-quality/dmf/thresholds
+ *
+ * The read side of {@link setDmfThreshold} — lets the UI display and inspect the
+ * active breach thresholds. Shapes are unwrapped defensively (thresholds/rows/data
+ * envelopes); returns [] when the route is not yet deployed (callers keep it
+ * non-blocking, never fake a value).
+ */
+export async function getDmfThresholds(): Promise<DmfThresholdRule[]> {
+  const { data } = await apiClient.get(API.dataQuality.dmfThresholds());
+  const rows = data?.thresholds || data?.rows || data?.data || data || [];
+  return Array.isArray(rows) ? (rows as DmfThresholdRule[]) : [];
+}
+
 // =============================================================================
 // ACTIONS
 // =============================================================================

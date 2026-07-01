@@ -19,6 +19,7 @@ import {
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useAuth } from '@/hooks/useAuth';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
@@ -47,6 +48,9 @@ function alertCategory(a: ObservabilityAlert): string {
 export default function AlertsPage() {
   // Fire-and-forget PAGE_VIEW on mount/route change; trackTabSwitch on scope change.
   const { trackTabSwitch } = useTrackEvent();
+  // Real session identity for alert acknowledgement — never send a literal
+  // 'current_user' string; the backend records who acknowledged the alert.
+  const { username } = useAuth();
   const [scope, setScope] = useState<'all' | 'cross-module'>('all');
   const [alerts, setAlerts] = useState<ObservabilityAlert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,7 +112,7 @@ export default function AlertsPage() {
     setAckingId(alertId);
     try {
       await apiClient.post(`/observability/alerts/${encodeURIComponent(alertId)}/ack`, {
-        acknowledged_by: 'current_user',
+        acknowledged_by: username || 'current_user',
       });
       toast.success('Alert acknowledged');
       load();
@@ -119,7 +123,7 @@ export default function AlertsPage() {
     } finally {
       setAckingId(null);
     }
-  }, [load, selected, close]);
+  }, [load, selected, close, username]);
 
   return (
     <div className="@container p-4">
@@ -177,7 +181,7 @@ export default function AlertsPage() {
               label: 'Acknowledge',
               endpoint: API.observability.acknowledgeAlert(top.id),
               method: 'POST',
-              payload: { acknowledged_by: 'current_user', source: 'ai_action_flow' },
+              payload: { acknowledged_by: username || 'current_user', source: 'ai_action_flow' },
               cost: '~0',
               risk: 'low',
             },

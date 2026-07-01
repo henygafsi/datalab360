@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useAtomValue } from 'jotai';
+import toast from 'react-hot-toast';
 import { Badge, Tooltip } from 'rizzui';
 import {
   HiOutlineArrowPath,
   HiOutlineClock,
+  HiOutlineSignal,
   HiCheckCircle,
   HiExclamationTriangle,
   HiXCircle,
@@ -14,11 +16,16 @@ import {
 import { Activity } from 'lucide-react';
 import {
   getConnectorsHealth,
+  listConnectors,
+  testConnector,
+  syncConnector,
   type ConnectorHealthItem,
   type ConnectorsHealthSummary,
+  type ConnectorInfo,
 } from './connectionServices';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 const STATUS_STYLES: Record<ConnectorHealthItem['status'], { dot: string; chip: string; icon: React.ElementType; label: string }> = {
   healthy: { dot: 'bg-green-500', chip: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300', icon: HiCheckCircle, label: 'Healthy' },
@@ -56,12 +63,25 @@ const formatBytes = (bytes: number): string => {
  * Compact connector-health strip — wires `GET /connect/connectors/health`,
  * previously unconsumed by the UI. Rendered above the connector picker so users
  * see at a glance which integrations are reachable before adding a new source.
- * Connect is excluded from System-2 RBAC, so this surface is ungated.
+ * Per-connector re-test / force-sync actions (POST /connect/connectors/{id}/test
+ * and /sync) are gated with useCanPerform('connect', …) — 'read' for the probe,
+ * 'ingest' for the sync — and fail-open while permissions load.
  */
 export default function ConnectorHealthStrip() {
   const [summary, setSummary] = useState<ConnectorsHealthSummary | null>(null);
+  const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
+  const [busy, setBusy] = useState<{ id: string; action: 'test' | 'sync' } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Re-testing a connector is a non-mutating probe (connect:read); forcing a sync
+  // triggers ingestion (connect:ingest — the same action page.tsx gates ingest on).
+  const testPerm = useCanPerform('connect', 'read');
+  const syncPerm = useCanPerform('connect', 'ingest');
+  const canTest = testPerm.allowed || testPerm.loading;
+  const canSync = syncPerm.allowed || syncPerm.loading;
+  const testDeniedReason = 'You lack the "read" permission on connect. Ask an administrator to grant it.';
+  const syncDeniedReason = 'You lack the "ingest" permission on connect. Ask an administrator to grant it.';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,7 +93,43 @@ export default function ConnectorHealthStrip() {
     } finally {
       setLoading(false);
     }
+    // Registered-connector list is best-effort and independent of the health roll-up.
+    try {
+      const res = await listConnectors();
+      setConnectors(Array.isArray(res.connectors) ? res.connectors : []);
+    } catch {
+      setConnectors([]);
+    }
   }, []);
+
+  const runTest = useCallback(async (c: ConnectorInfo) => {
+    setBusy({ id: c.id, action: 'test' });
+    try {
+      const res = await testConnector(c.id);
+      if (res.ok === false) {
+        toast.error(res.message || `${c.name} connection test failed.`);
+      } else {
+        toast.success(res.message || `${c.name} connection is reachable.`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `${c.name} connection test failed.`);
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
+  const runSync = useCallback(async (c: ConnectorInfo) => {
+    setBusy({ id: c.id, action: 'sync' });
+    try {
+      const res = await syncConnector(c.id);
+      toast.success(res.message || `Sync started for ${c.name}.`);
+      void load(); // refetch health after the mutation
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : `Failed to sync ${c.name}.`);
+    } finally {
+      setBusy(null);
+    }
+  }, [load]);
 
   useEffect(() => {
     void load();
@@ -124,8 +180,10 @@ export default function ConnectorHealthStrip() {
     );
   }
 
-  // Empty — backend reachable but reports no connectors.
-  if (summary && summary.total === 0) {
+  // Empty — backend reachable but reports no stages/pipes AND no registered
+  // connectors. If connectors exist (e.g. just set up, no activity yet) fall
+  // through to the main render so their Test/Sync controls stay reachable.
+  if (summary && summary.total === 0 && connectors.length === 0) {
     return (
       <div className="mb-6 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm dark:border-slate-700 dark:bg-slate-800/60">
         <Activity className="h-5 w-5 text-slate-400" />
@@ -234,6 +292,48 @@ export default function ConnectorHealthStrip() {
               +{hiddenCount} more
             </span>
           )}
+        </div>
+      )}
+
+      {/* Registered connectors — per-connector re-test / force-sync
+          (POST /connect/connectors/{id}/test | /sync). */}
+      {connectors.length > 0 && (
+        <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-700/60">
+          <div className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+            Registered connectors
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {connectors.map((c) => {
+              const testing = busy?.id === c.id && busy.action === 'test';
+              const syncing = busy?.id === c.id && busy.action === 'sync';
+              const rowBusy = busy?.id === c.id;
+              return (
+                <div key={c.id} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm text-slate-700 dark:text-slate-200">
+                    {c.name}
+                  </span>
+                  <button
+                    onClick={() => void runTest(c)}
+                    disabled={!canTest || rowBusy}
+                    title={!canTest ? testDeniedReason : undefined}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
+                  >
+                    <HiOutlineSignal className={`h-3.5 w-3.5 ${testing ? 'animate-pulse' : ''}`} />
+                    {testing ? 'Testing…' : 'Test'}
+                  </button>
+                  <button
+                    onClick={() => void runSync(c)}
+                    disabled={!canSync || rowBusy}
+                    title={!canSync ? syncDeniedReason : undefined}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
+                  >
+                    <HiOutlineArrowPath className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                    {syncing ? 'Syncing…' : 'Sync'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

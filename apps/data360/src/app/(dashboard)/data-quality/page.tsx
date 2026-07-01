@@ -15,7 +15,7 @@ import {
   Activity, Search, X, Filter,
   Lightbulb, ChevronDown, ChevronUp,
   Info, Play, Download, Plus, Link2, CalendarClock, Loader2, Sparkles,
-  ListChecks, Trash2, ScanSearch,
+  ListChecks, Trash2, ScanSearch, SlidersHorizontal,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -39,12 +39,17 @@ import {
   disassociateDmf,
   describeDmf,
   deleteCustomDmf,
+  setDmfThreshold,
+  getDmfThresholds,
   type DmfDefinition,
   type DmfSuggestion,
   type DmfReference,
   type DmfDetails,
+  type DmfThresholdPayload,
+  type DmfThresholdRule,
   type QualityCheckRunResult,
 } from '@/app/services/data-quality';
+import toast from 'react-hot-toast';
 import { toServiceError } from '@/app/services/_errors';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import EmptyState from '@/components/ui/EmptyState';
@@ -1252,6 +1257,20 @@ export default function DataQualityPage() {
   const [thResult, setThResult] = useState<QualityCheckRunResult | null>(null);
   const [thElapsed, setThElapsed] = useState(0);
 
+  // ── DMF breach thresholds — persist (POST) + inventory (GET) on /data-quality/dmf/thresholds.
+  // Without a persisted threshold the breach loop is decorative; this rail closes it.
+  const thrPanel = useActionPanel<'main'>();
+  const [thrTable, setThrTable] = useState('');
+  const [thrColumn, setThrColumn] = useState('');
+  const [thrMetric, setThrMetric] = useState('NULL_COUNT');
+  const [thrType, setThrType] = useState<DmfThresholdPayload['threshold_type']>('absolute');
+  const [thrMin, setThrMin] = useState('');
+  const [thrMax, setThrMax] = useState('');
+  const [thrSaving, setThrSaving] = useState(false);
+  const [thrError, setThrError] = useState<string | null>(null);
+  const [thrRules, setThrRules] = useState<DmfThresholdRule[] | null>(null);
+  const [thrRulesLoading, setThrRulesLoading] = useState(false);
+
   const loadSummary = useCallback(async (force = false) => {
     try {
       const data = await fetchQualityData(API.dataQuality.qualitySummary(), force);
@@ -1335,6 +1354,21 @@ export default function DataQualityPage() {
     } catch {
       // Non-blocking — falls back to client-side breach filter below.
       setServerBreaches([]);
+    }
+  }, []);
+
+  // Load persisted DMF threshold rules (GET /data-quality/dmf/thresholds).
+  // Non-blocking like loadDmfBreaches: the route may 404 until deployed, which
+  // must degrade to an empty list rather than break the rail.
+  const loadThresholds = useCallback(async () => {
+    setThrRulesLoading(true);
+    try {
+      const rules = await getDmfThresholds();
+      setThrRules(rules);
+    } catch {
+      setThrRules([]);
+    } finally {
+      setThrRulesLoading(false);
     }
   }, []);
 
@@ -1559,6 +1593,7 @@ export default function DataQualityPage() {
     setDmfActionError(null);
     setDmfActionNotice(null);
     thresholdPanel.close(); // only one right-rail open at a time
+    thrPanel.close();
     // Pre-fill table / column from the selected row so the user does not have
     // to retype values they already have in context. The fields remain editable.
     const fqn = selectedRow ? buildFqnFromRow(selectedRow) : '';
@@ -1882,6 +1917,71 @@ export default function DataQualityPage() {
       setThRunning(false);
     }
   }, [thTable, thCompletenessCols, thUniquenessCols, thFreshnessCol, thMaxAgeHours, trackFeatureClick]);
+
+  // Open the Save-threshold rail: close sibling rails, prefill the table from the
+  // selected row (mirrors the run-check flow), and load the current inventory.
+  const openThresholdRail = useCallback(() => {
+    trackFeatureClick('threshold_panel_open');
+    setThrError(null);
+    dmfPanel.close();
+    thresholdPanel.close();
+    if (selectedRow) {
+      const fqn = buildFqnFromRow(selectedRow);
+      if (fqn) setThrTable(fqn);
+    }
+    void loadThresholds();
+    thrPanel.open('main');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRow, loadThresholds, trackFeatureClick]);
+
+  const handleSaveThreshold = useCallback(async () => {
+    trackFeatureClick('save_threshold', { metric: thrMetric });
+    setThrError(null);
+    const table = thrTable.trim();
+    const column = thrColumn.trim();
+    if (!table) {
+      setThrError('A fully-qualified table name (DB.SCHEMA.TABLE) is required.');
+      return;
+    }
+    if (!column) {
+      setThrError('A column name is required.');
+      return;
+    }
+    const hasMin = thrMin.trim() !== '' && !Number.isNaN(Number(thrMin));
+    const hasMax = thrMax.trim() !== '' && !Number.isNaN(Number(thrMax));
+    // setDmfThreshold maps min/max → a single {threshold, operator}; with neither
+    // it would POST an undefined threshold. Require at least one numeric bound for
+    // ANY threshold_type (the governance sibling only guards this for `range`).
+    if (!hasMin && !hasMax) {
+      setThrError('Provide a min or a max value — that bound is the breach threshold.');
+      return;
+    }
+    setThrSaving(true);
+    try {
+      const payload: DmfThresholdPayload = {
+        table_name: table,
+        column_name: column,
+        metric: thrMetric,
+        threshold_type: thrType,
+        ...(hasMin ? { min_value: Number(thrMin) } : {}),
+        ...(hasMax ? { max_value: Number(thrMax) } : {}),
+      };
+      await setDmfThreshold(payload);
+      toast.success(`Threshold saved for ${thrMetric} on ${table}`);
+      // Refetch so the loop is visibly closed: the rule appears in the inventory
+      // and the dashboard breach banner recomputes against the new threshold.
+      await Promise.all([loadThresholds(), loadDmfBreaches(true)]);
+      setThrColumn('');
+      setThrMin('');
+      setThrMax('');
+    } catch (err) {
+      const msg = toServiceError(err, 'Failed to save threshold').message;
+      setThrError(msg);
+      toast.error(msg);
+    } finally {
+      setThrSaving(false);
+    }
+  }, [thrTable, thrColumn, thrMetric, thrType, thrMin, thrMax, loadThresholds, loadDmfBreaches, trackFeatureClick]);
 
   // Compute filtered data
   const filteredData = useMemo(() => {
@@ -2522,6 +2622,9 @@ export default function DataQualityPage() {
                 </Button>
                 <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('schedule')} disabled={!canScheduleDmf} title={!canScheduleDmf ? 'You lack the "schedule" permission on data quality. Ask an administrator to grant it.' : undefined}>
                   <CalendarClock className="h-3.5 w-3.5" /> Schedule
+                </Button>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={openThresholdRail} disabled={!canCreateDmf} title={!canCreateDmf ? 'You lack the "create" permission on data quality. Ask an administrator to grant it.' : 'Set breach thresholds so failing metrics surface as alerts'}>
+                  <SlidersHorizontal className="h-3.5 w-3.5" /> Thresholds
                 </Button>
                 <Button
                   variant="outline"
@@ -3234,6 +3337,128 @@ export default function DataQualityPage() {
           </p>
         )}
       </ActionRail>
+
+      {/* ── Save-threshold ActionRail — persists breach thresholds (POST /data-quality/dmf/thresholds) ── */}
+      <ActionRail
+        isOpen={thrPanel.isOpen}
+        onClose={thrPanel.close}
+        accentClassName="bg-amber-500"
+        title="Set a breach threshold"
+        description="Persist a min/max bound on a DMF metric. When a measurement crosses it, the dashboard flags a breach."
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={thrPanel.close} disabled={thrSaving}>Close</Button>
+            <Button
+              size="sm"
+              disabled={thrSaving || !canCreateDmf}
+              className="gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={handleSaveThreshold}
+              title={!canCreateDmf ? 'You lack the "create" permission on data quality. Ask an administrator to grant it.' : undefined}
+            >
+              {thrSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SlidersHorizontal className="h-3.5 w-3.5" />}
+              {thrSaving ? 'Saving…' : 'Save threshold'}
+            </Button>
+          </>
+        }
+      >
+        {thrError && (
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
+            <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+            <p className="flex-1 min-w-0 text-xs text-red-600 dark:text-red-400 break-words">{thrError}</p>
+          </div>
+        )}
+
+        <label className="block">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Table (DB.SCHEMA.TABLE)</span>
+          <Input value={thrTable} onChange={(e) => setThrTable(e.target.value)} placeholder="CP_DATA360.PUBLIC.ORDERS" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Column</span>
+          <Input value={thrColumn} onChange={(e) => setThrColumn(e.target.value)} placeholder="EMAIL" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Metric (must match an associated DMF)</span>
+          <select
+            value={thrMetric}
+            onChange={(e) => setThrMetric(e.target.value)}
+            className="mt-1 w-full h-8 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 text-xs text-gray-700 dark:text-gray-200"
+          >
+            {['NULL_COUNT', 'DUPLICATE_COUNT', 'UNIQUE_COUNT', 'ROW_COUNT', 'NULL_PERCENT', 'FRESHNESS', 'BLANK_COUNT'].map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="block">
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Type</span>
+            <select
+              value={thrType}
+              onChange={(e) => setThrType(e.target.value as DmfThresholdPayload['threshold_type'])}
+              className="mt-1 w-full h-8 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 text-xs text-gray-700 dark:text-gray-200"
+            >
+              <option value="absolute">Absolute</option>
+              <option value="percentage">Percentage</option>
+              <option value="range">Range</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Min</span>
+            <Input type="number" value={thrMin} onChange={(e) => setThrMin(e.target.value)} placeholder="—" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Max</span>
+            <Input type="number" value={thrMax} onChange={(e) => setThrMax(e.target.value)} placeholder="—" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+          </label>
+        </div>
+        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+          A measurement above the max (or below the min) is flagged as a breach. One bound is stored per rule.
+        </p>
+
+        {/* Active thresholds — loaded via GET so saved rules are inspectable */}
+        <div className="pt-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Active thresholds</span>
+            <button
+              type="button"
+              onClick={() => void loadThresholds()}
+              disabled={thrRulesLoading}
+              className="text-[11px] font-medium text-amber-700 dark:text-amber-400 underline disabled:opacity-50"
+            >
+              {thrRulesLoading ? 'Loading…' : 'Refresh'}
+            </button>
+          </div>
+          {thrRulesLoading ? (
+            <div className="mt-2 space-y-1.5">
+              <SkeletonBar className="h-8 w-full" />
+              <SkeletonBar className="h-8 w-full" />
+            </div>
+          ) : thrRules && thrRules.length > 0 ? (
+            <div className="mt-2 space-y-1.5">
+              {thrRules.map((r, i) => {
+                const tbl = String(r.TABLE_NAME ?? r.table_name ?? '?');
+                const met = String(r.METRIC ?? r.METRIC_NAME ?? r.metric ?? '?');
+                const thr = r.THRESHOLD ?? r.threshold;
+                const op = String(r.OPERATOR ?? r.operator ?? '');
+                return (
+                  <div key={`${tbl}-${met}-${i}`} className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5">
+                    <div className="min-w-0">
+                      <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{met}</span>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{tbl}</p>
+                    </div>
+                    {thr != null && (
+                      <span className="text-[11px] font-mono text-gray-600 dark:text-gray-300 whitespace-nowrap">{op} {Number(thr).toLocaleString()}</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+              No thresholds saved yet. Save one above to make breaches configurable and inspectable.
+            </p>
+          )}
+        </div>
+      </ActionRail>
     </div>
 
     {/* SmartRightBar — 8-section docked right-tab context panel (shared RightTabPanel) */}
@@ -3242,7 +3467,7 @@ export default function DataQualityPage() {
       data={rightbarData}
       loading={rightbarLoading}
       onRunCheck={() => {
-        setThError(null); setThResult(null); dmfPanel.close();
+        setThError(null); setThResult(null); dmfPanel.close(); thrPanel.close();
         if (selectedRow) {
           const fqn = buildFqnFromRow(selectedRow);
           if (fqn) setThTable(fqn);

@@ -493,6 +493,26 @@ export async function listConnectors(): Promise<{ connectors: ConnectorInfo[] }>
     }
 }
 
+/** Re-test a registered connector's connection (POST /connect/connectors/{id}/test). */
+export async function testConnector(id: string): Promise<{ ok?: boolean; message?: string }> {
+    try {
+        const response = await apiClient.post(API.connect.testConnector(id));
+        return (response.data ?? {}) as { ok?: boolean; message?: string };
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Connector test failed'));
+    }
+}
+
+/** Force a manual sync on a registered connector (POST /connect/connectors/{id}/sync). */
+export async function syncConnector(id: string): Promise<{ message?: string }> {
+    try {
+        const response = await apiClient.post(API.connect.syncConnector(id));
+        return (response.data ?? {}) as { message?: string };
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Connector sync failed'));
+    }
+}
+
 // --- Connector health (GET /connect/connectors/health) ---
 
 /** Normalized health verdict for a single stage / pipe. */

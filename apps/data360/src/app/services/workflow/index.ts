@@ -1214,6 +1214,53 @@ export async function postVerifyWorkflow(
   };
 }
 
+// =============================================================================
+// Task logs — read-only run/task log lines
+// =============================================================================
+
+export interface TaskLogLine {
+  timestamp?: string;
+  /** info | warning | error — free-form on the wire, kept as string. */
+  level?: string;
+  message: string;
+  sql_executed?: string;
+}
+
+export interface TaskLogsResult {
+  task_id: string;
+  logs: TaskLogLine[];
+}
+
+/**
+ * Fetch the log lines for one run/task of a workflow.
+ * GET /workflow/{workflowId}/tasks/{taskId}/logs — read-only (API.workflow.runLogs).
+ * The `{task_id}` path segment is filled with the run id (the FE helper is named
+ * `runLogs` for this reason). Tolerant of both `{ logs: [...] }` and a bare-array
+ * response; each line may be an object (timestamp/level/message/sql_executed) or a
+ * plain string. Callers MUST treat a 404/501 as "logs not available for this run"
+ * (honest empty state), never as fabricated data.
+ */
+export async function getTaskLogs(
+  workflowId: string,
+  taskId: string,
+): Promise<TaskLogsResult> {
+  const res = await apiClient.get(API.workflow.runLogs(workflowId, taskId));
+  const d: any = res.data?.data ?? res.data ?? {};
+  const rawLogs = d.logs ?? d.log_lines ?? (Array.isArray(d) ? d : []);
+  const logs: TaskLogLine[] = (Array.isArray(rawLogs) ? rawLogs : []).map((l: any) => {
+    if (l && typeof l === 'object') {
+      return {
+        timestamp: l.timestamp ?? l.time ?? l.ts ?? undefined,
+        level: l.level ?? l.severity ?? undefined,
+        message: String(l.message ?? l.msg ?? l.text ?? l.line ?? ''),
+        sql_executed: l.sql_executed ?? l.sql ?? undefined,
+      };
+    }
+    return { message: String(l ?? '') };
+  });
+  return { task_id: String(d.task_id ?? taskId), logs };
+}
+
 // Export all as default object for convenience
 export default {
   // Basic operations
@@ -1277,6 +1324,8 @@ export default {
   // Lifecycle readiness
   preCheckWorkflow,
   postVerifyWorkflow,
+  // Task logs
+  getTaskLogs,
   getWorkflowCapabilities,
   getWorkflowActionTemplates,
   createWorkflowActionTemplate,

@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Badge, Button, Loader } from 'rizzui';
-import { getCortexKpis, type CortexKpis } from '@/app/services/cortex';
+import { Badge, Button, Input, Loader, Textarea } from 'rizzui';
+import { toast } from 'react-hot-toast';
+import { getCortexKpis, generateEmbeddings, queryCortex, type CortexKpis, type CortexQueryResult } from '@/app/services/cortex';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   PiBrain,
   PiDatabase,
@@ -21,6 +23,8 @@ import {
   PiGear,
   PiChartLineUp,
   PiCloudArrowUp,
+  PiVectorThree,
+  PiMagnifyingGlass,
 } from 'react-icons/pi';
 import { HiOutlineRefresh } from 'react-icons/hi';
 import KPICard from '@/components/analytics/KPICard';
@@ -638,6 +642,12 @@ export default function IntelligentPage() {
                 </div>
               </div>
 
+              {/* Embed a column + similarity search */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <VectorEmbedPanel onEmbedded={loadVectorColumns} />
+                <VectorSimilarityPanel columns={vectorColumns ?? []} />
+              </div>
+
               {/* Vector columns list */}
               {vectorColumnsLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -744,5 +754,232 @@ export default function IntelligentPage() {
       </div>
     </div>
     </ErrorBoundary>
+  );
+}
+
+// ── Vector Search helpers ─────────────────────────────────────────────────
+
+function vectorErrMessage(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e) return String((e as { message: unknown }).message);
+  return 'Request failed';
+}
+
+/**
+ * Embed a column — turns a column's values into vectors via the managed
+ * embedding model (POST /cortex/embeddings). Gated by cortex:generate; on
+ * success it toasts and refreshes the vector-columns list.
+ */
+function VectorEmbedPanel({ onEmbedded }: { onEmbedded: () => void }) {
+  const generatePerm = useCanPerform('cortex', 'generate');
+  const canGenerate = generatePerm.allowed || generatePerm.loading;
+
+  const [target, setTarget] = useState('');
+  const [text, setText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ count: number; dims: number } | null>(null);
+
+  const run = useCallback(async () => {
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      toast.error('Enter at least one value to embed (one per line).');
+      return;
+    }
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await generateEmbeddings(lines);
+      const dims = res[0]?.embedding?.length ?? 0;
+      setResult({ count: res.length, dims });
+      toast.success(
+        `Embedded ${res.length} value${res.length === 1 ? '' : 's'}${dims ? ` · ${dims} dims` : ''}${target.trim() ? ` → ${target.trim()}` : ''}`,
+      );
+      onEmbedded();
+    } catch (e) {
+      toast.error(vectorErrMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [text, target, onEmbedded]);
+
+  return (
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 space-y-3">
+      <div>
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+          <PiVectorThree className="w-4 h-4 text-rose-500" /> Embed a column
+        </h4>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Generate embeddings for a column&apos;s values. One value per line.</p>
+      </div>
+      <Input
+        label="Target (TABLE.COLUMN)"
+        placeholder="CUSTOMERS.DESCRIPTION"
+        value={target}
+        onChange={(e) => setTarget(e.target.value)}
+      />
+      <Textarea
+        label="Values to embed"
+        placeholder={'annual recurring revenue\nmonthly recurring revenue\ncustomer churn rate'}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+      />
+      <Button
+        size="sm"
+        className="w-full gap-1.5"
+        onClick={run}
+        isLoading={loading}
+        disabled={!canGenerate || loading}
+      >
+        <PiVectorThree className="h-4 w-4" /> Embed
+      </Button>
+      {!generatePerm.allowed && !generatePerm.loading && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400">You don&apos;t have permission to generate embeddings.</p>
+      )}
+      {result && (
+        <p className="text-xs text-gray-600 dark:text-gray-300">
+          Generated <span className="font-semibold">{result.count}</span> vector{result.count === 1 ? '' : 's'}
+          {result.dims ? <> × <span className="font-semibold">{result.dims}</span> dims</> : null}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Similarity search — runs a Cortex query (POST /cortex/query) that ranks the
+ * closest records to a phrase over one of the listed embedded columns.
+ */
+function VectorSimilarityPanel({ columns }: { columns: CortexVectorColumn[] }) {
+  const options = useMemo(
+    () =>
+      columns
+        .map((c) => `${c.table_name || c.TABLE_NAME || ''}.${c.column_name || c.COLUMN_NAME || ''}`)
+        .filter((label) => label !== '.'),
+    [columns],
+  );
+
+  const [selected, setSelected] = useState('');
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<CortexQueryResult[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selected && options.length > 0) setSelected(options[0]);
+  }, [options, selected]);
+
+  const run = useCallback(async () => {
+    const q = query.trim();
+    if (!q) {
+      toast.error('Enter a phrase to search for.');
+      return;
+    }
+    if (!selected) {
+      toast.error('Select a vector column to search.');
+      return;
+    }
+    const table = selected.split('.')[0];
+    setLoading(true);
+    setResults(null);
+    setError(null);
+    try {
+      const res = await queryCortex({
+        prompt: `Find the rows in ${table} most similar to "${q}", ranked by vector cosine similarity on the ${selected} embedding column. Return the closest matches.`,
+      });
+      setResults(res.results ?? []);
+    } catch (e) {
+      setError(vectorErrMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [query, selected]);
+
+  return (
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 space-y-3">
+      <div>
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+          <PiMagnifyingGlass className="w-4 h-4 text-purple-500" /> Similarity search
+        </h4>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Find the closest records to a phrase across an embedded column.</p>
+      </div>
+      {options.length === 0 ? (
+        <p className="text-xs text-gray-400 dark:text-gray-500">No vector columns available to search yet.</p>
+      ) : (
+        <>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Vector column</label>
+            <select
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-2.5 py-1.5 text-sm text-gray-900 dark:text-gray-100"
+            >
+              {options.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </div>
+          <Input
+            label="Search phrase"
+            placeholder="customers who mentioned refunds"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
+          />
+          <Button size="sm" className="w-full gap-1.5" onClick={run} isLoading={loading} disabled={loading}>
+            <PiMagnifyingGlass className="h-4 w-4" /> Search
+          </Button>
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+          {results != null && results.length === 0 && !error && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">— No matches returned.</p>
+          )}
+          {results && results.length > 0 && (
+            <div className="space-y-2">
+              {results.map((r, i) => (
+                <VectorResultBlock key={i} result={r} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function VectorResultBlock({ result }: { result: CortexQueryResult }) {
+  const sql = result.query ?? (result.type === 'sql' ? result.text : undefined);
+  const rows: Record<string, unknown>[] = Array.isArray(result.data) ? (result.data as Record<string, unknown>[]) : [];
+  const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
+  return (
+    <div className="space-y-2">
+      {sql && (
+        <pre className="overflow-x-auto rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-[11px] leading-relaxed text-green-300">{sql}</pre>
+      )}
+      {result.text && result.type !== 'sql' && (
+        <p className="whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300">{result.text}</p>
+      )}
+      {cols.length > 0 && (
+        <div className="max-h-56 overflow-auto rounded-md border border-gray-200 dark:border-gray-700">
+          <table className="min-w-full text-[11px]">
+            <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+              <tr>
+                {cols.map((c) => (
+                  <th key={c} className="border-b border-gray-200 px-2 py-1.5 text-left font-semibold text-gray-600 dark:border-gray-700 dark:text-gray-300">{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 25).map((row, ri) => (
+                <tr key={ri} className="odd:bg-white even:bg-gray-50 dark:odd:bg-gray-900 dark:even:bg-gray-800/40">
+                  {cols.map((c) => (
+                    <td key={c} className="border-b border-gray-100 px-2 py-1 text-gray-700 dark:border-gray-800 dark:text-gray-300">
+                      {row[c] === null || row[c] === undefined ? '—' : String(row[c])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

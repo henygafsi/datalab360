@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAtomValue } from 'jotai';
 import { Badge, Button, Input, Loader, Select } from 'rizzui';
-import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold, PiTrashBold } from 'react-icons/pi';
-import { Plus } from 'lucide-react';
+import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold, PiTrashBold, PiPencilSimpleBold, PiHardDrivesBold } from 'react-icons/pi';
+import { Plus, Pencil, HardDrive } from 'lucide-react';
 import toast from 'react-hot-toast';
 import cn from '@core/utils/class-names';
 import Breadcrumb from '@/components/ui/Breadcrumb';
@@ -19,6 +19,8 @@ import {
   getStorageMetrics,
   getDailyCredits,
   createCostMonitor,
+  updateCostMonitor,
+  assignCostMonitorWarehouse,
   deleteCostMonitor,
   isRouteNotDeployed,
 } from '@/app/services/observability';
@@ -26,6 +28,7 @@ import type {
   WarehouseUsageSummary,
   StorageMetrics,
   DailyCreditUsage,
+  UpdateCostMonitorRequest,
 } from '@/app/services/observability/types';
 // Resource monitors live in org-accounts; consuming the deployed service from a
 // page inside the observability scope is a read, not an out-of-scope edit.
@@ -51,6 +54,15 @@ const ACTION_OPTIONS = [
   { label: 'Suspend', value: 'SUSPEND' },
 ];
 
+// Versioned localStorage key shared by the Edit/Assign inspector so the last-used
+// section restores on reopen (RightTabPanel contract).
+const MANAGE_STORAGE_KEY = 'data360.observability.manageMonitor.v1';
+
+/** Parse a comma-separated notify-users field into a trimmed, de-blanked list. */
+function parseUsers(raw: string): string[] {
+  return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
 function CreateMonitorPanel({
   isOpen,
   onClose,
@@ -64,6 +76,7 @@ function CreateMonitorPanel({
   const [quota, setQuota] = useState('');
   const [frequency, setFrequency] = useState<string>('MONTHLY');
   const [action, setAction] = useState<string>('SUSPEND_IMMEDIATE');
+  const [notify, setNotify] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [section, setSection] = useState('create');
 
@@ -72,6 +85,7 @@ function CreateMonitorPanel({
     setQuota('');
     setFrequency('MONTHLY');
     setAction('SUSPEND_IMMEDIATE');
+    setNotify('');
   };
 
   const handleClose = () => {
@@ -93,7 +107,7 @@ function CreateMonitorPanel({
         credit_quota: creditQuota,
         frequency,
         triggers: [{ percent: 100, action: action as 'SUSPEND_IMMEDIATE' | 'SUSPEND' }],
-        notify_users: [],
+        notify_users: parseUsers(notify),
       });
       toast.success(`Monitor "${name.trim()}" created`);
       reset();
@@ -143,6 +157,18 @@ function CreateMonitorPanel({
             value={action}
             onChange={(opt) => setAction((opt as { value: string }).value)}
           />
+
+          <div>
+            <Input
+              label="Notify users (optional)"
+              placeholder="alice, bob"
+              value={notify}
+              onChange={(e) => setNotify(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Comma-separated warehouse usernames notified when a threshold is reached.
+            </p>
+          </div>
         </div>
       ),
     },
@@ -215,6 +241,206 @@ function normalizeMonitor(raw: unknown): ResourceMonitorRow {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Manage Resource Monitor — docked right-tab panel with two sections:
+//   • Edit   → ALTER the credit quota / frequency / notify list (PUT /cost/monitors/{name})
+//   • Assign → attach a warehouse to the monitor (POST /cost/monitors/{name}/assign)
+// A monitor is useless until a warehouse is bound, and quotas need to change as
+// consumption grows — both were previously unreachable from the UI. If either
+// route 404s (backend not deployed) the mutation degrades to an inline notice
+// via isRouteNotDeployed rather than a raw status-code toast.
+// ---------------------------------------------------------------------------
+function ManageMonitorPanel({
+  monitor,
+  initialSection,
+  warehouses,
+  onClose,
+  onSaved,
+}: {
+  monitor: ResourceMonitorRow;
+  initialSection: 'edit' | 'assign';
+  warehouses: string[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const name = monitor.name ?? '';
+  const [section, setSection] = useState<string>(initialSection);
+  const [quota, setQuota] = useState(monitor.credit_quota != null ? String(monitor.credit_quota) : '');
+  const [frequency, setFrequency] = useState<string>(monitor.frequency ?? 'MONTHLY');
+  const [notify, setNotify] = useState('');
+  const [assignWarehouse, setAssignWarehouse] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+
+  const handleSaveEdit = async () => {
+    const creditQuota = Number(quota);
+    if (!quota || Number.isNaN(creditQuota) || creditQuota <= 0) {
+      toast.error('Credit quota must be a positive number');
+      return;
+    }
+    const body: UpdateCostMonitorRequest = { credit_quota: creditQuota, frequency };
+    const notifyUsers = parseUsers(notify);
+    if (notifyUsers.length) body.notify_users = notifyUsers;
+    setSavingEdit(true);
+    try {
+      await updateCostMonitor(name, body);
+      toast.success(`Monitor "${name}" updated`);
+      onSaved();
+    } catch (err) {
+      toast.error(
+        isRouteNotDeployed(err)
+          ? 'Editing resource monitors is not available on the connected backend yet.'
+          : getApiErrorMessage(err),
+      );
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleAssign = async () => {
+    const wh = assignWarehouse.trim();
+    if (!wh) { toast.error('Enter a warehouse name'); return; }
+    setAssigning(true);
+    try {
+      await assignCostMonitorWarehouse(name, wh);
+      toast.success(`"${name}" now monitors ${wh}`);
+      onSaved();
+    } catch (err) {
+      toast.error(
+        isRouteNotDeployed(err)
+          ? 'Assigning a warehouse is not available on the connected backend yet.'
+          : getApiErrorMessage(err),
+      );
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const sections: RightTabSection[] = [
+    {
+      id: 'edit',
+      icon: Pencil,
+      label: 'Edit budget',
+      description: 'Change the credit quota, reset frequency, or notify list.',
+      render: () => (
+        <div className="space-y-4">
+          <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
+            Editing <span className="font-medium text-slate-700 dark:text-slate-200">{name}</span>. Only changed fields are applied.
+          </div>
+
+          <Input
+            label="Credit quota"
+            type="number"
+            min={1}
+            placeholder="100"
+            value={quota}
+            onChange={(e) => setQuota(e.target.value)}
+          />
+
+          <Select
+            label="Frequency"
+            options={FREQUENCY_OPTIONS}
+            value={frequency}
+            onChange={(opt) => setFrequency((opt as { value: string }).value)}
+          />
+
+          <div>
+            <Input
+              label="Notify users (optional)"
+              placeholder="alice, bob"
+              value={notify}
+              onChange={(e) => setNotify(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Replaces the notify list. Leave blank to keep the current recipients.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: 'assign',
+      icon: HardDrive,
+      label: 'Assign warehouse',
+      description: 'Attach this credit budget to a warehouse.',
+      render: () => (
+        <div className="space-y-3">
+          <Input
+            label="Warehouse"
+            placeholder="COMPUTE_WH"
+            value={assignWarehouse}
+            onChange={(e) => setAssignWarehouse(e.target.value)}
+          />
+          {warehouses.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {warehouses.map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setAssignWarehouse(w)}
+                  className={cn(
+                    'rounded-full border px-2 py-0.5 text-xs transition-colors',
+                    assignWarehouse === w
+                      ? 'border-green-400 bg-green-50 text-green-700 dark:border-green-700 dark:bg-green-900/30 dark:text-green-300'
+                      : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700/40',
+                  )}
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Enforces this monitor&apos;s credit budget on the warehouse. A warehouse can be governed by one monitor at a time.
+          </p>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <RightTabPanel
+      title={`Manage "${name}"`}
+      subtitle="Edit the credit budget or attach a warehouse"
+      sections={sections}
+      activeSection={section}
+      onSectionChange={setSection}
+      onClose={onClose}
+      storageKey={MANAGE_STORAGE_KEY}
+      accentClassName="bg-green-500"
+      footer={
+        section === 'assign' ? (
+          <>
+            <Button variant="outline" onClick={onClose} disabled={assigning}>
+              Cancel
+            </Button>
+            <Button
+              isLoading={assigning}
+              onClick={handleAssign}
+              className="bg-green-600 text-white hover:bg-green-700"
+            >
+              Assign warehouse
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="outline" onClick={onClose} disabled={savingEdit}>
+              Cancel
+            </Button>
+            <Button
+              isLoading={savingEdit}
+              onClick={handleSaveEdit}
+              className="bg-green-600 text-white hover:bg-green-700"
+            >
+              Save changes
+            </Button>
+          </>
+        )
+      }
+    />
+  );
+}
+
 export default function BudgetPage() {
   // Fire-and-forget PAGE_VIEW on mount/route change; trackFeatureClick on Create Monitor.
   const { trackFeatureClick } = useTrackEvent();
@@ -228,6 +454,10 @@ export default function BudgetPage() {
   const [monitorsError, setMonitorsError] = useState<string | null>(null);
   const [monitorsNotDeployed, setMonitorsNotDeployed] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  // Manage inspector (Edit budget / Assign warehouse) — the row being managed and
+  // which section it opens on. Rendered as a docked right-tab panel alongside the table.
+  const [manageMonitor, setManageMonitor] = useState<ResourceMonitorRow | null>(null);
+  const [manageSection, setManageSection] = useState<'edit' | 'assign'>('edit');
   // Destructive DROP RESOURCE MONITOR — the name pending confirmation, plus the
   // per-row in-flight name so only the row being dropped shows its spinner.
   const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(null);
@@ -310,6 +540,17 @@ export default function BudgetPage() {
     }
   }, [loadMonitors]);
 
+  // Open the Edit/Assign inspector on the requested section. The RightTabPanel
+  // restores its persisted section on (re)mount, so seed localStorage first to
+  // ensure the section we asked for wins over a stale value. Closes the create
+  // panel so only one docked inspector is open at a time.
+  const openManage = useCallback((m: ResourceMonitorRow, initialSection: 'edit' | 'assign') => {
+    try { window.localStorage.setItem(MANAGE_STORAGE_KEY, initialSection); } catch { /* ignore */ }
+    setCreateOpen(false);
+    setManageSection(initialSection);
+    setManageMonitor(m);
+  }, []);
+
   // Real-time refresh: re-pull cost + monitors when the backend pushes an
   // observability/cost cache-invalidation (probe checks, warehouse/storage
   // metering refresh). Uses the global SSE atom (one shared connection).
@@ -324,6 +565,12 @@ export default function BudgetPage() {
     );
     if (relevant) refresh();
   }, [lastInvalidation, refresh]);
+
+  // Warehouses seen in the last 30 days — quick-pick suggestions for the Assign
+  // section. The field stays free-text so idle/new warehouses can still be typed.
+  const knownWarehouses = (warehouse?.warehouses ?? [])
+    .map((w) => w.warehouse_name)
+    .filter((n): n is string => Boolean(n));
 
   return (
     <div className="@container p-4">
@@ -375,7 +622,7 @@ export default function BudgetPage() {
                 className="gap-1 bg-green-600 text-white hover:bg-green-700"
                 disabled={!canCreateMonitor}
                 title={!canCreateMonitor ? monitorDeniedTitle : undefined}
-                onClick={() => { trackFeatureClick('create_monitor_open'); setCreateOpen(true); }}
+                onClick={() => { trackFeatureClick('create_monitor_open'); setManageMonitor(null); setCreateOpen(true); }}
               >
                 <PiPlusBold className="h-3.5 w-3.5" />
                 Create Monitor
@@ -409,7 +656,7 @@ export default function BudgetPage() {
                     className="mt-3 gap-1 bg-green-600 text-white hover:bg-green-700"
                     disabled={!canCreateMonitor}
                     title={!canCreateMonitor ? monitorDeniedTitle : undefined}
-                    onClick={() => { trackFeatureClick('create_monitor_open'); setCreateOpen(true); }}
+                    onClick={() => { trackFeatureClick('create_monitor_open'); setManageMonitor(null); setCreateOpen(true); }}
                   >
                     <PiPlusBold className="h-3.5 w-3.5" />
                     Create Monitor
@@ -461,18 +708,42 @@ export default function BudgetPage() {
                           <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">{m.frequency ?? '—'}</td>
                           <td className="px-3 py-2 text-right">
                             {m.name && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                isLoading={deletingName === m.name}
-                                disabled={deletingName !== null || !canCreateMonitor}
-                                title={!canCreateMonitor ? monitorDeniedTitle : 'Delete this resource monitor'}
-                                className="gap-1 border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
-                                onClick={() => setConfirmDeleteName(m.name!)}
-                              >
-                                <PiTrashBold className="h-3 w-3" />
-                                Delete
-                              </Button>
+                              <div className="flex items-center justify-end gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={deletingName !== null || !canCreateMonitor}
+                                  title={!canCreateMonitor ? monitorDeniedTitle : 'Edit this monitor’s credit budget'}
+                                  className="gap-1"
+                                  onClick={() => openManage(m, 'edit')}
+                                >
+                                  <PiPencilSimpleBold className="h-3 w-3" />
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={deletingName !== null || !canCreateMonitor}
+                                  title={!canCreateMonitor ? monitorDeniedTitle : 'Attach a warehouse to this monitor'}
+                                  className="gap-1"
+                                  onClick={() => openManage(m, 'assign')}
+                                >
+                                  <PiHardDrivesBold className="h-3 w-3" />
+                                  Assign
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  isLoading={deletingName === m.name}
+                                  disabled={deletingName !== null || !canCreateMonitor}
+                                  title={!canCreateMonitor ? monitorDeniedTitle : 'Delete this resource monitor'}
+                                  className="gap-1 border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                                  onClick={() => setConfirmDeleteName(m.name!)}
+                                >
+                                  <PiTrashBold className="h-3 w-3" />
+                                  Delete
+                                </Button>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -493,6 +764,20 @@ export default function BudgetPage() {
             loadMonitors();
           }}
         />
+
+        {manageMonitor && (
+          <ManageMonitorPanel
+            key={manageMonitor.name ?? 'monitor'}
+            monitor={manageMonitor}
+            initialSection={manageSection}
+            warehouses={knownWarehouses}
+            onClose={() => setManageMonitor(null)}
+            onSaved={() => {
+              setManageMonitor(null);
+              loadMonitors();
+            }}
+          />
+        )}
 
         <ConfirmDialog
           open={confirmDeleteName !== null}
