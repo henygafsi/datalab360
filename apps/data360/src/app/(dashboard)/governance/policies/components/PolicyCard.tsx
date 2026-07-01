@@ -13,11 +13,13 @@ import {
   PiCaretDown,
   PiCaretUp,
   PiWarning,
+  PiStack,
 } from 'react-icons/pi';
 import toast from 'react-hot-toast';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import type { EnrichedPolicy, GrantedObject } from '@/app/services/governance/policies';
 import { unapplyPolicyFromAll, formatPolicyError } from '@/app/services/governance/policies';
+import BulkPolicyApplyPanel, { type BulkApplyMode } from './BulkPolicyApplyPanel';
 
 interface PolicyCardProps {
   policy: EnrichedPolicy;
@@ -62,6 +64,7 @@ export default function PolicyCard({
   const [revoking, setRevoking] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showBulkApply, setShowBulkApply] = useState(false);
   // System 2 Action-RBAC: deleting a policy → gouvernance:delete; removing it
   // from an object → gouvernance:revoke. Fail-open while the allow-set loads.
   const deletePerm = useCanPerform('gouvernance', 'delete');
@@ -69,9 +72,23 @@ export default function PolicyCard({
   // Applying a policy to an object → gouvernance:apply (same action the
   // policy-content apply panels gate their submit with). Fail-open while loading.
   const applyPerm = useCanPerform('gouvernance', 'apply');
+  // Bulk fan-out (apply policy to N targets) gates on gouvernance:edit per the
+  // §E backlog spec. Fail-open while the allow-set loads.
+  const editPerm = useCanPerform('gouvernance', 'edit');
   const canDeletePolicy = deletePerm.allowed || deletePerm.loading;
   const canRevokePolicy = revokePerm.allowed || revokePerm.loading;
   const canApplyPolicy = applyPerm.allowed || applyPerm.loading;
+  const canBulkApply = editPerm.allowed || editPerm.loading;
+
+  // Bulk apply is only meaningful for the data-plane policy types that fan out
+  // to N columns/tables/objects (masking → columns, row-access → tables,
+  // tag → objects). Other policy types (session/password/network/aggregation…)
+  // get no bulk button.
+  const bulkMode: BulkApplyMode | null =
+    policyType === 'masking' ? 'masking'
+    : policyType === 'row-access' ? 'row-access'
+    : policyType === 'tag' ? 'tag'
+    : null;
 
   const accent = ACCENT_CLASSES[accentColor] || ACCENT_CLASSES.purple;
   const { granted_objects, granted_roles, granted_objects_count } = policy;
@@ -243,6 +260,17 @@ export default function PolicyCard({
         </div>
       )}
 
+      {/* Bulk apply panel (docked, inline — fan one policy out to N targets) */}
+      {bulkMode && showBulkApply && (
+        <BulkPolicyApplyPanel
+          mode={bulkMode}
+          policyName={policy.name}
+          policySchema={policy.schema_name}
+          onClose={() => setShowBulkApply(false)}
+          onApplied={() => onRefresh?.()}
+        />
+      )}
+
       {/* Actions */}
       <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
         {onViewDetails && (
@@ -260,6 +288,18 @@ export default function PolicyCard({
             className={`gap-1 ${accent.button}`}
           >
             <PiPlay className="w-3.5 h-3.5" /> {applyLabel}
+          </Button>
+        )}
+        {bulkMode && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowBulkApply((v) => !v)}
+            disabled={!canBulkApply}
+            title={!canBulkApply ? 'You lack the "edit" permission on governance. Ask an administrator to grant it.' : 'Apply this policy to many targets at once'}
+            className={`gap-1 ${accent.button}`}
+          >
+            <PiStack className="w-3.5 h-3.5" /> {showBulkApply ? 'Hide bulk' : 'Bulk apply'}
           </Button>
         )}
         <Button

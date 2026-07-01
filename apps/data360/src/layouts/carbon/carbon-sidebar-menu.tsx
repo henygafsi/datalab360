@@ -117,14 +117,20 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                           </button>
                         </Tooltip>
                       ) : (
-                        <button
-                          type="button"
+                        // role="button" div (not <button>): this row contains the
+                        // SortableList.DragHandle which itself renders a <button>;
+                        // a <button> inside a <button> is invalid HTML → a hydration
+                        // error that fired on every page (shared chrome). Menu.Trigger
+                        // still wires onClick + keyboard onto this node.
+                        <div
+                          role="button"
+                          tabIndex={disabled ? -1 : 0}
                           aria-label={item.name}
                           aria-expanded={isDropdownOpen}
                           aria-haspopup="menu"
                           aria-disabled={disabled || undefined}
                           className={cn(
-                            'group relative mx-3 flex grow items-center justify-between rounded-xl px-3 py-2 font-medium transition-all duration-200 lg:my-0.5 2xl:my-0.5 2xl:me-5',
+                            'group relative mx-3 flex grow cursor-pointer items-center justify-between rounded-xl px-3 py-2 font-medium transition-all duration-200 lg:my-0.5 2xl:my-0.5 2xl:me-5',
                             isDropdownOpen
                               ? 'bg-slate-100/80 dark:bg-slate-800/50'
                               : 'hover:bg-slate-50 dark:hover:bg-slate-800/30',
@@ -179,7 +185,7 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                                 : 'text-slate-300 group-hover:text-slate-400 dark:text-slate-600'
                             )}
                           />
-                        </button>
+                        </div>
                       )}
                     </Menu.Trigger>
 

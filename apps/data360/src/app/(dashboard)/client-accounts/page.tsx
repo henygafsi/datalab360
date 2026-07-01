@@ -1,19 +1,43 @@
 'use client';
 
+import Link from 'next/link';
 import OrgAccountsDashboard from '@/app/shared/org-accounts';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 
 export default function ClientAccountsPage() {
+  // Auto-fires PAGE_VIEW on mount (via the hook's pathname effect); exposes
+  // trackFeatureClick for the related-link navigation below.
+  const { trackFeatureClick } = useTrackEvent();
+
   return (
     <ErrorBoundary>
-      <div className="text-xs text-slate-500 dark:text-slate-400 mb-4 px-4">
-        <a href="/" className="hover:text-blue-600">Home</a> / <span className="text-slate-700 dark:text-slate-300">Client Accounts</span>
-      </div>
+      <nav
+        aria-label="Breadcrumb"
+        className="text-xs text-slate-500 dark:text-slate-400 mb-4 px-4"
+      >
+        <Link href="/" className="hover:text-blue-600 dark:hover:text-blue-400">
+          Home
+        </Link>{' '}
+        / <span className="text-slate-700 dark:text-slate-300">Client Accounts</span>
+      </nav>
       <OrgAccountsDashboard />
       <div className="mt-6 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 px-4">
         <span>Related:</span>
-        <a href="/governance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Users)</a>
-        <a href="/observability" className="text-blue-600 dark:text-blue-400 hover:underline">Observability (Cost)</a>
+        <Link
+          href="/governance"
+          onClick={() => trackFeatureClick('related_link', { target: 'governance' })}
+          className="text-blue-600 dark:text-blue-400 hover:underline"
+        >
+          Governance (Users)
+        </Link>
+        <Link
+          href="/observability"
+          onClick={() => trackFeatureClick('related_link', { target: 'observability' })}
+          className="text-blue-600 dark:text-blue-400 hover:underline"
+        >
+          Observability (Cost)
+        </Link>
       </div>
     </ErrorBoundary>
   );

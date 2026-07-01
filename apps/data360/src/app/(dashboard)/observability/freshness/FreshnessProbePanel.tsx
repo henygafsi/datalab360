@@ -500,6 +500,7 @@ export default function FreshnessProbePanel() {
       >
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
+            aria-label="Table to probe (database.schema.table)"
             placeholder="DB.SCHEMA.TABLE"
             value={tbl}
             onChange={(e) => setTbl(e.target.value)}
@@ -526,12 +527,14 @@ export default function FreshnessProbePanel() {
       >
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
+            aria-label="Database to probe"
             placeholder="Database"
             value={schDb}
             onChange={(e) => setSchDb(e.target.value)}
             className="flex-1"
           />
           <Input
+            aria-label="Schema to probe"
             placeholder="Schema"
             value={schSchema}
             onChange={(e) => setSchSchema(e.target.value)}
@@ -559,12 +562,14 @@ export default function FreshnessProbePanel() {
       >
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
+            aria-label="Table for change detection (database.schema.table)"
             placeholder="DB.SCHEMA.TABLE"
             value={chgTbl}
             onChange={(e) => setChgTbl(e.target.value)}
             className="flex-1"
           />
           <Input
+            aria-label="Detect changes since this date and time"
             type="datetime-local"
             value={chgSince}
             onChange={(e) => setChgSince(e.target.value)}
@@ -594,12 +599,14 @@ export default function FreshnessProbePanel() {
       >
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
+            aria-label="Database for change tracking"
             placeholder="Database"
             value={cdcDb}
             onChange={(e) => setCdcDb(e.target.value)}
             className="flex-1"
           />
           <Input
+            aria-label="Schema for change tracking (optional)"
             placeholder="Schema (optional)"
             value={cdcSchema}
             onChange={(e) => setCdcSchema(e.target.value)}

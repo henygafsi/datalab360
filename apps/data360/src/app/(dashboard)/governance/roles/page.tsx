@@ -11,9 +11,12 @@ import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
 import RoleInspectorPanel from './components/RoleInspectorPanel';
+import RoleHierarchyPanel from './components/RoleHierarchyPanel';
 import { getRoles } from '@/app/services/governance/fetch_roles';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 
 export default function RolesManagementPage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Role inspector (docked right-tab) — pick a role, inspect/edit its grants.
@@ -101,6 +104,16 @@ export default function RolesManagementPage() {
           Inspect role
         </Button>
       </div>
+
+      {/* Role hierarchy — read-only collapsible inventory (SHOW ROLES counts).
+          Click a role to open the docked inspector for its real grants/edges. */}
+      <RoleHierarchyPanel
+        refreshSignal={refreshKey}
+        onInspectRole={(role) => {
+          setPicked(role);
+          setInspected(role);
+        }}
+      />
 
       {/* Main Content + docked inspector (flex siblings, not a modal). */}
       <div className="flex items-start gap-4">

@@ -1,0 +1,17 @@
+import { chromium } from '@playwright/test';
+const dir = '/Users/datalab360/Documents/data360_pro/datalab360Front';
+const ss = dir + '/e2e/.auth/state.json';
+const out = dir + '/docs/product-readiness-audit/screens/module-green/observability.png';
+const browser = await chromium.launch({ headless:true });
+const ctx = await browser.newContext({ storageState: ss, viewport:{width:1500,height:1000} });
+const page = await ctx.newPage();
+const fails=[];
+page.on('response', r=>{ const u=r.url(); if(/\.(png|jpg|svg|woff2?|ico)/.test(u))return; if(r.status()>=500) fails.push(r.status()+' '+u.replace('http://localhost:3000','').split('?')[0]); });
+await page.goto('http://localhost:3000/observability', { waitUntil:'networkidle', timeout:60000 }).catch(e=>console.log('goto warn',e.message));
+await page.waitForTimeout(6000);
+await page.screenshot({ path: out, fullPage:true });
+const bodyText = await page.evaluate(()=>document.body.innerText);
+console.log('URL:', page.url(), 'len', bodyText.length);
+console.log('500s:', fails.length?[...new Set(fails)].join(','):'none');
+console.log('health52:', bodyText.includes('52'), 'failedLogins24:', bodyText.includes('24 failed'), 'mfa8of8:', bodyText.includes('8 of 8'), 'q82.7K:', bodyText.includes('82.7K'));
+await browser.close(); process.exit(0);

@@ -24,6 +24,14 @@ export default function TrustCenterCard() {
   const [error, setError] = useState<string | null>(null);
   const [notDeployed, setNotDeployed] = useState(false);
 
+  // QA P1-4: derive Critical+High from the real response shape (by_severity map),
+  // falling back to a flat critical_count if a future payload provides one.
+  const criticalHigh: number | null = summary
+    ? (summary.critical_count != null
+        ? Number(summary.critical_count)
+        : (Number(summary.by_severity?.CRITICAL ?? 0) + Number(summary.by_severity?.HIGH ?? 0)))
+    : null;
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -148,12 +156,14 @@ export default function TrustCenterCard() {
               </div>
               <p className="text-sm text-slate-500">Total Findings</p>
             </div>
+            {/* QA P1-4: backend returns severity counts under by_severity ({CRITICAL,HIGH,...}),
+                not a critical_count field — derive Critical+High from the real shape. */}
             <div className="bg-white dark:bg-slate-800 border border-red-200 dark:border-red-700/50 rounded-xl p-5 text-center">
               <div className="text-3xl font-bold text-red-600 mb-1">
-                {summary.critical_count ?? '—'}
+                {criticalHigh ?? '—'}
               </div>
               <p className="text-sm text-slate-500">Critical/High</p>
-              {Number(summary.critical_count ?? 0) > 0 && (
+              {Number(criticalHigh ?? 0) > 0 && (
                 <button
                   onClick={() => setActiveView('findings')}
                   className="mt-2 inline-flex items-center gap-0.5 text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"

@@ -20,6 +20,7 @@ import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import { refreshCatalog } from '@/app/services/catalog';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
@@ -56,6 +57,10 @@ function SourcesPage() {
   const canRefresh = refreshPerm.allowed || refreshPerm.loading;
   const refreshDeniedReason =
     'You lack the "edit" permission on data products. Ask an administrator to grant it.';
+  // User tracing: the hook auto-fires PAGE_VIEW on mount (top routed component —
+  // no child on this route also mounts it, so no duplicate views). We add manual
+  // TAB_SWITCH / FEATURE_CLICK calls for the page-level interactions below.
+  const { trackTabSwitch, trackFeatureClick } = useTrackEvent();
   // Bumped on a catalog SSE invalidation to remount the listing (SourceTree +
   // SourcesOverview own their own fetches), so a backend scan/refresh/enrich
   // reflects live without a manual Refresh click.
@@ -85,6 +90,7 @@ function SourcesPage() {
   }, []);
 
   const handleRefresh = useCallback(async () => {
+    trackFeatureClick('refresh_catalog', { scope: 'account' });
     setRefreshing(true);
     setRefreshStatus(null);
     try {
@@ -94,7 +100,7 @@ function SourcesPage() {
       setRefreshStatus({ ok: false, message: getApiErrorMessage(err) });
     }
     setRefreshing(false);
-  }, []);
+  }, [trackFeatureClick]);
 
   const tabs: { id: TabId; label: string; icon: React.ReactNode; badge?: string }[] = [
     {
@@ -164,7 +170,11 @@ function SourcesPage() {
               Refresh Catalog
             </Button>
             <Link href="/data-source-connection">
-              <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">
+              <Button
+                size="sm"
+                className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={() => trackFeatureClick('add_source')}
+              >
                 <Plus className="h-3.5 w-3.5" />Add Source
               </Button>
             </Link>
@@ -176,7 +186,10 @@ function SourcesPage() {
           {tabs.map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                if (t.id !== tab) trackTabSwitch(t.id);
+                setTab(t.id);
+              }}
               className={cn(
                 'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
                 tab === t.id

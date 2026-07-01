@@ -14,6 +14,7 @@ import {
 } from '@/app/services/observability';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 
 /**
@@ -23,6 +24,8 @@ import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationPr
  * deployed yet" for 404/501) and never fabricates rows.
  */
 export default function LineagePage() {
+  // Fire-and-forget PAGE_VIEW on mount/route change (LineageFlowView does not track).
+  useTrackEvent();
   const [lineageData, setLineageData] = useState<unknown[]>([]);
   const [accessPatterns, setAccessPatterns] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(false);

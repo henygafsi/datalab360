@@ -614,6 +614,7 @@ export default function CortexChatContent() {
                 size="sm"
                 variant="outline"
                 onClick={handleClearChat}
+                aria-label="Clear chat"
                 className="text-slate-500 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400"
               >
                 <HiOutlineTrash className="w-4 h-4" />
@@ -775,6 +776,7 @@ export default function CortexChatContent() {
             <Button
               onClick={() => handleSendMessage()}
               disabled={!inputValue.trim() || isQuerying || !selectedModel}
+              aria-label="Send message"
               className="absolute right-2 bottom-2 w-10 h-10 p-0 rounded-lg bg-gradient-to-r from-fuchsia-500 to-pink-500 hover:from-fuchsia-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isQuerying ? (

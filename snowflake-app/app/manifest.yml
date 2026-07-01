@@ -1,0 +1,38 @@
+# Snowflake Native App manifest — Data360 frontend (SPCS).
+# [À VÉRIFIER DOC] container_services + references schema against the current
+# Native App Framework manifest reference before relying on it.
+manifest_version: 1
+
+version:
+  name: v1_0
+  label: "Data360 v1.0"
+  comment: "Data360 unified data platform — frontend (SPCS) test build"
+
+artifacts:
+  setup_script: setup_script.sql
+  readme: README.md
+  container_services:
+    images:
+      - /CP_DATA360/APP_TEST/DATA360_REPO/data360-frontend:dev
+
+# Account-level privileges the app requests from the consumer at install time.
+privileges:
+  - CREATE COMPUTE POOL:
+      description: "Provision compute to run the Data360 frontend service."
+  - BIND SERVICE ENDPOINT:
+      description: "Expose the Data360 web UI as a public endpoint."
+
+# Objects the consumer must bind (granted explicitly post-install). The backend
+# stays external, reached via a consumer-provided External Access Integration.
+references:
+  - backend_eai:
+      label: "Data360 backend API access"
+      description: "Egress to the Data360 backend (api.datalab360.io)."
+      privileges: [USAGE]
+      object_type: "EXTERNAL ACCESS INTEGRATION"
+      multi_valued: false
+      register_callback: core.register_reference
+
+configuration:
+  log_level: INFO
+  trace_level: ALWAYS

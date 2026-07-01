@@ -1,0 +1,74 @@
+{
+  "module": "data-quality",
+  "pages_ok": 2,
+  "pages_warming": 0,
+  "pages_error": 0,
+  "actions_found": 8,
+  "errors_5xx": [],
+  "console_errors": [],
+  "action_buttons": [
+    {
+      "label": "Run Check",
+      "disabled": false,
+      "gated": true,
+      "title": ""
+    },
+    {
+      "label": "Associate DMF",
+      "disabled": false,
+      "gated": true,
+      "title": ""
+    },
+    {
+      "label": "Custom DMF",
+      "disabled": false,
+      "gated": true,
+      "title": ""
+    },
+    {
+      "label": "Schedule",
+      "disabled": false,
+      "gated": true,
+      "title": ""
+    },
+    {
+      "label": "Force Refresh",
+      "disabled": false,
+      "gated": false,
+      "title": ""
+    },
+    {
+      "label": "Export CSV",
+      "disabled": false,
+      "gated": false,
+      "title": "Export current tab data as CSV"
+    },
+    {
+      "label": "Manage DMFs",
+      "disabled": false,
+      "gated": true,
+      "title": "Select a table row to view its associated DMFs"
+    },
+    {
+      "label": "Suggest checks (AI)",
+      "disabled": false,
+      "gated": false,
+      "title": "Ask AI to suggest checks — select a row to scope to one table"
+    }
+  ],
+  "ungated_actions": [
+    "Run Check appears enabled without explicit tooltip gate",
+    "Associate DMF appears enabled without explicit tooltip gate",
+    "Custom DMF appears enabled without explicit tooltip gate",
+    "Schedule appears enabled without explicit tooltip gate",
+    "Suggest checks (AI) is not permission-gated (read-only, acceptable if truly read-only)"
+  ],
+  "approval_surfaces": [
+    "SmartRightBar: Run Check / Associate DMF / Set Schedule actions per-table context (gated by useCanPerform)"
+  ],
+  "transparency_gaps": [],
+  "ux_gaps": [
+    "Dark mode: test ran in light mode only — dark mode rendering not verified"
+  ],
+  "vendor_leaks": []
+}

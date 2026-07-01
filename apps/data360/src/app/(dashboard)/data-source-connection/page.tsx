@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAtomValue } from 'jotai';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { Input, Button, Checkbox, Text, Password, Badge, Tooltip } from 'rizzui';
@@ -331,6 +332,9 @@ function integrationProps(details: unknown): IntegrationProps {
 export default function DataSourceConnectionPage() {
   const router = useRouter();
   const { status } = useSession();
+  // User tracing: auto-fires a single PAGE_VIEW for the Connect surface (this is
+  // the only routed component on the route) + manual feature/tab events below.
+  const { trackFeatureClick, trackTabSwitch } = useTrackEvent();
   // System 2 Action-RBAC: triggering an ingest maps to connect:ingest. The
   // allow-set keys this module as 'connect' (registry key), not the modules.ts
   // apiName 'connect_datalake' — the apiName key is absent → would deny everyone.
@@ -553,6 +557,7 @@ export default function DataSourceConnectionPage() {
   }, [lastInvalidation]);
 
   const browseConnection = (connection: StageConnection) => {
+    trackTabSwitch(`stage:${connection.name}`);
     setConnectedProvider('snowflake');
     // For non-STAGING schemas, use fully qualified name so backend resolves correctly
     const stageId = connection.schema_name && connection.schema_name !== 'STAGING'
@@ -564,6 +569,7 @@ export default function DataSourceConnectionPage() {
   };
 
   const handleSourceSelect = (sourceId: string) => {
+    trackFeatureClick('select_source', { source: sourceId });
     setTransitionLoading(true);
     setErrorMessages([]); // Clear errors when switching providers
     // Small delay to show loading animation for better UX
@@ -2381,7 +2387,7 @@ export default function DataSourceConnectionPage() {
           return (
               <div className={box}>
                   <h3 className="text-xl font-semibold mb-2">Select tables to ingest (or leave empty for all)</h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Data will be copied to Snowflake schema CP_DATA360.DATABRICKS</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Data will be copied to the data-platform schema CP_DATA360.DATABRICKS</p>
                   <div className="space-y-2 max-h-64 overflow-y-auto">
                       {databricksTablesList.map((t) => (
                           <label key={t} className="flex items-center gap-2 cursor-pointer">
@@ -2487,7 +2493,7 @@ export default function DataSourceConnectionPage() {
           return (
               <div className={box}>
                   <h3 className="text-xl font-semibold mb-2">Select tables to ingest (or leave empty for all)</h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Data will be copied to Snowflake schema CP_DATA360.ICEBERG</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Data will be copied to the data-platform schema CP_DATA360.ICEBERG</p>
                   <div className="space-y-2 max-h-64 overflow-y-auto">
                       {icebergTablesList.map((t) => (
                           <label key={t} className="flex items-center gap-2 cursor-pointer">
@@ -2735,7 +2741,7 @@ export default function DataSourceConnectionPage() {
               {/* Sample stage — works without Oracle connection */}
               <div className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-700">
                   <div className="rounded-lg bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3 mb-3">
-                      <p className="text-xs font-medium text-amber-700 dark:text-amber-300">No Oracle connection? Load sample data directly into Snowflake:</p>
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-300">No Oracle connection? Load sample data directly into the data platform:</p>
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">3 tables: CUSTOMERS (10), ORDERS (15), PRODUCTS (10) — Data360 sample dataset</p>
                   </div>
                   <Button
@@ -2914,13 +2920,13 @@ export default function DataSourceConnectionPage() {
                                     {connectedProvider === 'snowflake' && (
                                         <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-800">
                                             <button
-                                                onClick={() => setSnowflakeBrowseView('files')}
+                                                onClick={() => { setSnowflakeBrowseView('files'); trackTabSwitch('browse_files'); }}
                                                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${snowflakeBrowseView === 'files' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                                             >
                                                 Stages & Files
                                             </button>
                                             <button
-                                                onClick={() => setSnowflakeBrowseView('tables')}
+                                                onClick={() => { setSnowflakeBrowseView('tables'); trackTabSwitch('browse_tables'); }}
                                                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${snowflakeBrowseView === 'tables' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                                             >
                                                 Databases & Tables
@@ -3307,8 +3313,9 @@ export default function DataSourceConnectionPage() {
                     )}
                     <button
                         type="button"
-                        onClick={() => setShowAiHelper(true)}
+                        onClick={() => { setShowAiHelper(true); trackFeatureClick('open_ai_helper'); }}
                         title="Identify a connector from a connection string with AI"
+                        aria-label="Open the AI connector helper"
                         className="group relative inline-flex items-center gap-1.5 overflow-hidden rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-purple-500/40 transition-shadow hover:shadow-md hover:shadow-purple-500/60"
                     >
                         <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />

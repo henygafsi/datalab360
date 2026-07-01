@@ -11,7 +11,9 @@ import {
 import { toast } from 'react-hot-toast';
 import { useAtomValue } from 'jotai';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import {
@@ -445,7 +447,9 @@ function IntegrationWizard({
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close"
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
           >
             <X className="w-5 h-5" />
@@ -517,7 +521,9 @@ function IntegrationWizard({
           </div>
         </div>
         <button
+          type="button"
           onClick={onClose}
+          aria-label="Close"
           className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
         >
           <X className="w-5 h-5" />
@@ -537,8 +543,8 @@ function IntegrationWizard({
             </h4>
             <ol className="mt-2 text-sm text-blue-700 dark:text-blue-400 space-y-1 list-decimal list-inside">
               <li>Go to Azure Portal &rarr; Azure Active Directory &rarr; App Registrations</li>
-              <li>Click &quot;New registration&quot;, name it &quot;Data360 Snowflake SSO&quot;</li>
-              <li>Set redirect URI to your Snowflake account URL</li>
+              <li>Click &quot;New registration&quot;, name it &quot;Data360 SSO&quot;</li>
+              <li>Set redirect URI to your data platform account URL</li>
               <li>Copy the Application (Client) ID and Directory (Tenant) ID</li>
             </ol>
             <a
@@ -547,13 +553,13 @@ function IntegrationWizard({
               rel="noopener noreferrer"
               className="mt-2 inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
             >
-              <BookOpen className="h-3 w-3" /> Snowflake Documentation: External OAuth for Azure
+              <BookOpen className="h-3 w-3" /> Data Platform Documentation: External OAuth for Azure
             </a>
           </div>
 
           {/* Fields */}
           <div>
-            <FieldLabel label="Integration Name" tooltip="A unique name for this security integration in Snowflake (e.g., AZURE_OAUTH_DATA360)" required />
+            <FieldLabel label="Integration Name" tooltip="A unique name for this security integration in your data platform (e.g., AZURE_OAUTH_DATA360)" required />
             <input
               type="text"
               value={integrationName}
@@ -611,7 +617,7 @@ function IntegrationWizard({
             <ol className="mt-2 text-sm text-indigo-700 dark:text-indigo-400 space-y-1 list-decimal list-inside">
               <li>Go to Okta Admin Console &rarr; Applications &rarr; Create App Integration</li>
               <li>Select OIDC / OpenID Connect, then Web Application</li>
-              <li>Set sign-in redirect URI to your Snowflake account URL</li>
+              <li>Set sign-in redirect URI to your data platform account URL</li>
               <li>Copy the Client ID and your Okta org URL</li>
             </ol>
             <a
@@ -620,12 +626,12 @@ function IntegrationWizard({
               rel="noopener noreferrer"
               className="mt-2 inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
             >
-              <BookOpen className="h-3 w-3" /> Snowflake Documentation: External OAuth for Okta
+              <BookOpen className="h-3 w-3" /> Data Platform Documentation: External OAuth for Okta
             </a>
           </div>
 
           <div>
-            <FieldLabel label="Integration Name" tooltip="A unique name for this security integration in Snowflake (e.g., OKTA_OAUTH_DATA360)" required />
+            <FieldLabel label="Integration Name" tooltip="A unique name for this security integration in your data platform (e.g., OKTA_OAUTH_DATA360)" required />
             <input
               type="text"
               value={integrationName}
@@ -682,7 +688,7 @@ function IntegrationWizard({
             </h4>
             <ol className="mt-2 text-sm text-gray-700 dark:text-gray-400 space-y-1 list-decimal list-inside">
               <li>Register a new OAuth 2.0 application with your identity provider</li>
-              <li>Configure the redirect URI to point to your Snowflake account</li>
+              <li>Configure the redirect URI to point to your data platform account</li>
               <li>Obtain the token endpoint URL, authorization endpoint, and Client ID</li>
               <li>Ensure the provider issues JWTs with a &quot;sub&quot; claim for user mapping</li>
             </ol>
@@ -692,12 +698,12 @@ function IntegrationWizard({
               rel="noopener noreferrer"
               className="mt-2 inline-flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 hover:underline"
             >
-              <BookOpen className="h-3 w-3" /> Snowflake Documentation: External OAuth Overview
+              <BookOpen className="h-3 w-3" /> Data Platform Documentation: External OAuth Overview
             </a>
           </div>
 
           <div>
-            <FieldLabel label="Integration Name" tooltip="A unique name for this security integration in Snowflake (e.g., CUSTOM_OAUTH_DATA360)" required />
+            <FieldLabel label="Integration Name" tooltip="A unique name for this security integration in your data platform (e.g., CUSTOM_OAUTH_DATA360)" required />
             <input
               type="text"
               value={integrationName}
@@ -764,7 +770,7 @@ function IntegrationWizard({
               <Eye className="h-4 w-4" /> Review the SQL that will be executed
             </h4>
             <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
-              This SQL statement will create a security integration in your Snowflake account.
+              This SQL statement will create a security integration in your data platform account.
               Verify the configuration values are correct before proceeding.
             </p>
           </div>
@@ -957,7 +963,7 @@ function IntegrationsTab({
       {/* Action bar */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          OAuth, SAML, and SCIM security integrations configured in your Snowflake account.
+          OAuth, SAML, and SCIM security integrations configured in your data platform account.
         </p>
         <button
           onClick={() => setShowWizard((v) => !v)}
@@ -1070,6 +1076,8 @@ function ApiKeysTab({
 
   // Revoke state
   const [revoking, setRevoking] = useState<string | null>(null);
+  // Username pending revoke confirmation (drives the ConfirmDialog).
+  const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
 
   // Key generation state
   const [generatingKey, setGeneratingKey] = useState(false);
@@ -1120,7 +1128,7 @@ function ApiKeysTab({
   };
 
   const handleRevoke = async (username: string) => {
-    if (!window.confirm(`Revoke the RSA key for ${username}? This immediately disables key-pair authentication for that user.`)) return;
+    setRevokeTarget(null);
     setRevoking(username);
     try {
       await revokeRSAKey(username);
@@ -1199,7 +1207,7 @@ function ApiKeysTab({
       {/* Create Service User header + toggle */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          All Snowflake users. Users with RSA keys can authenticate via key-pair (no password required).
+          All data platform users. Users with RSA keys can authenticate via key-pair (no password required).
         </p>
         <button
           onClick={() => setShowCreate((v) => !v)}
@@ -1216,7 +1224,7 @@ function ApiKeysTab({
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white">New Service User</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <FieldLabel label="Username" tooltip="A Snowflake username for the service account (e.g., SVC_ANALYTICS). Will be uppercased." required />
+              <FieldLabel label="Username" tooltip="A data platform username for the service account (e.g., SVC_ANALYTICS). Will be uppercased." required />
               <input
                 type="text"
                 value={newUsername}
@@ -1226,7 +1234,7 @@ function ApiKeysTab({
               />
             </div>
             <div>
-              <FieldLabel label="Default Role" tooltip="The default Snowflake role for this user. Typically a custom role with limited privileges." />
+              <FieldLabel label="Default Role" tooltip="The default data platform role for this user. Typically a custom role with limited privileges." />
               <input
                 type="text"
                 value={newRole}
@@ -1273,7 +1281,9 @@ function ApiKeysTab({
               Assign RSA Key to <span className="text-amber-600 dark:text-amber-400">{assigningUser}</span>
             </h3>
             <button
+              type="button"
               onClick={() => { setAssigningUser(null); setRsaKey(''); setGeneratedPublicKey(''); setGeneratedPrivateKey(''); }}
+              aria-label="Close"
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
             >
               <X className="w-4 h-4" />
@@ -1345,7 +1355,7 @@ function ApiKeysTab({
           <div>
             <FieldLabel
               label="RSA Public Key (PEM)"
-              tooltip="Paste an RSA public key in PEM format, or use the Generate Key Pair button above. Only the public key is sent to Snowflake."
+              tooltip="Paste an RSA public key in PEM format, or use the Generate Key Pair button above. Only the public key is sent to the data platform."
               required
             />
             <textarea
@@ -1480,7 +1490,7 @@ className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                               Replace Key
                             </button>
                             <button
-                              onClick={() => handleRevoke(user.user_name)}
+                              onClick={() => setRevokeTarget(user.user_name)}
                               disabled={revoking === user.user_name || (!canRevoke.allowed && !canRevoke.loading)}
                               title={(!canRevoke.allowed && !canRevoke.loading) ? 'You do not have permission to revoke RSA keys.' : undefined}
                               className="px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors disabled:opacity-50"
@@ -1498,6 +1508,17 @@ className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
           </tbody>
         </table>
       </div>
+
+      <ConfirmDialog
+        open={revokeTarget !== null}
+        title="Revoke RSA key"
+        message={`Revoke the RSA key for ${revokeTarget ?? 'this user'}? This immediately disables key-pair authentication for that user.`}
+        confirmLabel="Revoke Key"
+        cancelLabel="Cancel"
+        destructive
+        onConfirm={() => { if (revokeTarget) void handleRevoke(revokeTarget); }}
+        onCancel={() => setRevokeTarget(null)}
+      />
     </div>
   );
 }
@@ -1519,7 +1540,7 @@ function DocumentationLinks() {
   return (
     <div className="mt-8 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
       <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-        <BookOpen className="h-5 w-5" /> Snowflake Documentation
+        <BookOpen className="h-5 w-5" /> Data Platform Documentation
       </h3>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {SNOWFLAKE_DOCS.map((doc) => (
@@ -1561,6 +1582,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 // Main Page
 // ---------------------------------------------------------------------------
 export default function OAuthManagementPage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
   const [activeTab, setActiveTab] = useState<TabType>('integrations');
   const [search, setSearch] = useState('');
 

@@ -1290,15 +1290,12 @@ function CommandCenterDashboardInner() {
    * Legacy ids (snowflake-explorer / security-adv / cost / etc.) are mapped to
    * their new canonical ids by resolveTabId so old deep-links keep working.
    */
-  const [activeTab, _setActiveTab] = useState<string>(() => {
-    if (typeof window === 'undefined') return 'overview';
-    const url = new URL(window.location.href);
-    const fromUrl = url.searchParams.get('tab');
-    const fromStorage = window.localStorage.getItem(
-      'data360.command-center.activeTab'
-    );
-    return resolveTabId(fromUrl ?? fromStorage ?? 'overview');
-  });
+  // Start deterministically at 'overview' so the SSR'd shell (the always-rendered
+  // tab bar) matches the first client render — the persisted/`?tab=` value is
+  // resolved in a post-mount effect below. Reading window/localStorage in the
+  // lazy initializer diverged server vs client → a hydration mismatch + wrong-tab
+  // flash on the primary navigation.
+  const [activeTab, _setActiveTab] = useState<string>('overview');
   const setActiveTab = useCallback((id: string) => {
     const resolved = resolveTabId(id);
     _setActiveTab(resolved);
@@ -1310,6 +1307,17 @@ function CommandCenterDashboardInner() {
       window.history.replaceState({}, '', url.toString());
     }
   }, [trackTabSwitch]);
+  // Resolve the persisted / `?tab=` tab AFTER mount (not in the initializer) so
+  // hydration is deterministic. Sets state directly — bypasses setActiveTab's
+  // localStorage/URL/track side effects so no spurious tab-switch is recorded.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const fromUrl = new URL(window.location.href).searchParams.get('tab');
+    const fromStorage = window.localStorage.getItem('data360.command-center.activeTab');
+    const resolved = resolveTabId(fromUrl ?? fromStorage ?? 'overview');
+    if (resolved !== 'overview') _setActiveTab(resolved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [isTabTransitioning, startTabTransition] = useTransition();
   // Docked actions right-bar (the module's single centralized action surface).
   const [panelOpen, setPanelOpen] = useState(false);
@@ -4686,7 +4694,7 @@ const ProjectsTab = memo(function ProjectsTab({
             <div className="space-y-3">
               {pendingApprovals.map((p: any, i: number) => (
                 <div
-                  key={i}
+                  key={p.deployment_id ?? i}
                   className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-900/20"
                 >
                   {/* Header: project name + actions */}

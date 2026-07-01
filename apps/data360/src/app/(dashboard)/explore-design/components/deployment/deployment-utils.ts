@@ -1,5 +1,37 @@
 import type { DesignEvent, EventType } from '../../stores/event-store';
-import type { DDLType, IngestionMode } from '@/app/services/api/types';
+import type {
+  DDLType,
+  IngestionMode,
+  CronChoice,
+  BackendCronChoice,
+} from '@/app/services/api/types';
+
+/**
+ * Map the UI's {@link CronChoice} onto the backend's lowercase cron enum.
+ * The schedule endpoint rejects the UI values (EVERY_HOUR/DAILY/…) with a 400,
+ * and has no native 6-hour cadence — that case degrades to an explicit cron.
+ */
+export function toBackendCronChoice(
+  c: CronChoice,
+  customCron?: string,
+): { cron_choice: BackendCronChoice; custom_cron?: string } {
+  switch (c) {
+    case 'EVERY_HOUR':
+      return { cron_choice: 'hourly' };
+    case 'EVERY_6_HOURS':
+      // No native 6h cadence on the backend — express it as a cron.
+      return { cron_choice: 'custom', custom_cron: '0 */6 * * *' };
+    case 'WEEKLY':
+      return { cron_choice: 'weekly' };
+    case 'MONTHLY':
+      return { cron_choice: 'monthly' };
+    case 'CUSTOM':
+      return { cron_choice: 'custom', custom_cron: customCron };
+    case 'DAILY':
+    default:
+      return { cron_choice: 'daily' };
+  }
+}
 import type {
   SQLStatement,
   IngestionTableConfig,

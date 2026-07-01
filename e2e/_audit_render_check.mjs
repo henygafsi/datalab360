@@ -1,0 +1,12 @@
+import { chromium } from '@playwright/test';
+const b=await chromium.launch();
+const ctx=await b.newContext({storageState:'e2e/.auth/state.json'});
+const pg=await ctx.newPage();
+const bad=[];
+pg.on('response',r=>{ if(r.status()>=400) bad.push(`${r.status()} ${r.url().replace('http://localhost:3000','')}`); });
+await pg.goto('http://localhost:3000/account-overview',{waitUntil:'domcontentloaded',timeout:60000}).catch(()=>{});
+await pg.waitForTimeout(7000);
+const txt=await pg.evaluate(()=>document.body?document.body.innerText:'');
+console.log('account-overview len',txt.length,'url',pg.url());
+console.log('bad',[...new Set(bad)].join(' | '));
+await b.close();

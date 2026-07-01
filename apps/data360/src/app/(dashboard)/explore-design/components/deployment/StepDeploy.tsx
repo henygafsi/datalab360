@@ -11,6 +11,7 @@ import { useDeploymentContext } from './DeploymentContext';
 import {
   sortEventsForDeployment, filterExecutableEvents, generateSnowflakeSQL,
   inferDDLType, extractIngestionConfigs, SCHEMA_EVENT_TYPES,
+  toBackendCronChoice,
 } from './deployment-utils';
 import type { SQLStatement } from './DeploymentContext';
 import * as exploreDesignApi from '@/app/services/api/exploreDesignApi';
@@ -213,16 +214,42 @@ export default function StepDeploy() {
           : (schemaVersionId || undefined);
 
         if (config.ingestionType === 'scheduled') {
+          // The backend schedules ONE source→target table per request and
+          // requires the source/target/mode fields + a lowercase cron enum.
+          // Schedule each configured table with its own request.
           addProgress(`Scheduling ingestion for ${ingestionConfigs.length} table(s)...`);
-          const allMappings = ingestionConfigs.flatMap(c => c.mappings || []);
-          const scheduleResult = await exploreDesignApi.scheduleIngestion(projectId, {
-            cron_choice: config.cronChoice,
-            custom_cron: config.cronChoice === 'CUSTOM' ? config.customCron : undefined,
-            warehouse: config.scheduleWarehouse || undefined,
-            mappings: allMappings.length > 0 ? allMappings : undefined,
-            config: { ingestion_configs: ingestionConfigs, target_version_id: targetVersionId },
-          });
-          addProgress(`Scheduled: Task ${scheduleResult.task_name}, Cron: ${scheduleResult.cron_expression}`);
+          const cron = toBackendCronChoice(config.cronChoice, config.customCron);
+          const scheduleResults = await Promise.allSettled(
+            ingestionConfigs.map(cfg =>
+              exploreDesignApi.scheduleIngestion(projectId, {
+                source_database: cfg.source_database,
+                source_schema: cfg.source_schema,
+                source_table: cfg.source_table,
+                target_database: cfg.target_database || cfg.source_database,
+                target_schema: cfg.target_schema || cfg.source_schema,
+                target_table: cfg.target_table,
+                ingestion_mode: cfg.ingestion_mode,
+                cron_choice: cron.cron_choice,
+                custom_cron: cron.custom_cron,
+                warehouse: config.scheduleWarehouse || undefined,
+                mappings: cfg.mappings && cfg.mappings.length > 0 ? cfg.mappings : undefined,
+                config: { target_version_id: targetVersionId },
+              }),
+            ),
+          );
+          const scheduled = scheduleResults.filter(
+            (r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof exploreDesignApi.scheduleIngestion>>> =>
+              r.status === 'fulfilled',
+          );
+          const schedFailed = scheduleResults.length - scheduled.length;
+          if (scheduled.length > 0) {
+            addProgress(`Scheduled ${scheduled.length}/${ingestionConfigs.length} task(s): ${scheduled.map(r => r.value.task_name).join(', ')} (cron: ${scheduled[0].value.cron_expression})`);
+          }
+          if (schedFailed > 0) {
+            const firstErr = scheduleResults.find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+            const errMsg = firstErr ? getApiErrorMessage(firstErr.reason) : 'Unknown';
+            addProgress(`WARNING: ${schedFailed} schedule(s) failed: ${typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg)}`);
+          }
           eventsToDeploy.filter(e => e.type === 'INGESTION_MODE_SET' || e.type === 'COLUMN_MAPPING_CREATED')
             .forEach(e => updateEventStatus({ eventId: e.id, status: 'applied' }));
         } else {

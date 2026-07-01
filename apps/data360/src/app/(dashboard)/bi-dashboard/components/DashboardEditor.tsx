@@ -1027,7 +1027,7 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
               {Object.entries(crossWidgetFilter).map(([col, val]) => (
                 <Badge key={col} size="sm" className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 gap-1">
                   {col}: {val}
-                  <button onClick={() => setCrossWidgetFilter(prev => { const n = { ...prev }; delete n[col]; return n; })} className="ml-1 hover:text-purple-900 dark:hover:text-purple-200">
+                  <button onClick={() => setCrossWidgetFilter(prev => { const n = { ...prev }; delete n[col]; return n; })} aria-label={`Remove ${col} filter`} className="ml-1 hover:text-purple-900 dark:hover:text-purple-200">
                     <XCircle className="h-3 w-3" />
                   </button>
                 </Badge>

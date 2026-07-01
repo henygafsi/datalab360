@@ -76,14 +76,20 @@ function queueEvent(payload: TrackEventPayload): void {
 /** Detect Data360 module from the current URL pathname. */
 function detectModule(pathname: string): string {
   if (pathname.includes('account-overview')) return 'account_overview';
+  // 'data-product' before 'data-source' — neither overlaps, but keep the
+  // most specific data-* routes ahead of the generic connect bucket.
+  if (pathname.includes('data-product')) return 'data_products';
   if (pathname.includes('data-source')) return 'connect';
   if (pathname.includes('explore-design')) return 'explore_design';
+  if (pathname.includes('mapping')) return 'mapping';
   if (pathname.includes('workflow')) return 'workflow';
   if (pathname.includes('bi-dashboard')) return 'bi_dashboard';
   if (pathname.includes('governance')) return 'governance';
   if (pathname.includes('data-quality')) return 'data_quality';
   if (pathname.includes('intelligent')) return 'cortex';
   if (pathname.includes('observability')) return 'observability';
+  if (pathname.includes('client-accounts')) return 'client_accounts';
+  // 'administration' contains 'admin', so the admin bucket below also catches it.
   if (pathname.includes('admin')) return 'admin';
   return 'unknown';
 }

@@ -27,6 +27,12 @@
       "env": {
         "API_BASE": "http://127.0.0.1:8000"
       }
+    },
+    "data360-snowflake": {
+      "command": "/Users/datalab360/Documents/data360_pro/backend/tools/mcp/.venv/bin/python",
+      "args": [
+        "/Users/datalab360/Documents/data360_pro/backend/tools/mcp/data360_snowflake_mcp.py"
+      ]
     }
   }
 }

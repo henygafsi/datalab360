@@ -27,6 +27,28 @@ import AiSavingsDashboard from './AiSavingsDashboard';
 import { listIngestionRuns } from '@/app/services/api/exploreDesignApi';
 import type { IngestionRun } from '@/app/services/api/types';
 
+// Static Tailwind class maps. Interpolated classes like `text-${color}-600` are
+// invisible to the Tailwind compiler and get PURGED unless safelisted (the axis
+// colors emerald/amber/slate are not), so map each colour to LITERAL strings the
+// content scanner can see — otherwise the axis/metric colours silently vanish.
+const AXIS_BOX_CLASS: Record<string, string> = {
+  emerald: 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-900/10',
+  purple: 'border-purple-200 dark:border-purple-800 bg-purple-50/30 dark:bg-purple-900/10',
+  cyan: 'border-cyan-200 dark:border-cyan-800 bg-cyan-50/30 dark:bg-cyan-900/10',
+  amber: 'border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-900/10',
+  blue: 'border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10',
+};
+const AXIS_ICON_CLASS: Record<string, string> = {
+  emerald: 'text-emerald-500', purple: 'text-purple-500', cyan: 'text-cyan-500', amber: 'text-amber-500', blue: 'text-blue-500',
+};
+const AXIS_COUNT_CLASS: Record<string, string> = {
+  emerald: 'text-emerald-600', purple: 'text-purple-600', cyan: 'text-cyan-600', amber: 'text-amber-600', blue: 'text-blue-600',
+};
+const METRIC_TEXT_CLASS: Record<string, string> = {
+  amber: 'text-amber-600 dark:text-amber-400', blue: 'text-blue-600 dark:text-blue-400',
+  slate: 'text-slate-600 dark:text-slate-400', green: 'text-green-600 dark:text-green-400',
+};
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -1843,11 +1865,19 @@ function DeployPanel({ projectId, pendingEventsCount, pendingEvents, database, s
           }
           log('Adding DDL actions...');
           let added = 0;
+          const addFailures: string[] = [];
           for (const event of (pendingEvents || [])) {
             try {
               const sql = generateSnowflakeSQL(event);
               if (sql?.sql) { await api.addDDLAction(projectId, { ddl_sql: sql.sql, ddl_type: event.type, target_table: event.target?.table, description: `${event.type} on ${event.target?.table || ''}` }); added++; }
-            } catch { /* skip */ }
+            } catch {
+              // A genuine add-failure must be VISIBLE — silently skipping it led to
+              // partial deployments being reported as full success.
+              addFailures.push(`${event.type} on ${event.target?.table || '?'}`);
+            }
+          }
+          if (addFailures.length) {
+            log(`⚠️ ${addFailures.length} DDL action(s) failed to queue and will NOT be deployed: ${addFailures.join(', ')}`, 'error');
           }
           log(`Added ${added} DDL actions, executing...`);
           result = await api.executeDDLActions(projectId, { atomic: true });
@@ -2196,13 +2226,13 @@ function StepOutput({ stepId, output, status }: { stepId: StepId; output: any; s
             const items = byAxis[key] || [];
             if (items.length === 0 && allImpacts.length > 0) return null;
             return (
-              <div key={key} className={cn('p-2 rounded-lg border', `border-${color}-200 dark:border-${color}-800 bg-${color}-50/30 dark:bg-${color}-900/10`)}>
+              <div key={key} className={cn('p-2 rounded-lg border', AXIS_BOX_CLASS[color] || AXIS_BOX_CLASS.blue)}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <AxisIcon className={cn('h-3 w-3', `text-${color}-500`)} />
+                    <AxisIcon className={cn('h-3 w-3', AXIS_ICON_CLASS[color] || AXIS_ICON_CLASS.blue)} />
                     <span className="text-[10px] font-semibold text-slate-700 dark:text-slate-300">{label}</span>
                   </div>
-                  <span className={cn('text-[10px] font-bold', `text-${color}-600`)}>{items.length}</span>
+                  <span className={cn('text-[10px] font-bold', AXIS_COUNT_CLASS[color] || AXIS_COUNT_CLASS.blue)}>{items.length}</span>
                 </div>
                 {items.length > 0 && (
                   <div className="mt-1 space-y-0.5 max-h-16 overflow-y-auto">
@@ -2532,7 +2562,7 @@ function MetricCard({ label, value, total, color }: { label: string; value: stri
   return (
     <div className="p-2.5 rounded-lg border border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800">
       <p className="text-[9px] text-slate-400 mb-0.5">{label}</p>
-      <p className={cn('text-xs font-semibold', `text-${color}-600 dark:text-${color}-400`)}>
+      <p className={cn('text-xs font-semibold', METRIC_TEXT_CLASS[color] || METRIC_TEXT_CLASS.slate)}>
         {value}{total != null ? ` / ${total}` : ''}
       </p>
     </div>

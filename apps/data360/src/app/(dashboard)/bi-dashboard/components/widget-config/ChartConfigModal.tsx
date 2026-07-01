@@ -269,7 +269,7 @@ export default function ChartConfigModal({
               Configure {chartType ? chartType.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Chart'}
             </h2>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
             <X className="h-4 w-4 text-slate-400" />
           </button>
         </div>
@@ -347,6 +347,7 @@ export default function ChartConfigModal({
                 {measures.length > 1 && (
                   <button
                     onClick={() => removeMeasure(i)}
+                    aria-label="Remove measure"
                     className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded mb-0.5"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -442,6 +443,7 @@ export default function ChartConfigModal({
                 </div>
                 <button
                   onClick={() => removeCalcField(i)}
+                  aria-label="Remove calculated field"
                   className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded mb-0.5"
                 >
                   <Trash2 className="h-3.5 w-3.5" />

@@ -124,7 +124,13 @@ export async function suggestDmfsForTable(
   tableFqn: string,
   opts?: { database?: string; schema?: string },
 ): Promise<DmfSuggestResponse> {
-  const { data } = await apiClient.post(DQ_DMF_SUGGEST_POST, null, {
+  // QA P1-2: the backend requires `table_name` in the JSON BODY (Pydantic), not
+  // as a query param — sending a null body + params 400'd on every click.
+  const { data } = await apiClient.post(DQ_DMF_SUGGEST_POST, {
+    table_name: tableFqn,
+    ...(opts?.database ? { database: opts.database } : {}),
+    ...(opts?.schema ? { schema: opts.schema } : {}),
+  }, {
     params: {
       table: tableFqn,
       table_name: tableFqn,

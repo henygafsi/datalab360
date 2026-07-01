@@ -11,9 +11,14 @@
  *                                                   bound policies, usage)
  */
 import { ShieldCheck } from 'lucide-react';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import FeatureGovernanceMatrix from './FeatureGovernanceMatrix';
 
 export default function FeatureGovernancePage() {
+  // Auto-fire a PAGE_VIEW on mount. Tracking lives in this route wrapper (not the
+  // matrix) because FeatureGovernanceMatrix is also embedded in the access-center
+  // tab — tracking inside it would double-count.
+  useTrackEvent();
   return (
     <div className="space-y-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">

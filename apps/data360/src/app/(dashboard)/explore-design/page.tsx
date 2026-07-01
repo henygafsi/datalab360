@@ -630,7 +630,7 @@ const CompactSourceSelector: React.FC<{
                     <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                       Schema Health
                     </span>
-                    <button onClick={() => setHealthOpen(false)} className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded">
+                    <button aria-label="Close schema health" onClick={() => setHealthOpen(false)} className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded">
                       <X className="h-3 w-3 text-slate-400" />
                     </button>
                   </div>
@@ -2552,8 +2552,10 @@ export default function ExploreDesignPage() {
       setDwhTargetSchema(cached?.schema || null);
       setDefaultModelingTablesLoaded(!!cached?.choice);
 
-      // Show loading toast while restoring project context
-      const loadingToast = toast.loading(`Restoring project context...`);
+      // Show loading toast while restoring project context. Stable id so a
+      // re-entrant restore (URL effect + auto-select can both fire) REPLACES
+      // the toast instead of stacking a duplicate "Restoring project context…".
+      const loadingToast = toast.loading(`Restoring project context...`, { id: 'restore-project-ctx' });
 
       // Load events for the new project from backend
       try {
@@ -5253,8 +5255,12 @@ export default function ExploreDesignPage() {
                 ingestionTrace={selectedIngestion}
                 emptyOverride={
                   <ModelOverview
-                    tableCount={modelingTableIds.size}
-                    relationCount={defaultRelationships.length + initialColumnMappings.length}
+                    // Count the tables actually present in the model (what the
+                    // canvas renders) — not just the explicitly-added set, which
+                    // stayed at 0 and read as "0 models" even with a full canvas.
+                    // Keep relations consistent: 0 until tables exist.
+                    tableCount={tables.length || modelingTableIds.size}
+                    relationCount={tables.length > 0 ? defaultRelationships.length + initialColumnMappings.length : 0}
                     targetDwh={selectedDatabase || dwhTargetDatabase || ''}
                     projectId={selectedProjectId}
                   />

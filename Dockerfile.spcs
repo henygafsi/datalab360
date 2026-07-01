@@ -1,0 +1,53 @@
+# syntax=docker/dockerfile:1.7
+# ─────────────────────────────────────────────────────────────────────────────
+# Data360 frontend image for Snowpark Container Services (SPCS) / Snowflake
+# Native App. Builds the Next.js standalone server from the pnpm/turbo monorepo.
+#
+# Context = REPO ROOT. Build with:
+#   docker build -f Dockerfile.spcs -t data360-frontend:dev .
+#
+# The backend (FastAPI) is NOT containerized here — it stays external at
+# api.datalab360.io and is reached from the Next.js server-side rewrite proxy
+# via a Snowflake External Access Integration (EAI). Set API_PROXY_UPSTREAM at
+# runtime (service spec) to point the proxy at the backend.
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM node:20-slim AS base
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /app
+
+# ---- deps: install workspace deps from manifests (cache-friendly-ish) --------
+FROM base AS deps
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY apps/data360/package.json apps/data360/package.json
+COPY packages ./packages
+RUN pnpm install --frozen-lockfile
+
+# ---- build: produce .next/standalone ----------------------------------------
+FROM base AS build
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages ./packages
+COPY . .
+ENV SPCS_STANDALONE=1
+ENV SKIP_ENV_VALIDATION=1
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN pnpm iso:build
+
+# ---- runner: minimal standalone server --------------------------------------
+FROM node:20-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+ENV NEXT_TELEMETRY_DISABLED=1
+# Standalone output (monorepo layout: server.js lives under apps/data360/)
+COPY --from=build /app/apps/data360/.next/standalone ./
+COPY --from=build /app/apps/data360/.next/static ./apps/data360/.next/static
+COPY --from=build /app/apps/data360/public ./apps/data360/public
+EXPOSE 3000
+# Healthcheck hits the Next.js server root; SPCS readiness probe uses /
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["node", "apps/data360/server.js"]

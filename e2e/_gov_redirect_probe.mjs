@@ -1,0 +1,12 @@
+import { chromium } from '@playwright/test';
+const b = await chromium.launch();
+const c = await b.newContext({ storageState: 'e2e/.auth/state.json' });
+const p = await c.newPage();
+const docs = [];
+p.on('response', r => { const u=r.url(); if(u.includes('/governance')&&!u.includes('/_next/')&&!u.includes('api')) docs.push(`${r.status()} ${r.request().method()} ${u}`); });
+const resp = await p.goto('http://localhost:3001/governance', { waitUntil:'networkidle', timeout:60000 });
+await p.waitForTimeout(2000);
+console.log('final url:', p.url());
+console.log('main resp status:', resp && resp.status());
+console.log('doc responses:\n' + docs.join('\n'));
+await b.close();

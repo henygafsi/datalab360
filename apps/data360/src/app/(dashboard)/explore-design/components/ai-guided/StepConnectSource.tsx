@@ -23,7 +23,7 @@ interface Connector {
   ready: boolean;
 }
 const CONNECTORS: Connector[] = [
-  { id: 'snowflake', label: 'Existing Snowflake table', icon: Snowflake, ready: true },
+  { id: 'snowflake', label: 'Existing warehouse table', icon: Snowflake, ready: true },
   { id: 's3', label: 'Amazon S3', icon: HardDrive, ready: false },
   { id: 'postgres', label: 'PostgreSQL', icon: Server, ready: false },
 ];

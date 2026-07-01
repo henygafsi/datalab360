@@ -12,10 +12,14 @@ import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import EmptyState from '@/components/ui/EmptyState';
 import GovernanceKpiStrip from '../components/GovernanceKpiStrip';
 import { useAuth } from '@/hooks/useAuth';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { isAdminRole } from '@/config/constants';
 
 export default function UsersManagementPage() {
   const { role } = useAuth();
+  // Fire-and-forget PAGE_VIEW on mount/route change (before the admin gate
+  // so the view is registered even when access is denied).
+  useTrackEvent();
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleAddUserSuccess = useCallback(() => {

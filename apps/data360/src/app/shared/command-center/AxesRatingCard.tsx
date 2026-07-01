@@ -13,6 +13,15 @@
 import { Radar } from 'lucide-react';
 import { ACCOUNT_ADN, adnTone as tone, type AdnAxis } from './AdnAxes';
 
+// Static literal map — `fill-${tone}-500` is interpolated (invisible to the
+// Tailwind compiler) and `fill-*` is never safelisted, so emerald/rose vertex
+// dots were purged and rendered black. Literal strings the scanner can see.
+const DOT_FILL: Record<string, string> = {
+  emerald: 'fill-emerald-500',
+  amber: 'fill-amber-500',
+  rose: 'fill-rose-500',
+};
+
 export default function AxesRatingCard({
   axes = ACCOUNT_ADN,
   title = 'Note ADN du compte',
@@ -71,7 +80,7 @@ export default function AxesRatingCard({
           <polygon points={dataPoly} className="fill-indigo-500/20 stroke-indigo-500" strokeWidth="2" />
           {axes.map((a, i) => {
             const [x, y] = point(i, Math.max(0.05, a.score / 100));
-            return <circle key={a.key} cx={x} cy={y} r="2.5" className={`fill-${tone(a.score)}-500`} />;
+            return <circle key={a.key} cx={x} cy={y} r="2.5" className={DOT_FILL[tone(a.score)] || DOT_FILL.amber} />;
           })}
         </svg>
 

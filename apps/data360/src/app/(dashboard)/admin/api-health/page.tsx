@@ -19,7 +19,7 @@ import { ReleaseHistory } from './components/ReleaseHistory';
 import { EndpointHistory } from './components/EndpointHistory';
 import { ProbeVsProd, type ProbeRow } from './components/ProbeVsProd';
 import FunctionalApiView from './components/FunctionalApiView';
-import { SLOW_THRESHOLD_MS, isDefect, isExpected, isExpectedOrKnown, isKnownUnimplemented, isConfigDependentRejection, parseErrorBody, type ProbeDetail } from './components/types';
+import { SLOW_THRESHOLD_MS, isDefect, isExpected, isExpectedOrKnown, isKnownUnimplemented, isConfigDependentRejection, isResidualWarn, parseErrorBody, type ProbeDetail } from './components/types';
 import { persistApiHealthRun, NotDeployedError } from '@/app/services/admin-api-health';
 
 // ── Command Center ──
@@ -317,6 +317,54 @@ const FAKE_SCHEMA = 'PUBLIC';
 const FAKE_TABLE = 'TEST_TABLE';
 
 // ════════════════════════════════════════════════════════════
+// Real-resource SEED — discovered live before a full sweep.
+//
+// Project-scoped READ probes used to send the fake id __test_health_check__ and
+// (correctly) get back "PROJECT_NOT_FOUND". That's an Expected rejection, not a
+// bug — but it never EXERCISES the real read path with real data. `seedRealResources()`
+// discovers a genuine project the caller's account/role already owns (a real
+// account + real user, per the validation ask) and threads its id into those
+// reads, so they execute against live data and return real 200s instead of 404s.
+//
+// Lazily read INSIDE each closure (`SEED.exploreProjectId`), so the value the
+// setup phase writes is the value the probe uses. Falls back to FAKE_ID when the
+// account has no projects yet — the board then behaves exactly as before.
+//
+// READ-ONLY by design: discovery only LISTS existing projects; it never creates
+// throwaway objects, so re-probing leaves no clutter in the account.
+// ════════════════════════════════════════════════════════════
+const SEED: { exploreProjectId: string; apiProjectId: string; seeded: boolean } = {
+  exploreProjectId: FAKE_ID,
+  apiProjectId: FAKE_ID,
+  seeded: false,
+};
+
+/**
+ * Discover a real project id (explore-design + unified Projects) the current
+ * identity can read, and write it into SEED. Never throws — on any failure the
+ * seeds stay FAKE_ID and the project-scoped reads degrade to Expected-404s.
+ */
+async function seedRealResources(): Promise<void> {
+  try {
+    const ed = await getExploreProjects();
+    const edId = ed?.projects?.find(p => p?.project_id)?.project_id;
+    if (edId) SEED.exploreProjectId = String(edId);
+  } catch { /* leave FAKE_ID — degrades to Expected-404 */ }
+  try {
+    const api: any = await projectsApi.listProjects();
+    const list = Array.isArray(api) ? api : (api?.projects ?? api?.items ?? []);
+    const apiId = list.find((p: any) => p?.project_id || p?.id)?.project_id
+      ?? list.find((p: any) => p?.project_id || p?.id)?.id;
+    if (apiId) SEED.apiProjectId = String(apiId);
+    // Reuse the explore-design id if the unified list was empty but ED had one.
+    if (SEED.apiProjectId === FAKE_ID && SEED.exploreProjectId !== FAKE_ID) {
+      SEED.apiProjectId = SEED.exploreProjectId;
+    }
+  } catch { /* leave FAKE_ID */ }
+  SEED.seeded = SEED.exploreProjectId !== FAKE_ID || SEED.apiProjectId !== FAKE_ID;
+}
+
+// ════════════════════════════════════════════════════════════
 // Test definitions
 // ════════════════════════════════════════════════════════════
 
@@ -559,23 +607,23 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'getExploreProjects', fn: () => getExploreProjects() },
       { name: 'getTemplates', fn: () => getTemplates() },
       { name: 'getPendingApprovals', fn: () => getPendingApprovals() },
-      { name: 'getProjectEvents', fn: () => getProjectEvents(FAKE_ID) },
-      { name: 'getProjectState', fn: () => getProjectState(FAKE_ID) },
+      { name: 'getProjectEvents', fn: () => getProjectEvents(SEED.exploreProjectId) },
+      { name: 'getProjectState', fn: () => getProjectState(SEED.exploreProjectId) },
       { name: 'getDeployment', fn: () => edGetDeployment(FAKE_ID) },
-      { name: 'listDeployments', fn: () => edListDeployments(FAKE_ID) },
-      { name: 'listVersions', fn: () => edListVersions(FAKE_ID) },
+      { name: 'listDeployments', fn: () => edListDeployments(SEED.exploreProjectId) },
+      { name: 'listVersions', fn: () => edListVersions(SEED.exploreProjectId) },
       { name: 'getVersion', fn: () => edGetVersion(FAKE_ID) },
       { name: 'getApprovalDetails', fn: () => getApprovalDetails(FAKE_ID) },
       { name: 'getSchemaVersions', fn: () => getSchemaVersions(FAKE_ID) },
       { name: 'getRecentDeploymentErrors', fn: () => getRecentDeploymentErrors(FAKE_ID) },
       { name: 'listSchemaClones', fn: () => listSchemaClones(FAKE_ID) },
       { name: 'getSchemaCloneStatus', fn: () => getSchemaCloneStatus(FAKE_ID) },
-      { name: 'getScheduledDeployments', fn: () => getScheduledDeployments(FAKE_ID) },
+      { name: 'getScheduledDeployments', fn: () => getScheduledDeployments(SEED.exploreProjectId) },
       { name: 'getScheduledDeploymentDetails', fn: () => getScheduledDeploymentDetails(FAKE_ID, FAKE_ID) },
       { name: 'getScheduledDeploymentLogs', fn: () => getScheduledDeploymentLogs(FAKE_ID, FAKE_ID) },
       { name: 'getWorkflowDAG', fn: () => getWorkflowDAG(FAKE_ID) },
       { name: 'getPolicies', fn: () => edGetPolicies() },
-      { name: 'getERDLayout', fn: () => getERDLayout(FAKE_ID) },
+      { name: 'getERDLayout', fn: () => getERDLayout(SEED.exploreProjectId) },
       { name: 'getColumnLineage', fn: () => getColumnLineage(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE, 'ID') },
       { name: 'getImpactAnalysis', fn: () => getImpactAnalysis(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE) },
       { name: 'getColumnPreview', fn: () => getColumnPreview(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE, 'ID') },
@@ -583,14 +631,14 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'getColumnProfile', fn: () => getColumnProfile(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE, 'ID') },
       { name: 'getTableProfile', fn: () => getTableProfile(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE) },
       { name: 'fetchRelationships', fn: () => fetchRelationships(FAKE_ID) },
-      { name: 'getDesignEvents', fn: () => getDesignEvents(FAKE_ID) },
-      { name: 'listScheduledDesignDeployments', fn: () => listScheduledDesignDeployments(FAKE_ID) },
-      { name: 'listProjectDeploymentsV1', fn: () => listProjectDeploymentsV1(FAKE_ID) },
-      { name: 'listSchedulesV1', fn: () => listSchedulesV1(FAKE_ID) },
-      { name: 'getIngestionHistory', fn: () => getIngestionHistory(FAKE_ID) },
-      { name: 'getEventConflicts', fn: () => getEventConflicts(FAKE_ID) },
-      { name: 'listEventTemplates', fn: () => listEventTemplates(FAKE_ID) },
-      { name: 'listIngestionOperations', fn: () => listIngestionOperations(FAKE_ID) },
+      { name: 'getDesignEvents', fn: () => getDesignEvents(SEED.exploreProjectId) },
+      { name: 'listScheduledDesignDeployments', fn: () => listScheduledDesignDeployments(SEED.exploreProjectId) },
+      { name: 'listProjectDeploymentsV1', fn: () => listProjectDeploymentsV1(SEED.exploreProjectId) },
+      { name: 'listSchedulesV1', fn: () => listSchedulesV1(SEED.exploreProjectId) },
+      { name: 'getIngestionHistory', fn: () => getIngestionHistory(SEED.exploreProjectId) },
+      { name: 'getEventConflicts', fn: () => getEventConflicts(SEED.exploreProjectId) },
+      { name: 'listEventTemplates', fn: () => listEventTemplates(SEED.exploreProjectId) },
+      { name: 'listIngestionOperations', fn: () => listIngestionOperations(SEED.exploreProjectId) },
       { name: 'getAISavingsSummary', fn: () => getAISavingsSummary() },
       { name: 'getWarehouseSizing', fn: () => getWarehouseSizing() },
       { name: 'getOptimalSchedule', fn: () => getOptimalSchedule() },
@@ -859,7 +907,7 @@ const TEST_MODULES: ModuleDef[] = [
     module: 'API: Projects',
     tests: [
       { name: 'listProjects', fn: () => projectsApi.listProjects() },
-      { name: 'getProject', fn: () => projectsApi.getProject(FAKE_ID) },
+      { name: 'getProject', fn: () => projectsApi.getProject(SEED.apiProjectId) },
       // POST /projects now exists (backend create route added 2026-06-21, closing the
       // documented method gap). Probe with an empty body on purpose → 422
       // "project_name/project_type field required" = Expected, side-effect-free
@@ -869,13 +917,13 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'deleteProject', fn: () => projectsApi.deleteProject(FAKE_ID) },
       { name: 'lockProject', fn: () => projectsApi.lockProject(FAKE_ID) },
       { name: 'unlockProject', fn: () => projectsApi.unlockProject(FAKE_ID) },
-      { name: 'listVersions', fn: () => projectsApi.listVersions(FAKE_ID) },
-      { name: 'listDeployments', fn: () => projectsApi.listDeployments(FAKE_ID) },
-      { name: 'listRuns', fn: () => projectsApi.listRuns(FAKE_ID) },
-      { name: 'getRunSummary', fn: () => projectsApi.getRunSummary(FAKE_ID) },
-      { name: 'listContributors', fn: () => projectsApi.listContributors(FAKE_ID) },
-      { name: 'getState', fn: () => projectsApi.getState(FAKE_ID) },
-      { name: 'listEvents', fn: () => projectsApi.listEvents(FAKE_ID) },
+      { name: 'listVersions', fn: () => projectsApi.listVersions(SEED.apiProjectId) },
+      { name: 'listDeployments', fn: () => projectsApi.listDeployments(SEED.apiProjectId) },
+      { name: 'listRuns', fn: () => projectsApi.listRuns(SEED.apiProjectId) },
+      { name: 'getRunSummary', fn: () => projectsApi.getRunSummary(SEED.apiProjectId) },
+      { name: 'listContributors', fn: () => projectsApi.listContributors(SEED.apiProjectId) },
+      { name: 'getState', fn: () => projectsApi.getState(SEED.apiProjectId) },
+      { name: 'listEvents', fn: () => projectsApi.listEvents(SEED.apiProjectId) },
       { name: 'listGlobalEvents', fn: () => projectsApi.listGlobalEvents() },
       { name: 'getLastUsedProjects', fn: () => projectsApi.getLastUsedProjects() },
       { name: 'getUnifiedProjects', fn: () => projectsApi.getUnifiedProjects() },
@@ -903,27 +951,27 @@ const TEST_MODULES: ModuleDef[] = [
     module: 'API: Explore Design',
     tests: [
       { name: 'createExploreProject', fn: () => exploreDesignApi.createExploreProject({ name: FAKE_ID } as any) },
-      { name: 'getExploreProject', fn: () => exploreDesignApi.getExploreProject(FAKE_ID) },
-      { name: 'getExploreState', fn: () => exploreDesignApi.getExploreState(FAKE_ID) },
-      { name: 'getExploreEvents', fn: () => exploreDesignApi.getExploreEvents(FAKE_ID) },
-      { name: 'listTemplates', fn: () => exploreDesignApi.listTemplates(FAKE_ID) },
-      { name: 'listDDLActions', fn: () => exploreDesignApi.listDDLActions(FAKE_ID) },
-      { name: 'listMappings', fn: () => exploreDesignApi.listMappings(FAKE_ID) },
-      { name: 'listModels', fn: () => exploreDesignApi.listModels(FAKE_ID) },
-      { name: 'listDeployments', fn: () => exploreDesignApi.listDeployments(FAKE_ID) },
-      { name: 'listExploreVersions', fn: () => exploreDesignApi.listExploreVersions(FAKE_ID) },
-      { name: 'listSchedules', fn: () => exploreDesignApi.listSchedules(FAKE_ID) },
-      { name: 'listIngestionRuns', fn: () => exploreDesignApi.listIngestionRuns(FAKE_ID) },
-      { name: 'checkConflicts', fn: () => exploreDesignApi.checkConflicts(FAKE_ID) },
-      { name: 'getAuditTrail', fn: () => exploreDesignApi.getAuditTrail(FAKE_ID) },
-      { name: 'listEventTemplates', fn: () => exploreDesignApi.listEventTemplates(FAKE_ID) },
-      { name: 'listWatermarks', fn: () => exploreDesignApi.listWatermarks(FAKE_ID) },
-      { name: 'aiClassifyColumns', fn: () => exploreDesignApi.aiClassifyColumns(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE) },
-      { name: 'aiSchemaHealth', fn: () => exploreDesignApi.aiSchemaHealth(FAKE_ID) },
-      { name: 'aiCheckNaming', fn: () => exploreDesignApi.aiCheckNaming(FAKE_ID, { names: [FAKE_TABLE] }) },
-      { name: 'aiWarehouseSizing', fn: () => exploreDesignApi.aiWarehouseSizing(FAKE_ID) },
-      { name: 'aiGetFeedbackStats', fn: () => exploreDesignApi.aiGetFeedbackStats(FAKE_ID) },
-      { name: 'aiGetSavings', fn: () => exploreDesignApi.aiGetSavings(FAKE_ID) },
+      { name: 'getExploreProject', fn: () => exploreDesignApi.getExploreProject(SEED.exploreProjectId) },
+      { name: 'getExploreState', fn: () => exploreDesignApi.getExploreState(SEED.exploreProjectId) },
+      { name: 'getExploreEvents', fn: () => exploreDesignApi.getExploreEvents(SEED.exploreProjectId) },
+      { name: 'listTemplates', fn: () => exploreDesignApi.listTemplates(SEED.exploreProjectId) },
+      { name: 'listDDLActions', fn: () => exploreDesignApi.listDDLActions(SEED.exploreProjectId) },
+      { name: 'listMappings', fn: () => exploreDesignApi.listMappings(SEED.exploreProjectId) },
+      { name: 'listModels', fn: () => exploreDesignApi.listModels(SEED.exploreProjectId) },
+      { name: 'listDeployments', fn: () => exploreDesignApi.listDeployments(SEED.exploreProjectId) },
+      { name: 'listExploreVersions', fn: () => exploreDesignApi.listExploreVersions(SEED.exploreProjectId) },
+      { name: 'listSchedules', fn: () => exploreDesignApi.listSchedules(SEED.exploreProjectId) },
+      { name: 'listIngestionRuns', fn: () => exploreDesignApi.listIngestionRuns(SEED.exploreProjectId) },
+      { name: 'checkConflicts', fn: () => exploreDesignApi.checkConflicts(SEED.exploreProjectId) },
+      { name: 'getAuditTrail', fn: () => exploreDesignApi.getAuditTrail(SEED.exploreProjectId) },
+      { name: 'listEventTemplates', fn: () => exploreDesignApi.listEventTemplates(SEED.exploreProjectId) },
+      { name: 'listWatermarks', fn: () => exploreDesignApi.listWatermarks(SEED.exploreProjectId) },
+      { name: 'aiClassifyColumns', fn: () => exploreDesignApi.aiClassifyColumns(SEED.exploreProjectId, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE) },
+      { name: 'aiSchemaHealth', fn: () => exploreDesignApi.aiSchemaHealth(SEED.exploreProjectId) },
+      { name: 'aiCheckNaming', fn: () => exploreDesignApi.aiCheckNaming(SEED.exploreProjectId, { names: [FAKE_TABLE] }) },
+      { name: 'aiWarehouseSizing', fn: () => exploreDesignApi.aiWarehouseSizing(SEED.exploreProjectId) },
+      { name: 'aiGetFeedbackStats', fn: () => exploreDesignApi.aiGetFeedbackStats(SEED.exploreProjectId) },
+      { name: 'aiGetSavings', fn: () => exploreDesignApi.aiGetSavings(SEED.exploreProjectId) },
     ],
   },
   // ─── ORG ACCOUNTS ───
@@ -1121,7 +1169,25 @@ export default function ApiHealthPage() {
   const p50Ms = hasRun ? percentile(sortedTimed, 0.5) : null;
   const p95Ms = hasRun ? percentile(sortedTimed, 0.95) : null;
   const probedCount = Object.keys(results).length;
-  const successRate = hasRun && probedCount > 0 ? successCount / probedCount : null;
+  // Strict "healthy rate" — genuine 2xx successes / total. Kept visible so the
+  // honest, conservative number is never hidden behind the operational headline.
+  const healthyRate = hasRun && probedCount > 0 ? successCount / probedCount : null;
+  // Operational rate (the HEADLINE) — the share of probes the API handled
+  // CORRECTLY. An endpoint is "operating" when it is healthy, slow-but-working,
+  // an expected rejection of fake/empty input, a known FE gap, or a
+  // config-dependent rejection. The ONLY things that count against it are
+  // genuine defects, transport failures, and unrecognised residual 4xx — the
+  // rows that actually warrant a fix. Defects therefore stay fully weighted in
+  // this number; widening the benign carve-outs is the one thing that must NOT
+  // be used to inflate it.
+  const notOperationalCount = Object.values(results).filter(
+    r =>
+      isDefect(r) ||
+      (r.status === 'error' && !isExpectedOrKnown(r)) ||
+      isResidualWarn(r),
+  ).length;
+  const operationalRate =
+    hasRun && probedCount > 0 ? (probedCount - notOperationalCount) / probedCount : null;
   // Raw HTTP buckets — independent of the honest defect/expected split.
   const raw4xxCount = Object.values(results).filter(
     r => r.httpStatus != null && r.httpStatus >= 400 && r.httpStatus < 500,
@@ -1207,6 +1273,10 @@ export default function ApiHealthPage() {
     setLastRunAt(Date.now());
     // Re-surface the stale-session banner on each full run if the role problem persists.
     setStaleBannerDismissed(false);
+    // Discover a real project the current account/role owns and thread its id into
+    // the project-scoped READ probes, so they exercise live data (real 200s)
+    // instead of the fake-id Expected-404 path. Read-only; never throws.
+    await seedRealResources();
     const queue = [...TEST_MODULES];
     const workers = Array.from({ length: 3 }, async () => {
       while (queue.length > 0 && !abortRef.current) {
@@ -1390,6 +1460,10 @@ export default function ApiHealthPage() {
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>API Service Health Check</h1>
       <p style={{ color: '#666', marginBottom: 20, fontSize: 14 }}>
         Tests <b>{totalTests}</b> service endpoints across <b>{TEST_MODULES.length}</b> modules.
+        {' '}<b>Operational rate</b> counts every endpoint the API handled correctly — healthy 2xx,
+        {' '}slow-but-working, and the benign rejections of the probe’s fake/empty input — and only
+        {' '}subtracts genuine defects, transport failures and unrecognised 4xx. <b>Healthy rate</b> is
+        {' '}the stricter 2xx-only number, shown alongside so nothing is hidden.
         {' '}The board defaults to <b>Issues only</b> — defects, failures and slow calls.
         {' '}Grey <b>Expected</b> rows are the API correctly rejecting the probe’s fake/empty test input (not a problem);
         {' '}use the chips to reveal Expected and Healthy.
@@ -1433,7 +1507,8 @@ export default function ApiHealthPage() {
         failing={hasRun ? errorCount : null}
         slow={hasRun ? slowCount : null}
         avgLatencyMs={avgLatencyMs}
-        successRate={successRate}
+        successRate={operationalRate}
+        healthyRate={healthyRate}
         p50Ms={p50Ms}
         p95Ms={p95Ms}
         raw4xx={hasRun ? raw4xxCount : null}

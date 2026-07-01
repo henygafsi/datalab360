@@ -80,7 +80,7 @@ export default function InternalStageCreator({ onCreated }: { onCreated?: (stage
         </button>
       </div>
       <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
-        An internal stage is a managed Snowflake storage area you can upload files to directly — no cloud bucket or storage integration required.
+        An internal stage is a managed storage area on the data platform you can upload files to directly — no cloud bucket or storage integration required.
       </p>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
         <div className="flex-1">

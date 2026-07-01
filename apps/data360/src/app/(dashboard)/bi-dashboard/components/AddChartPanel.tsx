@@ -331,7 +331,7 @@ export default function AddWidgetPanel({
           <div className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">Add Widget</h2>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+            <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
               <X className="h-4 w-4 text-slate-400" />
             </button>
           </div>

@@ -35,6 +35,7 @@ import { GlassPanel } from '@/app/shared/glass';
 import EmptyState from '@/components/ui/EmptyState';
 import ExportButton from '@/components/ui/ExportButton';
 import { type ReportInput } from '@/lib/export-report';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { getAccounts } from '@/app/services/org-accounts/hooks';
 import { getPerfOverview, type CacheAxis } from '@/app/services/admin-performance';
 import { getPlatformHealth, getServerMetricsView } from '@/app/services/admin-platform-health';
@@ -87,6 +88,8 @@ const LIVE_MS = 5000;
 export default function PerformancePage() {
   const { data: session } = useSession();
   const sessionAccount = (session?.user as { account_name?: string } | undefined)?.account_name ?? null;
+  // Fire-and-forget tracing: auto page-view on mount + a TAB_SWITCH per axis change.
+  const { trackTabSwitch } = useTrackEvent();
 
   const [accounts, setAccounts] = useState<string[]>([]);
   const [account, setAccount] = useState<string | null>(null);
@@ -588,7 +591,14 @@ export default function PerformancePage() {
           )}
 
           {/* Axis switcher */}
-          <FilterChips options={AXES} value={axis} onChange={setAxis} />
+          <FilterChips
+            options={AXES}
+            value={axis}
+            onChange={(a) => {
+              setAxis(a);
+              trackTabSwitch(a);
+            }}
+          />
 
           {/* AI narrative — dismissible docked panel (never a blocking modal) */}
           <AiAnalysisPanel state={aiState} text={aiText} error={aiError} onClose={() => setAiState('idle')} />

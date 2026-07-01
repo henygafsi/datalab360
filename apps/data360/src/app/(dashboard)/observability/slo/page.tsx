@@ -15,6 +15,7 @@ import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/rig
 import { getSloTracking, isRouteNotDeployed } from '@/app/services/observability';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { safeNum } from '@/lib/format-number';
@@ -201,6 +202,8 @@ function sloValue(v?: number | string | null, unit?: string): string {
 }
 
 export default function SloPage() {
+  // Fire-and-forget PAGE_VIEW on mount/route change; trackFeatureClick on Add SLO.
+  const { trackFeatureClick } = useTrackEvent();
   const [slos, setSlos] = useState<SloRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -274,7 +277,7 @@ export default function SloPage() {
             className="gap-1 bg-indigo-600 text-white hover:bg-indigo-700"
             disabled={!canAddSlo}
             title={!canAddSlo ? sloDeniedTitle : undefined}
-            onClick={() => setAddSloOpen(true)}
+            onClick={() => { trackFeatureClick('add_slo_open'); setAddSloOpen(true); }}
           >
             <PiPlusBold className="h-3.5 w-3.5" />
             Add SLO
@@ -314,7 +317,7 @@ export default function SloPage() {
                   className="mt-3 gap-1 bg-indigo-600 text-white hover:bg-indigo-700"
                   disabled={!canAddSlo}
                   title={!canAddSlo ? sloDeniedTitle : undefined}
-                  onClick={() => setAddSloOpen(true)}
+                  onClick={() => { trackFeatureClick('add_slo_open'); setAddSloOpen(true); }}
                 >
                   <PiPlusBold className="h-3.5 w-3.5" />
                   Add SLO

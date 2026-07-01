@@ -139,7 +139,8 @@ export async function warmCacheSurface(body: WarmRequest): Promise<WarmResult> {
 
 export interface InvalidateSurfaceRequest {
   account: string;
-  page?: string;
+  /** REQUIRED by the backend — omitting it returns a 400. */
+  page: string;
   module?: string;
   shared_fns?: string[];
   /** Preview the patterns that WOULD be evicted without deleting anything. */
@@ -160,5 +161,46 @@ export async function invalidateCacheSurface(
     API.admin.cache.invalidateSurface(),
     body,
   );
+  return data ?? {};
+}
+
+// ── Service & cache health (newly surfaced — previously unwired backend) ──────
+
+export interface CacheKpis {
+  hit_rate?: number | null;
+  miss_rate?: number | null;
+  total_keys?: number | null;
+  by_class?: Array<{ class: string; prefix?: string; keys?: number | null }> | null;
+}
+export async function getCacheKpis(): Promise<CacheKpis> {
+  const { data } = await apiClient.get<CacheKpis>(API.admin.cache.kpis());
+  return data ?? {};
+}
+
+export interface CacheStreamStats {
+  status?: string;
+  data?: { active_subscribers?: number; tracked_cache_keys?: number; [k: string]: unknown } | null;
+}
+export async function getCacheStreamStats(): Promise<CacheStreamStats> {
+  const { data } = await apiClient.get<CacheStreamStats>(API.admin.cache.streamStats());
+  return data ?? {};
+}
+
+export interface ServiceAccountHealth {
+  configured?: boolean;
+  connection_alive?: boolean;
+  active_queries?: number | null;
+  role?: string | null;
+  degraded?: boolean;
+}
+export async function getServiceAccountHealth(): Promise<ServiceAccountHealth> {
+  const { data } = await apiClient.get<ServiceAccountHealth>(API.admin.serviceAccountHealth());
+  return data ?? {};
+}
+
+export interface SvcRegistryRow { account: string; user?: string; alive?: boolean; auth_type?: string }
+export interface SvcRegistry { accounts?: SvcRegistryRow[]; total?: number }
+export async function getSvcRegistry(): Promise<SvcRegistry> {
+  const { data } = await apiClient.get<SvcRegistry>(API.admin.svcRegistry());
   return data ?? {};
 }

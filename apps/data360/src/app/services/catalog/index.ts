@@ -251,13 +251,23 @@ export interface CatalogProduct {
 }
 
 export interface CatalogScoresResponse {
+  // QA P1-5: GET /catalog/scores returns these bare keys (quality/governance/
+  // modeling/finops/ml_ready/trust) — the old *_avg names were all undefined,
+  // so the Trust Score KPI always read undefined → rendered '—'. The legacy
+  // *_avg fields are kept optional for back-compat with any older callers.
   averages: {
-    quality_avg: number | null;
-    governance_avg: number | null;
-    modeling_avg: number | null;
-    finops_avg: number | null;
-    ml_ready_avg: number | null;
-    trust_avg: number | null;
+    quality: number | null;
+    governance: number | null;
+    modeling: number | null;
+    finops: number | null;
+    ml_ready: number | null;
+    trust: number | null;
+    quality_avg?: number | null;
+    governance_avg?: number | null;
+    modeling_avg?: number | null;
+    finops_avg?: number | null;
+    ml_ready_avg?: number | null;
+    trust_avg?: number | null;
   };
   scored_objects: number;
   trust_distribution: Record<string, number>;

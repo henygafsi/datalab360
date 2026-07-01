@@ -18,6 +18,7 @@ import {
 } from 'react-icons/pi';
 
 // Import existing policy components (we'll use their content)
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import RLSPoliciesContent from './rls-policies-content';
 import NetworkPoliciesContent from './network-policies-content';
 import MaskingPoliciesContent from './masking-policies-content';
@@ -137,6 +138,10 @@ function inferMaskingType(semantic?: string | null, privacy?: string | null): st
 }
 
 export default function PoliciesPage() {
+  // Auto-emits PAGE_VIEW on mount — this is the top routed component and the
+  // governance landing target (governance/ redirects here), so it was the one
+  // high-traffic governance surface with no page-view telemetry.
+  const { trackTabSwitch } = useTrackEvent();
   const [activeTab, setActiveTab] = useState<TabType>('rls');
   const [view, setView] = useState<ViewMode>('all');
   // Docked metadata editor (right-tab) — open/closed; the policy type follows the
@@ -286,7 +291,7 @@ export default function PoliciesPage() {
                       return (
                         <button
                           key={tab.id}
-                          onClick={() => setActiveTab(tab.id)}
+                          onClick={() => { setActiveTab(tab.id); trackTabSwitch(tab.id); }}
                           title={tab.description}
                           className={[
                             'group relative flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all duration-150',

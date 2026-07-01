@@ -19,6 +19,7 @@ import {
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
@@ -44,6 +45,8 @@ function alertCategory(a: ObservabilityAlert): string {
 }
 
 export default function AlertsPage() {
+  // Fire-and-forget PAGE_VIEW on mount/route change; trackTabSwitch on scope change.
+  const { trackTabSwitch } = useTrackEvent();
   const [scope, setScope] = useState<'all' | 'cross-module'>('all');
   const [alerts, setAlerts] = useState<ObservabilityAlert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -137,7 +140,7 @@ export default function AlertsPage() {
             size="sm"
             variant={scope === 'all' ? 'solid' : 'outline'}
             className={scope === 'all' ? 'bg-indigo-600 text-white' : ''}
-            onClick={() => setScope('all')}
+            onClick={() => { trackTabSwitch('all'); setScope('all'); }}
           >
             All
           </Button>
@@ -145,7 +148,7 @@ export default function AlertsPage() {
             size="sm"
             variant={scope === 'cross-module' ? 'solid' : 'outline'}
             className={scope === 'cross-module' ? 'bg-indigo-600 text-white' : ''}
-            onClick={() => setScope('cross-module')}
+            onClick={() => { trackTabSwitch('cross-module'); setScope('cross-module'); }}
           >
             Cross-module
           </Button>

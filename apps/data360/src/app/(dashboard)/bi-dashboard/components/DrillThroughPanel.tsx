@@ -104,7 +104,7 @@ export default function DrillThroughPanel({
               {cfg.database}.{cfg.schema}.{cfg.table}
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+          <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
             <X className="h-4 w-4 text-slate-400" />
           </button>
         </div>

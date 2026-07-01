@@ -18,6 +18,8 @@ import {
   HiOutlineUserGroup,
   HiOutlineFingerPrint,
   HiOutlineLockClosed,
+  HiOutlineExclamationTriangle,
+  HiOutlineClipboardDocumentCheck,
 } from 'react-icons/hi2';
 import { Save, Info } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -58,6 +60,14 @@ import TableSkeleton from '@/components/ui/TableSkeleton';
 import { formatApiDetail } from '@/lib/utils';
 import { dash } from '@/app/shared/ui/format';
 import { useCanPerform, invalidateMyPermissions } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
+import {
+  getAccessReviewSummary,
+  getComplianceScore,
+  countNeedsAttention,
+  type AccessReviewSummary,
+  type ComplianceScore,
+} from '@/app/services/governance/posture';
 import { useAtomValue } from 'jotai';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
@@ -127,11 +137,27 @@ const TABS = [
 // ============= PAGE COMPONENT =============
 
 export default function SecurityMatrixPage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
   // System 2 Action-RBAC: deleting a matrix entry or an enterprise user both
-  // map to gouvernance:delete. Fail-open while the allow-set loads (no flash).
+  // map to gouvernance:delete; creating/editing axes, rows, syncing and saving
+  // map to gouvernance:edit; the read-only posture header maps to gouvernance:view.
+  // Fail-open while the allow-set loads (no flash) — mirrors the rest of the page.
   const deletePerm = useCanPerform('gouvernance', 'delete');
   const canDeleteGov = deletePerm.allowed || deletePerm.loading;
+  const editPerm = useCanPerform('gouvernance', 'edit');
+  const canEditGov = editPerm.allowed || editPerm.loading;
+  const viewPerm = useCanPerform('gouvernance', 'view');
+  const canViewGov = viewPerm.allowed || viewPerm.loading;
+  const editDeniedTitle = canEditGov ? undefined : 'Requires governance edit permission';
+  const deleteDeniedTitle = canDeleteGov ? undefined : 'Requires governance delete permission';
   const [activeTab, setActiveTab] = useState('matrix');
+
+  // Governance posture header (read-only) — access-review + compliance score.
+  // Both getters degrade to `{ available: false }`, so the header renders "—"
+  // (undetermined) on failure, never a fabricated 0.
+  const [accessReview, setAccessReview] = useState<AccessReviewSummary | null>(null);
+  const [compliance, setCompliance] = useState<ComplianceScore | null>(null);
+  const [postureLoading, setPostureLoading] = useState(false);
 
   // Matrix state
   const [matrixData, setMatrixData] = useState<SecurityMatrixResponse | null>(null);
@@ -222,6 +248,26 @@ export default function SecurityMatrixPage() {
     loadMatrix();
     loadAxes();
   }, [loadMatrix, loadAxes]);
+
+  // Posture header reads (gouvernance:view). Skipped entirely when the caller
+  // lacks view; both getters never throw, so no error state is needed here.
+  useEffect(() => {
+    if (!canViewGov) return;
+    let alive = true;
+    setPostureLoading(true);
+    Promise.all([getAccessReviewSummary(), getComplianceScore()])
+      .then(([ar, cs]) => {
+        if (!alive) return;
+        setAccessReview(ar);
+        setCompliance(cs);
+      })
+      .finally(() => {
+        if (alive) setPostureLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [canViewGov]);
 
   useEffect(() => {
     if (activeTab === 'users' && !usersLoadedRef.current && !usersLoading) {
@@ -537,14 +583,91 @@ export default function SecurityMatrixPage() {
         {activeTab === 'users' && (
           <Button
             onClick={handleSyncUsers}
-            disabled={syncing}
+            disabled={syncing || !canEditGov}
+            title={editDeniedTitle}
             className="bg-gradient-to-r from-blue-500 to-cyan-600 hover:from-blue-600 hover:to-cyan-700 text-white shadow-lg"
           >
             <HiOutlineCloudArrowDown className={`w-5 h-5 mr-2 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing...' : 'Sync from Snowflake'}
+            {syncing ? 'Syncing...' : 'Sync from data platform'}
           </Button>
         )}
       </div>
+
+      {/* Access-review & compliance posture (read-only, gouvernance:view) */}
+      {canViewGov && (
+        <ModernCard className="p-4">
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+            <div className="flex items-center gap-2">
+              <HiOutlineClipboardDocumentCheck className="w-5 h-5 text-violet-500" />
+              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Governance Posture</span>
+              {postureLoading && <HiOutlineArrowPath className="w-4 h-4 animate-spin text-slate-400" />}
+            </div>
+
+            <div className="h-10 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block" />
+
+            {/* Compliance score */}
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                <HiOutlineShieldCheck className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Compliance Score</p>
+                <p className="text-xl font-bold text-slate-900 dark:text-white">
+                  {compliance?.available ? `${Math.round(compliance.score)}%` : '—'}
+                </p>
+              </div>
+            </div>
+
+            {/* Compliance breakdown — only when measured */}
+            {compliance?.available && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">
+                  Masking {Math.round(compliance.breakdown.masking.score)}%
+                </Badge>
+                <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">
+                  Row access {Math.round(compliance.breakdown.row_access.score)}%
+                </Badge>
+                <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">
+                  Tagging {Math.round(compliance.breakdown.tagging.score)}%
+                </Badge>
+              </div>
+            )}
+
+            <div className="h-10 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block" />
+
+            {/* Access-review: items needing attention */}
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
+                <HiOutlineExclamationTriangle className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Needs Attention</p>
+                <p className="text-xl font-bold text-slate-900 dark:text-white">
+                  {accessReview?.available ? countNeedsAttention(accessReview) : '—'}
+                </p>
+              </div>
+            </div>
+
+            {/* Access-review breakdown — only when measured */}
+            {accessReview?.available && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">
+                  MFA gaps {accessReview.mfa_gaps.length}
+                </Badge>
+                <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">
+                  Expiring policies {accessReview.expiring_policies.length}
+                </Badge>
+                <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">
+                  Orphan grants {accessReview.orphan_grants.length}
+                </Badge>
+                {accessReview.window_days > 0 && (
+                  <span className="text-xs text-slate-400 dark:text-slate-500">{accessReview.window_days}-day window</span>
+                )}
+              </div>
+            )}
+          </div>
+        </ModernCard>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-slate-200 dark:border-slate-700">
@@ -578,6 +701,8 @@ export default function SecurityMatrixPage() {
             />
             <Button
               onClick={() => { setMatrixFormError(null); setShowAddMatrixModal(true); }}
+              disabled={!canEditGov}
+              title={editDeniedTitle}
               className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white"
             >
               <HiOutlinePlus className="w-4 h-4 mr-2" />
@@ -593,7 +718,7 @@ export default function SecurityMatrixPage() {
             <ModernCard className="p-12 text-center">
               <HiOutlineTableCells className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
               <p className="text-slate-500 dark:text-slate-400">No matrix entries found</p>
-              <Button onClick={() => { setMatrixFormError(null); setShowAddMatrixModal(true); }} className="mt-4 bg-emerald-600 text-white">
+              <Button onClick={() => { setMatrixFormError(null); setShowAddMatrixModal(true); }} disabled={!canEditGov} title={editDeniedTitle} className="mt-4 bg-emerald-600 text-white">
                 Add First Entry
               </Button>
             </ModernCard>
@@ -680,7 +805,7 @@ export default function SecurityMatrixPage() {
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
               <div className="flex items-center gap-3 px-6 py-3 bg-amber-500 text-white rounded-full shadow-2xl shadow-amber-500/30">
                 <span className="text-sm font-medium">{dirtyMatrixRows.size} unsaved changes</span>
-                <Button size="sm" onClick={handleSaveMatrixChanges} className="bg-white text-amber-700 hover:bg-amber-50 dark:bg-gray-800 dark:text-amber-400">
+                <Button size="sm" onClick={handleSaveMatrixChanges} disabled={!canEditGov} title={editDeniedTitle} className="bg-white text-amber-700 hover:bg-amber-50 dark:bg-gray-800 dark:text-amber-400">
                   <Save className="w-4 h-4 mr-1" />
                   Save All
                 </Button>
@@ -708,8 +833,8 @@ export default function SecurityMatrixPage() {
               <div className="text-sm text-slate-600 dark:text-slate-400">
                 <p className="font-medium text-slate-700 dark:text-slate-300 mb-1">Identity Provider Integration</p>
                 <p>
-                  Snowflake supports SCIM provisioning from <strong>Microsoft Entra ID</strong>, <strong>Okta</strong>, and custom SCIM providers.
-                  Users provisioned via SCIM are automatically detected when you click &quot;Sync from Snowflake&quot;.
+                  The data platform supports SCIM provisioning from your <strong>identity provider</strong> and custom SCIM endpoints.
+                  Users provisioned via SCIM are automatically detected when you click &quot;Sync from data platform&quot;.
                   Their identity provider is inferred from user metadata fields.
                 </p>
               </div>
@@ -745,7 +870,7 @@ export default function SecurityMatrixPage() {
             <ModernCard className="p-12 text-center">
               <HiOutlineUserGroup className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
               <p className="text-slate-500 dark:text-slate-400">No enterprise users found</p>
-              <p className="text-xs text-slate-400 mt-1">Click &quot;Sync from Snowflake&quot; to populate the directory</p>
+              <p className="text-xs text-slate-400 mt-1">Click &quot;Sync from data platform&quot; to populate the directory</p>
             </ModernCard>
           ) : (
             <ModernCard className="overflow-hidden">
@@ -829,7 +954,7 @@ export default function SecurityMatrixPage() {
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
               <div className="flex items-center gap-3 px-6 py-3 bg-amber-500 text-white rounded-full shadow-2xl shadow-amber-500/30">
                 <span className="text-sm font-medium">{dirtyUserRows.size} unsaved user changes</span>
-                <Button size="sm" onClick={handleSaveUserChanges} className="bg-white text-amber-700 hover:bg-amber-50 dark:bg-gray-800 dark:text-amber-400">
+                <Button size="sm" onClick={handleSaveUserChanges} disabled={!canEditGov} title={editDeniedTitle} className="bg-white text-amber-700 hover:bg-amber-50 dark:bg-gray-800 dark:text-amber-400">
                   <Save className="w-4 h-4 mr-1" />
                   Save All
                 </Button>
@@ -870,7 +995,7 @@ export default function SecurityMatrixPage() {
           </div>
 
           <div className="flex justify-end">
-            <Button onClick={() => { setAxisFormError(null); setShowAddAxisModal(true); }} className="bg-gradient-to-r from-violet-500 to-purple-600 text-white">
+            <Button onClick={() => { setAxisFormError(null); setShowAddAxisModal(true); }} disabled={!canEditGov} title={editDeniedTitle} className="bg-gradient-to-r from-violet-500 to-purple-600 text-white">
               <HiOutlinePlus className="w-4 h-4 mr-2" />
               Add Security Axis
             </Button>
@@ -885,7 +1010,7 @@ export default function SecurityMatrixPage() {
             <ModernCard className="p-12 text-center">
               <HiOutlineShieldCheck className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
               <p className="text-slate-500 dark:text-slate-400">No security axes found</p>
-              <Button onClick={() => { setAxisFormError(null); setShowAddAxisModal(true); }} className="mt-4 bg-violet-600 text-white">
+              <Button onClick={() => { setAxisFormError(null); setShowAddAxisModal(true); }} disabled={!canEditGov} title={editDeniedTitle} className="mt-4 bg-violet-600 text-white">
                 Create First Axis
               </Button>
             </ModernCard>
@@ -910,6 +1035,8 @@ export default function SecurityMatrixPage() {
                         <Button
                           size="sm"
                           variant="outline"
+                          disabled={!canEditGov}
+                          title={editDeniedTitle ?? 'Edit axis'}
                           onClick={() => {
                             setAxisFormError(null);
                             setEditingAxis(axis);
@@ -919,7 +1046,7 @@ export default function SecurityMatrixPage() {
                         >
                           <HiOutlinePencil className="w-4 h-4" />
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => handleDeleteAxis(axis.id)} className="text-red-600 hover:bg-red-50">
+                        <Button size="sm" variant="outline" disabled={!canDeleteGov} title={deleteDeniedTitle ?? 'Delete axis'} onClick={() => handleDeleteAxis(axis.id)} className="text-red-600 hover:bg-red-50">
                           <HiOutlineTrash className="w-4 h-4" />
                         </Button>
                       </div>

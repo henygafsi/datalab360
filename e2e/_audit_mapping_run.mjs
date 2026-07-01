@@ -1,0 +1,17 @@
+import { chromium } from '@playwright/test';
+const out = { url:'', title:'', errors5xx:[], consoleErr:[], emptyText:[], finalUrl:'' };
+const b = await chromium.launch();
+const ctx = await b.newContext({ storageState: '/Users/datalab360/Documents/data360_pro/datalab360Front/e2e/.auth/state.json' });
+const pg = await ctx.newPage();
+pg.on('console', m=>{ if(m.type()==='error') out.consoleErr.push(m.text().slice(0,200)); });
+pg.on('response', r=>{ if(r.status()>=500) out.errors5xx.push(r.status()+' '+r.url()); });
+await pg.goto('http://localhost:3000/mapping', { waitUntil:'networkidle', timeout:60000 }).catch(e=>out.gotoErr=e.message);
+await pg.waitForTimeout(6000);
+out.finalUrl = pg.url();
+out.title = await pg.title();
+await pg.screenshot({ path:'/Users/datalab360/Documents/data360_pro/datalab360Front/docs/product-readiness-audit/screens/module-green/mapping.png', fullPage:true });
+const body = await pg.evaluate(()=>document.body.innerText.slice(0,1500));
+for (const kw of ['Could not load','Failed to load','No data','Error','undefined','Something went wrong']) if(body.includes(kw)) out.emptyText.push(kw);
+out.bodyHead = body.slice(0,400);
+console.log(JSON.stringify(out,null,2));
+await b.close();

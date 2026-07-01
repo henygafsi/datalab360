@@ -1,0 +1,30 @@
+import { chromium } from '@playwright/test';
+const BASE='http://localhost:3000';
+const b=await chromium.launch();
+const ctx=await b.newContext({storageState:'e2e/.auth/state-minted.json',viewport:{width:1680,height:1000}});
+const p=await ctx.newPage();
+const errs=[],net=[];
+p.on('console',m=>{if(m.type()==='error')errs.push(m.text().slice(0,160));});
+p.on('response',r=>{const s=r.status();if(s>=400)net.push(s+' '+r.request().method()+' '+r.url().replace(BASE,'').split('?')[0]);});
+await p.goto(`${BASE}/explore-design`,{waitUntil:'domcontentloaded',timeout:60000}).catch(e=>console.log('nav:',e.message));
+await p.waitForTimeout(6000);
+const card=p.locator('button').filter({hasText:'SEED_EXP_RLS_MODEL'}).first();
+console.log('card found?', await card.count());
+await card.scrollIntoViewIfNeeded().catch(()=>{});
+await card.click().catch(e=>console.log('card click err',e.message));
+await p.waitForTimeout(2500);
+let bt=(await p.locator('body').innerText().catch(()=>'')).replace(/\s+/g,' ').trim();
+console.log('AFTER CLICK [150:700]:', bt.slice(150,700));
+// look for Open confirmation button
+const ob=p.locator('button').filter({hasText:/^Open project$|^Open$|^Continue$|Resume modelling/i}).first();
+console.log('open confirm found?', await ob.count());
+if(await ob.count().catch(()=>0)){ await ob.click().catch(e=>console.log('ob err',e.message)); }
+await p.waitForTimeout(10000);
+bt=(await p.locator('body').innerText().catch(()=>'')).replace(/\s+/g,' ').trim();
+console.log('PROJECT LOADED [150:1300]:', bt.slice(150,1300));
+const tabState=await p.$$eval('button',bs=>bs.filter(x=>/^(AI Model|Deploy|Modeling|Catalog)$/.test(x.textContent.trim())).map(x=>x.textContent.trim()+(x.disabled?':DIS':':en')));
+console.log('tab states:', tabState);
+await p.screenshot({path:'docs/product-readiness-audit/screens/qa/explore-design-project-open.png',fullPage:false});
+console.log('--- 4xx/5xx ('+net.length+') ---'); [...new Set(net)].slice(0,40).forEach(x=>console.log('  ',x));
+console.log('--- console errors ---'); [...new Set(errs)].slice(0,12).forEach(x=>console.log('  ',x));
+await b.close();

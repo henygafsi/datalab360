@@ -14,6 +14,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { formatDistanceToNow } from 'date-fns';
 import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
@@ -657,7 +658,11 @@ function ProjectsGovernancePageInner() {
     fetchPendingDeploys();
   }, [fetchPendingDeploys]);
 
-  const canApprove = useCanPerform('gouvernance', 'approve');
+  // QA P1-1: the 'approve' action is registered under the explore_design module
+  // (page=versioning, tab=deployments) — these are explore-design deployment
+  // approvals. Gating on 'gouvernance' (which has no 'approve' action) left all
+  // Approve/Reject buttons inert for everyone, including ACCOUNTADMIN.
+  const canApprove = useCanPerform('explore_design', 'approve');
   const handleApproveDeploy = useCallback(async (projectId: string, deploymentId: string, projectName: string) => {
     if (deployActionLoading) return;
     setDeployActionLoading(deploymentId);
@@ -931,6 +936,7 @@ function ProjectsGovernancePageInner() {
 // useSearchParams() requires a Suspense boundary in the App Router (otherwise
 // `next build` throws / the whole page de-opts to client rendering).
 export default function ProjectsGovernancePage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change (fires before Suspense resolves)
   return (
     <Suspense fallback={<RouteFallback />}>
       <ProjectsGovernancePageInner />

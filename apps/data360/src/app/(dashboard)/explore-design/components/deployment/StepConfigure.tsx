@@ -183,7 +183,7 @@ export default function StepConfigure() {
               <Zap className="h-4 w-4 text-blue-500" />
               <span className="font-medium text-sm">Immediate</span>
             </div>
-            <p className="text-xs text-slate-500">Deploy directly to Snowflake</p>
+            <p className="text-xs text-slate-500">Deploy directly to your data warehouse</p>
           </button>
           <button
             className={cn(
@@ -408,7 +408,7 @@ export default function StepConfigure() {
             onClick={() => updateConfig('ingestionType', 'scheduled')}
           >
             <span className="text-sm font-medium">Scheduled</span>
-            <p className="text-xs text-slate-500">Create Snowflake TASK</p>
+            <p className="text-xs text-slate-500">Create scheduled task</p>
           </button>
         </div>
       </div>

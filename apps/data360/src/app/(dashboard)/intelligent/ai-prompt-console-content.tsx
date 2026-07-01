@@ -615,7 +615,7 @@ export default function AiPromptConsoleContent() {
               className="flex-1"
               rows={2}
             />
-            <Button onClick={() => runPrompt(prompt)} disabled={!prompt.trim()} className="shrink-0">
+            <Button onClick={() => runPrompt(prompt)} disabled={!prompt.trim()} aria-label="Send prompt" className="shrink-0">
               <HiOutlinePaperAirplane className="h-4 w-4" />
             </Button>
           </div>

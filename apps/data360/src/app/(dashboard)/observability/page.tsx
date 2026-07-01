@@ -7,6 +7,7 @@ import ObservabilityDashboard from '@/app/shared/observability';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -69,6 +70,9 @@ class ObservabilityErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoun
 }
 
 export default function ObservabilityPage() {
+  // Fire-and-forget PAGE_VIEW on mount/route change (the shared dashboard child
+  // does not track, so the top routed component owns the page view).
+  useTrackEvent();
   // Bumping this key remounts the dashboard subtree, re-triggering its own fetches.
   const [resetKey, setResetKey] = useState(0);
   const handleRetry = useCallback(() => setResetKey((k) => k + 1), []);

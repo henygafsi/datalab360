@@ -902,7 +902,15 @@ export const API = {
       warm:              ()                              => '/admin/cache/warm',
       /** POST /admin/cache/invalidate-surface — precise account-scoped eviction. Body: { account, page?, module?, shared_fns?, dry_run? }. */
       invalidateSurface: ()                              => '/admin/cache/invalidate-surface',
+      /** GET /cache/kpis — cache hit/miss rate + per-class key counts. */
+      kpis:              ()                              => '/cache/kpis',
+      /** GET /cache-stream/stats — live event-bus stats (active subscribers, tracked keys). */
+      streamStats:       ()                              => '/cache-stream/stats',
     },
+    /** GET /admin/service-account/health — SVC connection health (configured · alive · active_queries · role · degraded). */
+    serviceAccountHealth: ()                             => '/admin/service-account/health',
+    /** GET /admin/svc-registry — per-account SVC registry (account · user · alive · auth_type). */
+    svcRegistry:          ()                             => '/admin/svc-registry',
   },
 
   /** BI Dashboard — backend: /bi-dashboard/* (modules/bi_dashboard/router.py). */

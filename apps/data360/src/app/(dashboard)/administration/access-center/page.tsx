@@ -22,6 +22,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Activity, Database, FolderKanban, Gauge, Inbox, KeyRound, Lock, ShieldCheck, ListTree, ToggleRight, UserCog, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import AccessControlCenter from './components/AccessControlCenter';
 import CacheMetricsPanel from './components/CacheMetricsPanel';
 import CacheGovernancePanel from './components/CacheGovernancePanel';
@@ -70,6 +71,13 @@ export default function AccessCenterPage() {
   const aliased = fromUrl === 'governance' ? 'roleGovernance' : fromUrl;
   const initial: TabId = TAB_IDS.includes(aliased as TabId) ? (aliased as TabId) : 'access';
   const [tab, setTab] = useState<TabId>(initial);
+  // useTrackEvent auto-fires a PAGE_VIEW on mount; trackTabSwitch records section moves.
+  const { trackTabSwitch } = useTrackEvent();
+  const onSelect = (next: TabId) => {
+    if (next === tab) return;
+    setTab(next);
+    trackTabSwitch(next);
+  };
 
   return (
     <div className="min-h-full space-y-4 p-4 lg:p-6">
@@ -104,7 +112,7 @@ export default function AccessCenterPage() {
               type="button"
               role="tab"
               aria-selected={active}
-              onClick={() => setTab(t.id)}
+              onClick={() => onSelect(t.id)}
               className={cn(
                 '-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-[12px] font-semibold transition-colors',
                 active
