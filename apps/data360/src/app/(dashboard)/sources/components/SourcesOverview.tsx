@@ -8,6 +8,15 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getDatabases, getSchemas, getTables } from '@/app/services/mapping';
+
+// Static literal map — the interpolated `dark:border-${color}-900/30` was purged
+// (that shade isn't written literally elsewhere), so the KPI cards lost their
+// dark-mode border tint. Use literal classes on a confirmed-present shade.
+const KPI_BORDER: Record<string, string> = {
+  blue: 'border-blue-100 dark:border-blue-800',
+  purple: 'border-purple-100 dark:border-purple-800',
+  emerald: 'border-emerald-100 dark:border-emerald-800',
+};
 import { getApiErrorMessage } from '@/lib/api-client';
 import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 
@@ -155,7 +164,7 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
             help: { title: 'Tables discovered', definition: 'Total source tables enumerated across every database and schema in the catalog.', source: 'catalog scan' },
           },
         ] as { label: string; value: number; icon: React.ReactNode; color: string; help: MetricHelpProps }[]).map((s) => (
-          <div key={s.label} className={cn('p-4 rounded-xl border bg-white dark:bg-gray-800', `border-${s.color}-100 dark:border-${s.color}-900/30`)}>
+          <div key={s.label} className={cn('p-4 rounded-xl border bg-white dark:bg-gray-800', KPI_BORDER[s.color] || KPI_BORDER.blue)}>
             <div className="flex items-center gap-2">
               {s.icon}
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{s.label}</span>
