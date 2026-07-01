@@ -133,11 +133,9 @@ import {
   type RecommendationCta as CcRecommendationCta,
 } from '@/app/services/command-center/recommendations';
 import { useOverviewKpis } from '@/hooks/useOverviewKpis';
-import { useAuth } from '@/hooks/useAuth';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
-import { isAdminRole } from '@/config/constants';
 
 // Lazy-loaded new tabs
 const ModulesTab = lazy(() => import('./modules-tab'));
@@ -2955,9 +2953,16 @@ const OverviewTab = memo(function OverviewTab({
     refresh: refreshKpis,
   } = useOverviewKpis(daysToRange(globalDays ?? 30));
 
-  // Role gates the admin-only "Provision KPIs" affordance (UX gate only —
-  // the backend 403 is the real guard).
-  const { role } = useAuth();
+  // Gates the admin-only "Provision KPIs" recovery banner. Provisioning the
+  // Overview KPI cache is a create-scoped action on the account-overview surface,
+  // whose frontend action-registry module is `org_accounts` (see BACKEND_MODULE_ALIAS
+  // in the Access Center: "Account / org overview = command center"). Replaces the
+  // former coarse admin-role check. UX gate only — the backend 403 is the real
+  // guard — and useCanPerform fail-opens on hard error.
+  const { allowed: canProvision, loading: provisionPermLoading } = useCanPerform(
+    'org_accounts',
+    'create',
+  );
 
   // Compact the AI recommendations block so the Overview isn't a long scroll.
   // The three advisors (Snowflake insights · AI advisor · top problems) live
@@ -3020,10 +3025,10 @@ const OverviewTab = memo(function OverviewTab({
   // When NOT provisioned we must NOT trust its all-zero fields — fall the
   // cards back to /command-center/summary, or render "—" (no fake 0s).
   const provisioned = kpis?._provisioned !== false;
-  // KPI-cache provisioning has no granular Action-RBAC action to gate on, so
-  // this stays a coarse admin-role check — via the shared isAdminRole helper
-  // rather than an inline role-array literal.
-  const isAdmin = isAdminRole(role);
+  // Deny only once the allow-set has actually loaded without the action — while
+  // loading (or on a hard error → fail-open) keep the recovery banner visible so
+  // an admin's only visible provisioning path never flashes away.
+  const provisionDenied = !canProvision && !provisionPermLoading;
 
   // Prefer cache row over legacy summary call.
   // NOTE: `Number(x) ?? 0` is a trap — Number(undefined) is NaN and `?? 0`
@@ -3159,7 +3164,7 @@ const OverviewTab = memo(function OverviewTab({
           BootstrapRecoveryBanner above only fires on a THROWN error, which the
           404→empty-payload path no longer raises — so this is the affordance
           users actually see on the unprovisioned backend. */}
-      {!provisioned && isAdmin && (
+      {!provisioned && !provisionDenied && (
         <ProvisionKpisBanner onProvisioned={() => void refreshKpis()} />
       )}
 

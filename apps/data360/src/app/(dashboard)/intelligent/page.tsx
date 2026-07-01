@@ -449,8 +449,8 @@ export default function IntelligentPage() {
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">AI Agents</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Build autonomous AI agents that combine structured data analysis, unstructured search, and custom tools.</p>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Registered Agents</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Autonomous AI agents registered on this account, combining structured data analysis, unstructured search, and custom tools.</p>
                 </div>
                 <Button
                   variant="outline"
@@ -471,31 +471,6 @@ export default function IntelligentPage() {
                   <Button variant="text" size="sm" className="ml-auto shrink-0" onClick={loadAgents}>Retry</Button>
                 </div>
               )}
-
-              {/* Agent capabilities overview */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <PiDatabase className="w-5 h-5 text-blue-500" />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">Structured Analyst</span>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Structured data queries via semantic models. SQL generation from natural language.</p>
-                </div>
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <PiSparkle className="w-5 h-5 text-purple-500" />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">Semantic Search</span>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Unstructured data retrieval. Vector search over documents, PDFs, and text columns.</p>
-                </div>
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <PiGear className="w-5 h-5 text-amber-500" />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">Custom Tools</span>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Python UDFs, external APIs, and container functions as agent tools.</p>
-                </div>
-              </div>
 
               {/* Agent list */}
               {agentsLoading ? (
@@ -541,7 +516,7 @@ export default function IntelligentPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Semantic Views</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Define business-friendly views with dimensions, measures, time grains, and synonyms for natural-language analytics.</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Business-friendly semantic views registered for natural-language analytics, with their tables, measures, and status.</p>
                 </div>
                 <Button
                   variant="outline"
@@ -562,28 +537,6 @@ export default function IntelligentPage() {
                   <Button variant="text" size="sm" className="ml-auto shrink-0" onClick={loadSemanticViews}>Retry</Button>
                 </div>
               )}
-
-              {/* View builder info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">YAML-Based Definition</h4>
-                  <ul className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    <li className="flex items-center gap-2"><PiLightning className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Tables with columns, data types, and descriptions</li>
-                    <li className="flex items-center gap-2"><PiLightning className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Dimensions, measures, and time dimensions</li>
-                    <li className="flex items-center gap-2"><PiLightning className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Business synonyms and sample values</li>
-                    <li className="flex items-center gap-2"><PiLightning className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Verified queries for accuracy validation</li>
-                  </ul>
-                </div>
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Natural-Language Analytics Integration</h4>
-                  <ul className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    <li className="flex items-center gap-2"><PiTrendUp className="w-3.5 h-3.5 text-green-500 shrink-0" /> Auto-generate YAML from table metadata</li>
-                    <li className="flex items-center gap-2"><PiTrendUp className="w-3.5 h-3.5 text-green-500 shrink-0" /> Validate with test questions before deploy</li>
-                    <li className="flex items-center gap-2"><PiTrendUp className="w-3.5 h-3.5 text-green-500 shrink-0" /> Version history with diff viewer</li>
-                    <li className="flex items-center gap-2"><PiTrendUp className="w-3.5 h-3.5 text-green-500 shrink-0" /> Stage to @semantic_model_stage</li>
-                  </ul>
-                </div>
-              </div>
 
               {/* Semantic views list */}
               {semanticViewsLoading ? (

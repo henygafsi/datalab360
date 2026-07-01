@@ -26,8 +26,7 @@ import cn from '@core/utils/class-names';
 import RightTabPanel, {
   type RightTabSection,
 } from '@/app/shared/governance/right-tab-panel';
-import { useAuth } from '@/hooks/useAuth';
-import { isAdminRole } from '@/config/constants';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { installOverviewKpis } from '@/app/services/command-center';
 import AiActionBlocks from '@/app/shared/command-center/AiActionBlocks';
@@ -52,12 +51,18 @@ export default function CommandCenterActionsPanel({
   refreshing,
   onClose,
 }: CommandCenterActionsPanelProps) {
-  const { role } = useAuth();
-  // Account-overview maintenance/provisioning has no granular Action-RBAC action
-  // to gate on (org_accounts exposes only view/filter/export/drill-down), so this
-  // stays a coarse admin-role check — routed through the shared isAdminRole helper
-  // instead of an inline role-array literal.
-  const isAdmin = isAdminRole(role);
+  // Maintenance = provisioning / repairing this account's Overview KPI cache — a
+  // create-scoped action on the account-overview surface, whose frontend
+  // action-registry module is `org_accounts` (see BACKEND_MODULE_ALIAS in the
+  // Access Center: "Account / org overview = command center"). Sibling
+  // org-accounts tabs gate resource-monitor creation on this same key. Gating via
+  // Action-RBAC replaces the former coarse admin-role check. Fail-open while the
+  // allow-set loads so this recovery affordance never flashes away from an admin.
+  const { allowed: canMaintain, loading: maintainLoading } = useCanPerform(
+    'org_accounts',
+    'create',
+  );
+  const maintainDenied = !canMaintain && !maintainLoading;
 
   const [section, setSection] = useState('data');
   const [provisioning, setProvisioning] = useState(false);
@@ -201,9 +206,9 @@ export default function CommandCenterActionsPanel({
     ),
   };
 
-  const sections: RightTabSection[] = isAdmin
-    ? [aiSection, dataSection, maintenanceSection]
-    : [aiSection, dataSection];
+  const sections: RightTabSection[] = maintainDenied
+    ? [aiSection, dataSection]
+    : [aiSection, dataSection, maintenanceSection];
 
   return (
     <RightTabPanel

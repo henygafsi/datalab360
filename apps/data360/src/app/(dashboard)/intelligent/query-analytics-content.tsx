@@ -30,6 +30,7 @@ import {
 import type { AnalyticsResult, AnalyticsSummary, RedundantGroup, RunAnalysisResponse } from '@/app/services/cortex';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 const SEVERITY_STYLES: Record<string, string> = {
   critical: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
@@ -54,6 +55,10 @@ export default function QueryAnalyticsContent() {
   const [hours, setHours] = useState(5);
   const [sortKey, setSortKey] = useState<string | null>('EXECUTION_TIME_MS');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // Gate the compute-heavy AI analysis run behind the cortex 'generate' action.
+  const generatePerm = useCanPerform('cortex', 'generate');
+  const canRunAnalysis = generatePerm.allowed || generatePerm.loading;
 
   // ── Data fetching via useCacheAwareQuery ──
   const fetchAnalyticsData = useCallback(async () => {
@@ -181,7 +186,8 @@ export default function QueryAnalyticsContent() {
           <Button
             className="gap-2"
             onClick={handleRunAnalysis}
-            disabled={analyzing}
+            disabled={analyzing || !canRunAnalysis}
+            title={!canRunAnalysis && !generatePerm.loading ? 'You do not have permission to run AI analysis' : undefined}
           >
             {analyzing ? (
               <HiOutlineArrowPath className="w-4 h-4 animate-spin" />

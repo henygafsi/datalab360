@@ -666,11 +666,19 @@ type FetchStatus = 'loading' | 'ok' | 'gap' | 'error';
 function DeploySection({
   workflowId,
   isReadOnly,
+  canDeploy,
   onOpenRollback,
   onReload,
 }: {
   workflowId: string | null;
   isReadOnly: boolean;
+  /**
+   * Action-RBAC `workflow:deploy` allow (from useCanPerform in the builder).
+   * Separation-of-duties: approving / rejecting / re-running a deployment is a
+   * privileged production action gated on this permission — NOT merely on being
+   * a non-viewer contributor (isReadOnly).
+   */
+  canDeploy: boolean;
   onOpenRollback: () => void;
   onReload?: () => void;
 }) {
@@ -742,7 +750,7 @@ function DeploySection({
                   <span>Approved: {str(d.approved_by)}</span>
                   <span className="col-span-2">When: {fmtDate(d.deployed_at ?? d.created_at)}</span>
                 </div>
-                {d.status === 'pending_approval' && !isReadOnly && (
+                {d.status === 'pending_approval' && !isReadOnly && canDeploy && (
                   <div className="mt-2 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <InsightActionButton
@@ -808,7 +816,7 @@ function DeploySection({
                     )}
                   </div>
                 )}
-                {d.status === 'approved' && !isReadOnly && (
+                {d.status === 'approved' && !isReadOnly && canDeploy && (
                   <div className="mt-2">
                     <InsightActionButton
                       label="Re-run deployment"
@@ -1637,6 +1645,7 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
                 <DeploySection
                   workflowId={activeWorkflowId}
                   isReadOnly={isReadOnly}
+                  canDeploy={canDeploy}
                   onOpenRollback={onOpenRollback}
                   onReload={onReload}
                 />

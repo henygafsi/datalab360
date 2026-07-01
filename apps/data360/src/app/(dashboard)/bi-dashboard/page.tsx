@@ -467,9 +467,14 @@ function BIDashboardPage() {
         {/* Content */}
         <div className="p-6 max-w-5xl mx-auto">
           {/* Cross-module health score cards (Data360 G6). A `?project=` deep-link
-              scopes them to that project; otherwise account-wide as before. */}
+              scopes them to that project; otherwise account-wide. We exclude the
+              not-yet-backed PREVISION placeholder so no "coming soon" tile ships
+              on the flagship landing (the project path never returns it anyway). */}
           <div className="mb-6">
-            <ScoreCards projectId={urlProjectId ?? undefined} />
+            <ScoreCards
+              projectId={urlProjectId ?? undefined}
+              dimensions={['dq', 'cost', 'perf', 'gov']}
+            />
           </div>
           {/* Distinct error state — never collapse a fetch failure into the
               "no dashboards yet" empty state. */}

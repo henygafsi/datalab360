@@ -13,10 +13,10 @@ import { toast } from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import {
   Search, Database, Table2, Columns3, Key, Shield, RefreshCw,
-  Settings, ChevronRight, ChevronDown, Filter, Download, Upload,
+  Settings, ChevronRight, ChevronDown, Filter, Upload,
   Layers, Grid3X3, LayoutGrid, CheckSquare, Square, AlertTriangle,
   Clock, History, Lock, Eye, Play, Save, X, Plus, Minus, Trash2,
-  FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
+  FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
   WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer,
   BookTemplate, Activity, AlertCircle, MoreVertical, FolderOpen,
@@ -456,19 +456,16 @@ const CompactSourceSelector: React.FC<{
     icon?: React.ElementType;
     danger?: boolean;
   }> = [
-    { id: 'transfer_ownership', label: 'Transfer Ownership', icon: ArrowLeftRight },
-    { id: 'apply_masking_all', label: 'Apply Masking to All Tables', icon: Shield },
-    { id: 'apply_rls_all', label: 'Apply RLS to All Tables', icon: Lock },
-    { id: 'set_ingestion_all', label: 'Set Ingestion for All', icon: RefreshCw },
-    { id: 'divider', label: '' }, // No icon for dividers
+    // Only actions backed by a working endpoint are exposed. Transfer Ownership,
+    // Export DDL, Drop Schema, and the "apply … to All" bulk operations have no
+    // backend support yet — their handlers stay in handleSchemaAction (kept as
+    // dead switch cases) but are no longer surfaced, so the menu never offers a
+    // broken no-op action.
     { id: 'clone_schema', label: 'Clone Schema', icon: Layers },
-    { id: 'export_ddl', label: 'Export DDL', icon: Download },
     { id: 'divider2', label: '' },
     { id: 'list_dynamic_tables', label: 'List Dynamic Tables', icon: RefreshCw },
     { id: 'list_streams', label: 'List Streams', icon: GitBranch },
     { id: 'list_alerts', label: 'List Alerts', icon: AlertTriangle },
-    { id: 'divider3', label: '' },
-    { id: 'drop_schema', label: 'Drop Schema', icon: Trash2, danger: true },
   ];
 
   return (
@@ -1163,6 +1160,15 @@ export default function ExploreDesignPage() {
   // the allow-set loads (mirrors canDropObjects). Drop reuses dropObjPerm.
   const editColPerm = useCanPerform('explore_design', 'edit');
   const canEditCols = editColPerm.allowed || editColPerm.loading;
+
+  // Action-RBAC for CREATE DDL (schema clone + add-column). Replaces the prior
+  // hardcoded viewer-role gate on those actions. Fail-open while the allow-set
+  // loads (mirrors canDropObjects / canEditCols). readOnlyGuard (contributor
+  // role axis) is kept alongside — the two guards cover different concerns.
+  const createObjPerm = useCanPerform('explore_design', 'create');
+  const canCreateObjects = createObjPerm.allowed || createObjPerm.loading;
+  const createDeniedReason =
+    'You lack the "create" permission on Explore & Design. Ask an administrator to grant it.';
   // Inline per-column ALTER editor (rename / retype / drop-confirm). No browser
   // dialogs (this file replaced confirm() with inline state, see confirmDrop).
   const [columnEdit, setColumnEdit] = useState<
@@ -3606,6 +3612,12 @@ export default function ExploreDesignPage() {
         toast('Select a table, then configure ingestion from the Ingestion Config panel.');
         break;
       case 'clone_schema': {
+        // Action-RBAC gate: schema clone issues CREATE DDL. A denied role must
+        // not be able to trigger it (replaces the old viewer-only check).
+        if (!canCreateObjects) {
+          toast.error(createDeniedReason);
+          break;
+        }
         if (!db) {
           toast.error('Select a database first');
           break;
@@ -3654,7 +3666,7 @@ export default function ExploreDesignPage() {
       default:
         toast.error(`Unknown action: ${action}`);
     }
-  }, [handleListDataEngObjects, selectedDatabase]);
+  }, [handleListDataEngObjects, selectedDatabase, canCreateObjects, createDeniedReason]);
 
   // Toggle fullscreen mode
   const toggleFullscreen = useCallback(() => {
@@ -4533,8 +4545,9 @@ export default function ExploreDesignPage() {
                         <span className="flex-1" />
                         {/* Quick actions → open right bar tabs */}
                         <button
-                          onClick={() => { if (readOnlyGuard()) return; setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
-                          disabled={isReadOnly}
+                          onClick={() => { if (readOnlyGuard()) return; if (!canCreateObjects) { toast.error(createDeniedReason); return; } setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
+                          disabled={isReadOnly || !canCreateObjects}
+                          title={!canCreateObjects ? createDeniedReason : undefined}
                           className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
                         >
                           <Plus className="h-3 w-3" /> Add Column
@@ -4729,8 +4742,9 @@ export default function ExploreDesignPage() {
                                   <td className="px-2.5 py-0.5" />
                                   <td colSpan={inlinePreviewData.columns.length} className="px-2.5 py-0.5">
                                     <button
-                                      onClick={() => { if (readOnlyGuard()) return; setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
-                                      disabled={isReadOnly}
+                                      onClick={() => { if (readOnlyGuard()) return; if (!canCreateObjects) { toast.error(createDeniedReason); return; } setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
+                                      disabled={isReadOnly || !canCreateObjects}
+                                      title={!canCreateObjects ? createDeniedReason : undefined}
                                       className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition-colors disabled:opacity-40"
                                     >
                                       <Plus className="h-3 w-3" /> Add column / calculated field

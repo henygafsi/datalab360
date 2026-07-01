@@ -77,6 +77,12 @@ const nextConfig = {
         destination: '/governance/:path*',
         permanent: true,
       },
+      // Alias the short '/connect' slug to the canonical Connect Data route.
+      {
+        source: '/connect',
+        destination: '/data-source-connection',
+        permanent: true,
+      },
     ];
   },
   images: {

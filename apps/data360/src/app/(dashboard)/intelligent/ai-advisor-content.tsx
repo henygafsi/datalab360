@@ -20,6 +20,7 @@ import {
 import { Inbox } from 'lucide-react';
 import EmptyState from '@/components/ui/EmptyState';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   listRecommendations,
   analyzeRecommendations,
@@ -154,6 +155,10 @@ export default function AiAdvisorContent() {
   const [confirmingDismiss, setConfirmingDismiss] = useState(false);
   const [snoozing, setSnoozing] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
+
+  // Gate the compute-heavy AI analysis run behind the cortex 'generate' action.
+  const generatePerm = useCanPerform('cortex', 'generate');
+  const canRunAnalysis = generatePerm.allowed || generatePerm.loading;
 
   // ── Load stored recommendations (pure read) ─────────────────────────────
   const load = useCallback(async () => {
@@ -318,7 +323,12 @@ export default function AiAdvisorContent() {
         </div>
         <div className="flex items-center gap-3 shrink-0">
           <ElapsedTimer running={analyzing} />
-          <Button className="gap-2" onClick={handleAnalyze} disabled={analyzing}>
+          <Button
+            className="gap-2"
+            onClick={handleAnalyze}
+            disabled={analyzing || !canRunAnalysis}
+            title={!canRunAnalysis && !generatePerm.loading ? 'You do not have permission to run AI analysis' : undefined}
+          >
             <PiArrowsClockwise className={`w-4 h-4 ${analyzing ? 'animate-spin' : ''}`} />
             {analyzing ? 'Analyzing…' : 'Run Analysis'}
           </Button>
@@ -437,7 +447,12 @@ export default function AiAdvisorContent() {
             title="No recommendations yet"
             description="Run an analysis to scan this account for cost, performance, and governance improvements."
             action={
-              <Button className="gap-2" onClick={handleAnalyze} disabled={analyzing}>
+              <Button
+                className="gap-2"
+                onClick={handleAnalyze}
+                disabled={analyzing || !canRunAnalysis}
+                title={!canRunAnalysis && !generatePerm.loading ? 'You do not have permission to run AI analysis' : undefined}
+              >
                 <PiSparkle className="w-4 h-4" />
                 Run Analysis
               </Button>
