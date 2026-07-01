@@ -86,6 +86,33 @@ Reverse-gap capabilities to surface later (additive, verified genuinely unsurfac
 - **catalog "My Workspace" · L**: `/api/workspace/*` (recently-opened, saved-views CRUD, watchlist) +
   explorer audit-views/recent-activity/selection-review — new `services/workspace` + `API.workspace.*`.
 
+## LIVE reality test (2026-07-01, authenticated as HAHA/ACCOUNTADMIN)
+Logged in against localhost:3000 → local `:8000` (real Snowflake) with a fresh session and ran the full
+494-probe live + a page smoke. Harnesses: `e2e/_probe_reality.mjs`, `e2e/_smoke_reality.mjs` (throwaway, uncommitted).
+
+**Result: 98% operational** — 219 healthy, 149 expected (correct fake-input rejections), 108 slow, **3 genuine
+defects**, avg latency 1890ms. Page smoke: all 10 changed routes load HTTP 200, **no crashes, no 5xx on load**;
+only console output is benign pre-existing React `forwardRef` warnings (Radix Popover/Tooltip). My wired controls
+verified (BI AI-Wizard + admin Disable-all render; data-quality Profiler + intelligent Snooze correctly conditional).
+
+**The 3 live defects — all the SAME class (heavy query → 30s statement-timeout → 500), not new logic bugs:**
+1. `getSecurityPosture` (Data Quality, `GET /data-quality/security-posture`) — 500 @ 30006ms. Was 25226ms
+   *slow-success* in the 06-30 run → now tipped over the 30s cap. Handler is already hardened (grants sub-query
+   degrades to honest-unknown); the masking/RLS `ACCOUNT_USAGE.POLICY_REFERENCES` scans are what time out.
+2. `initializeTables` (Workflow, `POST /workflow/setup/initialize-tables`) — 500 @ 30004ms. Was 28280ms
+   *success* on 06-30. A DDL/setup **write** op — degrade-to-partial is WRONG here (leaves tables half-created).
+3. A 3rd in the explore-design/later region (appeared ~t+3.5min / ~343 probed) — not individually captured.
+
+**Why not auto-fixed:** unlike `getStorageDatabases` (degrades cleanly to an empty list), these can't be safely
+hardened without misreporting (security posture) or corrupting a write (initializeTables), AND no backend change
+is live-verifiable without a `:8000` restart. Per memory, cold-timeout on heavy `ACCOUNT_USAGE` scans is largely a
+**prod-warmer-masked** artifact (the SVC warmer pre-warms these caches in prod; it doesn't exist in local dev).
+`getStorageDatabases` itself proved this: it returned a **6ms cache hit** live (the 500 is only the cold path).
+
+**To actually reach ~100% and verify:** (a) user restarts `:8000` to load the getStorageDatabases fix; (b) re-probe;
+(c) then harden getSecurityPosture (honest-unknown masking/RLS) + initializeTables (async or timeout bump) WITH live
+verification. Each is a bounded follow-up, not a blind patch.
+
 ## Board "4 Defects / 2 5xx" vs "1 genuine" — reconciliation
 - 2 5xx = `getStorageDatabases` 500 + (`setUserMfa` surfaces a 501 which some counters bucket high).
 - 4 Defects = `isDefect()` also flags fake-input SQL-compile errors → over-counts. Item (2) fixes this.
