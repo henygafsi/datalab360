@@ -153,22 +153,87 @@ export function isConfigDependentRejection(result?: ProbeResult | null): boolean
   return CONFIG_DEPENDENT_REJECTION_PATTERN.test(text);
 }
 
+// ════════════════════════════════════════════════════════════
+// Fake-identifier rejection — the probe deliberately injects made-up
+// identifiers (FAKE_ID '__test_health_check__', which the warehouse upper-cases
+// to __TEST_HEALTH_CHECK__; FAKE_TABLE 'TEST_TABLE'; and the DDL placeholders the
+// alter-table probes pass — NEW_COL / NEW_NAME / OLD_COL / REF_TABLE / REF_COL).
+// When the backend replies with a SQL-compilation / object-does-not-exist /
+// invalid-name / unsupported-type error that NAMES one of those sentinels, it is
+// the API CORRECTLY refusing fabricated input — EXPECTED, not a defect — even
+// though such a body carries error_code SQL_COMPILATION_ERROR (which DEFECT_CODES
+// would otherwise flag). Examples the probe produces today:
+//   getGrantsForRole → 404 "Role '__TEST_HEALTH_CHECK__' does not exist"
+//   renameTable      → 404 "Database '__TEST_HEALTH_CHECK__' does not exist"
+//   addColumn        → 400 "Unsupported data type 'NEW_COL'"
+//   createComputePool→ 400 "Invalid compute pool name '__TEST_HEALTH_CHECK__'"
+//
+// Surgical, two-part AND so it can NEVER swallow a genuine failure:
+//   (1) 4xx ONLY — a real 5xx (status 'error', e.g. getStorageDatabases 500) is
+//       never carved out, and 405/408 are handled as defects before this runs.
+//   (2) the message must BOTH name a probe sentinel token AND read as a
+//       compilation / not-found / invalid-name / unsupported-type rejection.
+// A genuine 500 with no sentinel token matches neither gate → stays a defect.
+//
+// The sentinels are probe-only literals that never name a real object, so they
+// cannot appear in a production error. Bare 'COL' is deliberately EXCLUDED — too
+// generic (it would match "column", "protocol", …); the distinctive compound
+// forms (NEW_COL, OLD_COL, REF_COL) are safe. FAKE_DB (CP_DATA360) and
+// FAKE_SCHEMA (PUBLIC) are real objects, so they are NOT sentinels either.
+// ════════════════════════════════════════════════════════════
+const PROBE_FAKE_ID_PATTERN =
+  /__test_health_check__|TEST_TABLE|NEW_COL|NEW_NAME|OLD_COL|REF_TABLE|REF_COL/i;
+
+/**
+ * The shape of a "the object/type you named isn't valid" rejection: an
+ * object/db/role "does not exist", an "invalid <x> name", or an "unsupported data
+ * type". Paired with a probe sentinel (above) on a 4xx, these are correct
+ * rejections of fake input — never a defect.
+ */
+const COMPILATION_REJECTION_PATTERN =
+  /does not exist|invalid \w[\w ]*name|unsupported data type/i;
+
+export function isFakeIdRejection(result?: ProbeResult | null): boolean {
+  if (!result) return false;
+  // 4xx only — never widen into the 5xx / transport lane, so a genuine server
+  // error (status 'error') stays a defect even if its body echoes a probe token.
+  const http = result.httpStatus;
+  if (!(http != null && http >= 400 && http < 500)) return false;
+  const text = `${result.error ?? ''} ${result.errorBody ?? ''}`;
+  // Gate 1: the message must name a fabricated probe identifier.
+  if (!PROBE_FAKE_ID_PATTERN.test(text)) return false;
+  // Gate 2: it must read as a compilation / not-found / invalid-name / type
+  // rejection — either via the structured error_code or the message phrasing.
+  const { code } = parseErrorBody(result.errorBody ?? result.error);
+  const isCompilationCode = code != null && DEFECT_CODES.has(code);
+  return isCompilationCode || COMPILATION_REJECTION_PATTERN.test(text);
+}
+
 /**
  * True when a probe surfaced a GENUINE defect (vs an expected validation 4xx).
  * Rule: status==='error' (5xx/network) OR httpStatus 405/408 OR the parsed
  * error code is a known compilation/cancellation failure.
  *
- * Carve-outs FIRST (so neither can ever be miscounted as a defect):
+ * Carve-outs (so none is ever miscounted as a defect):
  *  - known-unimplemented: an honest FE stub that never hit the network.
  *  - config-dependent rejection: a route that works but needs unprovisioned
  *    account infra (incl. createGitRepository's SQL_COMPILATION_ERROR).
+ *  - fake-id rejection: a 4xx SQL-compilation / not-found / invalid-name /
+ *    unsupported-type error naming a probe sentinel = the API correctly refusing
+ *    fabricated input. Checked AFTER the 5xx and 405/408 defect returns, and it
+ *    is itself 4xx-gated, so it can never hide a genuine transport/method failure.
  */
 export function isDefect(result?: ProbeResult | null): boolean {
   if (!result) return false;
   if (isKnownUnimplemented(result)) return false;
   if (isConfigDependentRejection(result)) return false;
+  // Genuine-defect signals FIRST, so the fake-id carve-out can never swallow them:
+  // a 5xx / network failure (status 'error') and a 405/408 are always defects.
   if (result.status === 'error') return true;
   if (result.httpStatus === 405 || result.httpStatus === 408) return true;
+  // The API correctly rejecting a probe's FAKE identifier is EXPECTED, not a
+  // defect — even though the body carries error_code SQL_COMPILATION_ERROR.
+  if (isFakeIdRejection(result)) return false;
   const { code } = parseErrorBody(result.errorBody ?? result.error);
   return code != null && DEFECT_CODES.has(code);
 }
@@ -212,11 +277,18 @@ export function isDefect(result?: ProbeResult | null): boolean {
  *   "requires role ORGADMIN"→ lifecycle-role authz rejection, e.g.
  *                             deleteReaderAccount → 403 "requires role ORGADMIN;
  *                             caller role is 'ACCOUNTADMIN'".
+ *   "Unsupported data type" + the DDL sentinels
+ *   (NEW_COL|NEW_NAME|OLD_COL|REF_TABLE|REF_COL)
+ *                           → alter-table probes naming a fabricated column/type,
+ *                             e.g. addColumn → 400 "Unsupported data type 'NEW_COL'".
+ *                             These pair with `isFakeIdRejection` (which un-flags the
+ *                             matching SQL_COMPILATION_ERROR in `isDefect`) so the
+ *                             row reads Expected, not a residual warn.
  * Note: "confirm=true is required" (dropComputePool / dropContainerService → 422)
  * is already covered by the existing `required\b` token — no new alternative added.
  */
 const EXPECTED_PATTERN =
-  /not found|field required|must have at least|should have at least|missing required field|No fields to update|Input should be|does not exist|not authorized|cannot be enabled or disabled|MFA_TOGGLE_UNSUPPORTED|Request must include either|MISSING_ZONE_OR_TABLE|already exists|requires role ORGADMIN|__test_health_check__|TEST_TABLE|required\b|valid integer|valid list|valid string|Provide (zone|table)/i;
+  /not found|field required|must have at least|should have at least|missing required field|No fields to update|Input should be|does not exist|not authorized|cannot be enabled or disabled|MFA_TOGGLE_UNSUPPORTED|Request must include either|MISSING_ZONE_OR_TABLE|already exists|requires role ORGADMIN|__test_health_check__|TEST_TABLE|NEW_COL|NEW_NAME|OLD_COL|REF_TABLE|REF_COL|Unsupported data type|required\b|valid integer|valid list|valid string|Provide (zone|table)/i;
 
 /** True when the combined error text matches the fake-id / validation signature. */
 export function matchesExpectedPattern(result?: ProbeResult | null): boolean {
@@ -242,25 +314,36 @@ export function isExpected(result?: ProbeResult | null): boolean {
 
 /**
  * The unified "benign / not-an-issue" predicate the board uses for the grey
- * bucket. Folds together the THREE non-failure outcomes so counts, filters,
- * coloring, and the per-release rollup treat them identically:
+ * bucket. Folds together the non-failure outcomes so counts, filters, coloring,
+ * and the per-release rollup treat them identically:
  *   1) isExpected               — the API correctly rejecting fake/empty 4xx input
  *   2) isKnownUnimplemented      — an honest FE stub for a route that doesn't exist
  *   3) isConfigDependentRejection — a working route blocked by unprovisioned infra
+ *   4) isFakeIdRejection         — a 4xx SQL-compilation / not-found / invalid-name
+ *                                  / unsupported-type error naming a probe sentinel
+ *                                  (folded in explicitly so the row is benign even
+ *                                  if its exact wording misses EXPECTED_PATTERN)
  * None of these is a defect or a regression; all read grey, never red/amber.
  * (Per-row microcopy still distinguishes them — see page.tsx.)
  */
 export function isExpectedOrKnown(result?: ProbeResult | null): boolean {
-  return isExpected(result) || isKnownUnimplemented(result) || isConfigDependentRejection(result);
+  return (
+    isExpected(result) ||
+    isKnownUnimplemented(result) ||
+    isConfigDependentRejection(result) ||
+    isFakeIdRejection(result)
+  );
 }
 
 /**
- * A residual "warn": a 4xx that is neither a genuine defect nor an expected
- * rejection (rare — an unrecognised 4xx that still warrants a glance).
+ * A residual "warn": a 4xx that is neither a genuine defect nor a benign
+ * rejection (rare — an unrecognised 4xx that still warrants a glance). Excludes
+ * `isFakeIdRejection` so a fake-id compilation 4xx whose exact wording misses
+ * EXPECTED_PATTERN still reads benign/operational instead of dinging the board.
  */
 export function isResidualWarn(result?: ProbeResult | null): boolean {
   if (!result) return false;
   const code = result.httpStatus;
   if (!(code != null && code >= 400 && code < 500)) return false;
-  return !isDefect(result) && !isExpected(result);
+  return !isDefect(result) && !isExpected(result) && !isFakeIdRejection(result);
 }
