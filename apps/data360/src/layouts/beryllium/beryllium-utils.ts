@@ -1,7 +1,16 @@
 'use client';
 
 import { atom, useAtom } from 'jotai';
-import { MenuItemsType } from '@/layouts/beryllium/beryllium-fixed-menu-items';
+
+// Minimal structural type for getActiveMainMenuIndex (the full menu-item
+// definitions lived in the removed beryllium layout tree).
+export interface MenuItemsType {
+  menuItems: {
+    href?: string;
+    subMenuItems?: { href?: string }[];
+  }[];
+  [k: string]: unknown;
+}
 
 const LOCAL_STORAGE_KEY = 'iso-beryllium-sidebar-left-expanded';
 
