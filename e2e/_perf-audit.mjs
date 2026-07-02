@@ -21,12 +21,18 @@ let ok = false;
 for (let a = 1; a <= 4 && !ok; a++) {
   try {
     await p.goto(`${BASE}/signin`, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
-    await p.waitForSelector('input[name="account_name"]', { timeout: 40000 });
+    await p.waitForSelector('input[name="account_name"]', { timeout: 60000 });
+    await p.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+    await p.waitForTimeout(2500);
     for (const [n, v] of [['account_name', ACC], ['username', USER], ['password', PASS]]) {
       const el = p.locator(`input[name="${n}"]`); await el.click(); await el.fill(''); await el.pressSequentially(v, { delay: 30 });
     }
-    await Promise.all([p.waitForURL(u => !u.toString().includes('/signin'), { timeout: 90000 }).catch(() => {}), p.click('button[type="submit"]')]);
-    await p.waitForTimeout(6000); ok = !p.url().includes('/signin');
+    await p.click('button[type="submit"]');
+    for (let t = 0; t < 12 && p.url().includes('/signin'); t++) {
+      await p.waitForTimeout(2000);
+      if (t === 4) await p.click('button[type="submit"]').catch(() => {});
+    }
+    ok = !p.url().includes('/signin');
     console.log(`login attempt ${a}: ok=${ok}`);
   } catch (e) { console.log(`login attempt ${a} err ${String(e).slice(0, 110)}`); }
 }
