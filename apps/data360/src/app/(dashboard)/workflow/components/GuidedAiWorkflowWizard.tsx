@@ -144,7 +144,10 @@ interface NewRequest {
   slaDays: number;
 }
 
-interface BlockPreview {
+// Exported (with the generation helpers below) so the docked AI Build flow
+// (useAiPipelineGenerate → AiBuildSection in WorkflowSmartPanel) reuses the
+// SAME prompt/parse/repair/layout pipeline instead of forking it.
+export interface BlockPreview {
   id: string;
   type: string;
   label: string;
@@ -154,7 +157,7 @@ interface BlockPreview {
   // until the user supplies them.
   config?: Record<string, unknown>;
 }
-interface EdgePreview {
+export interface EdgePreview {
   from: string;
   to: string;
   // Required when targeting a multi-input block (join → "input1"/"input2").
@@ -309,7 +312,7 @@ Rules: intent_confidence MUST be an integer between 0 and 100 (not a decimal). M
 Input: ${desc}`;
 }
 
-function buildBlocksPrompt(description: string, option: string): string {
+export function buildBlocksPrompt(description: string, option: string): string {
   const desc = description.slice(0, 300);
   // Catalog section is one terse line per block (~35 lines for the "core"
   // subset). The LLM is constrained to choose `type` from this list and
@@ -368,7 +371,7 @@ Workflow: ${summary}`;
  *
  * Returns null only if even regex extraction fails.
  */
-function parseLlmJson<T>(raw: string): T | null {
+export function parseLlmJson<T>(raw: string): T | null {
   // 1. Strip code fences
   let s = raw
     .replace(/^```(?:json)?\s*/i, '')
@@ -648,7 +651,7 @@ function normalizeConfidence(value: unknown): number {
  *
  * Returns the repaired edges + the count dropped so the UI can toast.
  */
-function repairMultiInputEdges(
+export function repairMultiInputEdges(
   blocks: BlockPreview[],
   edges: EdgePreview[],
 ): { edges: EdgePreview[]; dropped: number } {
@@ -707,7 +710,7 @@ function repairMultiInputEdges(
 // left→right. Emits data in the dual-key convention the registered node
 // components use (`data.config?.X || data.X`) so the real iconified blocks
 // (SourceNode, AiSentimentNode, …) render their fields immediately.
-function layoutBlocks(
+export function layoutBlocks(
   blocks: BlockPreview[],
   edges: EdgePreview[],
 ): { nodes: Node[]; edges: Edge[] } {

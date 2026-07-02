@@ -1377,7 +1377,7 @@ const RAIL: RailItem[] = [
   { id: 'submit', icon: ShieldCheck, label: 'Submit for validation' },
   { id: 'deploy', icon: HistoryIcon, label: 'Deployments & versions' },
   { id: 'block', icon: Box, label: 'Block details' },
-  { id: 'ai', icon: Sparkles, label: 'AI assist' },
+  { id: 'ai', icon: Sparkles, label: 'AI build' },
   { id: 'results', icon: Eye, label: 'Results' },
   { id: 'runs', icon: ListChecks, label: 'Run history' },
   // Operational sections folded in from the former WorkflowProjectBar rail.
@@ -1406,7 +1406,7 @@ const SECTION_HELP: Record<WorkflowPanelSection, string> = {
   block:
     'Configure the block you selected on the canvas — its source, transform or destination settings. Click any block on the canvas to edit it here.',
   ai:
-    'Smart suggestions to improve this workflow, such as adding a quality check or scheduling off-peak. Each suggestion can open the right tool or run a safe preview.',
+    'Describe the pipeline you want and the AI builds the blocks directly on the canvas as a draft. Review each block here, then accept, undo or refine it. Smart improvement suggestions appear below the builder.',
   results:
     'The output of the most recent run, so you can confirm the workflow produced the data you expected.',
   runs:
@@ -1434,7 +1434,7 @@ const RAIL_TIP: Record<WorkflowPanelSection, string> = {
   submit: 'Safely validate the workflow, then submit it for deployment approval',
   deploy: 'Deployment history and saved versions — compare or roll back',
   block: 'Configure the block you selected on the canvas',
-  ai: 'AI suggestions to improve this workflow — proposals only, nothing runs',
+  ai: 'Describe a pipeline and the AI builds the blocks on the canvas — review, accept or undo the draft here',
   results: 'Output of the most recent run',
   runs: 'History of every run, with status and timing',
   usage: 'How often this workflow runs and how much data it moves',
@@ -1676,26 +1676,31 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
               )}
               {activeSection === 'ai' && (
                 <div className="space-y-3">
-                  {/* Clear AI/action boundary: everything in this section is AI
-                      ASSIST (proposals). It is visually + textually separated
-                      from the committed lifecycle "Actions" strip above so a
-                      suggestion is never mistaken for a committed action. */}
+                  {/* Clear AI/action boundary: the AI builds a DRAFT on the
+                      canvas that only becomes real when the user accepts it.
+                      Visually + textually separated from the committed
+                      lifecycle "Actions" strip above so an AI draft is never
+                      mistaken for a committed action. */}
                   <div className="flex items-start gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 dark:border-violet-900/50 dark:bg-violet-900/15">
                     <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" aria-hidden />
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-violet-700 dark:text-violet-300">
-                        AI assist · suggestions
+                        AI build · drafts on the canvas
                       </p>
                       <p className="mt-0.5 text-[11px] leading-snug text-violet-600/80 dark:text-violet-300/70">
-                        Proposals to improve this workflow — not committed actions.
-                        Review each before you run it. To Save, Run or Submit the
-                        workflow itself, use the Actions bar above.
+                        The AI adds blocks directly to the canvas as a draft —
+                        nothing is saved until you accept it here. To Save, Run
+                        or Submit the workflow itself, use the Actions bar above.
                       </p>
                     </div>
                   </div>
+                  {/* Primary: the docked AI Build flow (prompt → blocks on the
+                      canvas → review/accept/undo/refine). Falls back to the
+                      rule-based suggestions when the builder passes no slot. */}
+                  {aiSlot ?? <AiSection workflowId={activeWorkflowId} blocks={currentBlocks} />}
                   {/* AI-prefilled cross-module CTA blocks (deep-link with intent),
-                      scoped to workflow + the active project. Rendered above the
-                      existing AI assist (wizard slot or rule-based suggestions). */}
+                      scoped to workflow + the active project. Secondary to the
+                      build flow above. */}
                   <AiActionBlocks
                     context={{
                       scope: 'module',
@@ -1704,7 +1709,6 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
                     }}
                     title="Suggestions IA"
                   />
-                  {aiSlot ?? <AiSection workflowId={activeWorkflowId} blocks={currentBlocks} />}
                 </div>
               )}
               {/* Legacy bodies self-guard on `activeTab` internally; render them
