@@ -27,8 +27,6 @@
  * Cross-module redirects: each tab also exposes secondary "Open in <module>"
  * links (Observability / Account Overview / Data Quality / Governance) so the
  * hub is a launchpad into the wider platform, not just admin sub-pages.
- *
- * Honest by design: no fabricated metrics; data-less / prod-only surfaces say so.
  */
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';

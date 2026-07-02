@@ -27,7 +27,6 @@
  *                              - suspend       (stop spend now)
  *                            gated by useCanPerform('org_accounts','update').
  *
- * HONEST BY DESIGN
  *  - Resource monitors ARE backed by real endpoints (GET/POST
  *    /org-accounts/resource-monitors). There is NO backend DELETE, so we render
  *    create + list only — no fictive drop control.

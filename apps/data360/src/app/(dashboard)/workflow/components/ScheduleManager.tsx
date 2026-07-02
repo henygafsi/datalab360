@@ -543,8 +543,7 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
     setConfirmDeleteSchedule(null);
     try {
       // Real teardown — DELETE /workflow/{id}/schedule drops the Snowflake TASK
-      // (DROP TASK IF EXISTS). Previously this only suspended the task while
-      // claiming "deleted", which left the schedule live but paused.
+      // (DROP TASK IF EXISTS), not just a suspend.
       await workflowApi.deleteSchedule(pipelineId);
       toast.success('Schedule deleted');
       loadSchedules();

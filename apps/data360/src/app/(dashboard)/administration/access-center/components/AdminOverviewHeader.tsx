@@ -195,7 +195,7 @@ export default function AdminOverviewHeader() {
     },
   ];
 
-  // ── ADN axes — only for feeds that resolved (no fabricated scores) ──────────
+  // ── ADN axes — only for feeds that resolved ──────────
   const axes: ScoreAxis[] = useMemo(() => {
     const out: ScoreAxis[] = [];
     if (featTotal != null && featTotal > 0 && featEnabled != null) {

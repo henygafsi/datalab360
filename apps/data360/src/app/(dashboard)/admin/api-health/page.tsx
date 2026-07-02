@@ -320,12 +320,12 @@ const FAKE_TABLE = 'TEST_TABLE';
 // ════════════════════════════════════════════════════════════
 // Real-resource SEED — discovered live before a full sweep.
 //
-// Project-scoped READ probes used to send the fake id __test_health_check__ and
-// (correctly) get back "PROJECT_NOT_FOUND". That's an Expected rejection, not a
-// bug — but it never EXERCISES the real read path with real data. `seedRealResources()`
-// discovers a genuine project the caller's account/role already owns (a real
-// account + real user, per the validation ask) and threads its id into those
-// reads, so they execute against live data and return real 200s instead of 404s.
+// A project-scoped READ probe with the fake id __test_health_check__ gets back
+// "PROJECT_NOT_FOUND" — an Expected rejection, not a bug — but it never
+// EXERCISES the real read path with real data. `seedRealResources()`
+// discovers a genuine project the caller's account/role already owns and threads
+// its id into those reads, so they execute against live data and return real
+// 200s instead of 404s.
 //
 // Lazily read INSIDE each closure (`SEED.exploreProjectId`), so the value the
 // setup phase writes is the value the probe uses. Falls back to FAKE_ID when the
@@ -909,8 +909,7 @@ const TEST_MODULES: ModuleDef[] = [
     tests: [
       { name: 'listProjects', fn: () => projectsApi.listProjects() },
       { name: 'getProject', fn: () => projectsApi.getProject(SEED.apiProjectId) },
-      // POST /projects now exists (backend create route added 2026-06-21, closing the
-      // documented method gap). Probe with an empty body on purpose → 422
+      // Probe POST /projects with an empty body on purpose → 422
       // "project_name/project_type field required" = Expected, side-effect-free
       // (a real create would persist a junk project on every board run).
       { name: 'createProject', fn: () => projectsApi.createProject({} as any) },

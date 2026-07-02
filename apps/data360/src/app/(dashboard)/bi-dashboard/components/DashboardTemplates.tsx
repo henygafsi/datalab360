@@ -58,9 +58,9 @@ export interface DashboardTemplate {
 
 // ── Template Definitions (sourced from reporting-catalog.json) ──────
 //
-// The curated templates are no longer hand-coded here — reporting-catalog.json
-// is the single source of truth. We adapt the catalog's `dashboard_templates`
-// into the rich local `DashboardTemplate` shape this component renders.
+// The curated templates come from reporting-catalog.json — the single source
+// of truth. We adapt the catalog's `dashboard_templates` into the rich local
+// `DashboardTemplate` shape this component renders.
 
 // String icon name (catalog) → lucide component.
 const TEMPLATE_ICON_BY_NAME: Record<string, React.ComponentType<{ className?: string }>> = {

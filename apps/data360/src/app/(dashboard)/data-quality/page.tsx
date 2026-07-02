@@ -1108,9 +1108,9 @@ function TrendChart({ trendData }: { trendData: MetricRow[] }) {
 
 export default function DataQualityPage() {
   // Per-module project scope for the header ADN badge. Data Quality has no
-  // project selector today, so this is ~always null and the badge self-hides
-  // (honest — no fabricated account-level ADN). Lights up if/when this module
-  // gains project scoping or a per-project DQ source ships on the backend.
+  // project selector today, so this is ~always null and the badge self-hides.
+  // Lights up if/when this module gains project scoping or a per-project DQ
+  // source ships on the backend.
   const { lastProjectId } = useProjectContext('data_quality');
   // User tracing — auto-fires PAGE_VIEW on mount (single hook instance on the
   // top routed component; SmartRightBar deliberately does NOT call this hook to
@@ -2025,10 +2025,10 @@ export default function DataQualityPage() {
   }, [tabData, activeTab]);
 
   // Extract unique STATUS values for filter — detect-from-data, mirroring
-  // availableSchemas. This replaces the lone static Pass/Fail/Warning triplet:
-  // status chips now surface only on tabs whose rows actually carry a STATUS
-  // column (uniqueness / ingestion / dmf) and reflect the real values present
-  // (e.g. Loaded, Load Failed, Has Duplicates) instead of a hardcoded guess.
+  // availableSchemas. Status chips surface only on tabs whose rows actually
+  // carry a STATUS column (uniqueness / ingestion / dmf) and reflect the real
+  // values present (e.g. Loaded, Load Failed, Has Duplicates) instead of a
+  // hardcoded guess.
   const availableStatuses = useMemo(() => {
     const rows = tabData[activeTab] || [];
     const statuses = new Set<string>();

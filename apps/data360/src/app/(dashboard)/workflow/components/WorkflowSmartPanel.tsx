@@ -3,9 +3,9 @@
 /**
  * WorkflowSmartPanel — the single intelligent right-bar for the Workflow builder.
  *
- * Replaces the old horizontal-tab right panel (results / runs / sql / schedules
- * / ai) AND the dispersed lifecycle buttons that used to live in the top toolbar
- * (Validate / SQL dry-run / Clone-test / Approve-deploy / Rollback). There are
+ * Consolidates the right-panel sections (results / runs / sql / schedules / ai)
+ * and the lifecycle actions (Validate / SQL dry-run / Clone-test / Approve-deploy
+ * / Rollback) into one panel. There are
  * NO tabs and NO popups: a vertical ICON RAIL on the far-right edge flips the
  * panel body between sections ("flip menu"). The panel is ALWAYS visible
  * (w-[380px], aria-modal=false) — it is not a modal.

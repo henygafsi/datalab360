@@ -18,7 +18,7 @@
  *     error banner (distinct from the empty state); missing values render "—".
  *   - Backend routes may not be deployed yet (~part of the API surface is
  *     unrouted). Every call degrades to an inline error / empty state — no
- *     crash, no fabricated data.
+ *     crash.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';

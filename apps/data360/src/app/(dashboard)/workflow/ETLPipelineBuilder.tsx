@@ -1762,8 +1762,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       try {
         setIsPipelineLoading(true);
         // Fetch full workflow metadata (tags, created_at) alongside steps.
-        // getWorkflow was previously dead in app code — now used to feed
-        // the header tags chip strip and the draft-restore comparison.
+        // getWorkflow feeds the header tags chip strip and the draft-restore
+        // comparison.
         // Parallelize the whole open waterfall: steps + metadata + contributors +
         // latest deployment all resolve together instead of in three serial stages.
         // Only `listSteps` is allowed to reject the load (its 404 drives the
@@ -1993,9 +1993,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     const t = toast.loading('Deleting workflow…');
     try {
       // A workflow IS a project row (workflow_id === project_id), so the real
-      // soft-delete is DELETE /projects/{id}. This replaces the former
-      // step-clear loop, which only emptied the canvas and overstated the
-      // outcome as "deleted" while the project row survived.
+      // soft-delete is DELETE /projects/{id}, not just clearing the canvas steps.
       await deleteProject(activeWorkflowId);
       await loadWorkflows();
       handleNewPipeline();
@@ -2465,8 +2463,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   // Normalize the per-step results across BOTH execution engines. The CTE
   // engine returns them under `steps` (+ failures under `error.failed_steps`),
-  // the legacy engine under `execution_details.steps_results`. Reading only the
-  // latter is why a CTE failure used to collapse into one workflow-level error.
+  // the legacy engine under `execution_details.steps_results`. Reading only one
+  // collapses a CTE failure into a single workflow-level error.
   const normalizedSteps = useMemo(() => {
     if (!lastExecution) return [] as any[];
     const le = lastExecution as any;

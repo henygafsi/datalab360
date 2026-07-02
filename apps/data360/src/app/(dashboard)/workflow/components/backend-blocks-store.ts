@@ -10,7 +10,7 @@
  *
  * Uses the canonical workflow service (`services/api/workflowApi.listActionTemplates`).
  * The endpoint may not be deployed in every environment — failures degrade to a
- * soft empty state (no extra section, no crash, no fabricated blocks).
+ * soft empty state (no extra section, no crash).
  */
 import { useCallback, useEffect, useState } from 'react';
 import { listActionTemplates } from '@/app/services/api/workflowApi';

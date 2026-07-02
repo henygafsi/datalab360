@@ -1113,9 +1113,9 @@ export default function GuidedAiWorkflowWizard({
   // ── Step 4 → 5: select option ──
   const chooseOption = (id: RecommendationOption['id']) => {
     update('selectedOption', id);
-    // No fake seeds. Step 6 now renders an empty state + a BackendGapNote-style
-    // chip for the Advanced tier explaining that real source/block requests
-    // will appear once the POST /workflow/requests endpoint exists.
+    // Step 6 renders an empty state + a BackendGapNote-style chip for the
+    // Advanced tier explaining that real source/block requests will appear once
+    // the POST /workflow/requests endpoint exists.
     update('newRequests', []);
     setStep(5);
   };

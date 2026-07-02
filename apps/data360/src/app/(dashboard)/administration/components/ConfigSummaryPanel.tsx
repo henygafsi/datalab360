@@ -35,7 +35,7 @@ export default function ConfigSummaryPanel() {
       const res = await getPlatformConfig();
       // Live envelope is {configs, total, categories}; the typed contract said
       // {config} — accept both so the panel doesn't report "0 entries" against
-      // a provisioned store (sweep finding B.1).
+      // a provisioned store.
       const raw = res as unknown as { config?: PlatformConfigEntry[]; configs?: PlatformConfigEntry[] };
       setEntries(raw.configs ?? raw.config ?? []);
     } catch (err) {
