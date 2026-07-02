@@ -101,9 +101,15 @@ export default function HistoryRail({
     }
   }, [projectId]);
 
+  // Only fetch when the rail is actually open. listEvents is a cold ~14s call
+  // over the SVC-less local connection (prod pre-warms it); firing it on mount
+  // while the rail is collapsed put a slow request on the project-open critical
+  // path for a panel the user can't even see. Deferring to first-open keeps the
+  // browse path clear; the SSE refresh below (also open-gated) keeps it fresh.
   useEffect(() => {
+    if (!open) return;
     void refresh();
-  }, [projectId, refresh]);
+  }, [projectId, refresh, open]);
 
   // Event-driven refresh instead of the former 20s poll (~180 req/hr/user):
   // the backend broadcasts a PROJECT_EVENTS cache invalidation over the shared

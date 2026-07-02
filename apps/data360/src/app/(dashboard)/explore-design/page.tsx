@@ -2187,6 +2187,7 @@ export default function ExploreDesignPage() {
       return;
     }
 
+    let cancelled = false;
     const loadTables = async () => {
       setIsLoadingTables(true);
       setCatalogLoadError(null);
@@ -2201,6 +2202,9 @@ export default function ExploreDesignPage() {
         const tableListResults = await Promise.allSettled(
           schemaEntries.map(([schemaName, dbName]) => getTables(dbName, schemaName)),
         );
+        // Guard fast project/schema switches: a stale in-flight load must not
+        // clobber the newer selection's table list.
+        if (cancelled) return;
         // Preserve the prior error semantics: a failed schema read used to throw
         // into the outer catch and surface catalogLoadError. With allSettled the
         // healthy schemas still render, but if any rejected we keep that signal
@@ -2249,53 +2253,88 @@ export default function ExploreDesignPage() {
         }
         setExpandedSchemas(expandKeys);
 
-        // Load columns for new tables (for modeling view)
-        // Only load for tables not already in tableColumnsMap
-        const tablesToLoadColumns = newTables.filter(t => !tableColumnsMap.has(t.id));
-        if (tablesToLoadColumns.length > 0) {
-          const columnsPromises = tablesToLoadColumns.map(async (table) => {
-            try {
-              const cols = await getTableColumns(table.database, table.schema, table.table);
-              if (cols && cols.length > 0) {
-                const formattedColumns: ColumnInfo[] = cols.map((col: any) => ({
-                  name: col.COLUMN_NAME || col.name,
-                  dataType: col.data_type || col.DATA_TYPE || col.dataType || 'VARCHAR',
-                  isNullable: col.IS_NULLABLE === 'YES' || col.isNullable !== false,
-                  isPrimaryKey: col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true,
-                  isSensitive: false,
-                }));
-                return { tableId: table.id, columns: formattedColumns };
-              }
-              return null;
-            } catch (err) {
-              console.error(`[Explore-Design] Failed to load columns for ${table.id}:`, err);
-              return null;
-            }
-          });
-
-          const columnsResults = await Promise.all(columnsPromises);
-
-          // Update tableColumnsMap with loaded columns
-          setTableColumnsMap(prev => {
-            const next = new Map(prev);
-            columnsResults.forEach(result => {
-              if (result) {
-                next.set(result.tableId, result.columns);
-              }
-            });
-            return next;
-          });
-
-        }
+        // NOTE: columns are intentionally NOT fetched here. Eagerly loading
+        // getTableColumns for EVERY table in the schema (13+ cold calls over a
+        // no-retry connection, serialised on the single local Snowflake conn)
+        // used to run inside this try — and because `isLoadingTables` only
+        // cleared in the `finally` AFTER `await Promise.all(columnsPromises)`,
+        // the picker (gated on isLoadingTables) stayed frozen on "Loading
+        // tables…" until every column fetch resolved, even though the table
+        // LIST (setTables above) was already in hand. The list needs no column
+        // data (columnCount stays 0 in the list view). Columns now load lazily:
+        // per clicked table (selectedTable effect) and, in the background, for
+        // tables actually on the modeling canvas / selected for a bulk action
+        // (the hydrate-columns effect below). This decouples the browse path
+        // from the slow per-table column reads.
       } catch (error) {
+        if (cancelled) return;
         setCatalogLoadError('Failed to load tables. Check your connection and retry.');
         toast.error('Failed to load tables');
       } finally {
-        setIsLoadingTables(false);
+        if (!cancelled) setIsLoadingTables(false);
       }
     };
     loadTables();
+    return () => { cancelled = true; };
   }, [selectedDatabase, selectedSchemas, allTableConfigs, refreshTrigger, targetTableIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lazily hydrate columns for the tables the user actually works with — those
+  // on the modeling canvas (nodes render their fields) or checkbox-selected for
+  // a bulk action / relationship pick. This REPLACES the old eager "fetch every
+  // schema table's columns on open" storm that froze the picker. Non-blocking:
+  // the table list is already rendered; these fill tableColumnsMap in the
+  // background so the ModelingCanvas nodes, RelationshipModal target-column
+  // picker, and the bulk PK/masking handlers have their columns. Idempotent —
+  // only ids missing from the map are fetched, so once populated a re-run
+  // computes an empty `toLoad`, updates no state, and can't loop.
+  useEffect(() => {
+    const wanted = new Set<string>([
+      ...Array.from(modelingTableIds),
+      ...Array.from(selectedTables),
+    ]);
+    const toLoad = Array.from(wanted).filter(
+      id => !tableColumnsMap.has(id) && tables.some(t => t.id === id),
+    );
+    if (toLoad.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(
+        toLoad.map(async (id) => {
+          const table = tables.find(t => t.id === id);
+          if (!table) return null;
+          try {
+            const cols = await getTableColumns(table.database, table.schema, table.table);
+            if (!cols || cols.length === 0) return null;
+            const formattedColumns: ColumnInfo[] = cols.map((col: any) => ({
+              name: col.name || col.COLUMN_NAME || col.column_name || 'unknown',
+              dataType: col.data_type || col.type || col.DATA_TYPE || col.dataType || 'VARCHAR',
+              isNullable:
+                col.isNull === 'Y' || col.is_nullable === 'YES' ||
+                col.IS_NULLABLE === 'YES' || col.isNullable !== false,
+              isPrimaryKey:
+                col.isPk === 'Y' || col.is_primary_key === true ||
+                col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true,
+              isSensitive: false,
+            }));
+            return { id, columns: formattedColumns };
+          } catch (err) {
+            console.error(`[Explore-Design] Lazy column load failed for ${id}:`, err);
+            return null;
+          }
+        }),
+      );
+      if (cancelled) return;
+      const loaded = results.filter(Boolean) as { id: string; columns: ColumnInfo[] }[];
+      if (loaded.length === 0) return;
+      setTableColumnsMap(prev => {
+        const next = new Map(prev);
+        loaded.forEach(r => next.set(r.id, r.columns));
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [modelingTableIds, selectedTables, tables, tableColumnsMap]);
 
   // Load columns when a table is selected
   useEffect(() => {

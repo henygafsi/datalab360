@@ -385,7 +385,7 @@ export async function deployEvents(
   });
   // Step 2 — execute it through the registered v1 route.
   const execResult: any = await executeDeploymentV1(projectId, created.deployment_id);
-  // Normalize the execute envelope back into this function's historical shape so
+  // Normalize the execute envelope back into this function's return shape so
   // existing callers keep working.
   return {
     deployment_id: created.deployment_id,
@@ -447,9 +447,9 @@ export interface ExploreProjectsResponse {
  * Tries v1 API first (GET /projects?project_type=explore_design), falls back to legacy
  *
  * @deprecated Superseded by api/exploreDesignApi.ts equivalents; only referenced by
- * the api-health diagnostic harness (verified 2026-06-08). The primary path
+ * the api-health diagnostic harness. The primary path
  * (GET /projects) is valid, but the catch-fallback `/explore-design/projects` has
- * no backend route in the 852-route manifest. Do not add new callers.
+ * no backend route. Do not add new callers.
  */
 export async function getExploreProjects(): Promise<ExploreProjectsResponse> {
   // Try v1 endpoint first
@@ -480,9 +480,9 @@ export async function getExploreProjects(): Promise<ExploreProjectsResponse> {
  * Tries v1 API first (POST /explore-design), falls back to legacy
  *
  * @deprecated Superseded by api/exploreDesignApi.ts equivalents; only referenced by
- * the api-health diagnostic harness (verified 2026-06-08). The primary path
+ * the api-health diagnostic harness. The primary path
  * (POST /explore-design) is valid, but the catch-fallback `/explore-design/projects`
- * has no backend route in the 852-route manifest. Do not add new callers.
+ * has no backend route. Do not add new callers.
  */
 export async function createExploreProject(
   projectName: string,
@@ -537,8 +537,8 @@ export async function saveProjectState(
 /**
  * Create a new project
  *
- * @deprecated no caller + no backend route (verified 2026-06-08): the sole path
- * `/explore-design/projects` is absent from the 852-route manifest, and the only
+ * @deprecated no caller + no backend route: the sole path
+ * `/explore-design/projects` is absent from the backend, and the only
  * reference is the api-health diagnostic harness. The live project-creation flow
  * uses api/exploreDesignApi.ts (POST /explore-design) and mapping/createProject.ts.
  */
@@ -2312,8 +2312,8 @@ export function generateEventSQL(event: DesignEvent): string {
  * Ensure project exists before adding events
  * Creates the project if it doesn't exist, otherwise returns existing project_id
  *
- * @deprecated no caller + no backend route (verified 2026-06-08): the sole path
- * `/explore-design/projects` is absent from the 852-route manifest, and the only
+ * @deprecated no caller + no backend route: the sole path
+ * `/explore-design/projects` is absent from the backend, and the only
  * reference is the api-health diagnostic harness. The mapping flow uses its own
  * local ensureProjectExists in services/mapping/saveGroups.ts.
  */
