@@ -5052,6 +5052,14 @@ export default function ExploreDesignPage() {
                 deployOverride={deployTabNode}
                 ingestionTrace={selectedIngestion}
                 tabSeverity={rightBarSeverity}
+                emptyOverride={
+                  <ModelOverview
+                    tableCount={tables.length || modelingTableIds.size}
+                    relationCount={tables.length > 0 ? defaultRelationships.length + initialColumnMappings.length : 0}
+                    targetDwh={selectedDatabase || dwhTargetDatabase || ''}
+                    projectId={selectedProjectId}
+                  />
+                }
               />
               </div>{/* end center+right row */}
             </>
