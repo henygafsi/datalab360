@@ -19,7 +19,7 @@
  * Absent / not-deployed feeds degrade to honest "—" / quiet empty states.
  */
 import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Activity, Database, FolderKanban, Gauge, Inbox, KeyRound, Lock, ShieldCheck, ListTree, ToggleRight, UserCog, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
@@ -65,6 +65,8 @@ const TAB_IDS = TABS.map((t) => t.id);
 
 export default function AccessCenterPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const fromUrl = searchParams.get('tab');
   // Back-compat: the old bare `governance` id was renamed to `roleGovernance`;
   // keep existing `?tab=governance` deep-links landing on the same surface.
@@ -76,6 +78,8 @@ export default function AccessCenterPage() {
   const onSelect = (next: TabId) => {
     if (next === tab) return;
     setTab(next);
+    // Sync ?tab= so sections are deep-linkable and back-button-safe.
+    router.replace(`${pathname}?tab=${next}`, { scroll: false });
     trackTabSwitch(next);
   };
 

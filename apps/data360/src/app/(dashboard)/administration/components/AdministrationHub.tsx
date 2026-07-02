@@ -16,10 +16,10 @@
  *   3. access      Access Control     — links to /administration/access-center + embeds RealAccess/RoleGrants panels
  *   4. costGov     Cost Governance   — spend visibility + real warehouse cost-limit controls
  *   5. projects    Projects           — embeds ProjectsMonitoringPanel (live unified roster) + "Manage projects" → governance.projects
- *   6. featureGov  Entitlements & Feature Governance — links to /administration/feature-governance
+ *   6. featureGov  Entitlements & Feature Governance — embeds FeatureGovernanceMatrix
  *   7. apiHealth   API Health         — links to /admin/api-health (live route prober)
  *   8. serverMetrics Server Metrics   — embeds ServerMetricsPanel (live in-memory ops view)
- *   9. config      Config & Settings  — links to /admin/data360-config + /admin/platform-settings
+ *   9. config      Config & Settings  — embeds ConfigSummaryPanel + links to the two editor pages
  *
  * Navigation: vertical option rail (collapsible, icon+label, keyboard-accessible
  * role=tablist/tab + aria-selected + aria-orientation=vertical).
@@ -32,7 +32,7 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   Activity,
   ArrowRight,
@@ -64,6 +64,8 @@ import ProjectsMonitoringPanel from '../access-center/components/ProjectsMonitor
 import ApiCatalogPanel from './ApiCatalogPanel';
 import PerformanceKpiPanel from './PerformanceKpiPanel';
 import ServiceHealthPanel from './ServiceHealthPanel';
+import ConfigSummaryPanel from './ConfigSummaryPanel';
+import FeatureGovernanceMatrix from '../feature-governance/FeatureGovernanceMatrix';
 
 type TabId =
   | 'health'
@@ -176,6 +178,8 @@ function SectionCard({
 
 export default function AdministrationHub() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const { trackTabSwitch, trackFeatureClick } = useTrackEvent();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -190,9 +194,12 @@ export default function AdministrationHub() {
     (next: TabId) => {
       if (next === tab) return;
       setTab(next);
+      // Keep ?tab= in sync so every section is deep-linkable and back-button-safe
+      // (same pattern as /admin/data360-config).
+      router.replace(`${pathname}?tab=${next}`, { scroll: false });
       trackTabSwitch(next);
     },
-    [tab, trackTabSwitch],
+    [tab, trackTabSwitch, router, pathname],
   );
 
   return (
@@ -512,23 +519,23 @@ export default function AdministrationHub() {
               </div>
             )}
 
-            {/* 5. Entitlements & Feature Governance — existing page */}
+            {/* 5. Entitlements & Feature Governance — matrix embedded (no empty tab) */}
             {tab === 'featureGov' && (
-              <SectionCard
-                icon={ToggleRight}
-                title="Entitlements & Feature Governance"
-                description="Per-account feature & addon enablement — govern who can create, run, deploy and manage charts & projects."
-              >
-                <div className="space-y-3">
-                  <OpenLink
-                    href="/administration/feature-governance"
-                    onClick={() =>
-                      trackFeatureClick('open_feature_governance', { from: 'featureGov' })
-                    }
-                  >
-                    Open Feature Governance
-                  </OpenLink>
+              <div className="space-y-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+                  <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Continue in
+                  </p>
                   <CtaRow>
+                    <OpenLink
+                      href="/administration/feature-governance"
+                      variant="secondary"
+                      onClick={() =>
+                        trackFeatureClick('open_feature_governance', { from: 'featureGov' })
+                      }
+                    >
+                      Open full page
+                    </OpenLink>
                     <OpenLink
                       href={routes.governance.policies}
                       variant="secondary"
@@ -538,7 +545,8 @@ export default function AdministrationHub() {
                     </OpenLink>
                   </CtaRow>
                 </div>
-              </SectionCard>
+                <FeatureGovernanceMatrix />
+              </div>
             )}
 
             {/* 6. API Health — existing page */}
@@ -573,37 +581,40 @@ export default function AdministrationHub() {
               </div>
             )}
 
-            {/* 8. Config & Settings — two existing pages */}
+            {/* 8. Config & Settings — live config summary + the two editor pages */}
             {tab === 'config' && (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <SectionCard
-                  icon={Settings2}
-                  title="Config Data360"
-                  description="Metadata, tables, date columns, cache and refresh controls."
-                >
-                  <OpenLink
-                    href={routes.data360Config.view}
-                    onClick={() =>
-                      trackFeatureClick('open_data360_config', { from: 'config' })
-                    }
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <SectionCard
+                    icon={Settings2}
+                    title="Config Data360"
+                    description="Metadata, tables, date columns, cache and refresh controls."
                   >
-                    Open Config Data360
-                  </OpenLink>
-                </SectionCard>
-                <SectionCard
-                  icon={SlidersHorizontal}
-                  title="Platform Settings"
-                  description="Platform-wide configuration entries with refresh and reset controls."
-                >
-                  <OpenLink
-                    href={routes.adminPlatformSettings.view}
-                    onClick={() =>
-                      trackFeatureClick('open_platform_settings', { from: 'config' })
-                    }
+                    <OpenLink
+                      href={routes.data360Config.view}
+                      onClick={() =>
+                        trackFeatureClick('open_data360_config', { from: 'config' })
+                      }
+                    >
+                      Open Config Data360
+                    </OpenLink>
+                  </SectionCard>
+                  <SectionCard
+                    icon={SlidersHorizontal}
+                    title="Platform Settings"
+                    description="Platform-wide configuration entries with refresh and reset controls."
                   >
-                    Open Platform Settings
-                  </OpenLink>
-                </SectionCard>
+                    <OpenLink
+                      href={routes.adminPlatformSettings.view}
+                      onClick={() =>
+                        trackFeatureClick('open_platform_settings', { from: 'config' })
+                      }
+                    >
+                      Open Platform Settings
+                    </OpenLink>
+                  </SectionCard>
+                </div>
+                <ConfigSummaryPanel />
               </div>
             )}
           </div>
