@@ -283,6 +283,16 @@ export default function SecurityMatrixPage() {
     loadAxes();
   }, [loadMatrix, loadAxes]);
 
+  // Deep link from the governance landing cockpit: ?drill=mfa|expiring|orphan
+  // opens the corresponding access-review drill rail on arrival. One-shot read
+  // of window.location (no useSearchParams → no Suspense deopt at build).
+  useEffect(() => {
+    const drill = new URLSearchParams(window.location.search).get('drill');
+    if (drill === 'mfa' || drill === 'expiring' || drill === 'orphan') {
+      setReviewDrill(drill);
+    }
+  }, []);
+
   // Posture header reads (gouvernance:view). Skipped entirely when the caller
   // lacks view; both getters never throw, so no error state is needed here.
   useEffect(() => {

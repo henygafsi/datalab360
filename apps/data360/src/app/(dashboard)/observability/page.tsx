@@ -5,6 +5,7 @@ import { useAtomValue } from 'jotai';
 import { PiWarningCircleBold } from 'react-icons/pi';
 import ObservabilityDashboard from '@/app/shared/observability';
 import Breadcrumb from '@/components/ui/Breadcrumb';
+import ObservabilityCockpitShell from './ObservabilityCockpit';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
@@ -95,6 +96,10 @@ export default function ObservabilityPage() {
   return (
     <div className="@container">
       <Breadcrumb items={[{ label: 'Observability', href: '/observability' }]} />
+      {/* Perf-home cockpit: KPI strip above the dashboard + the unified axis
+          cockpit docked at the right edge. The shell owns all signal fetching;
+          the dashboard below keeps owning its own data (keyed remount intact). */}
+      <ObservabilityCockpitShell>
       <ObservabilityErrorBoundary resetKey={resetKey} onRetry={handleRetry}>
         <ObservabilityDashboard key={resetKey} />
       </ObservabilityErrorBoundary>
@@ -130,6 +135,7 @@ export default function ObservabilityPage() {
           Governance (Compliance)
         </a>
       </div>
+      </ObservabilityCockpitShell>
     </div>
   );
 }

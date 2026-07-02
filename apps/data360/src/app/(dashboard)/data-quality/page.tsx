@@ -16,6 +16,7 @@ import {
   Lightbulb, ChevronDown, ChevronUp,
   Info, Play, Download, Plus, Link2, CalendarClock, Loader2, Sparkles,
   ListChecks, Trash2, ScanSearch, SlidersHorizontal,
+  Gauge, TrendingUp,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -59,6 +60,7 @@ import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlo
 import InsightActionButton from '@/app/shared/insights/InsightActionButton';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 import SmartRightBar from './components/SmartRightBar';
+import AxisCockpit, { type AxisDef, type AxisSeverity } from '@/app/shared/cockpit/AxisCockpit';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import { useProjectContext } from '@/hooks/useProjectContext';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
@@ -1104,6 +1106,133 @@ function TrendChart({ trendData }: { trendData: MetricRow[] }) {
   );
 }
 
+// ── AxisCockpit helpers (unified right cockpit, 2026-07-02 redesign) ──
+// Small presentational primitives for the cockpit axis panels. They follow the
+// page's gray palette + honest "—" convention (absent → dash, real 0 preserved).
+
+function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '—';
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`;
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${Math.round(n)} B`;
+}
+
+const SPARK_CHARS = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+/** Unicode sparkline — "text ok" trend summary for the History axis. */
+function textSparkline(values: number[]): string {
+  if (values.length === 0) return '';
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  return values
+    .map((v) => SPARK_CHARS[Math.min(SPARK_CHARS.length - 1, Math.max(0, Math.floor(((v - min) / span) * (SPARK_CHARS.length - 1))))])
+    .join('');
+}
+
+/** Group trend rows by day and average the values (mirrors TrendChart's grouping). */
+function dailyTrendAverages(trendData: MetricRow[]): { day: string; value: number }[] {
+  const byDay = new Map<string, { sum: number; count: number }>();
+  for (const row of trendData) {
+    const day = String(row.day || row.DAY || row.DATE || '');
+    if (!day) continue;
+    const val = Number(row.avg_value || row.AVG_VALUE || row.VALUE || 0);
+    const e = byDay.get(day) || { sum: 0, count: 0 };
+    e.sum += val;
+    e.count += 1;
+    byDay.set(day, e);
+  }
+  return Array.from(byDay.entries())
+    .map(([day, e]) => ({ day, value: e.count ? Math.round((e.sum / e.count) * 100) / 100 : 0 }))
+    .sort((a, b) => a.day.localeCompare(b.day));
+}
+
+const COCKPIT_TONE_CLS: Record<'ok' | 'warn' | 'bad', string> = {
+  ok: 'text-green-600 dark:text-green-400',
+  warn: 'text-amber-600 dark:text-amber-400',
+  bad: 'text-red-600 dark:text-red-400',
+};
+
+function CockpitStat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: 'ok' | 'warn' | 'bad' }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 py-1.5">
+      <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
+      <span className={cn('text-sm font-semibold tabular-nums text-right', tone ? COCKPIT_TONE_CLS[tone] : 'text-gray-900 dark:text-white')}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function CockpitStatCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 px-3 divide-y divide-gray-100 dark:divide-gray-800">
+      {children}
+    </div>
+  );
+}
+
+function CockpitSectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+      {children}
+    </p>
+  );
+}
+
+function CockpitListRow({
+  primary,
+  secondary,
+  value,
+  valueTone,
+}: {
+  primary: string;
+  secondary?: string;
+  value?: React.ReactNode;
+  valueTone?: 'ok' | 'warn' | 'bad';
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5">
+      <div className="min-w-0">
+        <p className="truncate text-xs font-medium text-gray-800 dark:text-gray-200">{primary}</p>
+        {secondary && <p className="truncate text-[11px] text-gray-500 dark:text-gray-400">{secondary}</p>}
+      </div>
+      {value !== undefined && (
+        <span className={cn('whitespace-nowrap font-mono text-[11px]', valueTone ? COCKPIT_TONE_CLS[valueTone] : 'text-gray-600 dark:text-gray-300')}>
+          {value}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function CockpitSkeleton() {
+  return (
+    <div className="space-y-1.5">
+      <SkeletonBar className="h-8 w-full" />
+      <SkeletonBar className="h-8 w-full" />
+      <SkeletonBar className="h-8 w-3/4" />
+    </div>
+  );
+}
+
+function CockpitInlineError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-red-500" />
+      <div className="min-w-0 flex-1">
+        <p className="break-words text-xs text-red-600 dark:text-red-400">{message}</p>
+        {onRetry && (
+          <button type="button" onClick={onRetry} className="mt-1 text-xs font-medium text-red-700 underline dark:text-red-400">
+            Retry
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ──
 
 export default function DataQualityPage() {
@@ -1270,6 +1399,22 @@ export default function DataQualityPage() {
   const [thrError, setThrError] = useState<string | null>(null);
   const [thrRules, setThrRules] = useState<DmfThresholdRule[] | null>(null);
   const [thrRulesLoading, setThrRulesLoading] = useState(false);
+
+  // ── AxisCockpit (unified right cockpit) — open/axis are controlled here so the
+  // KPI cards can deep-link into an axis. Axis data is lazy (fetched on open) and
+  // REUSES page state (tabData / summary / trend / breaches) when already loaded.
+  const [cockpitOpen, setCockpitOpen] = useState(false);
+  const [cockpitAxis, setCockpitAxis] = useState<string | null>('dq_score');
+  // Cockpit-scoped fetch state for dimensions the user has not opened as a tab
+  // yet. Kept separate from tabLoading so a cockpit fetch never flashes the main
+  // table's skeleton for an unrelated tab.
+  const [cockpitTabLoading, setCockpitTabLoading] = useState<Record<string, boolean>>({});
+  const [cockpitTabErrors, setCockpitTabErrors] = useState<Record<string, string | null>>({});
+  const [cockpitProfiling, setCockpitProfiling] = useState(false);
+  // Server anomalies for the AI axis: undefined = not requested yet, null =
+  // endpoint unavailable (honest fallback to rule-based findings), [] / rows = real answer.
+  const [aiAnomalies, setAiAnomalies] = useState<MetricRow[] | null | undefined>(undefined);
+  const [aiAnomaliesLoading, setAiAnomaliesLoading] = useState(false);
 
   const loadSummary = useCallback(async (force = false) => {
     try {
@@ -1983,6 +2128,95 @@ export default function DataQualityPage() {
     }
   }, [thrTable, thrColumn, thrMetric, thrType, thrMin, thrMax, loadThresholds, loadDmfBreaches, trackFeatureClick]);
 
+  // ── AxisCockpit lazy fetchers + axis open/close ──
+
+  // Fetch a dimension for the cockpit ONLY when the page has not loaded it yet.
+  // Writes into the shared tabData so the main table, recommendations and charts
+  // all benefit; goes through fetchQualityData (same in-flight dedupe) but keeps
+  // its own loading/error state so the active tab's skeleton is untouched.
+  const ensureCockpitTab = useCallback(async (tab: string) => {
+    if (tabData[tab] !== undefined || cockpitTabLoading[tab]) return;
+    setCockpitTabLoading((prev) => ({ ...prev, [tab]: true }));
+    setCockpitTabErrors((prev) => ({ ...prev, [tab]: null }));
+    try {
+      const apiPath = TAB_API_PATHS[tab] ? TAB_API_PATHS[tab]() : `/data-quality/${TAB_ENDPOINTS[tab] || tab}`;
+      const params = PAGINATED_TABS.has(tab) ? { offset: 0, limit: 50 } : undefined;
+      const data = await fetchQualityData(apiPath, false, params);
+      const rows = data?.rows || data?.results || data?.metrics || data?.data || data || [];
+      // A tab click may have landed exact paginated rows in the meantime — keep those.
+      setTabData((prev) => (prev[tab] !== undefined ? prev : { ...prev, [tab]: Array.isArray(rows) ? (rows as MetricRow[]) : [] }));
+    } catch (err) {
+      setCockpitTabErrors((prev) => ({
+        ...prev,
+        [tab]: err instanceof Error ? err.message : `Failed to load ${tab}`,
+      }));
+    } finally {
+      setCockpitTabLoading((prev) => ({ ...prev, [tab]: false }));
+    }
+  }, [tabData, cockpitTabLoading]);
+
+  // GET /data-quality/anomalies once per page life — the route is a known backend
+  // gap, so a failure degrades to null (the AI axis then shows the rule-based
+  // findings with an honest note) instead of erroring or faking data.
+  const loadAiAnomalies = useCallback(async () => {
+    if (aiAnomalies !== undefined || aiAnomaliesLoading) return;
+    setAiAnomaliesLoading(true);
+    try {
+      const data = await fetchQualityData(API.dataQuality.anomalies());
+      const rows = data?.anomalies || data?.rows || data?.data || data || [];
+      setAiAnomalies(Array.isArray(rows) ? (rows as MetricRow[]) : []);
+    } catch {
+      setAiAnomalies(null);
+    } finally {
+      setAiAnomaliesLoading(false);
+    }
+  }, [aiAnomalies, aiAnomaliesLoading]);
+
+  // Auto-profile the selected table from the cockpit AI axis — same service the
+  // header Profiler button uses (gated by the 'run' action), with toast + refetch.
+  const handleCockpitAutoProfile = useCallback(async () => {
+    if (!selectedRow || cockpitProfiling) return;
+    const fqn = buildFqnFromRow(selectedRow);
+    if (!fqn) return;
+    const parts = fqn.split('.');
+    const table = parts.pop() || String(selectedRow.TABLE_NAME ?? '');
+    const schema = parts.pop() || String(selectedRow.SCHEMA_NAME ?? selectedRow.TABLE_SCHEMA ?? 'PUBLIC');
+    const database = parts.join('.') || 'CP_DATA360';
+    trackFeatureClick('cockpit_auto_profile', { table: `${database}.${schema}.${table}` });
+    setCockpitProfiling(true);
+    try {
+      await autoProfileTable(database, schema, table);
+      toast.success(`Column stats refreshed for ${table}`);
+      void loadSummary(true);
+      void loadTabData(activeTab, true);
+      void loadRightbarData(selectedRow);
+    } catch (err) {
+      toast.error(toServiceError(err, 'Auto-profile failed').message);
+    } finally {
+      setCockpitProfiling(false);
+    }
+  }, [selectedRow, cockpitProfiling, activeTab, loadSummary, loadTabData, loadRightbarData, trackFeatureClick]);
+
+  // Open a cockpit axis (rail click or KPI click-through) and lazily fetch what
+  // that axis needs — page state is reused whenever it is already present.
+  const openCockpitAxis = useCallback((id: string) => {
+    trackFeatureClick('cockpit_axis_open', { axis: id });
+    setCockpitAxis(id);
+    setCockpitOpen(true);
+    if (id === 'freshness') void ensureCockpitTab('freshness');
+    else if (id === 'integrity') {
+      void ensureCockpitTab('completeness');
+      void ensureCockpitTab('uniqueness');
+    } else if (id === 'cost') void ensureCockpitTab('cost');
+    else if (id === 'thresholds') {
+      if (thrRules === null && !thrRulesLoading) void loadThresholds();
+    } else if (id === 'history') {
+      if (trendData.length === 0 && !trendError) void loadTrend();
+    } else if (id === 'ai') void loadAiAnomalies();
+  }, [ensureCockpitTab, thrRules, thrRulesLoading, loadThresholds, trendData.length, trendError, loadTrend, loadAiAnomalies, trackFeatureClick]);
+
+  const closeCockpit = useCallback(() => setCockpitOpen(false), []);
+
   // Compute filtered data
   const filteredData = useMemo(() => {
     let rows = tabData[activeTab] || [];
@@ -2072,6 +2306,8 @@ export default function DataQualityPage() {
     value: string | number;
     icon: React.ComponentType<{ className?: string }>;
     color: string;
+    /** Cockpit axis this KPI deep-links to — clicking the card opens it. */
+    axis: string;
     help?: MetricHelpProps;
     cta?: { label: string; onClick: () => void };
   }[] = [
@@ -2080,6 +2316,7 @@ export default function DataQualityPage() {
       value: summary ? `${summary.health_score}%` : '—',
       icon: BarChart3,
       color: healthColor,
+      axis: 'dq_score',
       help: {
         title: 'Quality Score',
         definition: 'Weighted pass-rate across all data metric checks — the headline indicator of overall data health.',
@@ -2092,6 +2329,7 @@ export default function DataQualityPage() {
       value: summary?.total_tables ?? '—',
       icon: Database,
       color: 'from-blue-400 to-indigo-500',
+      axis: 'dq_score',
       help: {
         title: 'Monitored Tables',
         definition: 'Number of tables currently under quality monitoring across all dimensions.',
@@ -2103,6 +2341,7 @@ export default function DataQualityPage() {
       value: summary ? `${summary.freshness_violations}${summary.freshness_violation_pct != null ? ` (${summary.freshness_violation_pct}%)` : ''}` : '—',
       icon: AlertTriangle,
       color: 'from-amber-400 to-orange-500',
+      axis: 'freshness',
       help: {
         title: 'Violations',
         definition: 'Checks breaching their freshness threshold — tables whose time since last successful load exceeds the configured SLA.',
@@ -2118,6 +2357,7 @@ export default function DataQualityPage() {
       value: summary ? `${summary.dmf_pass_rate}%` : '—',
       icon: Activity,
       color: 'from-rose-400 to-pink-500',
+      axis: 'thresholds',
       help: {
         title: 'Completeness & Check Pass Rate',
         definition: 'Share of data metric checks that pass their thresholds, including completeness (% non-null across monitored columns).',
@@ -2130,14 +2370,525 @@ export default function DataQualityPage() {
       value: summary?.checks_run_30d ?? '—',
       icon: CheckCircle2,
       color: 'from-cyan-400 to-teal-500',
+      axis: 'history',
       help: {
         title: 'Freshness',
         definition: 'Quality checks executed in the last 30 days; freshness measures time since each table’s last successful load versus its SLA.',
         source: 'metering history',
       },
     },
-    { label: 'Schema Chg', value: summary?.schema_changes_30d ?? '—', icon: Table2, color: 'from-purple-400 to-violet-500' },
-    { label: 'DQ Credits', value: summary?.dq_credits_30d ?? '—', icon: DollarSign, color: 'from-lime-400 to-green-500' },
+    { label: 'Schema Chg', value: summary?.schema_changes_30d ?? '—', icon: Table2, color: 'from-purple-400 to-violet-500', axis: 'integrity' },
+    { label: 'DQ Credits', value: summary?.dq_credits_30d ?? '—', icon: DollarSign, color: 'from-lime-400 to-green-500', axis: 'cost' },
+  ];
+
+  // ── Cockpit severities — breach-level signals → 'blocker', warning-level →
+  // 'warn', clean → 'ok'; 'idle' = the dimension has not been loaded yet. ──
+  const criticalRecCount = recommendations.filter((r) => r.severity === 'critical').length;
+  const dupColumns = (tabData.uniqueness || []).filter((r) => Number(r.DUPLICATE_COUNT || 0) > 0).length;
+  const lowCompColumns = (tabData.completeness || []).filter((r) => r.COMPLETENESS_PCT != null && Number(r.COMPLETENESS_PCT) < 80).length;
+  const veryLowCompColumns = (tabData.completeness || []).filter((r) => r.COMPLETENESS_PCT != null && Number(r.COMPLETENESS_PCT) < 50).length;
+
+  const cockpitDqSeverity: AxisSeverity = !summary ? 'idle'
+    : dmfBreaches.length > 0 || summary.health_score < 50 ? 'blocker'
+      : summary.health_score < 80 || criticalRecCount > 0 ? 'warn' : 'ok';
+  const cockpitFreshSeverity: AxisSeverity = !summary ? 'idle'
+    : (tabData.freshness || []).some((r) => Number(r.AGE_HOURS || 0) > 168) ? 'blocker'
+      : (summary.freshness_violations ?? 0) > 0 ? 'warn' : 'ok';
+  const cockpitIntegritySeverity: AxisSeverity =
+    tabData.uniqueness === undefined && tabData.completeness === undefined ? 'idle'
+      : veryLowCompColumns > 0 ? 'blocker'
+        : dupColumns > 0 || lowCompColumns > 0 ? 'warn' : 'ok';
+  const cockpitThresholdSeverity: AxisSeverity = dmfBreaches.length > 0 ? 'blocker'
+    : (thrRules?.length ?? 0) > 0 ? 'ok' : 'idle';
+  const cockpitCostSeverity: AxisSeverity = tabData.cost === undefined ? 'idle' : 'ok';
+  const cockpitHistorySeverity: AxisSeverity = trendError ? 'warn' : trendData.length > 0 ? 'ok' : 'idle';
+  const cockpitAiSeverity: AxisSeverity = loading ? 'idle'
+    : criticalRecCount > 0 || (aiAnomalies?.length ?? 0) > 0 ? 'warn' : 'ok';
+
+  // ── Cockpit axes — Data Quality is this module's HOME axis (listed first).
+  // Bodies render lazily (AxisCockpit only invokes the active axis' render). ──
+  const cockpitAxes: AxisDef[] = [
+    {
+      id: 'dq_score',
+      label: 'Data Quality',
+      railLabel: 'DQ',
+      icon: Gauge,
+      severity: cockpitDqSeverity,
+      badge: dmfBreaches.length > 0
+        ? `${dmfBreaches.length} ${dmfBreaches.length === 1 ? 'breach' : 'breaches'}`
+        : recommendations.length > 0 ? `${recommendations.length} findings` : undefined,
+      render: () => (
+        <div className="space-y-4">
+          <div>
+            <div className="flex items-baseline gap-2">
+              <span className={cn(
+                'text-3xl font-bold tabular-nums',
+                !summary ? 'text-gray-400 dark:text-gray-500'
+                  : summary.health_score > 80 ? 'text-green-600 dark:text-green-400'
+                    : summary.health_score >= 50 ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-red-600 dark:text-red-400',
+              )}>
+                {summary ? `${summary.health_score}%` : '—'}
+              </span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">health score</span>
+            </div>
+            <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+              Weighted pass-rate across all quality checks (30-day window).
+            </p>
+          </div>
+          <CockpitStatCard>
+            <CockpitStat label="Threshold breaches" value={loading ? '—' : dmfBreaches.length} tone={dmfBreaches.length > 0 ? 'bad' : 'ok'} />
+            <CockpitStat label="Open findings" value={loading ? '—' : recommendations.length} tone={recommendations.length > 0 ? 'warn' : 'ok'} />
+            <CockpitStat label="Freshness violations" value={summary?.freshness_violations ?? '—'} tone={(summary?.freshness_violations ?? 0) > 0 ? 'warn' : 'ok'} />
+            <CockpitStat label="Check pass rate" value={summary ? `${summary.dmf_pass_rate}%` : '—'} />
+            <CockpitStat label="Monitored tables" value={summary?.total_tables ?? '—'} />
+            <CockpitStat label="Checks run (30d)" value={summary?.checks_run_30d ?? '—'} />
+          </CockpitStatCard>
+          {recommendations.length > 0 && (
+            <div>
+              <CockpitSectionTitle>Top findings</CockpitSectionTitle>
+              <div className="space-y-1.5">
+                {recommendations.slice(0, 4).map((r) => (
+                  <CockpitListRow
+                    key={r.id}
+                    primary={r.title}
+                    secondary={r.category}
+                    value={r.severity}
+                    valueTone={r.severity === 'critical' ? 'bad' : r.severity === 'warning' ? 'warn' : undefined}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'freshness',
+      label: 'Freshness',
+      railLabel: 'Fresh',
+      icon: Clock,
+      severity: cockpitFreshSeverity,
+      badge: summary && (summary.freshness_violations ?? 0) > 0 ? `${summary.freshness_violations} violations` : undefined,
+      render: () => {
+        const rows = tabData.freshness;
+        const err = cockpitTabErrors.freshness;
+        const isLoading = Boolean(cockpitTabLoading.freshness) || (rows === undefined && !err);
+        const stale48 = (rows || []).filter((r) => Number(r.AGE_HOURS || 0) > 48);
+        const oldest = [...(rows || [])]
+          .sort((a, b) => Number(b.AGE_HOURS || 0) - Number(a.AGE_HOURS || 0))
+          .slice(0, 5);
+        return (
+          <div className="space-y-4">
+            <CockpitStatCard>
+              <CockpitStat
+                label="SLA violations"
+                value={summary ? `${summary.freshness_violations}${summary.freshness_violation_pct != null ? ` (${summary.freshness_violation_pct}%)` : ''}` : '—'}
+                tone={(summary?.freshness_violations ?? 0) > 0 ? 'warn' : 'ok'}
+              />
+              <CockpitStat label="Stale > 48h" value={rows === undefined ? '—' : stale48.length} tone={stale48.length > 0 ? 'warn' : 'ok'} />
+              <CockpitStat label="Tables tracked" value={rows === undefined ? '—' : rows.length} />
+            </CockpitStatCard>
+            {err ? (
+              <CockpitInlineError message={err} onRetry={() => void ensureCockpitTab('freshness')} />
+            ) : isLoading ? (
+              <CockpitSkeleton />
+            ) : oldest.length === 0 ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400">No freshness data available.</p>
+            ) : (
+              <div>
+                <CockpitSectionTitle>Oldest tables</CockpitSectionTitle>
+                <div className="space-y-1.5">
+                  {oldest.map((r, i) => {
+                    const hours = Number(r.AGE_HOURS || 0);
+                    return (
+                      <CockpitListRow
+                        key={`${String(r.TABLE_NAME ?? i)}-${i}`}
+                        primary={String(r.TABLE_NAME ?? '—')}
+                        secondary={String(r.SCHEMA_NAME ?? '') || undefined}
+                        value={`${hours.toFixed(1)} h`}
+                        valueTone={hours > 168 ? 'bad' : hours > 48 ? 'warn' : 'ok'}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => { trackTabSwitch('freshness'); setActiveTab('freshness'); }}
+              className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Open Freshness tab →
+            </button>
+          </div>
+        );
+      },
+    },
+    {
+      id: 'integrity',
+      label: 'Integrity',
+      railLabel: 'Integrity',
+      icon: Fingerprint,
+      severity: cockpitIntegritySeverity,
+      badge: dupColumns + lowCompColumns > 0 ? `${dupColumns + lowCompColumns} issues` : undefined,
+      render: () => {
+        const comp = tabData.completeness;
+        const uniq = tabData.uniqueness;
+        const compErr = cockpitTabErrors.completeness;
+        const uniqErr = cockpitTabErrors.uniqueness;
+        const compLoading = Boolean(cockpitTabLoading.completeness) || (comp === undefined && !compErr);
+        const uniqLoading = Boolean(cockpitTabLoading.uniqueness) || (uniq === undefined && !uniqErr);
+        const compPcts = (comp || [])
+          .map((r) => (r.COMPLETENESS_PCT == null ? null : Number(r.COMPLETENESS_PCT)))
+          .filter((v): v is number => v !== null && Number.isFinite(v));
+        const avgComp = compPcts.length ? compPcts.reduce((s, v) => s + v, 0) / compPcts.length : null;
+        const worstComp = [...(comp || [])]
+          .filter((r) => r.COMPLETENESS_PCT != null)
+          .sort((a, b) => Number(a.COMPLETENESS_PCT) - Number(b.COMPLETENESS_PCT))
+          .slice(0, 3);
+        const topDupes = [...(uniq || [])]
+          .filter((r) => Number(r.DUPLICATE_COUNT || 0) > 0)
+          .sort((a, b) => Number(b.DUPLICATE_COUNT || 0) - Number(a.DUPLICATE_COUNT || 0))
+          .slice(0, 3);
+        return (
+          <div className="space-y-4">
+            <CockpitStatCard>
+              <CockpitStat
+                label="Avg completeness"
+                value={comp === undefined || avgComp === null ? '—' : `${avgComp.toFixed(1)}%`}
+                tone={avgComp === null ? undefined : avgComp < 80 ? 'warn' : 'ok'}
+              />
+              <CockpitStat label="Columns < 80% complete" value={comp === undefined ? '—' : lowCompColumns} tone={lowCompColumns > 0 ? 'warn' : 'ok'} />
+              <CockpitStat label="Columns with duplicates" value={uniq === undefined ? '—' : dupColumns} tone={dupColumns > 0 ? 'warn' : 'ok'} />
+            </CockpitStatCard>
+            {compErr ? (
+              <CockpitInlineError message={compErr} onRetry={() => void ensureCockpitTab('completeness')} />
+            ) : compLoading ? (
+              <CockpitSkeleton />
+            ) : worstComp.length > 0 && (
+              <div>
+                <CockpitSectionTitle>Lowest completeness</CockpitSectionTitle>
+                <div className="space-y-1.5">
+                  {worstComp.map((r, i) => (
+                    <CockpitListRow
+                      key={`${String(r.TABLE_NAME ?? i)}-${String(r.COLUMN_NAME ?? i)}`}
+                      primary={`${String(r.TABLE_NAME ?? '—')}.${String(r.COLUMN_NAME ?? '—')}`}
+                      value={`${Number(r.COMPLETENESS_PCT).toFixed(1)}%`}
+                      valueTone={Number(r.COMPLETENESS_PCT) < 50 ? 'bad' : Number(r.COMPLETENESS_PCT) < 80 ? 'warn' : 'ok'}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {uniqErr ? (
+              <CockpitInlineError message={uniqErr} onRetry={() => void ensureCockpitTab('uniqueness')} />
+            ) : uniqLoading ? (
+              <CockpitSkeleton />
+            ) : topDupes.length > 0 ? (
+              <div>
+                <CockpitSectionTitle>Duplicate hot-spots</CockpitSectionTitle>
+                <div className="space-y-1.5">
+                  {topDupes.map((r, i) => (
+                    <CockpitListRow
+                      key={`${String(r.TABLE_NAME ?? i)}-${String(r.COLUMN_NAME ?? i)}`}
+                      primary={`${String(r.TABLE_NAME ?? '—')}.${String(r.COLUMN_NAME ?? '—')}`}
+                      value={`${Number(r.DUPLICATE_COUNT || 0).toLocaleString()} dupes`}
+                      valueTone="warn"
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500 dark:text-gray-400">No duplicate keys detected in the monitored columns.</p>
+            )}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => { trackTabSwitch('completeness'); setActiveTab('completeness'); }}
+                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Completeness tab →
+              </button>
+              <button
+                type="button"
+                onClick={() => { trackTabSwitch('uniqueness'); setActiveTab('uniqueness'); }}
+                className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                Uniqueness tab →
+              </button>
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      id: 'thresholds',
+      label: 'Thresholds',
+      railLabel: 'Rules',
+      icon: SlidersHorizontal,
+      severity: cockpitThresholdSeverity,
+      badge: dmfBreaches.length > 0
+        ? `${dmfBreaches.length} ${dmfBreaches.length === 1 ? 'breach' : 'breaches'}`
+        : thrRules ? `${thrRules.length} rules` : undefined,
+      primaryCta: {
+        label: 'Set threshold',
+        onClick: openThresholdRail,
+        disabled: !canCreateDmf,
+        title: !canCreateDmf
+          ? 'You lack the "create" permission on data quality. Ask an administrator to grant it.'
+          : 'Open the Save-threshold rail',
+      },
+      render: () => (
+        <div className="space-y-4">
+          <CockpitStatCard>
+            <CockpitStat label="Active rules" value={thrRules === null ? '—' : thrRules.length} />
+            <CockpitStat label="Breaches" value={dmfBreaches.length} tone={dmfBreaches.length > 0 ? 'bad' : 'ok'} />
+          </CockpitStatCard>
+          {dmfBreaches.length > 0 && (
+            <div>
+              <CockpitSectionTitle>Active breaches</CockpitSectionTitle>
+              <div className="space-y-1.5">
+                {dmfBreaches.slice(0, 4).map((b, i) => (
+                  <CockpitListRow
+                    key={`${String(b.METRIC_NAME ?? i)}-${String(b.TABLE_NAME ?? i)}-${i}`}
+                    primary={String(b.METRIC_NAME ?? '—')}
+                    secondary={String(b.TABLE_NAME ?? '') || undefined}
+                    value={b.VALUE != null ? Number(b.VALUE).toLocaleString() : undefined}
+                    valueTone="bad"
+                  />
+                ))}
+                {dmfBreaches.length > 4 && (
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">+{dmfBreaches.length - 4} more — see the DMF Results tab.</p>
+                )}
+              </div>
+            </div>
+          )}
+          <div>
+            <CockpitSectionTitle>Rules</CockpitSectionTitle>
+            {thrRulesLoading ? (
+              <CockpitSkeleton />
+            ) : thrRules && thrRules.length > 0 ? (
+              <div className="space-y-1.5">
+                {thrRules.slice(0, 6).map((r, i) => {
+                  const tbl = String(r.TABLE_NAME ?? r.table_name ?? '?');
+                  const met = String(r.METRIC ?? r.METRIC_NAME ?? r.metric ?? '?');
+                  const thr = r.THRESHOLD ?? r.threshold;
+                  const op = String(r.OPERATOR ?? r.operator ?? '');
+                  return (
+                    <CockpitListRow
+                      key={`${tbl}-${met}-${i}`}
+                      primary={met}
+                      secondary={tbl}
+                      value={thr != null ? `${op} ${Number(thr).toLocaleString()}` : undefined}
+                    />
+                  );
+                })}
+                {thrRules.length > 6 && (
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">+{thrRules.length - 6} more rules</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                No thresholds saved yet — save one so failing metrics surface as breaches.
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => { trackTabSwitch('dmf'); setActiveTab('dmf'); }}
+            className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+          >
+            Open DMF Results tab →
+          </button>
+        </div>
+      ),
+    },
+    {
+      id: 'cost',
+      label: 'Storage Cost',
+      railLabel: 'Cost',
+      icon: DollarSign,
+      severity: cockpitCostSeverity,
+      badge: tabData.cost !== undefined ? `${tabData.cost.length} tables` : undefined,
+      render: () => {
+        const rows = tabData.cost;
+        const err = cockpitTabErrors.cost;
+        const isLoading = Boolean(cockpitTabLoading.cost) || (rows === undefined && !err);
+        const totals = (rows || []).map((r) => ({
+          table: String(r.TABLE_NAME ?? '—'),
+          schema: String(r.SCHEMA_NAME ?? ''),
+          bytes: Number(r.ACTIVE_BYTES || 0) + Number(r.TIME_TRAVEL_BYTES || 0) + Number(r.FAILSAFE_BYTES || 0),
+        }));
+        const totalBytes = totals.reduce((s, t) => s + t.bytes, 0);
+        const top = [...totals].sort((a, b) => b.bytes - a.bytes).slice(0, 5);
+        return (
+          <div className="space-y-4">
+            <CockpitStatCard>
+              <CockpitStat label="DQ credits (30d)" value={summary?.dq_credits_30d ?? '—'} />
+              <CockpitStat label="Monitored storage" value={rows === undefined ? '—' : formatBytes(totalBytes)} />
+              <CockpitStat label="Tables measured" value={rows === undefined ? '—' : rows.length} />
+            </CockpitStatCard>
+            {err ? (
+              <CockpitInlineError message={err} onRetry={() => void ensureCockpitTab('cost')} />
+            ) : isLoading ? (
+              <CockpitSkeleton />
+            ) : top.length === 0 ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400">No storage data available.</p>
+            ) : (
+              <div>
+                <CockpitSectionTitle>Top storage offenders</CockpitSectionTitle>
+                <div className="space-y-1.5">
+                  {top.map((t, i) => (
+                    <CockpitListRow
+                      key={`${t.table}-${i}`}
+                      primary={t.table}
+                      secondary={t.schema || undefined}
+                      value={formatBytes(t.bytes)}
+                      valueTone={i === 0 ? 'warn' : undefined}
+                    />
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                  Sizes include active, time-travel and fail-safe storage. Credit spend for quality checks is shown above.
+                </p>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => { trackTabSwitch('cost'); setActiveTab('cost'); }}
+              className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+            >
+              Open Storage tab →
+            </button>
+          </div>
+        );
+      },
+    },
+    {
+      id: 'history',
+      label: 'History',
+      railLabel: 'History',
+      icon: TrendingUp,
+      severity: cockpitHistorySeverity,
+      render: () => {
+        const daily = dailyTrendAverages(trendData);
+        const spark = textSparkline(daily.map((d) => d.value));
+        const first = daily[0];
+        const last = daily[daily.length - 1];
+        const deltaPct = first && last && first.value !== 0
+          ? ((last.value - first.value) / Math.abs(first.value)) * 100
+          : null;
+        return (
+          <div className="space-y-4">
+            {trendError ? (
+              <CockpitInlineError message={trendError} onRetry={() => void loadTrend(true)} />
+            ) : daily.length === 0 ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                No trend measurements yet — run checks over a few days to build a history.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <CockpitSectionTitle>Daily avg metric trend</CockpitSectionTitle>
+                  <div className="font-mono text-2xl leading-none tracking-tight text-blue-600 dark:text-blue-400" aria-hidden>
+                    {spark}
+                  </div>
+                  <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                    {first?.day} → {last?.day}
+                  </p>
+                </div>
+                <CockpitStatCard>
+                  <CockpitStat label="Days measured" value={daily.length} />
+                  <CockpitStat label="Latest daily avg" value={last ? last.value.toLocaleString() : '—'} />
+                  <CockpitStat
+                    label="Change over window"
+                    value={deltaPct === null ? '—' : `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%`}
+                  />
+                </CockpitStatCard>
+              </>
+            )}
+            <CockpitStatCard>
+              <CockpitStat label="Checks run (30d)" value={summary?.checks_run_30d ?? '—'} />
+              <CockpitStat label="Schema changes (30d)" value={summary?.schema_changes_30d ?? '—'} />
+            </CockpitStatCard>
+          </div>
+        );
+      },
+    },
+    {
+      id: 'ai',
+      label: 'AI & Profiling',
+      railLabel: 'AI',
+      icon: Sparkles,
+      severity: cockpitAiSeverity,
+      badge: criticalRecCount > 0 ? `${criticalRecCount} critical` : undefined,
+      primaryCta: {
+        label: cockpitProfiling ? 'Profiling…' : 'Auto-profile',
+        onClick: () => { void handleCockpitAutoProfile(); },
+        disabled: cockpitProfiling || !canRunCheck || !selectedRow || !buildFqnFromRow(selectedRow),
+        title: !canRunCheck
+          ? 'You lack the "run" permission on data quality. Ask an administrator to grant it.'
+          : !selectedRow
+            ? 'Select a table row first — Auto-profile runs on a single table'
+            : `Recompute column statistics for ${buildFqnFromRow(selectedRow)}`,
+      },
+      render: () => (
+        <div className="space-y-4">
+          <div>
+            <CockpitSectionTitle>Anomalies</CockpitSectionTitle>
+            {aiAnomaliesLoading ? (
+              <CockpitSkeleton />
+            ) : aiAnomalies === null ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Server-side anomaly detection is not available on this backend yet — the findings below are rule-based, computed from the loaded metrics.
+              </p>
+            ) : aiAnomalies && aiAnomalies.length === 0 ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400">No anomalies reported.</p>
+            ) : aiAnomalies && aiAnomalies.length > 0 ? (
+              <div className="space-y-1.5">
+                {aiAnomalies.slice(0, 5).map((a, i) => (
+                  <CockpitListRow
+                    key={i}
+                    primary={String(a.TABLE_NAME ?? a.table_name ?? a.METRIC_NAME ?? a.metric ?? `Anomaly ${i + 1}`)}
+                    secondary={String(a.DESCRIPTION ?? a.description ?? a.ANOMALY_TYPE ?? a.type ?? '') || undefined}
+                    valueTone="warn"
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <CockpitStatCard>
+            <CockpitStat label="Rule-based findings" value={loading ? '—' : recommendations.length} tone={recommendations.length > 0 ? 'warn' : 'ok'} />
+            <CockpitStat label="Critical" value={loading ? '—' : criticalRecCount} tone={criticalRecCount > 0 ? 'bad' : 'ok'} />
+          </CockpitStatCard>
+          {recommendations.length > 0 && (
+            <div>
+              <CockpitSectionTitle>Top findings</CockpitSectionTitle>
+              <div className="space-y-1.5">
+                {recommendations.slice(0, 3).map((r) => (
+                  <CockpitListRow
+                    key={r.id}
+                    primary={r.title}
+                    secondary={r.category}
+                    value={r.severity}
+                    valueTone={r.severity === 'critical' ? 'bad' : r.severity === 'warning' ? 'warn' : undefined}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            Auto-profile recomputes row, null and distinct counts plus a quality score for the selected table, then refreshes the dashboard.
+          </p>
+          {!selectedRow && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400">
+              Select a table row in the metrics table to enable Auto-profile.
+            </p>
+          )}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -2355,19 +3106,38 @@ export default function DataQualityPage() {
             {kpis.map((kpi) => {
               const Icon = kpi.icon;
               return (
-                <div key={kpi.label} className="flex items-center gap-2.5 px-3 py-2.5">
+                // Click-through: each KPI deep-links to its cockpit axis (kpi.axis).
+                // Inner interactive elements (help popover, CTA) stop propagation.
+                <div
+                  key={kpi.label}
+                  role="button"
+                  tabIndex={0}
+                  title={`Open the ${kpi.label} axis in the quality cockpit`}
+                  onClick={() => openCockpitAxis(kpi.axis)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      openCockpitAxis(kpi.axis);
+                    }
+                  }}
+                  className="flex items-center gap-2.5 px-3 py-2.5 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/60"
+                >
                   <div className={cn('p-1.5 rounded-lg bg-gradient-to-br flex-shrink-0', kpi.color)}>
                     <Icon className="h-3.5 w-3.5 text-white" />
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-1">
                       <p className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">{kpi.label}</p>
-                      {kpi.help && <MetricHelp {...kpi.help} />}
+                      {kpi.help && (
+                        <span onClick={(e) => e.stopPropagation()}>
+                          <MetricHelp {...kpi.help} />
+                        </span>
+                      )}
                     </div>
                     <p className="text-base font-bold text-gray-900 dark:text-white leading-tight">{kpi.value}</p>
                     {kpi.cta && (
                       <button
-                        onClick={kpi.cta.onClick}
+                        onClick={(e) => { e.stopPropagation(); kpi.cta?.onClick(); }}
                         className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
                       >
                         {kpi.cta.label} →
@@ -3488,6 +4258,23 @@ export default function DataQualityPage() {
       canAssociateDmf={canAssociateDmf}
       canScheduleDmf={canScheduleDmf}
     />
+
+    {/* ── Unified AxisCockpit — OUTERMOST right column (Data Quality is this
+        module's home axis). Coexists with SmartRightBar as a flex sibling;
+        z-30 keeps it BELOW the fixed ActionRails (z-40) and the mobile sheet
+        (z-[60]), so the DMF / Run-check / Save-threshold rails overlay it when
+        open. Sticky below the app header (z-[9999]) with an internal scroll. ── */}
+    <div className="sticky top-16 z-30 hidden h-[calc(100vh-4rem)] shrink-0 self-start lg:flex">
+      <AxisCockpit
+        axes={cockpitAxes}
+        open={cockpitOpen}
+        activeAxis={cockpitAxis}
+        onOpenAxis={openCockpitAxis}
+        onClose={closeCockpit}
+        widthClassName="w-[360px]"
+        className="h-full"
+      />
+    </div>
     </div>
     </ErrorBoundary>
   );

@@ -136,6 +136,9 @@ import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
+import AxisCockpit from '@/app/shared/cockpit/AxisCockpit';
+import KpiStrip from '@/app/shared/cockpit/KpiStrip';
+import { useCommandCenterCockpit } from './CommandCenterCockpit';
 
 // Lazy-loaded new tabs
 const ModulesTab = lazy(() => import('./modules-tab'));
@@ -1415,6 +1418,18 @@ function CommandCenterDashboardInner() {
   const [filterOptions, setFilterOptions] =
     useState<FilterOptionsResponse | null>(null);
 
+  // Unified Axis Cockpit (shared right-edge primitive) + KPI strip. Reuses the
+  // shell-fetched state above (summary / module-health / activity-feed / cost)
+  // and lazily fetches an axis's data only the first time it is opened.
+  const cockpit = useCommandCenterCockpit({
+    days: filters.days,
+    summary,
+    moduleHealth,
+    activityFeed,
+    costData,
+    onNavigateTab: goToTab,
+  });
+
   // Auto-refresh has been removed entirely. Data freshness is now driven only
   // by SSE cache-invalidation events from the backend + the manual refresh
   // button in the header.
@@ -2042,6 +2057,14 @@ function CommandCenterDashboardInner() {
         </div>
       </motion.div>
 
+      {/* ── Unified KPI strip (shared primitive) ─────────────────────
+          Honest "—" until each figure is known (never fake zeros); every
+          KPI deep-links into its owning cockpit axis on the right edge. */}
+      <KpiStrip
+        items={cockpit.kpiItems}
+        className="mb-6 rounded-xl border border-slate-200 shadow-sm dark:border-slate-800"
+      />
+
       {/* ── Error Banner ──────────────────────────────────────────── */}
       {error && (
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
@@ -2342,6 +2365,20 @@ function CommandCenterDashboardInner() {
             onClose={() => setPanelOpen(false)}
           />
         )}
+        {/* ── Unified Axis Cockpit (rightmost column, shared primitive):
+            overview / cost / perf / quality / AI / governance / history.
+            Always-visible mini-rail with severity dots; panels are docked
+            (zero popups) and each axis fetches lazily on first open. */}
+        <div className="sticky top-4 hidden shrink-0 self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 md:block">
+          <AxisCockpit
+            axes={cockpit.axes}
+            open={cockpit.open}
+            activeAxis={cockpit.activeAxis}
+            onOpenAxis={cockpit.openAxis}
+            onClose={cockpit.close}
+            className="max-h-[calc(100vh-2rem)]"
+          />
+        </div>
       </div>
     </div>
   );
@@ -4202,7 +4239,11 @@ const ProjectsTab = memo(function ProjectsTab({
       ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   return (
-    <>
+    // Docked review inspector: projects content on the left, the deployment
+    // review panel mounts as a flex SIBLING on the right (no overlay) so both
+    // stay visible + interactive — mirrors the policy-grants docked pattern.
+    <div className="flex items-start gap-4">
+      <div className="min-w-0 flex-1 space-y-6">
       {/* Deployment-health CTA — points at the real cause (failures vs pending). */}
       {failedDeployments > 0 ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
@@ -4980,7 +5021,9 @@ const ProjectsTab = memo(function ProjectsTab({
         </div>
       )}
 
-      {/* Approval Detail Modal */}
+      </div>
+
+      {/* Approval Detail — docked review inspector (flex sibling, not an overlay) */}
       {detailModal && (
         <ApprovalDetailModal
           isOpen={!!detailModal}
@@ -5011,7 +5054,7 @@ const ProjectsTab = memo(function ProjectsTab({
           }}
         />
       )}
-    </>
+    </div>
   );
 });
 

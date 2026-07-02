@@ -55,6 +55,10 @@ import AiBuildSection, {
 import type { AiGenerateSource } from './components/useAiPipelineGenerate';
 import ImportTasksModal from './components/ImportTasksModal';
 import ScanIntentPrefill, { type ScanSuggestionMeta } from './components/ScanIntentPrefill';
+import WorkflowListCockpit, {
+  type CockpitOpenSection,
+  type CockpitWorkflowItem,
+} from './components/WorkflowListCockpit';
 import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
 import UnifiedProjectWizard, {
   type UnifiedProjectWizardResult,
@@ -3056,33 +3060,56 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <span className="text-gray-900 dark:text-white font-medium">Workflow</span>
           </nav>
         </div>
-        {/* AI-suggested workflow prefill — shown when the Account-Overview advisor
-            deep-links with ?intent=create&from=scan. One click creates a named,
-            fully-sourced pipeline from the scanned objects. Manual gate stays below. */}
-        {scanPrefillActive && (
-          <ScanIntentPrefill
-            onApply={applyScanSuggestion}
-            onDismiss={() => {
-              setScanPrefillDismissed(true);
-              stripScanParams();
-            }}
-            applying={scanApplying}
-          />
-        )}
-        <ProjectGatePanel
-          module="workflow"
-          projects={workflows}
-          loading={isLoading}
-          error={loadError}
-          onRetry={loadWorkflows}
-          onSelect={(projectId) => {
-            const w = workflows.find((wf) => wf.id === projectId);
-            if (!w) return;
+        {/* Unified list-view cockpit — KPI strip + right AxisCockpit rail
+            (deployment / runs / perf / cost / history / AI entry point).
+            LIST VIEW ONLY: the builder view keeps its approved docked right
+            bar (WorkflowSmartPanel + AI BUILD) — the two never coexist. */}
+        <WorkflowListCockpit
+          workflows={workflows}
+          workflowsLoading={isLoading}
+          onOpenWorkflow={async (wf: CockpitWorkflowItem, section?: CockpitOpenSection) => {
             projectGateDismissedRef.current = true;
-            handleLoadPipeline(w);
+            await handleLoadPipeline({ id: wf.id, name: wf.name });
+            // Focus the requested SmartPanel section AFTER the steps land: the
+            // empty-canvas guard resets 'runs' while nodes are still loading.
+            if (section) setActiveTab(section);
           }}
-          onCreateNew={() => setShowCreateWizard(true)}
-        />
+          onBuildWithAi={() => {
+            // Hand off to the EXISTING docked AI BUILD bar on a fresh canvas —
+            // no new AI surface here.
+            projectGateDismissedRef.current = true;
+            handleNewPipeline();
+            setActiveTab('ai');
+          }}
+        >
+          {/* AI-suggested workflow prefill — shown when the Account-Overview advisor
+              deep-links with ?intent=create&from=scan. One click creates a named,
+              fully-sourced pipeline from the scanned objects. Manual gate stays below. */}
+          {scanPrefillActive && (
+            <ScanIntentPrefill
+              onApply={applyScanSuggestion}
+              onDismiss={() => {
+                setScanPrefillDismissed(true);
+                stripScanParams();
+              }}
+              applying={scanApplying}
+            />
+          )}
+          <ProjectGatePanel
+            module="workflow"
+            projects={workflows}
+            loading={isLoading}
+            error={loadError}
+            onRetry={loadWorkflows}
+            onSelect={(projectId) => {
+              const w = workflows.find((wf) => wf.id === projectId);
+              if (!w) return;
+              projectGateDismissedRef.current = true;
+              handleLoadPipeline(w);
+            }}
+            onCreateNew={() => setShowCreateWizard(true)}
+          />
+        </WorkflowListCockpit>
         {/* Unified creation flow — reachable from the inline pre-state. */}
         <UnifiedProjectWizard
           open={showCreateWizard}

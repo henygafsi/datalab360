@@ -30,6 +30,7 @@ import { HiOutlineRefresh } from 'react-icons/hi';
 import KPICard from '@/components/analytics/KPICard';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import Breadcrumb from '@/components/ui/Breadcrumb';
+import IntelligentCockpit, { IntelligentKpiStrip } from './components/IntelligentCockpit';
 
 // Import content components
 import SemanticModelsContent from './semantic-models-content';
@@ -288,7 +289,9 @@ export default function IntelligentPage() {
 
   return (
     <ErrorBoundary>
-    <div className="space-y-8">
+    {/* Page shell: scrolling content column + docked intelligence cockpit at the right edge */}
+    <div className="flex items-start gap-4">
+    <div className="min-w-0 flex-1 space-y-8">
       <Breadcrumb items={[{ label: 'Intelligent Analytics', href: '/intelligent' }]} />
       {/* Header */}
       <div className="flex items-start justify-between">
@@ -317,6 +320,9 @@ export default function IntelligentPage() {
           Refresh
         </Button>
       </div>
+
+      {/* Unified intelligence KPI strip — click a KPI to open its cockpit axis */}
+      <IntelligentKpiStrip />
 
       {/* KPI Stats Grid - from GET /cortex/kpis (no static data) */}
       {kpisUnavailable && !kpisLoading && <div className="mb-3"><FeatureUnavailableNotice label="AI usage metrics" /></div>}
@@ -752,6 +758,10 @@ export default function IntelligentPage() {
         <a href="/workflow" className="text-blue-600 dark:text-blue-400 hover:underline">Workflow (ETL Blocks)</a>
         <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Semantic Models)</a>
       </div>
+    </div>
+
+    {/* Docked right cockpit: score / recos / models / robotize / history / governance */}
+    <IntelligentCockpit kpis={kpis} />
     </div>
     </ErrorBoundary>
   );
