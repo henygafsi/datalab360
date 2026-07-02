@@ -3464,6 +3464,13 @@ export default function DataQualityPage() {
     {/* SmartRightBar — 8-section docked right-tab context panel (shared RightTabPanel) */}
     <SmartRightBar
       selectedRow={selectedRow}
+      overview={summary ? {
+        total_tables: summary.total_tables,
+        health_score: summary.health_score,
+        dmf_pass_rate: summary.dmf_pass_rate,
+        classification_coverage: summary.classification_coverage,
+        checks_run_30d: summary.checks_run_30d,
+      } : null}
       data={rightbarData}
       loading={rightbarLoading}
       onRunCheck={() => {

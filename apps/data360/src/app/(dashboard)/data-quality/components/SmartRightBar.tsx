@@ -20,13 +20,27 @@ import React, { useState } from 'react';
 import {
   Gauge, Zap, ShieldCheck, GitBranch, Upload, UserCog, Sparkles, History,
   Play, Link2, CalendarClock, Activity, Database, Shield, Lightbulb,
-  ArrowUpRight, Boxes, EyeOff,
+  ArrowUpRight, Boxes, EyeOff, Table2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
 import GovernancePostureCard, { type GovernancePostureData } from '@/app/shared/score-cards/GovernancePostureCard';
 
 type MetricRow = { [key: string]: unknown };
+
+/**
+ * Page-level quality rollup used to render the DEFAULT "Quality overview" when no
+ * table row is selected. Declared inline (not imported from the page) to keep this
+ * component self-contained and avoid a page ↔ component import cycle. All fields
+ * are optional / nullable so an honest "—" is shown when a metric is not yet loaded.
+ */
+export interface QualityOverview {
+  total_tables?: number | null;
+  health_score?: number | null;
+  dmf_pass_rate?: number | null;
+  classification_coverage?: number | null;
+  checks_run_30d?: number | null;
+}
 
 // ── Local presentational helpers (duplicated from the parent page to keep this
 // component self-contained and avoid a page ↔ component import cycle) ──
@@ -50,6 +64,8 @@ function StatusBadge({ status }: { status: string | unknown }) {
 
 interface SmartRightBarProps {
   selectedRow: MetricRow | null;
+  /** Page-level rollup for the default "Quality overview" (nothing-selected state). */
+  overview?: QualityOverview | null;
   data: {
     dqScore: number | null;
     dmfCount: number | null;
@@ -71,6 +87,7 @@ interface SmartRightBarProps {
 
 export default function SmartRightBar({
   selectedRow,
+  overview,
   data,
   loading,
   onRunCheck,
@@ -88,8 +105,102 @@ export default function SmartRightBar({
   const schemaName = selectedRow ? String(selectedRow.SCHEMA_NAME || selectedRow.TABLE_SCHEMA || '') : null;
   const columnName = selectedRow ? String(selectedRow.COLUMN_NAME || selectedRow.column_name || '') : '';
 
-  // Docked panel "opens" only when a table row is selected (open-on-select).
-  if (!selectedRow || !tableName) return null;
+  // DEFAULT VIEW — nothing selected. Instead of collapsing the column (return
+  // null), the bar opens with a purposeful "Quality overview": the page's rollup
+  // KPIs (honest "—" when unknown) plus the same primary actions the detail view
+  // exposes, so the panel always states the page's purpose on load and switches
+  // to the per-table story once a row is selected.
+  if (!selectedRow || !tableName) {
+    const pct = (v: number | null | undefined) =>
+      v === null || v === undefined ? '—' : `${Math.round(v)}%`;
+    const int = (v: number | null | undefined) =>
+      v === null || v === undefined ? '—' : new Intl.NumberFormat('en-US').format(v);
+    const overviewSection: RightTabSection = {
+      id: 'overview',
+      icon: Gauge,
+      label: 'Overview',
+      help: 'A snapshot of data quality across every catalogued table. Select a table row to drill into its score, checks, governance and history.',
+      render: () => (
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Monitor and improve the quality of your data. Select a table to see its
+            score, run checks and review its metric history.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">Tables monitored</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-white">{int(overview?.total_tables)}</p>
+            </div>
+            <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">Health score</p>
+              <p className={cn('text-lg font-bold',
+                (overview?.health_score === null || overview?.health_score === undefined) ? 'text-gray-400' :
+                (overview?.health_score ?? 0) >= 80 ? 'text-green-600 dark:text-green-400' :
+                (overview?.health_score ?? 0) >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
+              )}>{pct(overview?.health_score)}</p>
+            </div>
+            <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">DMF pass rate</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-white">{pct(overview?.dmf_pass_rate)}</p>
+            </div>
+            <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400">Checks run (30d)</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-white">{int(overview?.checks_run_30d)}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-gray-500 dark:text-gray-400">
+            <ShieldCheck className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+            Classification coverage: {pct(overview?.classification_coverage)}
+          </div>
+          <div className="space-y-1.5 pt-1 border-t border-gray-100 dark:border-gray-800">
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 pt-2">
+              <Table2 className="h-3 w-3" /> Primary actions
+            </p>
+            <button
+              onClick={onRunCheck}
+              disabled={!canRunCheck}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors',
+                canRunCheck
+                  ? 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-800 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/40'
+                  : 'border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-800 cursor-not-allowed'
+              )}
+              title={!canRunCheck ? 'You lack the "run" permission on data quality.' : 'Run a threshold check'}
+            >
+              <Play className="h-3.5 w-3.5 flex-shrink-0" />
+              Run Check
+            </button>
+            <button
+              onClick={onAssociateDmf}
+              disabled={!canAssociateDmf}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors',
+                canAssociateDmf
+                  ? 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-400 dark:hover:bg-violet-900/40'
+                  : 'border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-800 cursor-not-allowed'
+              )}
+              title={!canAssociateDmf ? 'You lack the "associate" permission on data quality.' : 'Associate a new metric check'}
+            >
+              <Link2 className="h-3.5 w-3.5 flex-shrink-0" />
+              Add Rule (DMF)
+            </button>
+          </div>
+        </div>
+      ),
+    };
+    return (
+      <RightTabPanel
+        title="Data Quality"
+        subtitle="Overview"
+        sections={[overviewSection]}
+        activeSection="overview"
+        onSectionChange={() => { /* single default section — no switching */ }}
+        onClose={onClose}
+        storageKey="data360.dataQuality.smartPanel.overview.v1"
+        accentClassName="bg-blue-500"
+      />
+    );
+  }
 
   // ── Outbound prefilled deep-links (mirror of the inbound scan-prefill pattern
   // and the lineage CTA below). We carry the selected table (and column) as
