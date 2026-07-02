@@ -2,10 +2,21 @@
 
 import Link from 'next/link';
 import OrgAccountsDashboard from '@/app/shared/org-accounts';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 
+// Admin-only: gate the route itself so non-admins get an explanatory restricted
+// state instead of the org-accounts shell with 403ing data calls.
 export default function ClientAccountsPage() {
+  return (
+    <AdminRouteGuard surface="Client Accounts">
+      <ClientAccountsPageContent />
+    </AdminRouteGuard>
+  );
+}
+
+function ClientAccountsPageContent() {
   // Auto-fires PAGE_VIEW on mount (via the hook's pathname effect); exposes
   // trackFeatureClick for the related-link navigation below.
   const { trackFeatureClick } = useTrackEvent();

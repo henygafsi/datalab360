@@ -721,7 +721,7 @@ function SnowflakeExplorerTab() {
                     {db.health_status || 'unknown'}
                   </Badge>
                   <Badge size="sm" variant="flat" color={riskColor(db.risk_level)}>
-                    risk: {db.risk_level || 'low'}
+                    risk: {db.risk_level || 'unknown'}
                   </Badge>
                   {(db.sensitive_object_count ?? 0) > 0 && (
                     <Badge size="sm" variant="flat" color="danger">
@@ -782,7 +782,7 @@ function SnowflakeExplorerTab() {
                     {sch.health_status || 'unknown'}
                   </Badge>
                   <Badge size="sm" variant="flat" color={riskColor(sch.risk_level)}>
-                    risk: {sch.risk_level || 'low'}
+                    risk: {sch.risk_level || 'unknown'}
                   </Badge>
                   {(sch.sensitive_object_count ?? 0) > 0 && (
                     <Badge size="sm" variant="flat" color="danger">
@@ -917,7 +917,7 @@ function SnowflakeExplorerTab() {
                         </td>
                         <td className="px-4 py-2.5">
                           <Badge size="sm" variant="flat" color={riskColor(obj.risk_level)}>
-                            {obj.risk_level || 'low'}
+                            {obj.risk_level || 'unknown'}
                           </Badge>
                         </td>
                         <td className="px-4 py-2.5">

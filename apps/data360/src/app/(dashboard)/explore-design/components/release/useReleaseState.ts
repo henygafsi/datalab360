@@ -146,9 +146,17 @@ export function useReleaseState(projectId: string | null): UseReleaseStateResult
     ]);
     if (requestKeyRef.current !== key) return; // stale response
 
-    const deps =
+    // The live backend double-nests the list ({ deployments: { deployments: [...] } });
+    // older shapes returned a flat array. Normalize both — never pass a non-array
+    // down to the steps (StepApproval iterates it).
+    const rawDeps =
       deploymentsRes.status === 'fulfilled'
         ? deploymentsRes.value.deployments ?? []
+        : [];
+    const deps: ExploreDeployment[] = Array.isArray(rawDeps)
+      ? rawDeps
+      : Array.isArray((rawDeps as { deployments?: unknown }).deployments)
+        ? ((rawDeps as { deployments: ExploreDeployment[] }).deployments)
         : [];
     setDeployments(deps);
 

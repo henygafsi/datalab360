@@ -29,6 +29,7 @@ import {
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { GlassPanel } from '@/app/shared/glass';
@@ -85,7 +86,17 @@ const HOURS_OPTIONS: ChipOption<string>[] = [
 
 const LIVE_MS = 5000;
 
+// Admin-only: gate the route itself so non-admins get an explanatory restricted
+// state instead of the full drill-down shell with 403ing data calls.
 export default function PerformancePage() {
+  return (
+    <AdminRouteGuard surface="Per-account Performance">
+      <PerformancePageContent />
+    </AdminRouteGuard>
+  );
+}
+
+function PerformancePageContent() {
   const { data: session } = useSession();
   const sessionAccount = (session?.user as { account_name?: string } | undefined)?.account_name ?? null;
   // Fire-and-forget tracing: auto page-view on mount + a TAB_SWITCH per axis change.

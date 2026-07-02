@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 
 import { routes } from '@/config/routes';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import { KpiStrip } from './components/KpiStrip';
 import { DrillPanel } from './components/DrillPanel';
 import { ReleaseHistory } from './components/ReleaseHistory';
@@ -1102,7 +1103,17 @@ const LAST_RUN_STORAGE_KEY = 'd360_api_health_last_run';
 const resultsAtom = atomWithStorage<ResultsMap>(RESULTS_STORAGE_KEY, {});
 const lastRunAtAtom = atomWithStorage<number | null>(LAST_RUN_STORAGE_KEY, null);
 
+// Admin-only: gate the route itself so non-admins get an explanatory restricted
+// state instead of the diagnostics board with 403ing probe calls.
 export default function ApiHealthPage() {
+  return (
+    <AdminRouteGuard surface="API Health">
+      <ApiHealthPageContent />
+    </AdminRouteGuard>
+  );
+}
+
+function ApiHealthPageContent() {
   const [results, setResults] = useAtom(resultsAtom);
   const [lastRunAt, setLastRunAt] = useAtom(lastRunAtAtom);
   const [running, setRunning] = useState(false);

@@ -57,7 +57,7 @@ export default function QueryVolumeCard({ data, loading, error }: QueryVolumeCar
         <div className="p-4">
           <div className="mb-4 flex items-baseline gap-2">
             <span className="text-3xl font-bold text-gray-900 dark:text-white">
-              {formatNumber(data?.total_queries ?? 0)}
+              {data?.total_queries != null ? formatNumber(data.total_queries) : '—'}
             </span>
             <Text className="text-sm text-gray-500 dark:text-gray-400">
               queries{data?.period_days ? ` · last ${data.period_days}d` : ''}

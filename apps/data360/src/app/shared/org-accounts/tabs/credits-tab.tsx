@@ -121,8 +121,9 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
 
   // Derived forecast values
   const forecastHistory = Array.isArray(forecast?.history) ? forecast.history : [];
-  const dailyAvg = forecast?.daily_avg ?? 0;
-  const projected30d = forecast?.projected_30d_total ?? 0;
+  // null (→ "—") when the forecast feed is absent — never a fabricated 0.00.
+  const dailyAvg = forecast?.daily_avg ?? null;
+  const projected30d = forecast?.projected_30d_total ?? null;
   const trendDirection = forecast?.trend_direction ?? 'stable';
   const budgetAtRisk = forecast?.budget_at_risk ?? false;
 
@@ -280,7 +281,7 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
             <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
               <Text className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Daily Avg</Text>
               <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
-                {formatCredits(dailyAvg)}
+                {dailyAvg != null ? formatCredits(dailyAvg) : '—'}
               </div>
               <Text className="text-xs text-gray-500">credits/day</Text>
             </div>
@@ -290,7 +291,7 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
                 'mt-1 text-2xl font-bold',
                 budgetAtRisk ? 'text-red-600' : 'text-gray-900 dark:text-white'
               )}>
-                {formatCredits(projected30d)}
+                {projected30d != null ? formatCredits(projected30d) : '—'}
               </div>
               <Text className="text-xs text-gray-500">
                 Trend: <span className={cn(

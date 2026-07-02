@@ -1,4 +1,5 @@
 import { Suspense } from 'react';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import AdministrationHub from './components/AdministrationHub';
 
 /**
@@ -32,8 +33,10 @@ function HubFallback() {
 
 export default function AdministrationPage() {
   return (
-    <Suspense fallback={<HubFallback />}>
-      <AdministrationHub />
-    </Suspense>
+    <AdminRouteGuard surface="The Administration hub">
+      <Suspense fallback={<HubFallback />}>
+        <AdministrationHub />
+      </Suspense>
+    </AdminRouteGuard>
   );
 }

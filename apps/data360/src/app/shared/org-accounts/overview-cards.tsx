@@ -179,19 +179,25 @@ export default function OverviewCards({
     { critical: 0, warning: 0 }
   );
 
+  // Honest display: a missing feed renders "—", never a fabricated 0 / "0.00 TB".
+  // True zeros (payload present, count genuinely 0) still render as 0.
+  const num = (v: number | null | undefined): string | number => (v == null ? '—' : v);
+
   const stats = [
     // Row 1: Account metrics (from /dashboard/overview)
     {
       title: 'Total Accounts',
-      value: overview?.total_client_accounts ?? 0,
-      subtitle: `${overview?.active_accounts ?? 0} active, ${overview?.inactive_accounts ?? 0} inactive`,
+      value: num(overview?.total_client_accounts),
+      subtitle: overview
+        ? `${num(overview.active_accounts)} active, ${num(overview.inactive_accounts)} inactive`
+        : undefined,
       icon: <PiUsersDuotone className="h-6 w-6" />,
       color: 'blue' as const,
       loading: overviewLoading,
     },
     {
       title: 'Active Accounts',
-      value: overview?.active_accounts ?? 0,
+      value: num(overview?.active_accounts),
       subtitle: 'Currently active',
       icon: <PiCheckCircleDuotone className="h-6 w-6" />,
       color: 'green' as const,
@@ -200,8 +206,8 @@ export default function OverviewCards({
     // Credits (from /dashboard/usage)
     {
       title: 'Credits (30d)',
-      value: formatCredits(usage?.total_credits_30d ?? 0),
-      subtitle: `${usage?.credit_account_count ?? 0} accounts`,
+      value: usage?.total_credits_30d == null ? '—' : formatCredits(usage.total_credits_30d),
+      subtitle: usage ? `${num(usage.credit_account_count)} accounts` : undefined,
       icon: <PiCoinsDuotone className="h-6 w-6" />,
       color: 'amber' as const,
       loading: usageLoading,
@@ -209,8 +215,8 @@ export default function OverviewCards({
     // Storage (from /dashboard/usage)
     {
       title: 'Total Storage',
-      value: formatStorage(usage?.total_storage_tb ?? 0),
-      subtitle: `${usage?.storage_account_count ?? 0} accounts`,
+      value: usage?.total_storage_tb == null ? '—' : formatStorage(usage.total_storage_tb),
+      subtitle: usage ? `${num(usage.storage_account_count)} accounts` : undefined,
       icon: <PiDatabaseDuotone className="h-6 w-6" />,
       color: 'purple' as const,
       loading: usageLoading,
@@ -219,8 +225,8 @@ export default function OverviewCards({
     // Warehouses (from /warehouses)
     {
       title: 'Warehouse Credits',
-      value: formatCredits(warehouseTotalCredits),
-      subtitle: `${warehouses?.warehouses?.length ?? 0} warehouses`,
+      value: warehouses ? formatCredits(warehouseTotalCredits) : '—',
+      subtitle: warehouses ? `${warehousesList.length} warehouses` : undefined,
       icon: <PiWarehouseDuotone className="h-6 w-6" />,
       color: 'indigo' as const,
       loading: warehousesLoading,
@@ -228,8 +234,8 @@ export default function OverviewCards({
     // Data Transfer (from /data-transfer)
     {
       title: 'Data Transfer',
-      value: formatBytes(dataTransfer?.total_bytes ?? 0),
-      subtitle: `${dataTransfer?.transfers?.length ?? 0} transfers`,
+      value: dataTransfer?.total_bytes == null ? '—' : formatBytes(dataTransfer.total_bytes),
+      subtitle: dataTransfer ? `${dataTransfer.transfers?.length ?? 0} transfers` : undefined,
       icon: <PiArrowsLeftRightDuotone className="h-6 w-6" />,
       color: 'cyan' as const,
       loading: dataTransferLoading,
@@ -237,12 +243,14 @@ export default function OverviewCards({
     // Alerts (from /alerts)
     {
       title: 'Active Alerts',
-      value: alerts?.count ?? 0,
-      subtitle: alertCounts.critical > 0
-        ? `${alertCounts.critical} critical, ${alertCounts.warning} warning`
-        : alertCounts.warning > 0
-          ? `${alertCounts.warning} warnings`
-          : 'No issues',
+      value: num(alerts?.count),
+      subtitle: !alerts
+        ? undefined
+        : alertCounts.critical > 0
+          ? `${alertCounts.critical} critical, ${alertCounts.warning} warning`
+          : alertCounts.warning > 0
+            ? `${alertCounts.warning} warnings`
+            : 'No issues',
       icon: <PiBellDuotone className="h-6 w-6" />,
       color: 'red' as const,
       loading: alertsLoading,
@@ -250,12 +258,14 @@ export default function OverviewCards({
     // Health (from /health)
     {
       title: 'Account Health',
-      value: `${healthySummary.healthy}/${healthList.length}`,
-      subtitle: healthySummary.critical > 0
-        ? `${healthySummary.critical} critical, ${healthySummary.warning} warning`
-        : healthySummary.warning > 0
-          ? `${healthySummary.warning} need attention`
-          : 'All healthy',
+      value: healthList.length > 0 ? `${healthySummary.healthy}/${healthList.length}` : '—',
+      subtitle: healthList.length === 0
+        ? undefined
+        : healthySummary.critical > 0
+          ? `${healthySummary.critical} critical, ${healthySummary.warning} warning`
+          : healthySummary.warning > 0
+            ? `${healthySummary.warning} need attention`
+            : 'All healthy',
       icon: <PiHeartbeatDuotone className="h-6 w-6" />,
       color: 'emerald' as const,
       loading: healthLoading,

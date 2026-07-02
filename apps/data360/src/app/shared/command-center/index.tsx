@@ -5649,8 +5649,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
 
   const { totalLogins, successLogins } = loginSummary.reduce(
     (acc: { totalLogins: number; successLogins: number }, r: any) => {
-      acc.totalLogins += r.event_count;
-      if (r.is_success === 'YES') acc.successLogins += r.event_count;
+      acc.totalLogins += safeNum(r.event_count);
+      if (r.is_success === 'YES') acc.successLogins += safeNum(r.event_count);
       return acc;
     },
     { totalLogins: 0, successLogins: 0 }
@@ -5729,7 +5729,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-8">
         <KpiCard
           label="Total Logins"
-          value={totalLogins.toLocaleString()}
+          value={hasLoginActivity ? totalLogins.toLocaleString() : '—'}
           icon={Users}
           color="blue"
         />
@@ -5741,7 +5741,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         />
         <KpiCard
           label="Failed Attempts"
-          value={failedLoginCount.toLocaleString()}
+          value={hasLoginActivity ? failedLoginCount.toLocaleString() : '—'}
           icon={AlertTriangle}
           color={failedLoginCount > 0 ? 'red' : 'green'}
         />
@@ -5995,7 +5995,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
                       style={{ backgroundColor: COLORS[i % COLORS.length] }}
                     />
                     <p className="text-xl font-bold text-gray-400 dark:text-gray-500">
-                      0
+                      —
                     </p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
                       {row.name}

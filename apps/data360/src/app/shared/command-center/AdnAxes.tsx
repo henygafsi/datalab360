@@ -92,34 +92,10 @@ export const AXIS_ICON: Record<string, (p: SVGProps<SVGSVGElement>) => JSX.Eleme
   USAGE: IconUsage,
 };
 
-/** Account-level sample ADN (UI-first; wires to /command-center/kpis later). */
-export const ACCOUNT_ADN: AdnAxis[] = [
-  {
-    key: 'DQ', label: 'Qualité', score: 82, Icon: IconQuality,
-    desc: 'Complétude, fraîcheur et conformité de schéma des objets.',
-    analysis: 'Bon niveau (82). La plupart des tables sont fraîches et complètes ; surveiller 12 objets au coût de stockage élevé. Aucune action bloquante avant migration.',
-  },
-  {
-    key: 'PERF', label: 'Perf', score: 74, Icon: IconPerf,
-    desc: 'Latence des requêtes (p95), pruning et files d’attente warehouse.',
-    analysis: 'Correct (74). 7 objets lents détectés (scans longs / spilling) — candidats au clustering ou au right-sizing de warehouse avant exposition.',
-  },
-  {
-    key: 'SEC', label: 'Sécurité', score: 60, Icon: IconSecurity,
-    desc: 'Masking, row-access, gouvernance des grants et MFA.',
-    analysis: 'Moyen (60). 5 objets sensibles sans policy et 3 rôles surexposés. Action prioritaire : appliquer le masking + lancer une revue d’accès avant migration.',
-  },
-  {
-    key: 'STORAGE', label: 'Stockage', score: 66, Icon: IconStorage,
-    desc: 'Time-travel, fail-safe, données clonées et croissance.',
-    analysis: 'Moyen (66). 12 objets à coût de stockage élevé (~$18.4k/mois). Réduire la rétention time-travel des tables froides ; transient pour les clones.',
-  },
-  {
-    key: 'USAGE', label: 'Usage', score: 71, Icon: IconUsage,
-    desc: 'Adoption réelle : rôles, projets et produits consommant l’objet.',
-    analysis: 'Correct (71). Bonne réutilisation cross-projets ; 9 requêtes coûteuses sont modélisables dans Data360 (opportunité produit / API).',
-  },
-];
+// NOTE: the old exported ACCOUNT_ADN sample (hardcoded scores + invented "AI"
+// analyses like "~$18.4k/mois") was removed — zero-fabrication rule. Callers
+// must derive axes from their own real data and pass them explicitly (see
+// AdnScoreCard's required `axes` prop).
 
 export function adnTone(s: number) {
   return s >= 80 ? 'emerald' : s >= 60 ? 'amber' : 'rose';

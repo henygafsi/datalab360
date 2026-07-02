@@ -264,7 +264,13 @@ apiClient.interceptors.response.use(
       if (errorCode === 'SESSION_NOT_IN_PROCESS') {
         return Promise.reject(error);
       }
-      const suggestsNoConnection = detailStr && typeof detailStr === 'string' && /connection|session\s*expired|not\s*authenticated|cursor\s*closed/i.test(detailStr);
+      // Redirect ONLY on phrases that specifically mean the CALLER's session/
+      // connection is gone. The old bare /connection/i also matched unrelated
+      // backend-internal failures (e.g. "Failed to create admin events
+      // connection: … user is disabled") and ejected a perfectly valid admin
+      // session to /signin whenever such an endpoint 500'd.
+      const suggestsNoConnection = detailStr && typeof detailStr === 'string'
+        && /session\s*expired|not\s*authenticated|no\s*(active\s*)?connection\s*(for|found)|your\s*connection|cursor\s*closed|SESSION_NOT_FOUND/i.test(detailStr);
       if (suggestsNoConnection && typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/')) {
         window.location.href = '/signin';
       }

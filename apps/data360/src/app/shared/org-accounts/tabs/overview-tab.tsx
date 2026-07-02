@@ -631,7 +631,7 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
                           color={pct >= 80 ? 'danger' : pct >= 50 ? 'warning' : 'success'}
                           size="sm"
                         >
-                          {safeToFixed(pct, 1)}%
+                          {mon.usage_pct != null ? `${safeToFixed(pct, 1)}%` : '—'}
                         </Badge>
                       </div>
                     </div>

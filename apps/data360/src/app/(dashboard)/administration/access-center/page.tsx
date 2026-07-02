@@ -27,6 +27,7 @@ import AccessControlCenter from './components/AccessControlCenter';
 import CacheMetricsPanel from './components/CacheMetricsPanel';
 import CacheGovernancePanel from './components/CacheGovernancePanel';
 import AdminOverviewHeader from './components/AdminOverviewHeader';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import RolesPermissionsPanel from './components/RolesPermissionsPanel';
 import UsageAuditPanel from './components/UsageAuditPanel';
 import ProvisioningPanel from './components/ProvisioningPanel';
@@ -63,7 +64,17 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
 
 const TAB_IDS = TABS.map((t) => t.id);
 
+// Admin-only: non-admins previously rendered the full command-center shell and
+// every data call 403'd — gate the route itself (same pattern as governance/users).
 export default function AccessCenterPage() {
+  return (
+    <AdminRouteGuard surface="The Access Control Center">
+      <AccessCenterPageContent />
+    </AdminRouteGuard>
+  );
+}
+
+function AccessCenterPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();

@@ -33,7 +33,11 @@ export default function ConfigSummaryPanel() {
     setError(null);
     try {
       const res = await getPlatformConfig();
-      setEntries(res.config ?? []);
+      // Live envelope is {configs, total, categories}; the typed contract said
+      // {config} — accept both so the panel doesn't report "0 entries" against
+      // a provisioned store (sweep finding B.1).
+      const raw = res as unknown as { config?: PlatformConfigEntry[]; configs?: PlatformConfigEntry[] };
+      setEntries(raw.configs ?? raw.config ?? []);
     } catch (err) {
       setError(getApiErrorMessage(err));
       setEntries(null);

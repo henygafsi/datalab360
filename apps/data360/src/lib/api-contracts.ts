@@ -223,6 +223,10 @@ export const API = {
   exploreDesign: {
     /** POST /explore-design — create an explore-design project. */
     createProject: () => '/explore-design',
+    /** POST /explore-design/guided/add-event — persist one mapping-wizard group (sources→target). */
+    guidedAddEvent: () => '/explore-design/guided/add-event',
+    /** POST /explore-design/guided/test_mapping — server-side mapping validation. */
+    guidedTestMapping: () => '/explore-design/guided/test_mapping',
     /** GET /explore-design/recent-deployment-errors */
     recentDeploymentErrors: (limit?: number) =>
       `/explore-design/recent-deployment-errors${qs({ limit })}`,

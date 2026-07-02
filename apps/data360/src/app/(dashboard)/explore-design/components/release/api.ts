@@ -47,9 +47,16 @@ export async function addDeploymentApprover(
   deploymentId: string,
   body: AddApproverBody,
 ): Promise<DeploymentApprover> {
+  // Live backend contract (release_router.ApproverAdd) names the fields
+  // approver_username / approver_role_label — map from our FE shape so the
+  // POST doesn't 400 with VALIDATION_ERROR.
   const { data } = await apiClient.post<DeploymentApprover>(
     API.exploreDesign.deploymentApprovers(projectId, deploymentId),
-    body,
+    {
+      approver_username: body.username,
+      ...(body.role_label ? { approver_role_label: body.role_label } : {}),
+      ...(body.required != null ? { required: body.required } : {}),
+    },
   );
   return data;
 }

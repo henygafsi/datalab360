@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { routes } from '@/config/routes';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import ActivityDashboard from './ActivityDashboard';
 
 interface AdminCard {
@@ -58,6 +59,7 @@ const ADMIN_CARDS: AdminCard[] = [
 
 export default function AdminLandingPage() {
   return (
+    <AdminRouteGuard surface="The Administration area">
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">
@@ -97,5 +99,6 @@ export default function AdminLandingPage() {
 
       <ActivityDashboard />
     </div>
+    </AdminRouteGuard>
   );
 }

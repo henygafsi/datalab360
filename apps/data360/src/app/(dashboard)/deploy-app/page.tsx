@@ -19,13 +19,24 @@
 import { useState, useCallback } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import DeployAppHome from './components/DeployAppHome';
 import DeployAppWizard, {
   type AppKind,
   type WizardSnapshot,
 } from './components/DeployAppWizard';
 
+// Admin-only: gate the route itself so non-admins get an explanatory restricted
+// state instead of the deploy shell with 403ing data calls.
 export default function DeployAppPage() {
+  return (
+    <AdminRouteGuard surface="Deploy App">
+      <DeployAppPageContent />
+    </AdminRouteGuard>
+  );
+}
+
+function DeployAppPageContent() {
   // Auto-fires PAGE_VIEW on mount (via the hook's pathname effect); exposes
   // trackFeatureClick for the wizard-open entry points below.
   const { trackFeatureClick } = useTrackEvent();

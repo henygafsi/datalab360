@@ -389,8 +389,11 @@ export function formatFileSize(bytes: number | string | null | undefined): strin
  * @returns Formatted date string
  */
 export function formatDate(dateString: string): string {
+  // The stage listing sometimes puts an md5 hash in last_modified; leaking the
+  // raw value rendered "Modified: <hash>" in the UI. Unparseable → honest '—'.
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return '—';
   try {
-    const date = new Date(dateString);
     return new Intl.DateTimeFormat('en-US', {
       year: 'numeric',
       month: 'short',
@@ -399,6 +402,6 @@ export function formatDate(dateString: string): string {
       minute: '2-digit',
     }).format(date);
   } catch {
-    return dateString;
+    return '—';
   }
 }

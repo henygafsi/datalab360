@@ -24,6 +24,35 @@ const errorMessages: Record<string, string> = {
   Default: 'An authentication error occurred. Please try again.',
 };
 
+// Backend 401s carrying errno 250001 ("Multi-factor authentication is
+// required… enroll") mean the warehouse account has MFA enforcement but the
+// user never enrolled — retrying the password here can never succeed, so say
+// exactly what to do instead of the generic "invalid credentials" line.
+// Brand rule: neutral wording only — no vendor names in customer-facing copy.
+const MFA_ENROLLMENT_MESSAGE =
+  'This account requires multi-factor authentication (MFA) enrollment. Log in to your data warehouse console once to complete MFA enrollment, then retry signing in here.';
+
+/**
+ * Turn a NextAuth error (opaque code from `?error=` OR the backend `detail`
+ * string thrown by authorize()) into the message shown to the user.
+ * - MFA-enrollment 401s (mentions "multi-factor" or errno 250001) get an
+ *   actionable callout instead of "invalid credentials".
+ * - Known NextAuth codes keep their friendly mapping.
+ * - Any other human-readable backend detail is surfaced verbatim (vendor name
+ *   scrubbed per brand rules); single opaque tokens fall back to the generic.
+ */
+function resolveAuthError(raw: string | null | undefined): string {
+  const value = (raw ?? '').trim();
+  if (!value) return errorMessages.Default;
+  if (/multi[\s-]?factor|250001/i.test(value)) return MFA_ENROLLMENT_MESSAGE;
+  if (errorMessages[value]) return errorMessages[value];
+  // A sentence-like message is the backend detail threaded through authorize()
+  // (e.g. account not found, user disabled) — show it rather than collapsing
+  // every failure to "invalid credentials".
+  if (/\s/.test(value)) return value.replace(/snowflake/gi, 'data warehouse');
+  return errorMessages.Default;
+}
+
 export default function SignInForm() {
   const [reset, setReset] = useState({});
   const [isLoading, setIsLoading] = useState(false);
@@ -34,8 +63,7 @@ export default function SignInForm() {
   useEffect(() => {
     const errorParam = searchParams.get('error');
     if (errorParam) {
-      const errorMessage = errorMessages[errorParam] || errorMessages.Default;
-      setError(errorMessage);
+      setError(resolveAuthError(errorParam));
     }
   }, [searchParams]);
 
@@ -53,7 +81,12 @@ export default function SignInForm() {
       });
 
       if (result?.error) {
-        setError(typeof result.error === 'string' ? result.error : 'Invalid credentials. Check account name, username and password.');
+        // result.error is the backend detail thrown by authorize() (or an
+        // opaque NextAuth code) — resolve it: MFA-enrollment 401s get an
+        // actionable callout, other backend details render verbatim.
+        setError(
+          resolveAuthError(typeof result.error === 'string' ? result.error : null)
+        );
       } else if (result?.ok) {
         // Store access_token in localStorage for modules that read it directly
         try {
@@ -71,7 +104,7 @@ export default function SignInForm() {
         window.location.assign(targetUrl);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
+      setError(resolveAuthError(err instanceof Error ? err.message : null));
     } finally {
       setIsLoading(false);
     }
