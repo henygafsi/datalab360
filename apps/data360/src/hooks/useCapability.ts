@@ -142,6 +142,41 @@ export function invalidateProjectRoles(projectId?: string) {
   notify();
 }
 
+/**
+ * useModuleAccess — lean coarse-posture reader on the SAME my-module-access
+ * singleton the capability gates use (one fetch per app session, shared with
+ * useCapability — no extra network traffic).
+ *
+ * Returns the caller's access level for one module (useCanPerform module
+ * vocabulary: 'gouvernance', 'bi_reporting', 'data_quality', …):
+ *   · 'read' | 'write' | 'none' — resolved backend verdict;
+ *   · undefined                 — still loading, hard fetch error, or module
+ *                                 not covered by the map.
+ * Callers MUST treat undefined as "don't gate" (fail open, zero UI change —
+ * mirrors the useCanPerform policy). Typical viewer-safe use:
+ *   const readOnly = useModuleAccess('gouvernance') === 'read';
+ */
+export function useModuleAccess(module: string): ModuleAccessLevel | undefined {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const rerender = () => force((n) => n + 1);
+    subscribers.add(rerender);
+    if (moduleAccessData == null && !moduleAccessError) {
+      loadModuleAccess();
+    } else {
+      // Resolved between this component's render and subscribe — catch up so
+      // the first committed value isn't a stale undefined.
+      rerender();
+    }
+    return () => {
+      subscribers.delete(rerender);
+    };
+  }, []);
+  return moduleAccessData?.[module];
+}
+
+export type { ModuleAccessLevel };
+
 // Account-role substring check — mirrors backend
 // `any(r in role for r in (...))` (requirements.py:45, tracking.py:44).
 function hasAccountRole(sessionRole: string, tokens: readonly string[]): boolean {

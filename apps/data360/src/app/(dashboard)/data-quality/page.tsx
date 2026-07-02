@@ -7,6 +7,8 @@ import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useModuleAccess } from '@/hooks/useCapability';
+import { getModuleDisplayName } from '@/config/modules';
 import { Badge, Button, Input, Tooltip } from 'rizzui';
 import {
   CheckCircle2, AlertTriangle, Database, Clock,
@@ -16,7 +18,7 @@ import {
   Lightbulb, ChevronDown, ChevronUp,
   Info, Play, Download, Plus, Link2, CalendarClock, Loader2, Sparkles,
   ListChecks, Trash2, ScanSearch, SlidersHorizontal,
-  Gauge, TrendingUp,
+  Gauge, TrendingUp, Eye,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -173,6 +175,9 @@ const TAB_LABELS: Record<string, string> = {
 const TAB_IDS = Object.keys(TAB_ENDPOINTS);
 
 const PAGINATED_TABS = new Set(['completeness', 'uniqueness', 'freshness', 'schema', 'cost', 'security']);
+
+/** sessionStorage key: per-session dismissal of the read-only module notice. */
+const RO_NOTICE_KEY = 'd360.read-only-notice.data_quality';
 
 /**
  * Build a fully-qualified table name from a metric row.
@@ -1307,6 +1312,32 @@ export default function DataQualityPage() {
   const canCreateDmf = createDmfPerm.allowed || createDmfPerm.loading;
   const canScheduleDmf = schedulePerm.allowed || schedulePerm.loading;
   const canDeleteDmf = deleteDmfPerm.allowed || deleteDmfPerm.loading;
+
+  // ── Module-level posture (my-module-access) layered ON TOP of action-RBAC,
+  // applied to the header's PRIMARY mutating CTAs only (tab/row-level actions
+  // keep their existing useCanPerform gates). undefined (loading / hard error /
+  // module absent from the map) fails OPEN — zero visual change until the map
+  // actually resolves to 'read' (no flash of disabled). ──
+  const readOnly = useModuleAccess('data_quality') === 'read';
+  const readOnlyReason = `Read-only access — ask an admin for write access to ${getModuleDisplayName('data_quality')}`;
+
+  // Slim per-session read-only notice (dismiss persists in sessionStorage).
+  const [roNoticeDismissed, setRoNoticeDismissed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.sessionStorage.getItem(RO_NOTICE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const dismissRoNotice = useCallback(() => {
+    setRoNoticeDismissed(true);
+    try {
+      window.sessionStorage.setItem(RO_NOTICE_KEY, '1');
+    } catch {
+      /* best-effort */
+    }
+  }, []);
 
   // ── DMF lifecycle (no-code) — drives the ActionRail panels ──
   const dmfPanel = useActionPanel<'associate' | 'custom' | 'schedule' | 'manage'>();
@@ -2918,8 +2949,8 @@ export default function DataQualityPage() {
               }
               thresholdPanel.open('main');
             }}
-            disabled={!canRunCheck}
-            title={!canRunCheck ? 'You lack the "run" permission on data quality. Ask an administrator to grant it.' : selectedRow ? `Run check on ${buildFqnFromRow(selectedRow) || String(selectedRow.TABLE_NAME ?? '')}` : undefined}
+            disabled={!canRunCheck || readOnly}
+            title={readOnly ? readOnlyReason : !canRunCheck ? 'You lack the "run" permission on data quality. Ask an administrator to grant it.' : selectedRow ? `Run check on ${buildFqnFromRow(selectedRow) || String(selectedRow.TABLE_NAME ?? '')}` : undefined}
             size="sm"
             className="bg-green-500/80 hover:bg-green-500 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -2936,10 +2967,10 @@ export default function DataQualityPage() {
               icon={ScanSearch}
               size="md"
               variant="subtle"
-              capable={canRunCheck}
+              capable={canRunCheck && !readOnly}
               pingBell
               successToast={`Column stats refreshed for ${String(selectedRow.TABLE_NAME ?? '')}`}
-              unavailableHint={canRunCheck ? 'Table profiling is not available on this backend yet' : 'You lack the "run" permission on data quality. Ask an administrator to grant it.'}
+              unavailableHint={readOnly ? readOnlyReason : canRunCheck ? 'Table profiling is not available on this backend yet' : 'You lack the "run" permission on data quality. Ask an administrator to grant it.'}
               className="h-8 border-white/30 bg-white/15 text-white hover:bg-white/25 dark:border-white/30 dark:text-white dark:hover:bg-white/25"
               onAction={() => {
                 const parts = buildFqnFromRow(selectedRow).split('.');
@@ -2958,8 +2989,8 @@ export default function DataQualityPage() {
           )}
           <Button
             onClick={() => openDmfPanel('associate')}
-            disabled={!canAssociateDmf}
-            title={!canAssociateDmf ? 'You lack the "associate" permission on data quality. Ask an administrator to grant it.' : undefined}
+            disabled={!canAssociateDmf || readOnly}
+            title={readOnly ? readOnlyReason : !canAssociateDmf ? 'You lack the "associate" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -2968,8 +2999,8 @@ export default function DataQualityPage() {
           </Button>
           <Button
             onClick={() => openDmfPanel('custom')}
-            disabled={!canCreateDmf}
-            title={!canCreateDmf ? 'You lack the "create" permission on data quality. Ask an administrator to grant it.' : undefined}
+            disabled={!canCreateDmf || readOnly}
+            title={readOnly ? readOnlyReason : !canCreateDmf ? 'You lack the "create" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -2978,8 +3009,8 @@ export default function DataQualityPage() {
           </Button>
           <Button
             onClick={() => openDmfPanel('schedule')}
-            disabled={!canScheduleDmf}
-            title={!canScheduleDmf ? 'You lack the "schedule" permission on data quality. Ask an administrator to grant it.' : undefined}
+            disabled={!canScheduleDmf || readOnly}
+            title={readOnly ? readOnlyReason : !canScheduleDmf ? 'You lack the "schedule" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -2997,6 +3028,28 @@ export default function DataQualityPage() {
           </Button>
         </div>
       </div>
+
+      {/* Viewer-safe read-only notice — only after my-module-access resolves
+          to 'read'; dismissable for the session. Write/unknown → not rendered. */}
+      {readOnly && !roNoticeDismissed && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-300"
+        >
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            You have read-only access to this module
+          </span>
+          <button
+            type="button"
+            onClick={dismissRoNotice}
+            aria-label="Dismiss read-only notice"
+            className="rounded p-0.5 text-amber-700 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
+      )}
 
       {/* Screen reader status for running checks */}
       <div aria-live="polite" className="sr-only">

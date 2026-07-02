@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
 import RouteFallback from '@/components/ui/RouteFallback';
-import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, Wand2, ExternalLink, Clock, Rocket, AlertTriangle, RefreshCw, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, Wand2, ExternalLink, Clock, Rocket, AlertTriangle, RefreshCw, Pencil, Trash2, Loader2, Eye, X } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useModuleAccess } from '@/hooks/useCapability';
+import { getModuleDisplayName } from '@/config/modules';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { createDashboard, updateDashboard, deleteDashboard } from '@/app/services/api/biDashboardApi';
@@ -24,7 +26,7 @@ import { BiLandingCockpit, BiLandingKpis, useBiLandingSignals } from './componen
 // Empty state
 // ---------------------------------------------------------------------------
 
-function EmptyState({ onCreate }: { onCreate: () => void }) {
+function EmptyState({ onCreate, hideCreate = false }: { onCreate: () => void; hideCreate?: boolean }) {
   // Fail-open while loading; honest disabled + tooltip when create is denied.
   const createPerm = useCanPerform('bi_reporting', 'create');
   const canCreate = createPerm.allowed || createPerm.loading;
@@ -41,15 +43,19 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
           Create project-based dashboards with charts, KPI cards, tables, and NL-to-chart AI generation.
         </p>
       </div>
-      <button
-        onClick={onCreate}
-        disabled={!canCreate}
-        title={!canCreate ? 'Requires the "create" permission on Business Reporting.' : undefined}
-        className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-cyan-600"
-      >
-        <Plus className="w-4 h-4" />
-        New Dashboard
-      </button>
+      {/* Module read-only → the create CTA is hidden entirely (a permanently
+          disabled empty-state button is noise; the page banner carries the why). */}
+      {!hideCreate && (
+        <button
+          onClick={onCreate}
+          disabled={!canCreate}
+          title={!canCreate ? 'Requires the "create" permission on Business Reporting.' : undefined}
+          className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-cyan-600"
+        >
+          <Plus className="w-4 h-4" />
+          New Dashboard
+        </button>
+      )}
     </div>
   );
 }
@@ -502,6 +508,9 @@ function ProjectList({
 // Shared denied-reason copy for the create-dashboard gates.
 const CREATE_DENIED_REASON = 'Requires the "create" permission on Business Reporting.';
 
+/** sessionStorage key: per-session dismissal of the read-only module notice. */
+const RO_NOTICE_KEY = 'd360.read-only-notice.bi_reporting';
+
 function BIDashboardPage() {
   const { trackFeatureClick } = useTrackEvent();
   // Action-RBAC gate (System 2): creating / auto-creating a dashboard hits POST
@@ -509,7 +518,33 @@ function BIDashboardPage() {
   // require_action('bi_reporting','create'). Fail-open while the allow-set
   // loads; honest disabled + tooltip on a resolved deny.
   const createPerm = useCanPerform('bi_reporting', 'create');
-  const canCreate = createPerm.allowed || createPerm.loading;
+  // Module-level posture (my-module-access) layered ON TOP of action-RBAC: a
+  // resolved 'read' disables the landing's create CTAs. undefined (loading /
+  // hard error / module absent from the map) fails OPEN — zero visual change
+  // until the map actually resolves to 'read' (no flash).
+  const readOnly = useModuleAccess('bi_reporting') === 'read';
+  const canCreate = (createPerm.allowed || createPerm.loading) && !readOnly;
+  const createDeniedReason = readOnly
+    ? `Read-only access — ask an admin for write access to ${getModuleDisplayName('bi_reporting')}`
+    : CREATE_DENIED_REASON;
+
+  // Slim per-session read-only notice (dismiss persists in sessionStorage).
+  const [roNoticeDismissed, setRoNoticeDismissed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.sessionStorage.getItem(RO_NOTICE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const dismissRoNotice = useCallback(() => {
+    setRoNoticeDismissed(true);
+    try {
+      window.sessionStorage.setItem(RO_NOTICE_KEY, '1');
+    } catch {
+      /* best-effort */
+    }
+  }, []);
   // G8: an inbound `?project=<id>` deep-link scopes the health score cards to
   // that project and rings/scrolls its card — additive, no redirect, no new
   // selection UI. Opening a project still routes to `/bi-dashboard/[projectId]`.
@@ -658,7 +693,7 @@ function BIDashboardPage() {
                   setShowAiBuild(true);
                 }}
                 disabled={!canCreate}
-                title={!canCreate ? CREATE_DENIED_REASON : undefined}
+                title={!canCreate ? createDeniedReason : undefined}
                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-700 hover:to-fuchsia-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Wand2 className="w-4 h-4" />
@@ -670,7 +705,7 @@ function BIDashboardPage() {
                   setShowCreate(true);
                 }}
                 disabled={!canCreate}
-                title={!canCreate ? CREATE_DENIED_REASON : undefined}
+                title={!canCreate ? createDeniedReason : undefined}
                 className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-cyan-600"
               >
                 <Plus className="w-4 h-4" />
@@ -679,6 +714,30 @@ function BIDashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* Viewer-safe read-only notice — only after my-module-access resolves
+            to 'read'; dismissable for the session. Write/unknown → not rendered. */}
+        {readOnly && !roNoticeDismissed && (
+          <div className="px-6 pt-3">
+            <div
+              role="status"
+              className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-300"
+            >
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                You have read-only access to this module
+              </span>
+              <button
+                type="button"
+                onClick={dismissRoNotice}
+                aria-label="Dismiss read-only notice"
+                className="rounded p-0.5 text-amber-700 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Unified KPI strip — honest "—" until a value is genuinely known;
             Published / Shares / Est. cost fill in from the lazily-fetched
@@ -730,7 +789,7 @@ function BIDashboardPage() {
             </div>
           )}
           {!projectsLoading && !projectsError && projects.length === 0 && (
-            <EmptyState onCreate={() => { setShowCreate(true); }} />
+            <EmptyState onCreate={() => { setShowCreate(true); }} hideCreate={readOnly} />
           )}
           {!projectsError && (
             <ProjectList
@@ -758,7 +817,7 @@ function BIDashboardPage() {
             onOpenAxis={openAxis}
             onClose={() => setCockpitOpen(false)}
             canCreate={canCreate}
-            createDeniedReason={CREATE_DENIED_REASON}
+            createDeniedReason={createDeniedReason}
             onNewDashboard={() => {
               trackFeatureClick('bi_dashboard_open_create');
               setShowCreate(true);

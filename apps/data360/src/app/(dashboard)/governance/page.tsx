@@ -25,6 +25,7 @@ import { useRouter } from 'next/navigation';
 import { useSetAtom } from 'jotai';
 import { toast } from 'react-hot-toast';
 import {
+  Eye,
   Fingerprint,
   FolderKanban,
   Gauge,
@@ -37,6 +38,7 @@ import {
   Sparkles,
   UserCog,
   Users,
+  X,
 } from 'lucide-react';
 
 import AxisCockpit, {
@@ -46,8 +48,10 @@ import AxisCockpit, {
 import KpiStrip, { type KpiItem } from '@/app/shared/cockpit/KpiStrip';
 import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import { getModuleDisplayName } from '@/config/modules';
 import { routes } from '@/config/routes';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useModuleAccess } from '@/hooks/useCapability';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import {
   addRolePanelOpenAtom,
@@ -74,6 +78,9 @@ import {
 
 type AxisId = 'overview' | 'policies' | 'users' | 'access' | 'history' | 'ai';
 const AXIS_IDS: AxisId[] = ['overview', 'policies', 'users', 'access', 'history', 'ai'];
+
+/** sessionStorage key: per-session dismissal of the read-only module notice. */
+const RO_NOTICE_KEY = 'd360.read-only-notice.gouvernance';
 
 const EMPTY_CORE: GovCore = {
   loading: true,
@@ -113,10 +120,35 @@ export default function GovernanceLandingPage() {
   // Mutating quick actions gate on gouvernance:create (fail-open while loading,
   // same pattern as the sibling governance pages — no flash of disabled CTAs).
   const createPerm = useCanPerform('gouvernance', 'create');
-  const canCreate = createPerm.allowed || createPerm.loading;
+  // Module-level posture (my-module-access) layered ON TOP of action-RBAC:
+  // a resolved 'read' disables the landing's mutating quick actions. undefined
+  // (loading / hard error / module absent from the map) fails OPEN — zero
+  // visual change until the map actually resolves to 'read' (no flash).
+  const readOnly = useModuleAccess('gouvernance') === 'read';
+  const canCreate = (createPerm.allowed || createPerm.loading) && !readOnly;
   const createDeniedTitle = canCreate
     ? undefined
-    : 'Requires the governance create permission';
+    : readOnly
+      ? `Read-only access — ask an admin for write access to ${getModuleDisplayName('gouvernance')}`
+      : 'Requires the governance create permission';
+
+  // Slim per-session read-only notice (dismiss persists in sessionStorage).
+  const [roNoticeDismissed, setRoNoticeDismissed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.sessionStorage.getItem(RO_NOTICE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const dismissRoNotice = useCallback(() => {
+    setRoNoticeDismissed(true);
+    try {
+      window.sessionStorage.setItem(RO_NOTICE_KEY, '1');
+    } catch {
+      /* best-effort */
+    }
+  }, []);
 
   // ── Cockpit state — auto-opens on the Overview axis (purposeful, not blank).
   const [open, setOpen] = useState(true);
@@ -481,6 +513,28 @@ export default function GovernanceLandingPage() {
               </button>
             }
           />
+
+          {/* Viewer-safe read-only notice — only after my-module-access resolves
+              to 'read'; dismissable for the session. Write/unknown → not rendered. */}
+          {readOnly && !roNoticeDismissed && (
+            <div
+              role="status"
+              className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-300"
+            >
+              <span className="inline-flex min-w-0 items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                You have read-only access to this module
+              </span>
+              <button
+                type="button"
+                onClick={dismissRoNotice}
+                aria-label="Dismiss read-only notice"
+                className="rounded p-0.5 text-amber-700 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </div>
+          )}
 
           {/* KPI strip — honest "—" for anything undetermined; click → axis. */}
           <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm dark:border-slate-800">
