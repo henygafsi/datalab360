@@ -108,7 +108,7 @@ const CATEGORY_META: { key: keyof Pick<IntelligentKpis, 'governance' | 'cost' | 
 ];
 
 /**
- * Health & Insights hub — routes the previously-orphaned observability cards
+ * Health & Insights hub — routes the observability cards
  * (health score, KPI categories, recommendations, security posture,
  * performance/slow-queries, user activity) onto a single overview surface.
  *

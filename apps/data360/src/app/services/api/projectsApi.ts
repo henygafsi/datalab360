@@ -77,7 +77,7 @@ export async function getProject(projectId: string) {
 }
 
 export async function createProject(body: CreateProjectRequest) {
-  // POST /projects (unified-CRUD create) added on the backend 2026-06-21 — method gap closed.
+  // POST /projects (unified-CRUD create).
   // Idempotent server-side (same project_name+project_type+owner returns the existing project).
   const { data } = await apiClient.post<CreateProjectResponse>(PREFIX, body);
   return data;

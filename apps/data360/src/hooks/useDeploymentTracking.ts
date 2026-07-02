@@ -35,8 +35,7 @@ export function useActiveDeployments() {
   const [error, setError] = useState<Error | null>(null);
   // Refs survive renders without triggering re-fires. setPollInterval is
   // intentionally NOT in the effect deps because re-creating the interval
-  // every backoff bump used to fire an immediate `void refresh()` which
-  // caused the 404 spam the user was seeing in prod.
+  // every backoff bump would fire an immediate `void refresh()`, causing 404 spam.
   const failuresRef = useRef<number>(0);
   const deadRef = useRef<boolean>(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -87,8 +86,8 @@ export function useActiveDeployments() {
   }, []);
 
   // Timer setup. Does NOT call refresh() in the body — only the interval
-  // tick fires it. That's the bug fix: previously this effect re-fired
-  // every time the interval changed, causing the 404 spam.
+  // tick fires it, so the effect doesn't re-fire every time the interval
+  // changes (which caused 404 spam).
   useEffect(() => {
     if (deadRef.current) return;
     // Skip the tick while the tab is hidden — the header chip isn't visible, so

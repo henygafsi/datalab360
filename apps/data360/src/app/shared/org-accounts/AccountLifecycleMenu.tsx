@@ -160,8 +160,8 @@ function buildItems(
 
   // Edit — orgadmin + accountadmin only. Rendered DISABLED: renaming an account
   // or changing its comment is a cross-account ALTER, which the warehouse does
-  // not permit remotely (verified against the backend — it returns a SQL error).
-  // The action must be performed from within the target account itself.
+  // not permit remotely (it returns a SQL error). The action must be performed
+  // from within the target account itself.
   if (role === 'orgadmin' || role === 'accountadmin' || role === 'qa') {
     items.push({
       key: 'edit',

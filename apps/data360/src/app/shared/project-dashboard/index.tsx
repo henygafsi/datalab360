@@ -23,8 +23,8 @@ import RecentActivities from './recent-activities';
  *                      project is selected.
  *
  * There is intentionally no account-wide activity feed: GET /projects/events/all
- * does not exist on the backend (verified against backend-route-manifest.json),
- * so the feed is per-project via the summary selection rather than fabricated.
+ * does not exist on the backend, so the feed is per-project via the summary
+ * selection rather than fabricated.
  */
 export default function ProjectDashboard() {
   return (

@@ -1,8 +1,8 @@
 /**
  * Governance identity & integrations (`/gouvernance/{oauth,gui-permissions,
- * enterprise-users}/*`) — W6 reintegration of three cohesive, previously-unwired
- * security clusters: OAuth/SAML integrations, GUI page-access permissions, and
- * the enterprise user directory. Typed client (reads + admin mutations).
+ * enterprise-users}/*`) — three security clusters: OAuth/SAML integrations,
+ * GUI page-access permissions, and the enterprise user directory. Typed client
+ * (reads + admin mutations).
  */
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';

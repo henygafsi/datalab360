@@ -57,7 +57,7 @@ import TableSkeleton from '@/components/ui/TableSkeleton';
 // React Flow views
 import { DependencyFlowView, LineageFlowView } from './cross-module-flow';
 
-// Health & Insights overview (routes the orphaned health/KPI/security/perf/activity cards)
+// Health & Insights overview (routes the health/KPI/security/perf/activity cards)
 import HealthOverviewTab from './health-overview-tab';
 
 interface TabItem {

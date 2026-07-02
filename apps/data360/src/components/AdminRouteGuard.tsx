@@ -17,8 +17,7 @@ import { isAdminRole } from '@/config/constants';
  *     defaults the role to 'ACCOUNTADMIN' until the JWT resolves, so admins
  *     never see a denial flash; non-admins flip to the restricted state once
  *     the token is read.
- *   - Non-admins get an explanatory EmptyState instead of the full admin shell
- *     (previously the shell rendered and only the data calls 403'd).
+ *   - Non-admins get an explanatory EmptyState instead of the full admin shell.
  *   - PAGE_VIEW still fires before the gate (useTrackEvent dedupes globally
  *     per route, so pages that also call it don't double-count).
  *

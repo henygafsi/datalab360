@@ -616,7 +616,7 @@ export async function removeWorkflowContributor(
 
 /**
  * Initialize workflow tracking tables (run once).
- * Backed by POST /workflow/setup/initialize-tables (deployed — verified in OpenAPI 2026-06-09).
+ * Backed by POST /workflow/setup/initialize-tables.
  */
 export async function initializeTables(): Promise<{
   status: string;
@@ -785,8 +785,8 @@ export async function createComputePool(params: {
   return res.data;
 }
 
-// FE sends PATCH /workflow/compute-pools/{name}; backend route added 2026-06-21
-// (api_workflow_alter_compute_pool → snowpark alter_compute_pool). Method gap closed.
+// FE sends PATCH /workflow/compute-pools/{name}
+// (api_workflow_alter_compute_pool → snowpark alter_compute_pool).
 export async function alterComputePool(name: string, params: {
   min_nodes?: number;
   max_nodes?: number;

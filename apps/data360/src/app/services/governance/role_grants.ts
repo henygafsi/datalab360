@@ -2,7 +2,7 @@
  * Frontend Service Layer for Role Object-Grants & Role Hierarchy
  * (Governance Reverse Provisioning)
  *
- * Wires the "role power-user" CRUD surface that was unwired before Round 2:
+ * Wires the "role power-user" CRUD surface:
  *   - GET    /gouvernance/roles/{role}/object-grants     SHOW GRANTS TO ROLE
  *   - POST   /gouvernance/roles/{role}/grant-role        attach role -> functional role
  *   - DELETE /gouvernance/roles/{role}/grant-role?to_role=  detach role -> functional role

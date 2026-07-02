@@ -1,7 +1,7 @@
 /**
- * Business glossary client (`/explore-design/glossary/*`) — W6 reintegration of
- * a previously-unwired, self-contained CRUD+AI feature. A shared glossary helps
- * data_user clarity (consistent business definitions across modules).
+ * Business glossary client (`/explore-design/glossary/*`) — self-contained
+ * CRUD+AI feature. A shared glossary helps data_user clarity (consistent
+ * business definitions across modules).
  */
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';

@@ -46,7 +46,7 @@ export function dash<T>(value: T): T | string {
 /**
  * Numeric KPI formatter: `'—'` for a missing value, otherwise a locale-formatted
  * number string. Use this only where the card already localized its number
- * (e.g. it previously called `toLocaleString()`); for cards that render a raw
+ * (e.g. it already called `toLocaleString()`); for cards that render a raw
  * number, prefer {@link dash} so you don't introduce thousands separators.
  *
  * A numeric string is localized; a non-numeric (pre-formatted) string passes

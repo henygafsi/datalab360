@@ -1,7 +1,7 @@
 /**
  * Cortex Service - AI conversation history
  *
- * Wires the documented (but previously un-consumed) Cortex chat-history hooks:
+ * Wires the Cortex chat-history hooks:
  *   GET /cortex/conversations            -> list the caller's AI exchanges (newest first)
  *   GET /cortex/conversations/{id}       -> read one exchange (prompt + response)
  *

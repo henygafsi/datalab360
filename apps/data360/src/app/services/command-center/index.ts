@@ -544,8 +544,8 @@ export async function checkDataFreshness(
 }
 
 // =============================================================================
-// Generic KPI tables — previously-unused command_center endpoints that compute
-// rich FinOps / governance data but were never surfaced in the FE.
+// Generic KPI tables — command_center endpoints that compute rich FinOps /
+// governance data.
 // All return { data: Array<Record<string, any>>, count, days } with UPPERCASE keys.
 // =============================================================================
 

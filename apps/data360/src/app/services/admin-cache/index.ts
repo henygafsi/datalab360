@@ -1,7 +1,7 @@
 /**
- * Cache-service client (`/cache/*`) — W6 reintegration of previously-unwired
- * backend endpoints. SVC-first cache observability + control: stats, health,
- * key breakdown, recent invalidations (FinOps/cost signal), and admin control
+ * Cache-service client (`/cache/*`). SVC-first cache observability + control:
+ * stats, health, key breakdown, recent invalidations (FinOps/cost signal), and
+ * admin control
  * (clear / warmup / refresh). Distinct from admin.cache (`/admin/cache/*`).
  */
 import apiClient from '@/lib/api-client';

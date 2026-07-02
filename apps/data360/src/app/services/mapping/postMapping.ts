@@ -37,9 +37,7 @@ export interface TestMappingResponse {
  * Sends mapping data for server-side validation.
  *
  * POST /explore-design/guided/test_mapping (BaseMappingRequest — the payload
- * shape above matches its ColumnMapping items exactly). The route is live
- * (verified against the running backend's openapi, 2026-07-02) — an earlier
- * revision hard-threw here on the stale assumption that /guided/* was gone.
+ * shape above matches its ColumnMapping items exactly).
  */
 export async function postMapping(payload: TestMappingPayload): Promise<TestMappingResponse> {
     const { data } = await apiClient.post<TestMappingResponse>(

@@ -257,8 +257,8 @@ export async function getRLSPolicies(): Promise<RLSPolicy[]> {
 /**
  * @deprecated Use `createRLSPolicy` from `services/governance/policies.ts`.
  *
- * This variant previously POSTed to `/gouvernance/rls-policies`, which the
- * backend serves only as GET (dead route — verified 2026-06-07). It cannot
+ * This variant would POST to `/gouvernance/rls-policies`, which the
+ * backend serves only as GET (dead route). It cannot
  * delegate to the canonical create either: `CreateRLSPolicyRequest` requires a
  * `signature` (the row-access policy's typed column list) that this shape does
  * not carry, and fabricating one would create an invalid policy. It therefore

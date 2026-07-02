@@ -7,13 +7,9 @@
  *   • Contract line-items   → GET /org-accounts/contract
  *   • Per-account rate sheet → GET /org-accounts/rate-sheet
  *
- * History: this panel used to call `GET /billing/estimate` + `/billing/pricing`,
- * neither of which exists on the backend — so it rendered all-zero "reference"
- * prices behind a misleading "$DISCOVERY_GAP … reference placeholder" banner.
- * Those endpoints are gone; we now read the contract + rate-sheet that the
- * backend actually exposes. Their shapes are line-items + rate cards (NOT a
- * per-source/project/module estimate), so we render them honestly as a contract
- * table + a rate sheet rather than forcing them into the old estimate layout.
+ * The contract + rate-sheet shapes are line-items + rate cards (NOT a
+ * per-source/project/module estimate), so they render as a contract table + a
+ * rate sheet rather than a per-usage estimate.
  *
  * Honest-gating: contract/rate-sheet are ORGADMIN-gated and may not be present
  * on every deployment — 403 (not permitted) and 404 (endpoint/object missing)

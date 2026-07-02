@@ -14,7 +14,7 @@ import { API_CONFIG } from '@/config/database.config';
  *     apiClient.get(API.common.tables(db, schema))
  *     apiClient.post(API.workflow.execute(id), body)
  *
- * Every path below is verified against the live FastAPI routers
+ * Every path below maps to a FastAPI router
  * (app/modules/<module>/router*.py + app/main.py). Grouped by domain.
  *
  * NOTE: the legacy `API_CONTRACTS` object further down returns ABSOLUTE urls
@@ -268,7 +268,7 @@ export const API = {
       `/explore-design/${enc(projectId)}/ingestion/operations`,
     /** GET /explore-design/schema-clone/list — list schema clones (project_id as query param) */
     schemaCloneList: () => `/explore-design/schema-clone/list`,
-    // --- Business glossary (W6 reintegration: was unwired) -------------------
+    // --- Business glossary -------------------
     /** GET /explore-design/glossary — list business glossary terms. */
     glossaryList: () => '/explore-design/glossary',
     /** POST /explore-design/glossary — create/update a glossary term (admin). */
@@ -279,7 +279,7 @@ export const API = {
     glossaryAiDraft: () => '/explore-design/glossary/ai-draft',
     /** DELETE /explore-design/glossary/{term} — delete a glossary term (admin). */
     glossaryDelete: (term: string) => `/explore-design/glossary/${enc(term)}`,
-    // --- Snowflake object management (W6 reintegration: dynamic tables/streams/tasks) ---
+    // --- Snowflake object management (dynamic tables/streams/tasks) ---
     /** GET|POST /explore-design/dynamic-tables — list / create dynamic tables. */
     dynamicTables: () => '/explore-design/dynamic-tables',
     /** GET|PATCH|DELETE /explore-design/dynamic-tables/{name} — describe / alter / drop. */
@@ -300,7 +300,7 @@ export const API = {
     /** POST /explore-design/tasks/{name}/{action} — suspend|resume. */
     deTaskAction: (name: string, action: 'suspend' | 'resume') =>
       `/explore-design/tasks/${enc(name)}/${action}`,
-    // --- Release spine (ED redesign 2026-07: state machine + named approvers + AI analyst) ---
+    // --- Release spine (state machine + named approvers + AI analyst) ---
     /**
      * GET /explore-design/{project_id}/release-state — deploy state-machine
      * snapshot: { status, label, next_action, counts:{changes,blockers,warnings,
@@ -436,7 +436,7 @@ export const API = {
     gitRepositoryTags: (name: string) => `/workflow/git/repositories/${enc(name)}/tags`,
     /** POST /workflow/git/repositories/{name}/fetch — fetch remote changes for a Git repository. */
     gitRepositoryFetch: (name: string) => `/workflow/git/repositories/${enc(name)}/fetch`,
-    /** PATCH /workflow/compute-pools/{name} — alter a compute pool (api_workflow_alter_compute_pool, 2026-06-21). */
+    /** PATCH /workflow/compute-pools/{name} — alter a compute pool (api_workflow_alter_compute_pool). */
     computePool: (name: string) => `/workflow/compute-pools/${enc(name)}`,
     /** GET/POST /workflow/notebooks — list or create Snowflake notebooks. */
     notebooks: () => '/workflow/notebooks',
@@ -523,7 +523,7 @@ export const API = {
     complianceScore: () => '/gouvernance/compliance/score',
     /** GET /gouvernance/access-review/summary — access-review findings (mfa gaps, expiring policies, orphan grants). */
     accessReviewSummary: () => '/gouvernance/access-review/summary',
-    // --- Identity & integrations (W6 reintegration: oauth / gui-perms / ent-users) ---
+    // --- Identity & integrations (oauth / gui-perms / ent-users) ---
     /** GET|POST /gouvernance/oauth/integrations — list / create OAuth|SAML security integrations. */
     oauthIntegrations: () => '/gouvernance/oauth/integrations',
     /** GET /gouvernance/oauth/network-policies — list network policies. */
@@ -1033,7 +1033,7 @@ export const API = {
     /** GET /data-quality/trend-analysis — daily avg DMF metric history */
     trendAnalysis: () => '/data-quality/trend-analysis',
     // TODO(henry-P1): /anomalies, /snapshot, /anomaly-detection and /trust-center/* are NOT
-    // in the backend (verified 2026-06-07 vs 896-route dump). Closest real trust routes live
+    // in the backend. Closest real trust routes live
     // under /observability/trust-center/{findings,summary}. 404-self-disable until shipped.
     /** GET /data-quality/anomalies — ML anomaly results. (backend gap) */
     anomalies: () => '/data-quality/anomalies',
@@ -1130,7 +1130,7 @@ export const API = {
     /** GET /catalog/profile/{db}/{schema}/{table} */
     tableProfile: (db: string, s: string, t: string) =>
       `/catalog/profile/${enc(db)}/${enc(s)}/${enc(t)}`,
-    /** @deprecated No backend route (404 local+live, 2026-06-07) and no consumer — remove or implement before use. */
+    /** @deprecated No backend route (404 local+live) and no consumer — remove or implement before use. */
     viewDdl: (db: string, s: string, v: string) =>
       `/catalog/views/${enc(db)}/${enc(s)}/${enc(v)}/ddl`,
     /** GET /catalog/refresh?scope=<scope>[&db=<db>] — legacy query-param form kept for compat. */
@@ -1142,7 +1142,7 @@ export const API = {
     notifyConsumers: () => '/catalog/tables/notify-consumers',
     /** GET /catalog/scores — global catalog trust/quality averages ({ averages: { trust_avg } }) */
     scores: () => '/catalog/scores',
-    /** @deprecated No backend route (404 local+live, 2026-06-07) and no consumer — remove or implement before use. */
+    /** @deprecated No backend route (404 local+live) and no consumer — remove or implement before use. */
     detectedModels: (projectId?: string) =>
       `/sources/detected-models${projectId ? `?project_id=${enc(projectId)}` : ''}`,
   },
@@ -1294,7 +1294,7 @@ export const API = {
    * Standalone cache-service router (`/cache/*`) — SVC-first cache observability
    * & control (distinct from `admin.cache` = `/admin/cache/*`). Read endpoints
    * feed FinOps/cost monitoring; control endpoints (clear/warmup/refresh) are
-   * admin-gated. Reintegration batch W6 (was unwired). [trace: app/modules/cache]
+   * admin-gated.
    */
   cacheService: {
     svcHealth:       () => '/cache/svc-health',
@@ -1582,7 +1582,7 @@ export const API_CONTRACTS = {
       getUrl: () => `${API_CONFIG.BASE_URL}/workflow`,
     },
   },
-  /** @deprecated Both /bi/sales/* routes 404 local+live (2026-06-07) and have no consumer — legacy block, superseded by /bi-dashboard/*. */
+  /** @deprecated Both /bi/sales/* routes 404 local+live and have no consumer — legacy block, superseded by /bi-dashboard/*. */
   biRetail: {
     salesOverview: {
       method: 'GET' as const,

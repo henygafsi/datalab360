@@ -645,7 +645,7 @@ function riskScore(r: 'Low' | 'Medium' | 'High') {
 }
 interface AdnAxis { key: string; label: string; score: number | null }
 function adnAxes(o: SampleObject): AdnAxis[] {
-  // 5 axes — Sécurité folds in governance + access; "Accès" renamed to "Sécurité".
+  // 5 axes — Sécurité folds in governance + access.
   // Only axes backed by a REAL signal get a number:
   //   DQ    — no quality/AI-scan feed in this payload → unknown ("—").
   //   PERF  — threshold read of real clustering/row-count fields (null → "—").

@@ -48,9 +48,7 @@ async function ensureProjectExists(projectId: string): Promise<void> {
  * Saves mapping groups using the event-based pattern.
  *
  * POST /explore-design/guided/add-event, one call per group (the backend's
- * AddEventRequest carries a single {group_index, sources, target}). The route is
- * live (verified against the running backend's openapi, 2026-07-02) — an earlier
- * revision hard-threw here on the stale assumption that /guided/* was gone.
+ * AddEventRequest carries a single {group_index, sources, target}).
  */
 export async function addGroupEvent(payload: SaveGroupsPayload): Promise<void> {
     await ensureProjectExists(payload.project_id);

@@ -24,7 +24,7 @@ const ALL_MODULE_IDS = Object.values(MODULE_ID_MAP);
 
 /**
  * Shared, cached session-token fetch (kills the /api/auth/session storm).
- * Every useAuth consumer (14+ across the app) previously fired its OWN
+ * Every useAuth consumer would otherwise fire its OWN
  * `fetch('/api/auth/session')` on mount when no localStorage token existed →
  * N concurrent requests + retries spamming the dev log and adding render latency.
  * This dedupes to a SINGLE in-flight request and caches the resolved token
