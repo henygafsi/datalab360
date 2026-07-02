@@ -81,11 +81,6 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: routes.connexion.dataSourceConnection,
         icon: PiHouseLineDuotone,
       },
-      {
-        name: 'Configuration',
-        href: '/data-source-config',
-        icon: PiHouseLineDuotone,
-      },
     ]
   },
 
