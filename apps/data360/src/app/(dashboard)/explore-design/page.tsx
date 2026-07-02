@@ -3376,6 +3376,7 @@ export default function ExploreDesignPage() {
     }
 
     // Add to modeling state
+    markScratchStarted();
     setModelingTableIds(prev => {
       const next = new Set(prev);
       tablesToAdd.forEach(id => next.add(id));
@@ -3405,6 +3406,17 @@ export default function ExploreDesignPage() {
     toast.success(`Added ${tablesToAdd.length} table${tablesToAdd.length > 1 ? 's' : ''} to modeling`);
     setSelectedTables(new Set());
   }, [selectedTables, modelingTableIds, tables, selectedProjectId, addEvent]);
+
+  // Adding any table IS the "start from scratch" choice — commit it so the
+  // Start-Modeling onboarding gate never re-appears over a populated canvas
+  // (and survives a reload via the per-project cache).
+  const markScratchStarted = useCallback(() => {
+    if (modelingChoice) return;
+    setModelingChoice('scratch');
+    if (selectedProjectId) {
+      modelingChoicesByProject.current.set(selectedProjectId, { choice: 'scratch' });
+    }
+  }, [modelingChoice, selectedProjectId]);
 
   // Remove table from modeling view
   const handleRemoveFromModeling = useCallback((tableId: string) => {
@@ -3476,6 +3488,7 @@ export default function ExploreDesignPage() {
       status: 'pending',
       sensitiveColumns: 0,
     };
+    markScratchStarted();
     setTables(prev => (prev.some(t => t.id === tableId) ? prev : [...prev, newTable]));
     setTargetTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
     setModelingTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
@@ -3508,6 +3521,7 @@ export default function ExploreDesignPage() {
       id: tableId, database: db, schema, table: created.table,
       columnCount: 0, hasPrimaryKey: false, status: 'configured', sensitiveColumns: 0,
     };
+    markScratchStarted();
     setTables(prev => (prev.some(t => t.id === tableId) ? prev : [...prev, newTable]));
     setTargetTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
     setModelingTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
@@ -5220,8 +5234,9 @@ export default function ExploreDesignPage() {
                 </button>
               )}
               {/* Inline onboarding (no popup): choose DWH template or scratch
-                  directly on the canvas. Replaces the Start-Modeling modal. */}
-              {!modelingChoice && (
+                  directly on the canvas. Only shown for a genuinely empty,
+                  not-yet-started model — never overlay a populated canvas. */}
+              {!modelingChoice && modelingTableIds.size === 0 && (
                 <ModelingTemplateModal
                   inline
                   isOpen
