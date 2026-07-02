@@ -62,6 +62,7 @@ import type {
   // Replication & Anomalies
   ReplicationResponse,
   AnomalyResponse,
+  AnomalyEntry,
   // Reader Accounts & Shares
   ReaderAccountsResponse,
   CreateReaderAccountRequest,
@@ -760,7 +761,20 @@ export async function getReplication(days = 30): Promise<ReplicationResponse> {
 export async function getAnomalies(days = 30): Promise<AnomalyResponse> {
   // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<AnomalyResponse>(`${BASE_URL}/anomalies?days=${days}`);
-  return data;
+  // Live backend emits {credits, mean_credits, usage_date} while the typed
+  // contract says {actual_value, upper_bound, date} — un-mapped, WhatChangedCard
+  // rendered "Nothing notable" against a real anomaly (2026-07-02 e2e). Accept
+  // both vocabularies at the service seam.
+  const anomalies = (Array.isArray(data?.anomalies) ? data.anomalies : []).map((a) => {
+    const raw = a as AnomalyEntry & { credits?: number; mean_credits?: number; usage_date?: string };
+    return {
+      ...raw,
+      date: raw.date ?? raw.usage_date ?? '',
+      actual_value: raw.actual_value ?? raw.credits ?? NaN,
+      upper_bound: raw.upper_bound ?? raw.mean_credits ?? NaN,
+    };
+  });
+  return { ...data, anomalies };
 }
 
 // =============================================================================
