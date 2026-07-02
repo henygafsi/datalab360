@@ -107,3 +107,38 @@ export async function getServerMetrics(): Promise<ServerMetrics> {
   const { data } = await apiClient.get<ServerMetrics>('/admin/server-metrics');
   return data;
 }
+
+// ── Cache freshness & warm scheduler (Administration → Performance) ─────────
+
+/**
+ * Zone → ISO timestamp of the last cache refresh for that zone, or null when
+ * no refresh has been recorded yet (or the cache layer is unreachable — the
+ * backend still answers 200 with all-null zones).
+ */
+export type RefreshStateMap = Record<string, string | null>;
+
+/** Last-refresh timestamp per cache zone (GET /api/refresh-state — always 200). */
+export async function getRefreshState(): Promise<RefreshStateMap> {
+  const { data } = await apiClient.get<RefreshStateMap>('/api/refresh-state');
+  return data;
+}
+
+export interface CacheRefreshJob {
+  id: string;
+  name: string;
+  /** ISO timestamp of the next scheduled run, null when the job is paused. */
+  next_run: string | null;
+  trigger: string;
+}
+
+export interface CacheRefreshStatus {
+  status: 'running' | 'stopped';
+  jobs: CacheRefreshJob[];
+  total_jobs: number;
+}
+
+/** Background cache warm-scheduler status (GET /cache/refresh/status). */
+export async function getCacheRefreshStatus(): Promise<CacheRefreshStatus> {
+  const { data } = await apiClient.get<CacheRefreshStatus>('/cache/refresh/status');
+  return data;
+}

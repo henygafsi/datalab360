@@ -50,6 +50,7 @@ import {
   setEntitlement,
   type EntitlementFeature,
 } from '@/app/services/administration/entitlements';
+import { getServerMetrics } from '@/app/services/admin-visibility';
 import {
   entitlementKeyOf,
   FEATURES_CATALOG,
@@ -113,15 +114,40 @@ function Toggle({
   );
 }
 
+// ── Live avg-latency overlay for endpoint chips ─────────────────────────────
+// Decorative enrichment from /admin/server-metrics: when a catalog endpoint has
+// been sampled in the live process window, a small avg-latency badge appears
+// next to its chip. Quiet degradation — an unreachable metrics route simply
+// means no badges (the registry never depends on it).
+
+/** Normalize a catalog endpoint string to a bare path for latency lookup. */
+function normEndpointPath(ep: string): string {
+  return ep.replace(/^[A-Z]+\s+/, '').replace(/\/+$/, '') || '/';
+}
+
+function fmtAvgMs(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
+}
+
+/** Same scale as the Performance tab: <300ms green · <1500ms amber · else red. */
+function avgMsTone(ms: number): string {
+  if (ms < 300) return 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400';
+  if (ms < 1500) return 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400';
+  return 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400';
+}
+
 /** Collapsible endpoint code-chip list for one feature row. */
 function EndpointChips({
   endpoints,
   expanded,
   onToggle,
+  avgMsByPath,
 }: {
   endpoints: string[];
   expanded: boolean;
   onToggle: () => void;
+  /** Optional path → live avg latency (ms) overlay; missing paths get no badge. */
+  avgMsByPath?: Record<string, number>;
 }) {
   return (
     <div>
@@ -136,13 +162,27 @@ function EndpointChips({
       </button>
       {expanded && (
         <ul className="mt-1 space-y-1">
-          {endpoints.map((ep) => (
-            <li key={ep}>
-              <code className="block w-fit max-w-full break-all rounded bg-slate-100 px-1.5 py-0.5 text-[10px] leading-snug text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                {ep}
-              </code>
-            </li>
-          ))}
+          {endpoints.map((ep) => {
+            const avg = avgMsByPath?.[normEndpointPath(ep)];
+            return (
+              <li key={ep} className="flex flex-wrap items-center gap-1">
+                <code className="block w-fit max-w-full break-all rounded bg-slate-100 px-1.5 py-0.5 text-[10px] leading-snug text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  {ep}
+                </code>
+                {avg != null && (
+                  <span
+                    className={cn(
+                      'rounded-full px-1.5 py-px text-[9px] font-medium tabular-nums',
+                      avgMsTone(avg),
+                    )}
+                    title="Live avg response time (server window)"
+                  >
+                    {fmtAvgMs(avg)}
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -221,6 +261,26 @@ export default function FeatureRegistryTab() {
   useEffect(() => {
     void loadEntitlements();
   }, [loadEntitlements]);
+
+  // ── Live avg-latency overlay (one quiet fetch per tab mount) ──────────────
+  const [avgMsByPath, setAvgMsByPath] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let cancelled = false;
+    getServerMetrics()
+      .then((m) => {
+        if (cancelled) return;
+        const map: Record<string, number> = {};
+        for (const e of m.slowest_endpoints ?? []) map[normEndpointPath(e.path)] = e.avg_ms;
+        for (const e of m.top_endpoints ?? []) map[normEndpointPath(e.path)] = e.avg_ms;
+        setAvgMsByPath(map);
+      })
+      .catch(() => {
+        /* decorative overlay — no badges when metrics are unreachable */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ── Filters (client-side) ──────────────────────────────────────────────────
   const [searchInput, setSearchInput] = useState('');
@@ -587,6 +647,7 @@ export default function FeatureRegistryTab() {
                               endpoints={feat.endpoints}
                               expanded={Boolean(expanded[rowKey])}
                               onToggle={() => toggleExpanded(rowKey)}
+                              avgMsByPath={avgMsByPath}
                             />
                           </td>
 

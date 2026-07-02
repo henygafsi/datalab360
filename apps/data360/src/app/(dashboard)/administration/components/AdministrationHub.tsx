@@ -64,6 +64,7 @@ import CostGovernancePanel from './CostGovernancePanel';
 import ProjectsMonitoringPanel from '../access-center/components/ProjectsMonitoringPanel';
 import ApiCatalogPanel from './ApiCatalogPanel';
 import PerformanceKpiPanel from './PerformanceKpiPanel';
+import LatencyFreshnessPanel from './LatencyFreshnessPanel';
 import ServiceHealthPanel from './ServiceHealthPanel';
 import ConfigSummaryPanel from './ConfigSummaryPanel';
 import FeatureGovernanceMatrix from '../feature-governance/FeatureGovernanceMatrix';
@@ -359,6 +360,7 @@ export default function AdministrationHub() {
                     </OpenLink>
                   </CtaRow>
                 </SectionCard>
+                <LatencyFreshnessPanel />
                 <PerformanceKpiPanel />
               </div>
             )}
