@@ -56,6 +56,7 @@ import {
   MODULE_ORDER,
   type FeatureDef,
 } from '../features-catalog';
+import { capabilityRequirementLines, getCapability } from '@/config/capabilities';
 
 /** Load state of the ACTIVATION overlay only — the catalog itself is static. */
 type EntPhase = 'loading' | 'ready' | 'error' | 'not-deployed';
@@ -489,6 +490,12 @@ export default function FeatureRegistryTab() {
                   </th>
                   <th
                     scope="col"
+                    className="min-w-[170px] px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
+                  >
+                    Who can use it
+                  </th>
+                  <th
+                    scope="col"
                     className="min-w-[130px] px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400"
                   >
                     Endpoints
@@ -507,7 +514,7 @@ export default function FeatureRegistryTab() {
                   <tbody key={slug} className="divide-y divide-slate-100/70 dark:divide-slate-800/60">
                     {/* Module group header */}
                     <tr className="border-t border-slate-200 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-800/40">
-                      <th scope="colgroup" colSpan={5} className="px-3 py-2 text-left font-normal">
+                      <th scope="colgroup" colSpan={6} className="px-3 py-2 text-left font-normal">
                         <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
                           {moduleLabel(slug)}
                         </span>
@@ -547,6 +554,31 @@ export default function FeatureRegistryTab() {
                           {/* Surface */}
                           <td className="px-3 py-2 align-top text-[11px] text-slate-500 dark:text-slate-400">
                             {feat.surface}
+                          </td>
+
+                          {/* Who can use it — read-only capability requirements
+                              (CAPABILITIES map, each grounded in a real backend gate). */}
+                          <td className="px-3 py-2 align-top">
+                            {feat.capabilities?.length ? (
+                              <ul className="space-y-1">
+                                {feat.capabilities.map((capKey) => (
+                                  <li
+                                    key={capKey}
+                                    className="text-[10px] leading-snug text-slate-500 dark:text-slate-400"
+                                    title={getCapability(capKey).description}
+                                  >
+                                    {capabilityRequirementLines(capKey).join(' + ')}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span
+                                className="text-[10px] text-slate-400 dark:text-slate-500"
+                                title="No capability-specific gate mapped — access follows the module grant"
+                              >
+                                All roles with module access
+                              </span>
+                            )}
                           </td>
 
                           {/* Endpoints — collapsible code chips */}

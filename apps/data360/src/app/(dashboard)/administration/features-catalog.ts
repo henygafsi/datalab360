@@ -19,7 +19,14 @@
  * exists in that matrix; several catalog rows may share one governing
  * entitlement (the backend governs at coarser grain). Rows with no matching
  * entitlement render an honest "—" (enforced by role grants only).
+ *
+ * WHO CAN USE IT: rows may reference keys of the CAPABILITIES map
+ * (src/config/capabilities.ts — every key cites the real backend gate it
+ * mirrors: action-RBAC, project contributor role, or account role). The
+ * registry renders these as the read-only "Who can use it" column so admins
+ * see the feature→role linkage. Untagged rows follow the module grant alone.
  */
+import type { CapabilityKey } from '@/config/capabilities';
 
 export interface FeatureDef {
   /** Module slug (backend apiName style — matches MODULES[].apiName where present). */
@@ -40,6 +47,11 @@ export interface FeatureDef {
    * THAT entitlement — rows sharing it activate and deactivate together.
    */
   entitlement?: string;
+  /**
+   * Capability keys (CAPABILITIES map) whose backend gates guard this
+   * feature's mutations — feeds the "Who can use it" registry column.
+   */
+  capabilities?: readonly CapabilityKey[];
 }
 
 /** Display order of module groups (mirrors the sidebar journey). */
@@ -236,6 +248,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
     endpoints: ['/explore-design', '/projects', '/projects/{id}'],
     surface: 'Explore & Design',
     entitlement: 'projects:project_crud',
+    capabilities: ['explore_design.project.create', 'project.edit', 'project.delete'],
   },
   {
     module: 'explore_design',
@@ -254,6 +267,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
       'Turns your model into executable DDL and applies it to the warehouse as a controlled, reviewable step.',
     endpoints: ['/explore-design/{id}/ddl-actions', '/explore-design/{id}/ddl-actions/execute'],
     surface: 'Explore & Design · Deploy',
+    capabilities: ['explore_design.model.deploy'],
   },
   {
     module: 'explore_design',
@@ -272,6 +286,11 @@ export const FEATURES_CATALOG: FeatureDef[] = [
     ],
     surface: 'Explore & Design · Deploy / Release',
     entitlement: 'projects:deployments',
+    capabilities: [
+      'explore_design.release.request',
+      'explore_design.deployment.approve',
+      'explore_design.deployment.execute',
+    ],
   },
   {
     module: 'explore_design',
@@ -349,6 +368,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
     ],
     surface: 'Explore & Design · Catalog · Products',
     entitlement: 'projects:data_products',
+    capabilities: ['data_products.create', 'data_products.publish', 'data_products.subscribe'],
   },
   {
     module: 'explore_design',
@@ -359,6 +379,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
     endpoints: ['/gouvernance/policies/row-access', '/gouvernance/policies/row-access/apply'],
     surface: 'Explore & Design · Deploy · security step',
     entitlement: 'projects:project_rls',
+    capabilities: ['governance.policy.apply'],
   },
 
   // ── Workflow ───────────────────────────────────────────────────────────────
@@ -494,6 +515,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
     ],
     surface: 'Governance · Roles',
     entitlement: 'gouvernance:d360_roles',
+    capabilities: ['governance.role.create', 'governance.role.permissions'],
   },
   {
     module: 'gouvernance',
@@ -525,6 +547,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
     ],
     surface: 'Governance · Policies',
     entitlement: 'gouvernance:policy_lifecycle',
+    capabilities: ['governance.policy.apply'],
   },
   {
     module: 'gouvernance',
@@ -623,6 +646,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
       '/bi-dashboard/{id}/filters',
     ],
     surface: 'Business Reporting · editor',
+    capabilities: ['bi.dashboard.create', 'bi.dashboard.edit', 'bi.dashboard.delete'],
   },
   {
     module: 'bi_reporting',
@@ -668,6 +692,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
       '/bi-dashboard/{id}/shares',
     ],
     surface: 'Business Reporting · header actions',
+    capabilities: ['bi.dashboard.publish', 'bi.dashboard.share', 'bi.dashboard.share.revoke'],
   },
   {
     module: 'bi_reporting',
@@ -811,6 +836,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
       '/data-quality/run-check',
     ],
     surface: 'Data Health · Checks',
+    capabilities: ['data_quality.threshold.save'],
   },
   {
     module: 'data_quality',
@@ -898,6 +924,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
     ],
     surface: 'Observability · Cost / Administration · Cost Governance',
     entitlement: 'observability:resource_monitors',
+    capabilities: ['observability.budget.configure'],
   },
   {
     module: 'observability',
@@ -971,6 +998,7 @@ export const FEATURES_CATALOG: FeatureDef[] = [
       '/api/administration/entitlements/{module}/{feature_key}',
     ],
     surface: 'Administration · Features / Entitlements',
+    capabilities: ['administration.entitlements.toggle'],
   },
   {
     module: 'administration',

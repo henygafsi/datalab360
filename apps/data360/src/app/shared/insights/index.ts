@@ -12,5 +12,7 @@ export { default as InsightActionButton } from './InsightActionButton';
 export type { InsightActionButtonProps } from './InsightActionButton';
 export { default as DryRunGate } from './DryRunGate';
 export type { DryRunGateProps, EstimatedCost } from './DryRunGate';
+export { default as CapabilityGate } from './CapabilityGate';
+export type { CapabilityGateProps } from './CapabilityGate';
 export { useActionGate } from './useActionGate';
 export type { ActionGate, UseActionGateOptions, GateState } from './useActionGate';
