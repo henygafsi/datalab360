@@ -31,6 +31,14 @@ Backend = 1031 real endpoints (app import). Global FE wiring ~55-60%; backend is
 4. Entitlements `PUT` — auth-only in the router (FE keeps its own admin seam).
 5. `GET /gouvernance/d360-roles/my-module-access` (read|write|none) has zero UI consumers → viewer-safe read-only mode still missing platform-wide (the new capability layer is the vehicle; wiring it across modules is the next wave).
 
+## 4b. RESOLVED 2026-07-03 — backend MR !41 merged + DEPLOYED (verified live)
+Pipeline #1713 on main = success (deploy job success). Verified against the live backend:
+- **`GET /deployments/track`: 11s → 0.08s** (the "projects load très lent" root cause — fixed). `last-used` + workflow reads also cached.
+- **Cache breakdown now truthful**: `shared_query_results=131, metadata=38` (was all 0 — the admin panel showed empty while Redis was full; prefixes were wrong).
+- **SVC registry honest**: HAHA `state=connected`, KY11038 `state=idle` (was rendering "down"; it's never-used, not broken — its key fingerprint mismatch = the 2,279 failed logins).
+- The pre-warm scheduler runs (5 jobs / 5 min).
+- The 6 "contract validation" 400s from the sweep are **sweep artifacts, not UI bugs** — the real service call-sites pass the params via axios config (verified: getDmfReferences/projectDmfResults/Suggest/policyDmfReferences all pass `params`).
+
 ## 5. Next wave (queued, in priority order)
 1. Merge **MR !41** + backend deploy (unblocks all measured slowness) — human action.
 2. Wire `my-module-access` through `useCapability` across modules → true viewer/analyst read-only experiences.
