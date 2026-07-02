@@ -17,9 +17,11 @@
  *   4. costGov     Cost Governance   — spend visibility + real warehouse cost-limit controls
  *   5. projects    Projects           — embeds ProjectsMonitoringPanel (live unified roster) + "Manage projects" → governance.projects
  *   6. featureGov  Entitlements & Feature Governance — embeds FeatureGovernanceMatrix
- *   7. apiHealth   API Health         — links to /admin/api-health (live route prober)
- *   8. serverMetrics Server Metrics   — embeds ServerMetricsPanel (live in-memory ops view)
- *   9. config      Config & Settings  — embeds ConfigSummaryPanel + links to the two editor pages
+ *   7. features    Feature Registry   — business-readable catalog of every feature (what/where/
+ *                                       endpoints) with per-account activation via entitlements
+ *   8. apiHealth   API Health         — links to /admin/api-health (live route prober)
+ *   9. serverMetrics Server Metrics   — embeds ServerMetricsPanel (live in-memory ops view)
+ *  10. config      Config & Settings  — embeds ConfigSummaryPanel + links to the two editor pages
  *
  * Navigation: vertical option rail (collapsible, icon+label, keyboard-accessible
  * role=tablist/tab + aria-selected + aria-orientation=vertical).
@@ -34,6 +36,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   Activity,
   ArrowRight,
+  BookOpenText,
   ChevronLeft,
   ChevronRight,
   Coins,
@@ -64,6 +67,7 @@ import PerformanceKpiPanel from './PerformanceKpiPanel';
 import ServiceHealthPanel from './ServiceHealthPanel';
 import ConfigSummaryPanel from './ConfigSummaryPanel';
 import FeatureGovernanceMatrix from '../feature-governance/FeatureGovernanceMatrix';
+import FeatureRegistryTab from './FeatureRegistryTab';
 
 type TabId =
   | 'health'
@@ -72,6 +76,7 @@ type TabId =
   | 'costGov'
   | 'projects'
   | 'featureGov'
+  | 'features'
   | 'apiHealth'
   | 'serverMetrics'
   | 'config';
@@ -89,6 +94,7 @@ const TABS: TabDef[] = [
   { id: 'costGov', label: 'Cost Governance', icon: Coins },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
   { id: 'featureGov', label: 'Entitlements & Feature Gov.', icon: ToggleRight },
+  { id: 'features', label: 'Feature Registry', icon: BookOpenText },
   { id: 'apiHealth', label: 'API Health', icon: Activity },
   { id: 'serverMetrics', label: 'Server Metrics', icon: Server },
   { id: 'config', label: 'Config & Settings', icon: Settings2 },
@@ -546,6 +552,9 @@ export default function AdministrationHub() {
                 <FeatureGovernanceMatrix />
               </div>
             )}
+
+            {/* Feature Registry — business-readable catalog + per-account activation */}
+            {tab === 'features' && <FeatureRegistryTab />}
 
             {/* 6. API Health — existing page */}
             {tab === 'apiHealth' && (
