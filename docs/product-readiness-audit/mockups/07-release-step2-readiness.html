@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 07 · Release step 2/7 Readiness</title>
+<link rel="stylesheet" href="ds.css"></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">data<b>360</b></div>
+    <div class="nav-h">Platform</div>
+    <nav class="nav">
+      <a href="#"><span class="i"></span>Account Overview</a>
+      <a href="#"><span class="i"></span>Connect Data</a>
+      <a class="active" href="#"><span class="i"></span>Explore &amp; Design</a>
+      <a href="#"><span class="i"></span>Data Quality</a>
+      <a href="#"><span class="i"></span>Governance</a>
+      <a href="#"><span class="i"></span>BI Dashboards</a>
+      <a href="#"><span class="i"></span>Observability</a>
+      <a href="#"><span class="i"></span>FinOps</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">HA</span><div><div style="font-weight:700;font-size:12px">haha</div><div class="small">ACCOUNTADMIN</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title"><h1>Explore &amp; Design</h1>
+        <div class="sub">Retail Analytics Model <span class="pill red">Blocked</span> <span class="pill blue">4 changes</span> <span class="pill red">2 blockers</span> <span>validation ran 14:35</span></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">Catalog</button>
+      <button class="btn">Save</button>
+      <button class="btn amber">Fix Blockers</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Tables in model</div><div class="v">14 <span class="d up">+1</span></div></div>
+      <div class="kpi"><div class="l">Pending changes</div><div class="v">4 <span class="d" style="color:var(--blue)">draft</span></div></div>
+      <div class="kpi"><div class="l">Quality score</div><div class="v">87 <span class="d down">−2</span></div></div>
+      <div class="kpi"><div class="l">Governance coverage</div><div class="v">78% <span class="d warn">1 PII open</span></div></div>
+      <div class="kpi"><div class="l">Freshness</div><div class="v">92% <span class="d down">2 late</span></div></div>
+      <div class="kpi"><div class="l">Cost forecast</div><div class="v">+3.2% <span class="d warn">/mo</span></div></div>
+    </div>
+    <div class="workspace">
+      <div class="canvas">
+        <div class="canvas-toolbar"><button class="btn sm">+ Add table</button><button class="btn sm ghost">Auto-layout</button><span class="spacer"></span><span class="small">RETAIL_DW · 14 tables · zoom 100%</span></div>
+        <div class="node" style="left:70px;top:130px">
+          <div class="nh"><span class="gi"></span>FACT_TRANSACTIONS</div>
+          <div class="col"><span class="k">PK</span>TXN_ID</div>
+          <div class="col"><span class="k fk">FK</span>CUSTOMER_ID</div>
+          <div class="more">+ 15 more columns</div>
+        </div>
+        <div class="node" style="left:340px;top:290px">
+          <div class="nh"><span class="gi"></span>DIM_CUSTOMERS</div>
+          <div class="col"><span class="k">PK</span>CUSTOMER_ID</div>
+          <div class="col"><span class="k"></span>CUSTOMER_EMAIL<span class="badge" style="background:var(--red-soft);color:var(--red)">PII</span></div>
+          <div class="more">+ 9 more columns</div>
+        </div>
+      </div>
+      <div class="rightwrap">
+        <div class="panel">
+          <div class="ph"><span class="dot b"></span>Release <span class="pill blue" style="margin-left:4px">Step 2 of 7</span><span class="x">⟩</span></div>
+          <div class="pbody">
+            <div class="stepper">
+              <div class="step done"><span class="sc">✓</span>Changes</div>
+              <div class="step active"><span class="sc">2</span>Ready</div>
+              <div class="step"><span class="sc">3</span>Impact</div>
+              <div class="step"><span class="sc">4</span>Approve</div>
+              <div class="step"><span class="sc">5</span>Deploy</div>
+              <div class="step"><span class="sc">6</span>Verify</div>
+              <div class="step"><span class="sc">7</span>Recover</div>
+            </div>
+            <div class="mcard r">
+              <div class="ml">READINESS VERDICT</div>
+              <div class="mv" style="font-size:13px"><span class="dot r"></span>NOT READY — 2 blockers · 3 warnings</div>
+              <div class="mvsub">Validation ran 14:35 · 8 gates evaluated in 41s</div>
+              <div style="margin-top:8px"><button class="btn sm primary">Run validation again</button> <button class="btn sm">Ask AI to explain blockers</button></div>
+            </div>
+            <div class="sec">
+              <div class="st">Acceptability gates</div>
+              <div class="srow"><span class="dot r"></span><span class="sl">Ingestion freshness</span><span class="sd">FACT_TRANSACTIONS 6h 12m late (SLA 60m)</span><span class="badge2 r">Blocker</span></div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Volume sanity</span><span class="sd">row counts within ±10% of 7d baseline</span><span class="badge2 g">Pass</span></div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Schema integrity</span><span class="sd">0 orphan FKs · 0 type conflicts · DDL compiles</span><span class="badge2 g">Pass</span></div>
+              <div class="srow"><span class="dot o"></span><span class="sl">Data quality</span><span class="sd">score 87 · 2 metric breaches on new objects</span><span class="badge2 o">Warn</span></div>
+              <div class="srow"><span class="dot r"></span><span class="sl">Governance coverage</span><span class="sd">CUSTOMER_EMAIL PII unmasked</span><span class="badge2 r">Blocker</span></div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Row-access (RLS)</span><span class="sd">RAP_REGION bound on both fact tables</span><span class="badge2 g">Pass</span></div>
+              <div class="srow"><span class="dot o"></span><span class="sl">Cost</span><span class="sd">+3.2%/mo — below the 5% approval threshold</span><span class="badge2 o">Warn</span></div>
+              <div class="srow"><span class="dot o"></span><span class="sl">Performance</span><span class="sd">refresh +12s · 02:00 warehouse peak at 91%</span><span class="badge2 o">Warn</span></div>
+            </div>
+            <div class="sec">
+              <div class="st">AI explanation of blockers</div>
+              <div class="ai">
+                <div class="aih"><span class="dot b"></span>AI Change Analyst<span class="live">LIVE</span></div>
+                <div class="aif"><span class="adot" style="background:var(--red)"></span><div><div class="at">Blocker 1 · Ingestion</div>The upstream load task was suspended at 09:20 — resume it and the lag clears in ~5 min. No data is lost (CDC offsets retained).</div></div>
+                <div class="aif"><span class="adot" style="background:var(--red)"></span><div><div class="at">Blocker 2 · Governance</div>CUSTOMER_EMAIL matches the standard email PII pattern. Applying MASK_EMAIL_STD is non-breaking for all 3 consuming dashboards (they aggregate, never display the raw value).</div></div>
+              </div>
+            </div>
+            <div class="sec">
+              <div class="st">Actions</div>
+              <div class="chips-row"><button class="btn sm primary">Run validation</button><button class="btn sm">Auto-fix suggested policies</button><button class="btn sm">Accept non-blocking warnings (3)</button></div>
+              <div class="small" style="margin-top:8px">Submit for approval unlocks only when both blockers are resolved or excepted.</div>
+            </div>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="rtab"><span class="ri"></span><span class="rl">Overview</span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Ingest</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Quality</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Govern</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Impact</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab active"><span class="ri"></span><span class="rl">Release</span><span class="ind" style="background:var(--blue)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Hist+AI</span><span class="ind" style="background:var(--green)"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">07 · RELEASE step 2/7 READINESS — 8 acceptability gates, AI blocker explanations · actions: Run validation / Auto-fix policies / Accept warnings</div>
+</body></html>

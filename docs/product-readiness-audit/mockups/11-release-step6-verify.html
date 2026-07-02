@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 11 · Release step 6/7 Verify</title>
+<link rel="stylesheet" href="ds.css"></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">data<b>360</b></div>
+    <div class="nav-h">Platform</div>
+    <nav class="nav">
+      <a href="#"><span class="i"></span>Account Overview</a>
+      <a href="#"><span class="i"></span>Connect Data</a>
+      <a class="active" href="#"><span class="i"></span>Explore &amp; Design</a>
+      <a href="#"><span class="i"></span>Data Quality</a>
+      <a href="#"><span class="i"></span>Governance</a>
+      <a href="#"><span class="i"></span>BI Dashboards</a>
+      <a href="#"><span class="i"></span>Observability</a>
+      <a href="#"><span class="i"></span>FinOps</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">HA</span><div><div style="font-weight:700;font-size:12px">haha</div><div class="small">ACCOUNTADMIN</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title"><h1>Explore &amp; Design</h1>
+        <div class="sub">Retail Analytics Model <span class="pill blue">Deployed · v2.8</span> <span class="pill green">5/5 statements OK</span> <span>deployed 16:47 · 22s total</span></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">Catalog</button>
+      <button class="btn">Save</button>
+      <button class="btn primary">Verify</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Tables in model</div><div class="v">14 <span class="d up">deployed</span></div></div>
+      <div class="kpi"><div class="l">Pending changes</div><div class="v">0 <span class="d up">released</span></div></div>
+      <div class="kpi"><div class="l">Quality score</div><div class="v">89 <span class="d up">+2</span></div></div>
+      <div class="kpi"><div class="l">Governance coverage</div><div class="v">100% <span class="d up">PII masked</span></div></div>
+      <div class="kpi"><div class="l">Freshness</div><div class="v">100% <span class="d up">on SLA</span></div></div>
+      <div class="kpi"><div class="l">Cost forecast</div><div class="v">+3.2% <span class="d warn">/mo</span></div></div>
+    </div>
+    <div class="workspace">
+      <div class="canvas">
+        <div class="canvas-toolbar"><button class="btn sm">+ Add table</button><button class="btn sm ghost">Auto-layout</button><span class="spacer"></span><span class="small">RETAIL_DW · 14 tables · v2.8 live</span></div>
+        <div class="node" style="left:70px;top:130px">
+          <div class="nh"><span class="gi"></span>ORDER_MARGIN <span class="badge" style="background:var(--green-soft);color:var(--green)">LIVE</span></div>
+          <div class="col"><span class="k">PK</span>ORDER_ID</div>
+          <div class="col"><span class="k"></span>MARGIN_PCT</div>
+          <div class="more">+ 5 more columns</div>
+        </div>
+        <div class="node" style="left:340px;top:290px">
+          <div class="nh"><span class="gi"></span>FACT_TRANSACTIONS</div>
+          <div class="col"><span class="k">PK</span>TXN_ID</div>
+          <div class="col"><span class="k"></span>DISCOUNT_PCT<span class="badge" style="background:var(--green-soft);color:var(--green)">LIVE</span></div>
+          <div class="more">+ 15 more columns</div>
+        </div>
+      </div>
+      <div class="rightwrap">
+        <div class="panel">
+          <div class="ph"><span class="dot b"></span>Release <span class="pill blue" style="margin-left:4px">Step 6 of 7</span><span class="x">⟩</span></div>
+          <div class="pbody">
+            <div class="stepper">
+              <div class="step done"><span class="sc">✓</span>Changes</div>
+              <div class="step done"><span class="sc">✓</span>Ready</div>
+              <div class="step done"><span class="sc">✓</span>Impact</div>
+              <div class="step done"><span class="sc">✓</span>Approve</div>
+              <div class="step done"><span class="sc">✓</span>Deploy</div>
+              <div class="step active"><span class="sc">6</span>Verify</div>
+              <div class="step"><span class="sc">7</span>Recover</div>
+            </div>
+            <div class="mcard b">
+              <div class="ml">POST-DEPLOY VERIFICATION · v2.8</div>
+              <div class="mv" style="font-size:13px">6 of 7 checks passed · 1 warming up</div>
+              <div class="mvsub">Started automatically at 16:47, right after the last statement.</div>
+            </div>
+            <div class="sec">
+              <div class="st">Verification checks</div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Execution</span><span class="sd">5/5 statements succeeded · 22s · 0 retries</span><span class="badge2 g">Pass</span></div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Schema</span><span class="sd">deployed DDL matches the approved plan (hash verified)</span><span class="badge2 g">Pass</span></div>
+              <div class="srow"><span class="dot g"></span><span class="sl">DQ smoke tests</span><span class="sd">3 standard checks on ORDER_MARGIN · 0 breaches</span><span class="badge2 g">Pass</span></div>
+              <div class="srow"><span class="dot o"></span><span class="sl">Freshness</span><span class="sd">ORDER_MARGIN first load scheduled 02:20 — no data yet</span><span class="badge2 o">Warming</span></div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Dashboards</span><span class="sd">3 impacted dashboards render · queries return in &lt; 2s</span><span class="badge2 g">Pass</span></div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Policies</span><span class="sd">MASK_EMAIL_STD active · masked value verified as BI_ANALYST</span><span class="badge2 g">Pass</span></div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Row access (RLS)</span><span class="sd">RAP_REGION filters ORDER_MARGIN · probe rows correct per region</span><span class="badge2 g">Pass</span></div>
+            </div>
+            <div class="sec">
+              <div class="st">Release note (AI draft)</div>
+              <div class="mcard">
+                <div class="mvsub" style="font-size:12px;color:var(--ink2)">v2.8 — Adds order-level margin (ORDER_MARGIN) and transaction discount tracking (DISCOUNT_PCT). Standard email masking applied to customer emails. Legacy staging table removed (−1.2 GB). No breaking changes; Margin Overview can now use the pre-aggregated source.</div>
+              </div>
+            </div>
+            <div class="sec">
+              <div class="st">Actions</div>
+              <div class="chips-row"><button class="btn primary">Mark verified</button><button class="btn sm">Generate release note</button><button class="btn sm">Notify stakeholders (14)</button><button class="btn sm">Open issue</button></div>
+              <div class="small" style="margin-top:8px">Mark verified closes the release; the freshness check re-runs automatically after the 02:20 load.</div>
+            </div>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="rtab"><span class="ri"></span><span class="rl">Overview</span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Ingest</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Quality</span><span class="ind" style="background:var(--green)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Govern</span><span class="ind" style="background:var(--green)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Impact</span><span class="ind" style="background:var(--green)"></span></div>
+          <div class="rtab active"><span class="ri"></span><span class="rl">Release</span><span class="ind" style="background:var(--blue)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Hist+AI</span><span class="ind" style="background:var(--green)"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">11 · RELEASE step 6/7 VERIFY (post-deploy only) — execution/schema/DQ-smoke/freshness/dashboard/policy/RLS checks · Mark verified / release note / notify</div>
+</body></html>

@@ -17,6 +17,8 @@ export const routes = {
   },
   exploreDesign: {
     view: '/explore-design',
+    /** Sources | Products | All cataloging sub-page (?tab= synced; no mindmap). */
+    catalog: '/explore-design/catalog',
   },
   workflow:{
     ViewWorkflow: '/workflow'

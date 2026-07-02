@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 05 · Right-bar Impact &amp; Cost tab</title>
+<link rel="stylesheet" href="ds.css"></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">data<b>360</b></div>
+    <div class="nav-h">Platform</div>
+    <nav class="nav">
+      <a href="#"><span class="i"></span>Account Overview</a>
+      <a href="#"><span class="i"></span>Connect Data</a>
+      <a class="active" href="#"><span class="i"></span>Explore &amp; Design</a>
+      <a href="#"><span class="i"></span>Data Quality</a>
+      <a href="#"><span class="i"></span>Governance</a>
+      <a href="#"><span class="i"></span>BI Dashboards</a>
+      <a href="#"><span class="i"></span>Observability</a>
+      <a href="#"><span class="i"></span>FinOps</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">HA</span><div><div style="font-weight:700;font-size:12px">haha</div><div class="small">ACCOUNTADMIN</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title"><h1>Explore &amp; Design</h1>
+        <div class="sub">Retail Analytics Model <span class="pill draft">Draft</span> <span class="pill blue">4 changes</span> <span class="pill red">2 blockers</span> <span>last saved 2 min ago</span></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">Catalog</button>
+      <button class="btn">Save</button>
+      <button class="btn amber">Fix Blockers</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Tables in model</div><div class="v">14 <span class="d up">+1</span></div></div>
+      <div class="kpi"><div class="l">Pending changes</div><div class="v">4 <span class="d" style="color:var(--blue)">draft</span></div></div>
+      <div class="kpi"><div class="l">Quality score</div><div class="v">87 <span class="d down">−2</span></div></div>
+      <div class="kpi"><div class="l">Governance coverage</div><div class="v">78% <span class="d warn">1 PII open</span></div></div>
+      <div class="kpi"><div class="l">Freshness</div><div class="v">92% <span class="d down">2 late</span></div></div>
+      <div class="kpi"><div class="l">Cost forecast</div><div class="v">+3.2% <span class="d warn">/mo</span></div></div>
+    </div>
+    <div class="workspace">
+      <div class="canvas">
+        <div class="canvas-toolbar"><button class="btn sm">+ Add table</button><button class="btn sm ghost">Auto-layout</button><span class="spacer"></span><span class="small">RETAIL_DW · 14 tables · zoom 100%</span></div>
+        <div class="node" style="left:70px;top:130px">
+          <div class="nh"><span class="gi"></span>ORDER_MARGIN <span class="badge" style="background:var(--blue-soft);color:var(--blue)">NEW</span></div>
+          <div class="col"><span class="k">PK</span>ORDER_ID</div>
+          <div class="col"><span class="k"></span>MARGIN_PCT</div>
+          <div class="more">+ 5 more columns</div>
+        </div>
+        <div class="node" style="left:340px;top:290px">
+          <div class="nh"><span class="gi"></span>FACT_TRANSACTIONS</div>
+          <div class="col"><span class="k">PK</span>TXN_ID</div>
+          <div class="col"><span class="k"></span>DISCOUNT_PCT<span class="badge" style="background:var(--blue-soft);color:var(--blue)">NEW</span></div>
+          <div class="more">+ 15 more columns</div>
+        </div>
+      </div>
+      <div class="rightwrap">
+        <div class="panel">
+          <div class="ph"><span class="dot o"></span>Impact &amp; Cost <span class="pill orange" style="margin-left:4px">+3.2% /mo</span><span class="x">⟩</span></div>
+          <div class="pbody">
+            <div class="sec">
+              <div class="st">Blast radius of the 4 staged changes <button class="btn sm primary" style="margin-left:auto">Analyze impact</button></div>
+              <div class="grid2">
+                <div class="mcard b"><div class="ml">Tables</div><div class="mv">6</div><div class="mvsub">2 direct · 4 downstream</div></div>
+                <div class="mcard o"><div class="ml">Dashboards</div><div class="mv">3</div><div class="mvsub">Revenue Daily, Margin, Exec KPI</div></div>
+                <div class="mcard b"><div class="ml">Workflows</div><div class="mv">2</div><div class="mvsub">nightly_refresh · margin_alert</div></div>
+                <div class="mcard o"><div class="ml">Policies</div><div class="mv">2</div><div class="mvsub">RAP_REGION · MASK_EMAIL_STD*</div></div>
+                <div class="mcard b"><div class="ml">Users affected</div><div class="mv">14</div><div class="mvsub">across 4 roles</div></div>
+                <div class="mcard g"><div class="ml">Breaking changes</div><div class="mv">0</div><div class="mvsub">additive only</div></div>
+              </div>
+            </div>
+            <div class="sec">
+              <div class="st">Impacted objects <span class="more">View lineage ▸</span></div>
+              <table class="tablelite">
+                <tr><th>Object</th><th>Type</th><th>Via</th><th>Severity</th></tr>
+                <tr><td>Revenue Daily</td><td>Dashboard</td><td>FACT_TRANSACTIONS.DISCOUNT_PCT</td><td><span class="badge2 o">Review</span></td></tr>
+                <tr><td>Margin Overview</td><td>Dashboard</td><td>ORDER_MARGIN (new source)</td><td><span class="badge2 b">Opportunity</span></td></tr>
+                <tr><td>Exec KPI Pack</td><td>Dashboard</td><td>refresh window +12s</td><td><span class="badge2 g">Low</span></td></tr>
+                <tr><td>nightly_refresh</td><td>Workflow</td><td>+1 table in DAG</td><td><span class="badge2 o">Re-plan</span></td></tr>
+                <tr><td>margin_alert</td><td>Workflow</td><td>new dependency ORDER_MARGIN</td><td><span class="badge2 b">New</span></td></tr>
+                <tr><td>RAP_REGION</td><td>Policy</td><td>must extend to ORDER_MARGIN</td><td><span class="badge2 o">Gap</span></td></tr>
+              </table>
+              <div class="chips-row"><span class="achip">Dashboard usage</span><span class="achip">Affected roles (4)</span><span class="achip">Generate impact summary</span></div>
+            </div>
+            <div class="sec">
+              <div class="st">Cost delta (forecast)</div>
+              <div class="grid2">
+                <div class="mcard o"><div class="ml">Monthly compute</div><div class="mv">+3.2%<span class="small">≈ $118/mo</span></div><div class="mvsub">$3,690 → $3,808 forecast</div></div>
+                <div class="mcard o"><div class="ml">Refresh time</div><div class="mv">+12s</div><div class="mvsub">4m 20s → 4m 32s (nightly_refresh)</div></div>
+                <div class="mcard g"><div class="ml">Storage</div><div class="mv">+0.4 GB</div><div class="mvsub">ORDER_MARGIN ≈ 2.1M rows</div></div>
+                <div class="mcard b"><div class="ml">Query pruning</div><div class="mv">−8%</div><div class="mvsub">scans on margin queries (pre-agg)</div></div>
+              </div>
+            </div>
+            <div class="sec">
+              <div class="st">Warehouse load (7d, WH_TRANSFORM_M)</div>
+              <div class="srow"><span class="sl">Avg utilization</span><span class="sd"><span class="bar" style="display:block"><i style="width:62%"></i></span></span><span class="badge2 b">62%</span></div>
+              <div class="srow"><span class="sl">Peak (02:00 window)</span><span class="sd"><span class="bar" style="display:block"><i style="width:91%;background:var(--orange)"></i></span></span><span class="badge2 o">91%</span></div>
+              <div class="srow"><span class="sl">Queue events</span><span class="sd">3 this week · all in nightly window</span><span class="badge2 o">watch</span></div>
+              <div class="small" style="margin-top:6px">Headroom exists outside the 02:00 window — no resize required for this release.</div>
+            </div>
+            <div class="ai">
+              <div class="aih"><span class="dot b"></span>AI Change Analyst<span class="live">LIVE</span></div>
+              <div class="aif"><span class="adot" style="background:var(--orange)"></span><div><div class="at">14:05</div>ORDER_MARGIN adds one node to nightly_refresh — the +12s fits the SLA, but the 02:00 peak is at 91%. Consider scheduling its build at 02:20.</div></div>
+              <div class="aiq">Shift ORDER_MARGIN build to 02:20 to avoid the warehouse peak?<div class="chips-row"><span class="achip" style="border-color:var(--brand);color:var(--brand)">Re-plan DAG</span><span class="achip">Keep 02:00</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="rtab"><span class="ri"></span><span class="rl">Overview</span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Ingest</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Quality</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Govern</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab active"><span class="ri"></span><span class="rl">Impact</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Release</span><span class="ind" style="background:var(--blue)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Hist+AI</span><span class="ind" style="background:var(--green)"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">05 · Right-bar IMPACT &amp; COST — blast radius (tables/dashboards/workflows/policies/users), cost delta +3.2%, refresh +12s, warehouse load</div>
+</body></html>

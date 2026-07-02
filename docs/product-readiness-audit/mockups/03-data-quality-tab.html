@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 03 · Right-bar Data Quality tab</title>
+<link rel="stylesheet" href="ds.css"></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">data<b>360</b></div>
+    <div class="nav-h">Platform</div>
+    <nav class="nav">
+      <a href="#"><span class="i"></span>Account Overview</a>
+      <a href="#"><span class="i"></span>Connect Data</a>
+      <a class="active" href="#"><span class="i"></span>Explore &amp; Design</a>
+      <a href="#"><span class="i"></span>Data Quality</a>
+      <a href="#"><span class="i"></span>Governance</a>
+      <a href="#"><span class="i"></span>BI Dashboards</a>
+      <a href="#"><span class="i"></span>Observability</a>
+      <a href="#"><span class="i"></span>FinOps</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">HA</span><div><div style="font-weight:700;font-size:12px">haha</div><div class="small">ACCOUNTADMIN</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title"><h1>Explore &amp; Design</h1>
+        <div class="sub">Retail Analytics Model <span class="pill draft">Draft</span> <span class="pill blue">4 changes</span> <span class="pill red">2 blockers</span> <span>last saved 2 min ago</span></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">Catalog</button>
+      <button class="btn">Save</button>
+      <button class="btn amber">Fix Blockers</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Tables in model</div><div class="v">14 <span class="d up">+1</span></div></div>
+      <div class="kpi"><div class="l">Pending changes</div><div class="v">4 <span class="d" style="color:var(--blue)">draft</span></div></div>
+      <div class="kpi"><div class="l">Quality score</div><div class="v">87 <span class="d down">−2</span></div></div>
+      <div class="kpi"><div class="l">Governance coverage</div><div class="v">78% <span class="d warn">1 PII open</span></div></div>
+      <div class="kpi"><div class="l">Freshness</div><div class="v">92% <span class="d down">2 late</span></div></div>
+      <div class="kpi"><div class="l">Cost forecast</div><div class="v">+3.2% <span class="d warn">/mo</span></div></div>
+    </div>
+    <div class="workspace">
+      <div class="canvas">
+        <div class="canvas-toolbar"><button class="btn sm">+ Add table</button><button class="btn sm ghost">Auto-layout</button><span class="spacer"></span><span class="small">RETAIL_DW · 14 tables · zoom 100%</span></div>
+        <div class="node" style="left:70px;top:130px">
+          <div class="nh"><span class="gi"></span>FACT_TRANSACTIONS</div>
+          <div class="col"><span class="k">PK</span>TXN_ID</div>
+          <div class="col"><span class="k fk">FK</span>CUSTOMER_ID</div>
+          <div class="col"><span class="k"></span>DISCOUNT_PCT<span class="badge">DQ</span></div>
+          <div class="more">+ 14 more columns</div>
+        </div>
+        <div class="node" style="left:340px;top:290px">
+          <div class="nh"><span class="gi"></span>ORDER_MARGIN <span class="badge" style="background:var(--blue-soft);color:var(--blue)">NEW</span></div>
+          <div class="col"><span class="k">PK</span>ORDER_ID</div>
+          <div class="col"><span class="k"></span>MARGIN_PCT</div>
+          <div class="more">+ 5 more columns</div>
+        </div>
+      </div>
+      <div class="rightwrap">
+        <div class="panel">
+          <div class="ph"><span class="dot o"></span>Data Quality <span class="pill orange" style="margin-left:4px">3 warnings</span><span class="x">⟩</span></div>
+          <div class="pbody">
+            <div class="sec">
+              <div class="st">9 quality dimensions <button class="btn sm primary" style="margin-left:auto">Run DMF check</button> <button class="btn sm">Auto-profile</button></div>
+              <div class="grid2">
+                <div class="mcard g"><div class="ml">Completeness</div><div class="mv">96%</div><div class="bar"><i style="width:96%;background:var(--green)"></i></div></div>
+                <div class="mcard o"><div class="ml">Uniqueness</div><div class="mv">88%</div><div class="bar"><i style="width:88%;background:var(--orange)"></i></div></div>
+                <div class="mcard g"><div class="ml">Validity</div><div class="mv">97%</div><div class="bar"><i style="width:97%;background:var(--green)"></i></div></div>
+                <div class="mcard g"><div class="ml">Accuracy</div><div class="mv">93%</div><div class="bar"><i style="width:93%;background:var(--green)"></i></div></div>
+                <div class="mcard g"><div class="ml">Consistency</div><div class="mv">95%</div><div class="bar"><i style="width:95%;background:var(--green)"></i></div></div>
+                <div class="mcard o"><div class="ml">Timeliness</div><div class="mv">81%</div><div class="bar"><i style="width:81%;background:var(--orange)"></i></div></div>
+                <div class="mcard g"><div class="ml">Integrity</div><div class="mv">98%</div><div class="bar"><i style="width:98%;background:var(--green)"></i></div></div>
+                <div class="mcard o"><div class="ml">Conformity</div><div class="mv">84%</div><div class="bar"><i style="width:84%;background:var(--orange)"></i></div></div>
+                <div class="mcard g"><div class="ml">Availability</div><div class="mv">99.6%</div><div class="bar"><i style="width:99%;background:var(--green)"></i></div></div>
+                <div class="mcard b"><div class="ml">Composite</div><div class="mv">87<span class="small">/100</span></div><div class="mvsub">−2 since ORDER_MARGIN added</div></div>
+              </div>
+            </div>
+            <div class="sec">
+              <div class="st">Warnings detail (3)</div>
+              <div class="srow"><span class="dot o"></span><span class="sl">Uniqueness</span><span class="sd">FACT_TRANSACTIONS.TXN_ID — 1,204 duplicates in last load (0.05%)</span><button class="btn sm">Dedup rule</button></div>
+              <div class="srow"><span class="dot o"></span><span class="sl">Completeness</span><span class="sd">ORDER_MARGIN.MARGIN_PCT — 4.1% null (no default set)</span><button class="btn sm">Add check</button></div>
+              <div class="srow"><span class="dot o"></span><span class="sl">Conformity</span><span class="sd">DIM_CUSTOMERS.PHONE_NUMBER — 2.9% fail E.164 pattern</span><button class="btn sm">Fix format</button></div>
+            </div>
+            <div class="sec">
+              <div class="st">Metric-function breaches <span class="more">Catalog ▸</span></div>
+              <table class="tablelite">
+                <tr><th>Check</th><th>Object</th><th>Threshold</th><th>Actual</th><th></th></tr>
+                <tr><td>NULL_COUNT</td><td>ORDER_MARGIN.MARGIN_PCT</td><td>&lt; 1%</td><td>4.1%</td><td><span class="badge2 o">Breach</span></td></tr>
+                <tr><td>DUPLICATE_COUNT</td><td>FACT_TRANSACTIONS.TXN_ID</td><td>0</td><td>1,204</td><td><span class="badge2 o">Breach</span></td></tr>
+                <tr><td>FRESHNESS</td><td>FACT_TRANSACTIONS</td><td>&lt; 60m</td><td>6h 12m</td><td><span class="badge2 r">Blocker</span></td></tr>
+                <tr><td>ROW_COUNT drift</td><td>DIM_PRODUCTS</td><td>±10%</td><td>+2.3%</td><td><span class="badge2 g">Pass</span></td></tr>
+                <tr><td>ACCEPTED_VALUES</td><td>FACT_TRANSACTIONS.CHANNEL</td><td>4 values</td><td>4 values</td><td><span class="badge2 g">Pass</span></td></tr>
+              </table>
+            </div>
+            <div class="sec">
+              <div class="st">Score trend (14 days)</div>
+              <div style="display:flex;align-items:flex-end;gap:4px;height:56px">
+                <div class="bar" style="width:16px;height:78%;background:var(--green-soft)"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:80%"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:82%"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:83%"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:85%"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:88%"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:90%"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:91%"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:89%"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:89%"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:89%"><i style="height:100%;width:100%;background:var(--green)"></i></div>
+                <div class="bar" style="width:16px;height:88%"><i style="height:100%;width:100%;background:var(--orange)"></i></div>
+                <div class="bar" style="width:16px;height:87%"><i style="height:100%;width:100%;background:var(--orange)"></i></div>
+                <div class="bar" style="width:16px;height:87%"><i style="height:100%;width:100%;background:var(--orange)"></i></div>
+              </div>
+              <div class="small" style="margin-top:6px">89 → 87 · dip follows the ORDER_MARGIN draft table (2 new breaches)</div>
+            </div>
+            <div class="ai">
+              <div class="aih"><span class="dot b"></span>AI Change Analyst<span class="live">LIVE</span></div>
+              <div class="aiq">ORDER_MARGIN has no quality checks yet — auto-create the 3 standard checks (nulls, range 0–100, row-count drift)?<div class="chips-row"><span class="achip" style="border-color:var(--brand);color:var(--brand)">Auto-create checks</span><span class="achip">Review first</span><span class="achip">Skip</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="rtab"><span class="ri"></span><span class="rl">Overview</span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Ingest</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab active"><span class="ri"></span><span class="rl">Quality</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Govern</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Impact</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Release</span><span class="ind" style="background:var(--blue)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Hist+AI</span><span class="ind" style="background:var(--green)"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">03 · Right-bar DATA QUALITY — 9 dimensions, metric-function breaches, 14-day trend, warnings with inline remediation</div>
+</body></html>

@@ -91,6 +91,12 @@ interface ModelingCanvasProps {
   tables: TableItem[];
   tableColumns: Map<string, ColumnInfo[]>;
   onTableSelect?: (table: TableItem) => void;
+  /**
+   * Fires when the user clicks the empty canvas pane (no node). Redesign spec §1:
+   * the parent closes floating menus + the right-bar when nothing is selected.
+   * The canvas also closes its own add-table floating menu first.
+   */
+  onBlankClick?: () => void;
   /** Id of the page-selected table — drives zoom-to-selected framing on the canvas. */
   selectedTableId?: string | null;
   onTableExclude?: (tableId: string) => void;
@@ -284,6 +290,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   tables,
   tableColumns,
   onTableSelect,
+  onBlankClick,
   selectedTableId,
   onTableExclude,
   onOpenContextBar,
@@ -1593,6 +1600,12 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         onEdgesChange={(isLocked || isReadOnly) ? undefined : onEdgesChange}
         onConnect={isReadOnly ? undefined : onConnect}
         onNodeClick={onNodeClick}
+        onPaneClick={() => {
+          // Empty-canvas click: close the canvas's own floating menu, then let
+          // the parent close its menus + the right-bar (spec §1 — zero rupture).
+          setShowAddTableMenu(false);
+          onBlankClick?.();
+        }}
         nodeTypes={nodeTypes}
         connectionMode={ConnectionMode.Loose}
         onlyRenderVisibleElements

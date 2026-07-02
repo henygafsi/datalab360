@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 06 · Release step 1/7 Changes</title>
+<link rel="stylesheet" href="ds.css"></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">data<b>360</b></div>
+    <div class="nav-h">Platform</div>
+    <nav class="nav">
+      <a href="#"><span class="i"></span>Account Overview</a>
+      <a href="#"><span class="i"></span>Connect Data</a>
+      <a class="active" href="#"><span class="i"></span>Explore &amp; Design</a>
+      <a href="#"><span class="i"></span>Data Quality</a>
+      <a href="#"><span class="i"></span>Governance</a>
+      <a href="#"><span class="i"></span>BI Dashboards</a>
+      <a href="#"><span class="i"></span>Observability</a>
+      <a href="#"><span class="i"></span>FinOps</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">HA</span><div><div style="font-weight:700;font-size:12px">haha</div><div class="small">ACCOUNTADMIN</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title"><h1>Explore &amp; Design</h1>
+        <div class="sub">Retail Analytics Model <span class="pill draft">Draft</span> <span class="pill blue">4 changes</span> <span class="pill red">2 blockers</span> <span>last saved 2 min ago</span></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">Catalog</button>
+      <button class="btn">Save</button>
+      <button class="btn primary">Run Validation</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Tables in model</div><div class="v">14 <span class="d up">+1</span></div></div>
+      <div class="kpi"><div class="l">Pending changes</div><div class="v">4 <span class="d" style="color:var(--blue)">draft</span></div></div>
+      <div class="kpi"><div class="l">Quality score</div><div class="v">87 <span class="d down">−2</span></div></div>
+      <div class="kpi"><div class="l">Governance coverage</div><div class="v">78% <span class="d warn">1 PII open</span></div></div>
+      <div class="kpi"><div class="l">Freshness</div><div class="v">92% <span class="d down">2 late</span></div></div>
+      <div class="kpi"><div class="l">Cost forecast</div><div class="v">+3.2% <span class="d warn">/mo</span></div></div>
+    </div>
+    <div class="workspace">
+      <div class="canvas">
+        <div class="canvas-toolbar"><button class="btn sm">+ Add table</button><button class="btn sm ghost">Auto-layout</button><span class="spacer"></span><span class="small">RETAIL_DW · 14 tables · zoom 100%</span></div>
+        <div class="node" style="left:70px;top:130px">
+          <div class="nh"><span class="gi"></span>ORDER_MARGIN <span class="badge" style="background:var(--blue-soft);color:var(--blue)">NEW</span></div>
+          <div class="col"><span class="k">PK</span>ORDER_ID</div>
+          <div class="col"><span class="k"></span>MARGIN_PCT</div>
+          <div class="more">+ 5 more columns</div>
+        </div>
+        <div class="node" style="left:340px;top:290px">
+          <div class="nh"><span class="gi"></span>FACT_TRANSACTIONS</div>
+          <div class="col"><span class="k">PK</span>TXN_ID</div>
+          <div class="col"><span class="k"></span>DISCOUNT_PCT<span class="badge" style="background:var(--blue-soft);color:var(--blue)">NEW</span></div>
+          <div class="more">+ 15 more columns</div>
+        </div>
+      </div>
+      <div class="rightwrap">
+        <div class="panel">
+          <div class="ph"><span class="dot b"></span>Release <span class="pill blue" style="margin-left:4px">Step 1 of 7</span><span class="x">⟩</span></div>
+          <div class="pbody">
+            <div class="stepper">
+              <div class="step active"><span class="sc">1</span>Changes</div>
+              <div class="step"><span class="sc">2</span>Ready</div>
+              <div class="step"><span class="sc">3</span>Impact</div>
+              <div class="step"><span class="sc">4</span>Approve</div>
+              <div class="step"><span class="sc">5</span>Deploy</div>
+              <div class="step"><span class="sc">6</span>Verify</div>
+              <div class="step"><span class="sc">7</span>Recover</div>
+            </div>
+            <div class="sec">
+              <div class="st">What will change (4)</div>
+              <div class="srow"><span class="badge2 g">＋ ADD</span><span class="sl">ORDER_MARGIN</span><span class="sd">new table · 7 columns · PK ORDER_ID · FK → FACT_TRANSACTIONS</span></div>
+              <div class="srow"><span class="badge2 b">~ ALTER</span><span class="sl">FACT_TRANSACTIONS</span><span class="sd">add column DISCOUNT_PCT NUMBER(5,2) NOT NULL DEFAULT 0</span></div>
+              <div class="srow"><span class="badge2 b">~ ALTER</span><span class="sl">DIM_CUSTOMERS ⇄ FACT_TRANSACTIONS</span><span class="sd">relation cardinality 1:N → enforced FK + NOT NULL</span></div>
+              <div class="srow"><span class="badge2 r">− DROP</span><span class="sl">STG_LEGACY_SALES</span><span class="sd">unused staging table · 0 queries in 90d · 1.2 GB reclaimed</span></div>
+            </div>
+            <div class="sec">
+              <div class="st">SQL diff <span class="more">Open full diff ▸</span></div>
+              <div style="background:#101426;color:#d7dbea;border-radius:10px;padding:12px;font:11px/1.7 ui-monospace,Menlo,monospace;overflow:auto">
+<span style="color:#7ee787">+ CREATE TABLE RETAIL_DW.ORDER_MARGIN (</span><br>
+<span style="color:#7ee787">+   ORDER_ID NUMBER PRIMARY KEY,</span><br>
+<span style="color:#7ee787">+   MARGIN_PCT NUMBER(5,2), ... );</span><br>
+<span style="color:#79b8ff">~ ALTER TABLE RETAIL_DW.FACT_TRANSACTIONS</span><br>
+<span style="color:#79b8ff">~   ADD COLUMN DISCOUNT_PCT NUMBER(5,2) DEFAULT 0;</span><br>
+<span style="color:#ff9492">− DROP TABLE RETAIL_DW.STG_LEGACY_SALES;</span>
+              </div>
+            </div>
+            <div class="sec">
+              <div class="st">Checkpoint</div>
+              <div class="mcard g">
+                <div class="ml">SAFETY CHECKPOINT</div>
+                <div class="mv" style="font-size:13px">chk_2026-07-02_1418 · v2.7</div>
+                <div class="mvsub">Zero-copy snapshot of the 3 touched tables · restore in ~30s</div>
+              </div>
+            </div>
+            <div class="sec">
+              <div class="st">Actions</div>
+              <div class="chips-row"><button class="btn sm primary">Review changes</button><button class="btn sm">Open SQL diff</button><button class="btn sm">Create checkpoint</button></div>
+              <div class="small" style="margin-top:8px">Next: run Readiness validation (step 2). Nothing deploys from this step.</div>
+            </div>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="rtab"><span class="ri"></span><span class="rl">Overview</span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Ingest</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Quality</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Govern</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Impact</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab active"><span class="ri"></span><span class="rl">Release</span><span class="ind" style="background:var(--blue)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Hist+AI</span><span class="ind" style="background:var(--green)"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">06 · RELEASE step 1/7 CHANGES — staged change list, SQL diff, checkpoint · actions: Review changes / Open SQL diff / Create checkpoint</div>
+</body></html>

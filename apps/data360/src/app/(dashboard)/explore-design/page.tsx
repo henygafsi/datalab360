@@ -68,7 +68,14 @@ import dynamic from 'next/dynamic';
 const ModelingCanvas = dynamic(() => import('./components/ModelingCanvas'), { ssr: false });
 const SourceMindMap = dynamic(() => import('./components/SourceMindMap'), { ssr: false });
 const ContextRightBar = dynamic(() => import('./components/ContextRightBar'), { ssr: false });
-import type { RightBarTab, FocusedAction } from './components/ContextRightBar';
+import type { RightBarTab, FocusedAction, RailSeverity } from './components/ContextRightBar';
+import ModelKpiStrip, { type ModelKpis } from './components/ModelKpiStrip';
+import DeployStateButton, { deriveDeployState, type DeployState } from './components/DeployStateButton';
+import ReleasePanel from './components/release/ReleasePanel';
+import AiChangeAnalyst from './components/AiChangeAnalyst';
+import { useReleaseState } from './components/release/useReleaseState';
+import type { AxisSignal, ReleaseStatus } from './components/release/types';
+import { useDeploymentReadiness } from './hooks/useDeploymentReadiness';
 import { useIngestionTrace } from '@/hooks/useIngestionTrace';
 import EventTable from './components/EventTable';
 import DeploymentValidation from './components/DeploymentValidation';
@@ -1762,6 +1769,131 @@ export default function ExploreDesignPage() {
     const merged = [...eventMappings, ...uniqueBackend];
     return merged;
   }, [events, backendMappings]);
+
+  // ── Redesign Wave A: top KPI strip + Deploy state-machine + rail severity ──
+  // All derived from data already in hand. Any value we can't source honestly is
+  // left `undefined` → the strip renders "—" (never a fabricated 0). The
+  // deployment-readiness GET degrades silently on 404/501 (unavailable flag).
+  const { data: deploymentReadiness } = useDeploymentReadiness(selectedProjectId);
+
+  // Blocking issues = breaking changes (fallback: high-risk impacts) from the
+  // readiness rollup. `undefined` readiness → 0 blockers (honest: none known).
+  const deployBlockers =
+    deploymentReadiness?.lineage_impact?.breaking_changes?.length ??
+    deploymentReadiness?.lineage_impact?.impact_summary?.high_risk ??
+    0;
+
+  // Project-level PII signal from whatever column classification has actually run
+  // (empty until the user classifies → undefined, not a fake "Low").
+  const piiLevel = useMemo<'Low' | 'Medium' | 'High' | undefined>(() => {
+    if (!classificationDetails || classificationDetails.length === 0) return undefined;
+    let hasPii = false;
+    let hasMedium = false;
+    for (const c of classificationDetails) {
+      const r = (c.piiRisk || '').toString().toLowerCase();
+      if (r === 'high') return 'High';
+      if (r === 'medium') hasMedium = true;
+      if (r === 'high' || r === 'medium' || r === 'low') hasPii = true;
+    }
+    if (hasMedium) return 'Medium';
+    return hasPii ? 'Low' : undefined;
+  }, [classificationDetails]);
+
+  // Real counts sourced from the same page state ModelOverview uses.
+  const kpiTableCount = tables.length || modelingTableIds.size;
+  const kpiRelationCount = tables.length > 0
+    ? defaultRelationships.length + initialColumnMappings.length
+    : 0;
+  const kpiColumnTotal = tables.reduce((sum, t) => sum + (t.columnCount || 0), 0);
+
+  const modelKpis = useMemo<ModelKpis>(() => ({
+    // No clean project-level model-health / cost($/mo) / DQ% source today →
+    // honest "—" rather than inventing them (spec: never fake).
+    modelHealth: undefined,
+    tables: { count: kpiTableCount },
+    relations: { count: kpiRelationCount },
+    // Columns lazy-load per table; a 0 sum on a populated model means "not loaded
+    // yet", so show "—" rather than a misleading 0.
+    columns: { count: kpiColumnTotal > 0 ? kpiColumnTotal : undefined },
+    dataQuality: undefined,
+    piiRisk: piiLevel ? { level: piiLevel } : undefined,
+    costImpact: undefined,
+    releaseReadiness: {
+      status: deployBlockers > 0
+        ? 'Blocked'
+        : displayablePendingEvents.length > 0
+          ? 'On track'
+          : undefined,
+    },
+  }), [kpiTableCount, kpiRelationCount, kpiColumnTotal, piiLevel, deployBlockers, displayablePendingEvents.length]);
+
+  // Server release-state (GET /explore-design/{id}/release-state): the full
+  // 12-state machine + per-axis signals, SSE-refreshed. Degrades to null/derived
+  // on 404 (endpoint not deployed yet) — local heuristics below take over.
+  const { state: releaseServerState, degraded: releaseDegraded } =
+    useReleaseState(selectedProjectId);
+
+  // Deploy button state — server truth first (full lifecycle incl. approval /
+  // deployed / failed phases the page can't source locally); the local
+  // pendingChanges+blockers heuristic is the degraded fallback.
+  const deployState = useMemo<DeployState>(() => {
+    if (releaseServerState && !releaseDegraded) {
+      const map: Record<ReleaseStatus, DeployState> = {
+        no_changes: 'no-changes',
+        draft_changes: 'draft',
+        checks_not_run: 'checks-not-run',
+        blocked: 'blocked',
+        ready_for_approval: 'ready-not-approved',
+        awaiting_approval: 'awaiting-approval',
+        approved: 'approved',
+        deploying: 'approved',
+        deployed: 'deployed',
+        verified: 'deployed',
+        failed: 'failed',
+        rolled_back: 'failed',
+      };
+      return map[releaseServerState.status] ?? 'draft';
+    }
+    return deriveDeployState({
+      pendingChanges: displayablePendingEvents.length,
+      blockers: deployBlockers,
+    });
+  }, [releaseServerState, releaseDegraded, displayablePendingEvents.length, deployBlockers]);
+
+  // Per-tab colour dots on the collapsed rail — local heuristics first, then the
+  // server release-state axis_signals overlay them (server truth wins where it
+  // has a non-grey signal). Keyed by the current RightBarTab union.
+  const rightBarSeverity = useMemo<Partial<Record<RightBarTab, RailSeverity>>>(() => {
+    const sev: Partial<Record<RightBarTab, RailSeverity>> = {};
+    sev.deploy = deployBlockers > 0
+      ? 'blocker'
+      : displayablePendingEvents.length > 0
+        ? 'pending'
+        : 'idle';
+    if (piiLevel === 'High') sev.governance = 'blocker';
+    else if (piiLevel === 'Medium') sev.governance = 'warn';
+    if (displayablePendingEvents.length > 0) sev.history = 'pending';
+
+    const signals = releaseServerState?.axis_signals;
+    if (signals) {
+      const toRail: Record<AxisSignal, RailSeverity> = {
+        green: 'ok', orange: 'warn', red: 'blocker', blue: 'pending', grey: 'idle',
+      };
+      // Axis → right-bar tab homes (grey = "no signal source" → keep local value).
+      const homes: Array<[keyof NonNullable<typeof signals>, RightBarTab]> = [
+        ['data_quality', 'quality'],
+        ['governance', 'governance'],
+        ['impact_cost', 'cost'],
+        ['release', 'deploy'],
+        ['history', 'history'],
+      ];
+      for (const [axis, tab] of homes) {
+        const s = signals[axis];
+        if (s && s !== 'grey') sev[tab] = toRail[s];
+      }
+    }
+    return sev;
+  }, [deployBlockers, displayablePendingEvents.length, piiLevel, releaseServerState]);
 
   // Redirect to sign-in when offline
   useEffect(() => {
@@ -3699,20 +3831,38 @@ export default function ExploreDesignPage() {
   const deployTabNode = (
     <ErrorBoundary>
       {selectedProjectId ? (
-        <PermissionGate
-          module="explore_design"
-          action="deploy"
-          projectId={selectedProjectId}
-          title="Deployment restricted"
-          description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to the data warehouse requires an administrator to grant deploy access."
-        >
-          <DeploymentValidation
-            embedded
-            database={selectedDatabase}
-            schemas={schemaKeys}
-            projectId={selectedProjectId}
-          />
-        </PermissionGate>
+        <div className="space-y-4">
+          {/* Primary Release experience — the 7-step in-panel flow (Changes →
+              Readiness → Impact → Approval → Deploy → Verify → Recovery). It
+              reads freely and gates its own mutations per step; the whole-tab
+              PermissionGate now protects only the legacy stepper below. */}
+          <ReleasePanel projectId={selectedProjectId} />
+
+          {/* Legacy technical stepper — kept reachable (its execute spine is
+              battle-proven) but collapsed so the Release flow has ONE deploy
+              CTA (spec §4: no double deploy button). */}
+          <details className="rounded-xl border border-slate-200 dark:border-slate-700">
+            <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+              Classic deployment stepper (technical view)
+            </summary>
+            <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+              <PermissionGate
+                module="explore_design"
+                action="deploy"
+                projectId={selectedProjectId}
+                title="Deployment restricted"
+                description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to the data warehouse requires an administrator to grant deploy access."
+              >
+                <DeploymentValidation
+                  embedded
+                  database={selectedDatabase}
+                  schemas={schemaKeys}
+                  projectId={selectedProjectId}
+                />
+              </PermissionGate>
+            </div>
+          </details>
+        </div>
       ) : (
         <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-400">
           <Rocket className="mb-3 h-8 w-8 text-slate-300" />
@@ -3888,11 +4038,14 @@ export default function ExploreDesignPage() {
             {/* Cross-page governed access — grant/revoke roles for this page. */}
             <ManageAccessButton module="explore-design" page="explore-design" iconOnly objectLabel="Explore & Design" />
 
-            {/* Primary action: Deploy — only thing besides search that stays
-                always-visible. Everything else lives in the overflow menu. */}
-            <Button
-              size="sm"
-              className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:from-blue-700 hover:to-indigo-700"
+            {/* Primary action: Deploy — the state-machine button whose label +
+                variant morph by project lifecycle (redesign spec §3). Keeps ALL
+                the legacy guards (read-only / no-project / conflict-check) in its
+                onClick; the state's own disabled phases are additive on top. */}
+            <DeployStateButton
+              state={deployState}
+              disabled={!selectedProjectId || isReadOnly}
+              changeCount={displayablePendingEvents.length}
               onClick={async () => {
                 if (readOnlyGuard()) return;
                 if (!selectedProjectId) {
@@ -3910,16 +4063,7 @@ export default function ExploreDesignPage() {
                 setActiveRightTab('deploy');
                 if (!rightBarOpen) setRightBarOpen(true);
               }}
-              disabled={!selectedProjectId || isReadOnly}
-            >
-              <Rocket className="h-3.5 w-3.5" />
-              Deploy
-              {displayablePendingEvents.length > 0 && (
-                <Badge className="bg-white/20 px-1 py-0 text-[10px] text-white">
-                  {displayablePendingEvents.length}
-                </Badge>
-              )}
-            </Button>
+            />
 
             {/* Overflow menu — Undo/Redo + Templates + DAG + Ingestion + AI +
                 Refresh + Import + Export + Filters + panel toggles. Replaces
@@ -4183,6 +4327,13 @@ export default function ExploreDesignPage() {
           stats={stats}
           projectId={selectedProjectId}
         />
+      )}
+
+      {/* Top KPI strip (redesign Wave A / mockup 01) — one row below the header,
+          above the workspace, covering BOTH catalog + modeling views. Props-
+          driven; unsourced values render "—" (never fake 0s). */}
+      {!isFullscreen && selectedProjectId && (
+        <ModelKpiStrip kpis={modelKpis} />
       )}
 
       {/* Main Content */}
@@ -4844,8 +4995,10 @@ export default function ExploreDesignPage() {
                 userRole={sessionRole || (userRole as string) || undefined}
                 onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'catalog', pendingEvents: displayablePendingEvents.length }); setActiveRightTab('deploy'); setRightBarOpen(true); }}
                 onDeselectTable={() => { setSelectedTable(null); setRightBarOpen(false); }}
+                analystSlot={selectedProjectId ? <AiChangeAnalyst projectId={selectedProjectId} /> : undefined}
                 deployOverride={deployTabNode}
                 ingestionTrace={selectedIngestion}
+                tabSeverity={rightBarSeverity}
               />
               </div>{/* end center+right row */}
             </>
@@ -5098,6 +5251,16 @@ export default function ExploreDesignPage() {
                 tableColumns={tableColumnsMap}
                 onColumnsMapUpdate={setTableColumnsMap}
                 onTableSelect={handleTableClick}
+                onBlankClick={() => {
+                  // Spec §1: empty-canvas click with nothing selected closes the
+                  // right-bar; with a selection it only clears the selection
+                  // (the bar falls back to the project-overview landing).
+                  if (selectedTable) {
+                    setSelectedTable(null);
+                  } else if (rightBarOpen) {
+                    setRightBarOpen(false);
+                  }
+                }}
                 selectedTableId={selectedTable?.id}
                 onTableExclude={handleRemoveFromModeling}
                 onOpenContextBar={handleOpenContextBar}
@@ -5264,9 +5427,11 @@ export default function ExploreDesignPage() {
                 userRole={sessionRole || (userRole as string) || undefined}
                 onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'modeling', pendingEvents: displayablePendingEvents.length }); setActiveRightTab('deploy'); setRightBarOpen(true); }}
                 onDeselectTable={() => { setSelectedTable(null); }}
+                analystSlot={selectedProjectId ? <AiChangeAnalyst projectId={selectedProjectId} /> : undefined}
                 onNodeAction={handleNodeContextAction}
                 deployOverride={deployTabNode}
                 ingestionTrace={selectedIngestion}
+                tabSeverity={rightBarSeverity}
                 emptyOverride={
                   <ModelOverview
                     // Count the tables actually present in the model (what the

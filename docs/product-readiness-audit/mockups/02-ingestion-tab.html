@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 02 · Right-bar Ingestion tab</title>
+<link rel="stylesheet" href="ds.css"></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">data<b>360</b></div>
+    <div class="nav-h">Platform</div>
+    <nav class="nav">
+      <a href="#"><span class="i"></span>Account Overview</a>
+      <a href="#"><span class="i"></span>Connect Data</a>
+      <a class="active" href="#"><span class="i"></span>Explore &amp; Design</a>
+      <a href="#"><span class="i"></span>Data Quality</a>
+      <a href="#"><span class="i"></span>Governance</a>
+      <a href="#"><span class="i"></span>BI Dashboards</a>
+      <a href="#"><span class="i"></span>Observability</a>
+      <a href="#"><span class="i"></span>FinOps</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">HA</span><div><div style="font-weight:700;font-size:12px">haha</div><div class="small">ACCOUNTADMIN</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title"><h1>Explore &amp; Design</h1>
+        <div class="sub">Retail Analytics Model <span class="pill draft">Draft</span> <span class="pill blue">4 changes</span> <span class="pill red">2 blockers</span> <span>last saved 2 min ago</span></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">Catalog</button>
+      <button class="btn">Save</button>
+      <button class="btn amber">Fix Blockers</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Tables in model</div><div class="v">14 <span class="d up">+1</span></div></div>
+      <div class="kpi"><div class="l">Pending changes</div><div class="v">4 <span class="d" style="color:var(--blue)">draft</span></div></div>
+      <div class="kpi"><div class="l">Quality score</div><div class="v">87 <span class="d down">−2</span></div></div>
+      <div class="kpi"><div class="l">Governance coverage</div><div class="v">78% <span class="d warn">1 PII open</span></div></div>
+      <div class="kpi"><div class="l">Freshness</div><div class="v">92% <span class="d down">2 late</span></div></div>
+      <div class="kpi"><div class="l">Cost forecast</div><div class="v">+3.2% <span class="d warn">/mo</span></div></div>
+    </div>
+    <div class="workspace">
+      <div class="canvas">
+        <div class="canvas-toolbar"><button class="btn sm">+ Add table</button><button class="btn sm ghost">Auto-layout</button><span class="spacer"></span><span class="small">RETAIL_DW · 14 tables · zoom 100%</span></div>
+        <div class="node" style="left:70px;top:130px">
+          <div class="nh"><span class="gi"></span>FACT_TRANSACTIONS</div>
+          <div class="col"><span class="k">PK</span>TXN_ID</div>
+          <div class="col"><span class="k fk">FK</span>CUSTOMER_ID</div>
+          <div class="col"><span class="k"></span>AMOUNT</div>
+          <div class="more">+ 14 more columns</div>
+        </div>
+        <div class="node" style="left:340px;top:290px">
+          <div class="nh"><span class="gi"></span>STG_POS_SALES</div>
+          <div class="col"><span class="k"></span>SALE_TS</div>
+          <div class="col"><span class="k"></span>STORE_CODE</div>
+          <div class="more">+ 11 more columns</div>
+        </div>
+      </div>
+      <div class="rightwrap">
+        <div class="panel">
+          <div class="ph"><span class="dot r"></span>Ingestion <span class="pill red" style="margin-left:4px">2 blockers</span><span class="x">⟩</span></div>
+          <div class="pbody">
+            <div class="sec">
+              <div class="st">Blockers <button class="btn sm primary" style="margin-left:auto">Refresh table</button></div>
+              <div class="mcard r" style="margin-bottom:8px">
+                <div class="ml">FRESHNESS BREACH</div>
+                <div class="mv" style="font-size:13px">FACT_TRANSACTIONS is 6h 12m late</div>
+                <div class="mvsub">SLA 60 min · last successful load 08:20 · upstream task suspended</div>
+                <div style="margin-top:8px"><button class="btn sm">Refresh now</button> <button class="btn sm ghost">Resume task</button> <button class="btn sm ghost">Accept exception</button></div>
+              </div>
+              <div class="mcard r">
+                <div class="ml">STALE STREAM</div>
+                <div class="mv" style="font-size:13px">STG_ORDERS_STREAM offset stalled 14h</div>
+                <div class="mvsub">CDC stream has pending offset &gt; retention window · risk of data loss</div>
+                <div style="margin-top:8px"><button class="btn sm">Recreate stream</button> <button class="btn sm ghost">View task DAG</button></div>
+              </div>
+            </div>
+            <div class="sec">
+              <div class="st">Freshness per table <span class="more">All 14 ▸</span></div>
+              <table class="tablelite">
+                <tr><th>Table</th><th>Last load</th><th>Lag</th><th>SLA</th><th></th></tr>
+                <tr><td>FACT_TRANSACTIONS</td><td>08:20</td><td>6h 12m</td><td>60m</td><td><span class="badge2 r">Late</span></td></tr>
+                <tr><td>STG_ORDERS</td><td>12:05</td><td>2h 27m</td><td>2h</td><td><span class="badge2 o">At risk</span></td></tr>
+                <tr><td>DIM_CUSTOMERS</td><td>14:02</td><td>30m</td><td>24h</td><td><span class="badge2 g">Fresh</span></td></tr>
+                <tr><td>DIM_PRODUCTS</td><td>13:48</td><td>44m</td><td>24h</td><td><span class="badge2 g">Fresh</span></td></tr>
+                <tr><td>ORDER_MARGIN</td><td>—</td><td>—</td><td>—</td><td><span class="badge2 gr">Not run</span></td></tr>
+              </table>
+            </div>
+            <div class="sec">
+              <div class="st">Watermarks &amp; CDC</div>
+              <div class="srow"><span class="sl">FACT_TRANSACTIONS</span><span class="sd">watermark TXN_TS = 2026-07-02 08:14 · incremental</span><span class="badge2 o">behind</span></div>
+              <div class="srow"><span class="sl">STG_POS_SALES</span><span class="sd">watermark SALE_TS = 2026-07-02 13:58 · CDC stream</span><span class="badge2 g">ok</span></div>
+              <div class="srow"><span class="sl">STG_ORDERS</span><span class="sd">CDC offset pending 41,209 rows · stream stalled</span><span class="badge2 r">stalled</span></div>
+              <div class="srow"><span class="sl">DIM_CUSTOMERS</span><span class="sd">full reload nightly 02:00 · task RESUMED</span><span class="badge2 g">ok</span></div>
+            </div>
+            <div class="sec">
+              <div class="st">Recent runs <span class="more">Run history ▸</span></div>
+              <table class="tablelite">
+                <tr><th>Run</th><th>Target</th><th>Rows</th><th>Duration</th><th></th></tr>
+                <tr><td>14:02</td><td>DIM_CUSTOMERS</td><td>1.2M</td><td>1m 41s</td><td><span class="badge2 g">Success</span></td></tr>
+                <tr><td>13:48</td><td>DIM_PRODUCTS</td><td>84k</td><td>22s</td><td><span class="badge2 g">Success</span></td></tr>
+                <tr><td>12:05</td><td>STG_ORDERS</td><td>310k</td><td>3m 05s</td><td><span class="badge2 g">Success</span></td></tr>
+                <tr><td>09:20</td><td>FACT_TRANSACTIONS</td><td>0</td><td>—</td><td><span class="badge2 r">Failed</span></td></tr>
+                <tr><td>08:20</td><td>FACT_TRANSACTIONS</td><td>2.4M</td><td>4m 32s</td><td><span class="badge2 g">Success</span></td></tr>
+              </table>
+            </div>
+            <div class="ai">
+              <div class="aih"><span class="dot b"></span>AI Change Analyst<span class="live">LIVE</span></div>
+              <div class="aif"><span class="adot" style="background:var(--red)"></span><div><div class="at">14:32</div>The 09:20 failure is a suspended upstream task, not a data error. Resuming it should clear the 6h lag in ~5 min.</div></div>
+              <div class="aiq">FACT_TRANSACTIONS is delayed — block the release or accept an exception?<div class="chips-row"><span class="achip" style="border-color:var(--red);color:var(--red)">Keep release blocked</span><span class="achip">Accept exception (24h)</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="rtab"><span class="ri"></span><span class="rl">Overview</span></div>
+          <div class="rtab active"><span class="ri"></span><span class="rl">Ingest</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Quality</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Govern</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Impact</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Release</span><span class="ind" style="background:var(--blue)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Hist+AI</span><span class="ind" style="background:var(--green)"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">02 · Right-bar INGESTION — freshness per table, watermarks/CDC, runs, 2 blockers with inline remediation (no popups)</div>
+</body></html>

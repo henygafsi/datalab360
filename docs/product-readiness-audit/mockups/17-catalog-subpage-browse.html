@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 17 · Catalog sub-page (Sources | Products | All)</title>
+<link rel="stylesheet" href="ds.css"></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">data<b>360</b></div>
+    <div class="nav-h">Platform</div>
+    <nav class="nav">
+      <a href="#"><span class="i"></span>Account Overview</a>
+      <a href="#"><span class="i"></span>Connect Data</a>
+      <a class="active" href="#"><span class="i"></span>Explore &amp; Design</a>
+      <a href="#"><span class="i"></span>Data Quality</a>
+      <a href="#"><span class="i"></span>Governance</a>
+      <a href="#"><span class="i"></span>BI Dashboards</a>
+      <a href="#"><span class="i"></span>Observability</a>
+      <a href="#"><span class="i"></span>FinOps</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">HA</span><div><div style="font-weight:700;font-size:12px">haha</div><div class="small">ACCOUNTADMIN</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title"><h1>Explore &amp; Design · Catalog</h1>
+        <div class="sub">Sources, products and tags of <b>project:retail-analytics</b> · replaces the old mindmap view</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="tabs2"><a href="#">Sources (8)</a><a href="#">Products (4)</a><a class="active" href="#">All (12)</a></div>
+      <button class="btn ghost" style="margin-left:10px">Tags &amp; naming</button>
+      <button class="btn primary">← Back to canvas</button>
+    </div>
+    <div class="topbar" style="padding:10px 20px;gap:10px">
+      <div class="search" style="margin:0;flex:1;max-width:340px">Search 12 objects… (name, column, tag, owner)</div>
+      <div class="facets">
+        <span class="facet">Domain <b>Retail ▾</b></span>
+        <span class="facet">Freshness <b>Any ▾</b></span>
+        <span class="facet">Quality score <b>&gt; 80 ▾</b></span>
+        <span class="facet">Owner <b>Anyone ▾</b></span>
+        <span class="chip active">#project:retail-analytics ✕</span>
+        <span class="chip">#tag:pii</span>
+        <span class="chip">#tag:certified</span>
+      </div>
+    </div>
+    <div class="cards" style="background:var(--bg)">
+      <div class="card">
+        <div class="ch"><span class="kind prod">Product</span>RETAIL_TRANSACTIONS_MART<span class="badge2 g" style="margin-left:auto">Certified</span></div>
+        <div class="cd">Curated order-level transaction mart — the published target model of this project.</div>
+        <div class="cm"><span>Quality<b>91</b></span><span>Freshness<b>25m</b></span><span>Consumers<b>7</b></span><span>SLA<b>daily 06:00</b></span></div>
+        <div class="chips-row"><span class="chip">#project:retail-analytics</span><span class="chip">#tag:certified</span><span class="chip">product_mart</span></div>
+        <div class="cm" style="border-top:1px solid var(--line);padding-top:8px"><span class="avatar" style="width:20px;height:20px;font-size:9px">SM</span><span style="align-self:center">Owner Sarah Martin · v2.7 · 1,240 queries/mo</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind prod">Product</span>CUSTOMER_360<span class="badge2 b" style="margin-left:auto">Published</span></div>
+        <div class="cd">Unified customer profile with masked contact PII, segments and lifetime value.</div>
+        <div class="cm"><span>Quality<b>88</b></span><span>Freshness<b>2h</b></span><span>Consumers<b>5</b></span><span>SLA<b>daily 07:00</b></span></div>
+        <div class="chips-row"><span class="chip">#project:retail-analytics</span><span class="chip" style="background:var(--red-soft);color:var(--red)">#tag:pii</span><span class="chip">product_dim</span></div>
+        <div class="cm" style="border-top:1px solid var(--line);padding-top:8px"><span class="avatar" style="width:20px;height:20px;font-size:9px;background:linear-gradient(135deg,#3b82f6,#6d5efc)">KB</span><span style="align-self:center">Owner Karim Benali · v1.4 · 610 queries/mo</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind prod">Product</span>ORDER_MARGIN<span class="badge2 gr" style="margin-left:auto">Draft</span></div>
+        <div class="cd">Order-level margin pre-aggregation — staged in the current release (v2.8).</div>
+        <div class="cm"><span>Quality<b>—</b></span><span>Freshness<b>—</b></span><span>Consumers<b>0</b></span><span>SLA<b>not set</b></span></div>
+        <div class="chips-row"><span class="chip">#project:retail-analytics</span><span class="chip">product_agg</span><span class="chip" style="border:1px dashed var(--faint);background:#fff">+ tag</span></div>
+        <div class="cm" style="border-top:1px solid var(--line);padding-top:8px"><span class="avatar" style="width:20px;height:20px;font-size:9px;background:linear-gradient(135deg,#3b82f6,#6d5efc)">KB</span><span style="align-self:center">Owner Karim Benali · not yet deployed</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind prod">Product</span>STORE_PERFORMANCE<span class="badge2 b" style="margin-left:auto">Published</span></div>
+        <div class="cd">Store-level sales and footfall KPIs, RLS-filtered by region.</div>
+        <div class="cm"><span>Quality<b>93</b></span><span>Freshness<b>45m</b></span><span>Consumers<b>3</b></span><span>SLA<b>hourly</b></span></div>
+        <div class="chips-row"><span class="chip">#project:retail-analytics</span><span class="chip">#tag:rls</span><span class="chip">product_mart</span></div>
+        <div class="cm" style="border-top:1px solid var(--line);padding-top:8px"><span class="avatar" style="width:20px;height:20px;font-size:9px">SM</span><span style="align-self:center">Owner Sarah Martin · v3.1 · 380 queries/mo</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind src">Source</span>STG_POS_SALES<span class="badge2 g" style="margin-left:auto">Fresh</span></div>
+        <div class="cd">Staged point-of-sale sales feed · CDC stream, 15-min micro-batches.</div>
+        <div class="cm"><span>Origin<b>SQL Server connector</b></span><span>Stage<b>Staging</b></span><span>Rows<b>42M</b></span></div>
+        <div class="chips-row"><span class="chip">#project:retail-analytics</span><span class="chip">source_staging</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind src">Source</span>STG_ORDERS<span class="badge2 o" style="margin-left:auto">At risk</span></div>
+        <div class="cd">Staged e-commerce orders · CDC offset currently stalled (14h).</div>
+        <div class="cm"><span>Origin<b>Postgres connector</b></span><span>Stage<b>Staging</b></span><span>Rows<b>8.1M</b></span></div>
+        <div class="chips-row"><span class="chip">#project:retail-analytics</span><span class="chip">source_staging</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind src">Source</span>RAW_CLICKSTREAM<span class="badge2 g" style="margin-left:auto">Fresh</span></div>
+        <div class="cd">Raw web/app events landed hourly · not in the model yet.</div>
+        <div class="cm"><span>Origin<b>S3 landing</b></span><span>Stage<b>Raw / Landing</b></span><span>Rows<b>310M</b></span></div>
+        <div class="chips-row"><span class="chip">source_raw</span><span class="chip" style="border:1px dashed var(--faint);background:#fff">+ project</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind src">Source</span>REF_CALENDAR<span class="badge2 g" style="margin-left:auto">Static</span></div>
+        <div class="cd">Reference calendar with retail fiscal periods.</div>
+        <div class="cm"><span>Origin<b>manual upload</b></span><span>Stage<b>Reference / Master</b></span><span>Rows<b>7.3k</b></span></div>
+        <div class="chips-row"><span class="chip">source_reference</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind src">Source</span>EXT_FX_RATES<span class="badge2 g" style="margin-left:auto">Fresh</span></div>
+        <div class="cd">External daily FX rates via data share.</div>
+        <div class="cm"><span>Origin<b>marketplace share</b></span><span>Stage<b>External</b></span><span>Rows<b>92k</b></span></div>
+        <div class="chips-row"><span class="chip">source_external</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind src">Source</span>DIM_CUSTOMERS_SRC<span class="badge2 g" style="margin-left:auto">Fresh</span></div>
+        <div class="cd">CRM customer extract, staged nightly · feeds CUSTOMER_360.</div>
+        <div class="cm"><span>Origin<b>CRM connector</b></span><span>Stage<b>Curated / Core</b></span><span>Rows<b>1.2M</b></span></div>
+        <div class="chips-row"><span class="chip">#project:retail-analytics</span><span class="chip" style="background:var(--red-soft);color:var(--red)">#tag:pii</span><span class="chip">source_curated</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind src">Source</span>STG_LEGACY_SALES<span class="badge2 r" style="margin-left:auto">Dropping</span></div>
+        <div class="cd">Legacy staging table — 0 queries in 90 days, removal staged in v2.8.</div>
+        <div class="cm"><span>Origin<b>retired connector</b></span><span>Stage<b>Sandbox</b></span><span>Rows<b>3.4M</b></span></div>
+        <div class="chips-row"><span class="chip">source_sandbox</span></div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="kind src">Source</span>ML_BASKET_FEATURES<span class="badge2 g" style="margin-left:auto">Fresh</span></div>
+        <div class="cd">Feature table for basket-affinity scoring, rebuilt weekly.</div>
+        <div class="cm"><span>Origin<b>internal pipeline</b></span><span>Stage<b>ML / Feature</b></span><span>Rows<b>5.6M</b></span></div>
+        <div class="chips-row"><span class="chip">source_ml</span><span class="chip">#tag:experimental</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">17 · CATALOG SUB-PAGE — Sources | Products | All · SOURCE cards (connector origin + stage) vs PRODUCT cards (owner, SLA, consumers, certification) + project/tag chips, search + facets</div>
+</body></html>

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 14 · Deploy button state machine</title>
+<link rel="stylesheet" href="ds.css">
+<style>
+  .wrap{max-width:1160px;margin:0 auto;padding:26px 24px 60px;display:flex;flex-direction:column;gap:12px}
+  .hero{background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px 18px}
+  .statebtn-row .cond{width:270px;flex:none}
+  .statebtn-row .cond b{display:block;font-size:13px}
+  .statebtn-row .cond span{font-size:11px;color:var(--muted)}
+  .statebtn-row .btncell{width:230px;flex:none}
+  .statebtn-row .note{flex:1;font-size:11.5px;color:var(--ink2)}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1 style="font-size:17px;font-weight:800">Deploy button — one button, nine states</h1>
+    <div class="small" style="margin:4px 0 12px">The button always sits top-right of the Explore &amp; Design header and always opens the right-bar on the <b>Release</b> tab (never a popup). Its label, color and enablement adapt to the project state.</div>
+    <div class="topbar" style="border:1px solid var(--line);border-radius:10px">
+      <div class="title"><h1 style="font-size:15px">Explore &amp; Design</h1>
+        <div class="sub">Retail Analytics Model · <span class="pill draft">Draft</span> · <span class="pill blue">4 changes</span> · <span class="pill red">2 blockers</span> · last saved 2 min ago</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">Catalog</button>
+      <button class="btn">Save</button>
+      <button class="btn amber">Fix Blockers</button>
+    </div>
+    <div class="small" style="margin-top:8px">Status header line stays constant: <b>project · status · change count · blocker count · last saved</b>.</div>
+  </div>
+
+  <div class="statebtn-row"><span class="sn">1</span><div class="cond"><b>No changes</b><span>model = last deployed version</span></div><div class="btncell"><button class="btn primary disabled">Deploy</button></div><div class="note">Disabled. Tooltip: "Nothing to release — the model matches PROD v2.7." Status: <span class="pill green">Saved</span></div></div>
+  <div class="statebtn-row"><span class="sn">2</span><div class="cond"><b>Draft changes</b><span>edits staged, release not prepared</span></div><div class="btncell"><button class="btn primary">Prepare Release</button></div><div class="note">Opens Release ▸ step 1 Changes. Status: <span class="pill draft">Draft</span> <span class="pill blue">4 changes</span></div></div>
+  <div class="statebtn-row"><span class="sn">3</span><div class="cond"><b>Checks not run</b><span>release prepared, validation pending</span></div><div class="btncell"><button class="btn primary">Run Validation</button></div><div class="note">Opens Release ▸ step 2 Readiness and runs the 8 gates. Status: <span class="pill orange">Validation required</span></div></div>
+  <div class="statebtn-row"><span class="sn">4</span><div class="cond"><b>Blocking issues</b><span>validation found blockers</span></div><div class="btncell"><button class="btn amber">Fix Blockers</button></div><div class="note">Opens the first blocking axis (here: Ingestion). Status: <span class="pill red">Blocked</span> <span class="pill red">2 blockers</span></div></div>
+  <div class="statebtn-row"><span class="sn">5</span><div class="cond"><b>Ready, not approved</b><span>0 blockers, approvals not requested</span></div><div class="btncell"><button class="btn primary">Submit for Approval</button></div><div class="note">Opens Release ▸ step 4 Approval with the named-approver policy. Status: <span class="pill green">Ready for approval</span></div></div>
+  <div class="statebtn-row"><span class="sn">6</span><div class="cond"><b>Waiting approval</b><span>submitted, approvals incomplete</span></div><div class="btncell"><button class="btn primary disabled">Awaiting Approval (2/4)</button></div><div class="note">Disabled; shows live approver count. Status: <span class="pill orange">Awaiting approval</span></div></div>
+  <div class="statebtn-row"><span class="sn">7</span><div class="cond"><b>Approved</b><span>all required approvals in</span></div><div class="btncell"><button class="btn primary">Deploy</button></div><div class="note">Opens Release ▸ step 5 Deploy (plan + safety). Status: <span class="pill green">Approved · Ready to deploy</span></div></div>
+  <div class="statebtn-row"><span class="sn">8</span><div class="cond"><b>Deployed</b><span>statements executed, not verified</span></div><div class="btncell"><button class="btn primary">Verify</button></div><div class="note">Opens Release ▸ step 6 Verify (7 post-deploy checks). Status: <span class="pill blue">Deployed · v2.8</span></div></div>
+  <div class="statebtn-row"><span class="sn">9</span><div class="cond"><b>Failed</b><span>deploy halted mid-plan</span></div><div class="btncell"><button class="btn red">Open Recovery</button></div><div class="note">Opens Release ▸ step 7 Recovery (rollback / restore checkpoint / fix forward). Status: <span class="pill red">Failed · step 3 of 5</span></div></div>
+
+  <div class="hero">
+    <div class="st" style="font-weight:800;font-size:13px;margin-bottom:6px">Full project status vocabulary</div>
+    <div class="chips-row"><span class="pill draft">Draft</span><span class="pill orange">Unsaved changes</span><span class="pill green">Saved</span><span class="pill orange">Validation required</span><span class="pill red">Blocked</span><span class="pill green">Ready for approval</span><span class="pill orange">Awaiting approval</span><span class="pill green">Approved</span><span class="pill green">Ready to deploy</span><span class="pill blue">Deploying…</span><span class="pill blue">Deployed</span><span class="pill green">Verified</span><span class="pill red">Failed</span><span class="pill draft">Rolled back</span></div>
+  </div>
+</div>
+<div class="caption">14 · DEPLOY BUTTON STATE MACHINE — 9 states, one button, always opens the Release tab (never a popup) · constant status header line</div>
+</body></html>

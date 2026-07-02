@@ -158,7 +158,31 @@ export interface ContextRightBarProps {
    * SmartRightBar service) inside the block, not here.
    */
   ingestionTrace?: IngestionTraceEntry | null;
+  /**
+   * Optional per-tab severity → colour dot on each collapsed mini-rail icon
+   * (redesign spec §1 tab colour indicators): 🟢 ok · 🟠 warn · 🔴 blocker ·
+   * 🔵 pending/changes · ⚪ idle/not-configured. When omitted (default), no dots
+   * render — behaviour unchanged. Keyed by the current `RightBarTab` union.
+   */
+  tabSeverity?: Partial<Record<RightBarTab, RailSeverity>>;
+  /**
+   * Optional live-analyst card rendered as the panel's sticky footer, visible
+   * across every tab (redesign spec §5 — "AI Change Analyst · Live" at the
+   * bottom of the right-bar). Omitted → no footer, behaviour unchanged.
+   */
+  analystSlot?: React.ReactNode;
 }
+
+// Rail severity → literal Tailwind dot classes. Interpolated `bg-${x}-500` would
+// be purged by the content scanner, so map each severity to a LITERAL string.
+export type RailSeverity = 'ok' | 'warn' | 'blocker' | 'pending' | 'idle';
+const RAIL_SEVERITY_DOT: Record<RailSeverity, string> = {
+  ok: 'bg-emerald-500',
+  warn: 'bg-amber-500',
+  blocker: 'bg-red-500',
+  pending: 'bg-blue-500',
+  idle: 'bg-slate-300 dark:bg-slate-600',
+};
 
 // ---------------------------------------------------------------------------
 // Tab rail icons
@@ -170,7 +194,7 @@ const TABS: { id: RightBarTab; icon: React.ElementType; label: string }[] = [
   { id: 'quality', icon: BarChart3, label: 'Quality' },
   { id: 'cost', icon: Coins, label: 'Cost & KPIs' },
   { id: 'governance', icon: Shield, label: 'Governance' },
-  { id: 'deploy', icon: Rocket, label: 'Deploy' },
+  { id: 'deploy', icon: Rocket, label: 'Release' },
   { id: 'history', icon: Clock, label: 'History' },
   { id: 'help', icon: HelpCircle, label: 'Help' },
 ];
@@ -190,7 +214,8 @@ export default function ContextRightBar({
   columnClassifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify,
   onAddEvent, profileData, historyEvents,
   pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onDeselectTable,
-  emptyOverride, onNodeAction, deployOverride, ingestionTrace,
+  emptyOverride, onNodeAction, deployOverride, ingestionTrace, tabSeverity,
+  analystSlot,
 }: ContextRightBarProps) {
 
   // Model-general landing: when nothing is selected and the caller supplied an
@@ -404,15 +429,25 @@ export default function ContextRightBar({
         </button>
         {TABS.map((tab) => {
           const Icon = tab.icon;
+          const severity = tabSeverity?.[tab.id];
           return (
             <Tooltip key={tab.id} content={tab.label} placement="left">
               <button
                 onClick={() => { onTabChange(tab.id); onToggle(); }}
                 aria-label={tab.label}
                 aria-pressed={false}
-                className="p-2 rounded-lg transition-colors text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-600"
+                className="relative p-2 rounded-lg transition-colors text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-600"
               >
                 <Icon className="h-4 w-4" />
+                {severity && (
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'absolute right-1 top-1 h-1.5 w-1.5 rounded-full ring-1 ring-white dark:ring-slate-900',
+                      RAIL_SEVERITY_DOT[severity],
+                    )}
+                  />
+                )}
               </button>
             </Tooltip>
           );
@@ -442,6 +477,11 @@ export default function ContextRightBar({
           // scrolling the page (the default cap let the footer fall ~86px below
           // the fold). Other tabs keep the taller default.
           maxHeightClassName={activeTab === 'deploy' ? 'max-h-[calc(100vh-13rem)]' : undefined}
+          footer={
+            analystSlot ? (
+              <div className="max-h-56 overflow-y-auto">{analystSlot}</div>
+            ) : undefined
+          }
         />
       </div>
     </div>

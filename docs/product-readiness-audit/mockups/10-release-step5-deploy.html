@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 10 · Release step 5/7 Deploy</title>
+<link rel="stylesheet" href="ds.css"></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">data<b>360</b></div>
+    <div class="nav-h">Platform</div>
+    <nav class="nav">
+      <a href="#"><span class="i"></span>Account Overview</a>
+      <a href="#"><span class="i"></span>Connect Data</a>
+      <a class="active" href="#"><span class="i"></span>Explore &amp; Design</a>
+      <a href="#"><span class="i"></span>Data Quality</a>
+      <a href="#"><span class="i"></span>Governance</a>
+      <a href="#"><span class="i"></span>BI Dashboards</a>
+      <a href="#"><span class="i"></span>Observability</a>
+      <a href="#"><span class="i"></span>FinOps</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">HA</span><div><div style="font-weight:700;font-size:12px">haha</div><div class="small">ACCOUNTADMIN</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title"><h1>Explore &amp; Design</h1>
+        <div class="sub">Retail Analytics Model <span class="pill green">Approved · Ready to deploy</span> <span class="pill blue">4 changes</span> <span class="pill green">4/4 approvals</span> <span>approved 16:40</span></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">Catalog</button>
+      <button class="btn">Save</button>
+      <button class="btn primary">Deploy</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Tables in model</div><div class="v">14 <span class="d up">+1</span></div></div>
+      <div class="kpi"><div class="l">Pending changes</div><div class="v">4 <span class="d up">approved</span></div></div>
+      <div class="kpi"><div class="l">Quality score</div><div class="v">89 <span class="d up">+2</span></div></div>
+      <div class="kpi"><div class="l">Governance coverage</div><div class="v">100% <span class="d up">PII masked</span></div></div>
+      <div class="kpi"><div class="l">Freshness</div><div class="v">100% <span class="d up">on SLA</span></div></div>
+      <div class="kpi"><div class="l">Cost forecast</div><div class="v">+3.2% <span class="d warn">/mo</span></div></div>
+    </div>
+    <div class="workspace">
+      <div class="canvas">
+        <div class="canvas-toolbar"><button class="btn sm">+ Add table</button><button class="btn sm ghost">Auto-layout</button><span class="spacer"></span><span class="small">RETAIL_DW · 14 tables · model locked for deploy</span></div>
+        <div class="node" style="left:70px;top:130px;opacity:.75">
+          <div class="nh"><span class="gi"></span>ORDER_MARGIN <span class="badge" style="background:var(--blue-soft);color:var(--blue)">NEW</span></div>
+          <div class="col"><span class="k">PK</span>ORDER_ID</div>
+          <div class="col"><span class="k"></span>MARGIN_PCT</div>
+          <div class="more">+ 5 more columns</div>
+        </div>
+        <div class="node" style="left:340px;top:290px;opacity:.75">
+          <div class="nh"><span class="gi"></span>FACT_TRANSACTIONS</div>
+          <div class="col"><span class="k">PK</span>TXN_ID</div>
+          <div class="col"><span class="k"></span>DISCOUNT_PCT<span class="badge" style="background:var(--blue-soft);color:var(--blue)">NEW</span></div>
+          <div class="more">+ 15 more columns</div>
+        </div>
+      </div>
+      <div class="rightwrap">
+        <div class="panel">
+          <div class="ph"><span class="dot g"></span>Release <span class="pill blue" style="margin-left:4px">Step 5 of 7</span><span class="x">⟩</span></div>
+          <div class="pbody">
+            <div class="stepper">
+              <div class="step done"><span class="sc">✓</span>Changes</div>
+              <div class="step done"><span class="sc">✓</span>Ready</div>
+              <div class="step done"><span class="sc">✓</span>Impact</div>
+              <div class="step done"><span class="sc">✓</span>Approve</div>
+              <div class="step active"><span class="sc">5</span>Deploy</div>
+              <div class="step"><span class="sc">6</span>Verify</div>
+              <div class="step"><span class="sc">7</span>Recover</div>
+            </div>
+            <div class="mcard g">
+              <div class="ml">GATES SATISFIED</div>
+              <div class="mv" style="font-size:13px"><span class="dot g"></span>0 blockers · 4/4 required approvals</div>
+              <div class="mvsub">This step was locked until readiness + approvals were complete.</div>
+            </div>
+            <div class="sec">
+              <div class="st">Target</div>
+              <div class="srow"><span class="sl">Environment</span><span class="sd">PROD · CP_DATA360.RETAIL_DW</span><span class="badge2 b">PROD</span></div>
+              <div class="srow"><span class="sl">Warehouse</span><span class="sd">WH_TRANSFORM_M · auto-suspend 60s</span><span class="badge2 g">ready</span></div>
+              <div class="srow"><span class="sl">Release version</span><span class="sd">v2.8 (from v2.7) · release-2026-07-02-a</span><span class="badge2 b">new</span></div>
+            </div>
+            <div class="sec">
+              <div class="st">Deployment plan (5 ordered statements)</div>
+              <table class="tablelite">
+                <tr><th>#</th><th>Statement</th><th>Est.</th><th>Risk</th></tr>
+                <tr><td>1</td><td>CREATE TABLE ORDER_MARGIN …</td><td>4s</td><td><span class="badge2 g">Low</span></td></tr>
+                <tr><td>2</td><td>ALTER TABLE FACT_TRANSACTIONS ADD DISCOUNT_PCT …</td><td>2s</td><td><span class="badge2 g">Low</span></td></tr>
+                <tr><td>3</td><td>ALTER TABLE … ADD CONSTRAINT FK_TXN_CUSTOMER …</td><td>11s</td><td><span class="badge2 o">Med</span></td></tr>
+                <tr><td>4</td><td>ALTER ROW ACCESS POLICY RAP_REGION ADD ORDER_MARGIN</td><td>1s</td><td><span class="badge2 g">Low</span></td></tr>
+                <tr><td>5</td><td>DROP TABLE STG_LEGACY_SALES</td><td>1s</td><td><span class="badge2 o">Med</span></td></tr>
+              </table>
+            </div>
+            <div class="sec">
+              <div class="st">Safety</div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Checkpoint</span><span class="sd">chk_2026-07-02_1418 (v2.7) — restore in ~30s</span><span class="badge2 g">created</span></div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Rollback script</span><span class="sd">5 inverse statements generated + dry-run compiled</span><span class="badge2 g">generated</span></div>
+              <div class="srow"><span class="dot g"></span><span class="sl">Dry run</span><span class="sd">full plan compiled against PROD clone · 0 errors</span><span class="badge2 g">passed</span></div>
+            </div>
+            <div class="sec">
+              <div class="st">Actions</div>
+              <div class="chips-row"><button class="btn primary">Deploy now</button><button class="btn">Schedule deploy (02:20 window)</button><button class="btn sm">Download SQL</button><button class="btn sm">Copy SQL</button></div>
+              <div class="small" style="margin-top:8px">Rollback stays available in Recovery (step 7) — it is intentionally not a primary button here.</div>
+            </div>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="rtab"><span class="ri"></span><span class="rl">Overview</span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Ingest</span><span class="ind" style="background:var(--green)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Quality</span><span class="ind" style="background:var(--green)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Govern</span><span class="ind" style="background:var(--green)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Impact</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab active"><span class="ri"></span><span class="rl">Release</span><span class="ind" style="background:var(--green)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Hist+AI</span><span class="ind" style="background:var(--green)"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">10 · RELEASE step 5/7 DEPLOY — target/plan/safety (checkpoint + generated rollback + dry run) · Deploy now / Schedule / Download SQL · rollback discreet</div>
+</body></html>

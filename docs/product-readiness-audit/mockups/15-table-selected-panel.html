@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 15 · Right-bar when a table is selected</title>
+<link rel="stylesheet" href="ds.css"></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">data<b>360</b></div>
+    <div class="nav-h">Platform</div>
+    <nav class="nav">
+      <a href="#"><span class="i"></span>Account Overview</a>
+      <a href="#"><span class="i"></span>Connect Data</a>
+      <a class="active" href="#"><span class="i"></span>Explore &amp; Design</a>
+      <a href="#"><span class="i"></span>Data Quality</a>
+      <a href="#"><span class="i"></span>Governance</a>
+      <a href="#"><span class="i"></span>BI Dashboards</a>
+      <a href="#"><span class="i"></span>Observability</a>
+      <a href="#"><span class="i"></span>FinOps</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">HA</span><div><div style="font-weight:700;font-size:12px">haha</div><div class="small">ACCOUNTADMIN</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title"><h1>Explore &amp; Design</h1>
+        <div class="sub">Retail Analytics Model <span class="pill draft">Draft</span> <span class="pill blue">4 changes</span> <span class="pill red">2 blockers</span> <span>last saved 2 min ago</span></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">Catalog</button>
+      <button class="btn">Save</button>
+      <button class="btn amber">Fix Blockers</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Tables in model</div><div class="v">14 <span class="d up">+1</span></div></div>
+      <div class="kpi"><div class="l">Pending changes</div><div class="v">4 <span class="d" style="color:var(--blue)">draft</span></div></div>
+      <div class="kpi"><div class="l">Quality score</div><div class="v">87 <span class="d down">−2</span></div></div>
+      <div class="kpi"><div class="l">Governance coverage</div><div class="v">78% <span class="d warn">1 PII open</span></div></div>
+      <div class="kpi"><div class="l">Freshness</div><div class="v">92% <span class="d down">2 late</span></div></div>
+      <div class="kpi"><div class="l">Cost forecast</div><div class="v">+3.2% <span class="d warn">/mo</span></div></div>
+    </div>
+    <div class="workspace">
+      <div class="canvas">
+        <div class="canvas-toolbar"><button class="btn sm">+ Add table</button><button class="btn sm ghost">Auto-layout</button><span class="spacer"></span><span class="small">RETAIL_DW · 14 tables · 1 selected</span></div>
+        <div class="node sel" style="left:110px;top:150px">
+          <div class="nh"><span class="gi"></span>FACT_TRANSACTIONS</div>
+          <div class="col"><span class="k">PK</span>TXN_ID</div>
+          <div class="col"><span class="k fk">FK</span>CUSTOMER_ID</div>
+          <div class="col"><span class="k fk">FK</span>PRODUCT_ID</div>
+          <div class="col"><span class="k"></span>AMOUNT</div>
+          <div class="col"><span class="k"></span>DISCOUNT_PCT<span class="badge" style="background:var(--blue-soft);color:var(--blue)">NEW</span></div>
+          <div class="more">+ 12 more columns</div>
+        </div>
+        <div class="node" style="left:380px;top:330px;opacity:.8">
+          <div class="nh"><span class="gi"></span>DIM_CUSTOMERS</div>
+          <div class="col"><span class="k">PK</span>CUSTOMER_ID</div>
+          <div class="more">+ 11 more columns</div>
+        </div>
+      </div>
+      <div class="rightwrap">
+        <div class="panel">
+          <div class="ph"><span class="dot b"></span>FACT_TRANSACTIONS <span class="pill blue" style="margin-left:4px">Selected · In model</span><span class="x">⟩</span></div>
+          <div class="pbody">
+            <div class="sec">
+              <div class="st">Table details</div>
+              <div class="grid2">
+                <div class="mcard"><div class="ml">Rows · size</div><div class="mv" style="font-size:14px">42.3M · 11.8 GB</div><div class="mvsub">incremental · watermark TXN_TS</div></div>
+                <div class="mcard o"><div class="ml">Freshness</div><div class="mv" style="font-size:14px">6h 12m late</div><div class="mvsub">SLA 60m · blocker</div></div>
+                <div class="mcard g"><div class="ml">Quality</div><div class="mv" style="font-size:14px">91/100</div><div class="mvsub">1 uniqueness warning</div></div>
+                <div class="mcard"><div class="ml">Owner · domain</div><div class="mv" style="font-size:14px">K. Benali</div><div class="mvsub">retail · fact · type: standard</div></div>
+              </div>
+            </div>
+            <div class="sec">
+              <div class="st">Columns (17) <span class="more">Edit columns ▸</span></div>
+              <table class="tablelite">
+                <tr><th>Column</th><th>Type</th><th>Key</th><th>Gov</th></tr>
+                <tr><td>TXN_ID</td><td>NUMBER</td><td><span class="badge2 o">PK</span></td><td>—</td></tr>
+                <tr><td>CUSTOMER_ID</td><td>NUMBER</td><td><span class="badge2 b">FK → DIM_CUSTOMERS</span></td><td>—</td></tr>
+                <tr><td>PRODUCT_ID</td><td>NUMBER</td><td><span class="badge2 b">FK → DIM_PRODUCTS</span></td><td>—</td></tr>
+                <tr><td>AMOUNT</td><td>NUMBER(12,2)</td><td>—</td><td>—</td></tr>
+                <tr><td>DISCOUNT_PCT</td><td>NUMBER(5,2)</td><td>—</td><td><span class="badge2 b">new</span></td></tr>
+                <tr><td>CARD_LAST4</td><td>VARCHAR(4)</td><td>—</td><td><span class="badge2 g">masked</span></td></tr>
+                <tr><td>REGION_CODE</td><td>VARCHAR(8)</td><td>—</td><td><span class="badge2 g">RLS key</span></td></tr>
+              </table>
+            </div>
+            <div class="sec">
+              <div class="st">Relations (3) · Tags (4)</div>
+              <div class="srow"><span class="sl">⇄ DIM_CUSTOMERS</span><span class="sd">N:1 on CUSTOMER_ID · enforced FK (staged)</span><button class="btn sm ghost">Edit</button></div>
+              <div class="srow"><span class="sl">⇄ DIM_PRODUCTS</span><span class="sd">N:1 on PRODUCT_ID</span><button class="btn sm ghost">Edit</button></div>
+              <div class="srow"><span class="sl">⇄ ORDER_MARGIN</span><span class="sd">1:N on ORDER_ID (staged)</span><button class="btn sm ghost">Edit</button></div>
+              <div class="chips-row"><span class="chip active">#project:retail-analytics</span><span class="chip">#tag:certified</span><span class="chip">#tag:fact</span><span class="chip">#source:curated</span><span class="chip" style="border:1px dashed var(--faint);background:#fff">+ tag</span></div>
+            </div>
+            <div class="sec">
+              <div class="st">Actions</div>
+              <div class="agroup" style="margin-bottom:8px">
+                <div class="agh">Read</div>
+                <div class="act">Preview data (100 rows, RLS-filtered as you)<span class="gate">any role</span></div>
+                <div class="act">Profile columns<span class="gate">any role</span></div>
+                <div class="act">View lineage &amp; usage<span class="gate">any role</span></div>
+              </div>
+              <div class="agroup" style="margin-bottom:8px">
+                <div class="agh">Model</div>
+                <div class="act">Edit columns / add column<span class="gate">modeler ✓</span></div>
+                <div class="act">Set primary key · manage FKs<span class="gate">modeler ✓</span></div>
+                <div class="act">Manage relations<span class="gate">modeler ✓</span></div>
+                <div class="act">Exclude from model (keep in warehouse)<span class="gate">modeler ✓ · confirm</span></div>
+                <div class="act danger">Delete table<span class="gate">owner or admin · confirm + impact check</span></div>
+              </div>
+              <div class="agroup" style="margin-bottom:8px">
+                <div class="agh">Govern</div>
+                <div class="act">Edit tags &amp; classification<span class="gate">modeler ✓</span></div>
+                <div class="act">Apply / preview masking policy<span class="gate">governance admin only</span></div>
+                <div class="act">Bind / simulate row-access (RLS)<span class="gate">governance admin only</span></div>
+              </div>
+              <div class="agroup">
+                <div class="agh">Data</div>
+                <div class="act">Refresh now<span class="gate">modeler ✓ · runs as service</span></div>
+                <div class="act">Convert to dynamic table<span class="gate">modeler ✓ · cost preview first</span></div>
+                <div class="act">Convert to event-driven (stream + task)<span class="gate">modeler ✓</span></div>
+                <div class="act">Convert to hybrid (dynamic + CDC)<span class="gate">modeler ✓</span></div>
+                <div class="act disabled">Set watermark column<span class="gate">already set (TXN_TS)</span></div>
+              </div>
+              <div class="small" style="margin-top:8px">Every action is optimistic → toast → axis refetch, and writes a project event (feeds History + AI). Gated actions hide or explain themselves — no dead buttons.</div>
+            </div>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="rtab active"><span class="ri"></span><span class="rl">Table</span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Ingest</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Quality</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Govern</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Impact</span><span class="ind" style="background:var(--orange)"></span></div>
+      <div class="rtab"><span class="ri"></span><span class="rl">Release</span><span class="ind" style="background:var(--blue)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Hist+AI</span><span class="ind" style="background:var(--green)"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">15 · TABLE SELECTED — right-bar becomes table details + full action catalog grouped Read / Model / Govern / Data with per-action gating hints</div>
+</body></html>

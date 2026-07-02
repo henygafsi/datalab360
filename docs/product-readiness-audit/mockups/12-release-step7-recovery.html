@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ED redesign — 12 · Release step 7/7 Recovery</title>
+<link rel="stylesheet" href="ds.css"></head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="logo">data<b>360</b></div>
+    <div class="nav-h">Platform</div>
+    <nav class="nav">
+      <a href="#"><span class="i"></span>Account Overview</a>
+      <a href="#"><span class="i"></span>Connect Data</a>
+      <a class="active" href="#"><span class="i"></span>Explore &amp; Design</a>
+      <a href="#"><span class="i"></span>Data Quality</a>
+      <a href="#"><span class="i"></span>Governance</a>
+      <a href="#"><span class="i"></span>BI Dashboards</a>
+      <a href="#"><span class="i"></span>Observability</a>
+      <a href="#"><span class="i"></span>FinOps</a>
+    </nav>
+    <div class="side-foot"><span class="avatar">HA</span><div><div style="font-weight:700;font-size:12px">haha</div><div class="small">ACCOUNTADMIN</div></div></div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="title"><h1>Explore &amp; Design</h1>
+        <div class="sub">Retail Analytics Model <span class="pill red">Failed · step 3 of 5</span> <span class="pill blue">v2.8 attempt</span> <span>failed 16:47 · checkpoint intact</span></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn ghost">Catalog</button>
+      <button class="btn">Save</button>
+      <button class="btn red">Open Recovery</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Tables in model</div><div class="v">14 <span class="d warn">partial</span></div></div>
+      <div class="kpi"><div class="l">Pending changes</div><div class="v">4 <span class="d down">2 applied</span></div></div>
+      <div class="kpi"><div class="l">Quality score</div><div class="v">89 <span class="d up">+2</span></div></div>
+      <div class="kpi"><div class="l">Governance coverage</div><div class="v">100% <span class="d up">PII masked</span></div></div>
+      <div class="kpi"><div class="l">Freshness</div><div class="v">100% <span class="d up">on SLA</span></div></div>
+      <div class="kpi"><div class="l">Cost forecast</div><div class="v">+3.2% <span class="d warn">/mo</span></div></div>
+    </div>
+    <div class="workspace">
+      <div class="canvas">
+        <div class="canvas-toolbar"><button class="btn sm">+ Add table</button><button class="btn sm ghost">Auto-layout</button><span class="spacer"></span><span class="small">RETAIL_DW · deploy halted — model locked</span></div>
+        <div class="node" style="left:70px;top:130px">
+          <div class="nh"><span class="gi"></span>ORDER_MARGIN <span class="badge" style="background:var(--green-soft);color:var(--green)">APPLIED</span></div>
+          <div class="col"><span class="k">PK</span>ORDER_ID</div>
+          <div class="col"><span class="k"></span>MARGIN_PCT</div>
+          <div class="more">+ 5 more columns</div>
+        </div>
+        <div class="node" style="left:340px;top:290px;border-color:var(--red)">
+          <div class="nh"><span class="gi"></span>FACT_TRANSACTIONS <span class="badge" style="background:var(--red-soft);color:var(--red)">FK FAILED</span></div>
+          <div class="col"><span class="k">PK</span>TXN_ID</div>
+          <div class="col"><span class="k fk">FK</span>CUSTOMER_ID</div>
+          <div class="more">+ 15 more columns</div>
+        </div>
+      </div>
+      <div class="rightwrap">
+        <div class="panel">
+          <div class="ph"><span class="dot r"></span>Release <span class="pill red" style="margin-left:4px">Step 7 of 7</span><span class="x">⟩</span></div>
+          <div class="pbody">
+            <div class="stepper">
+              <div class="step done"><span class="sc">✓</span>Changes</div>
+              <div class="step done"><span class="sc">✓</span>Ready</div>
+              <div class="step done"><span class="sc">✓</span>Impact</div>
+              <div class="step done"><span class="sc">✓</span>Approve</div>
+              <div class="step done"><span class="sc">✕</span>Deploy</div>
+              <div class="step"><span class="sc">6</span>Verify</div>
+              <div class="step active"><span class="sc">7</span>Recover</div>
+            </div>
+            <div class="mcard r">
+              <div class="ml">DEPLOY FAILED AT STATEMENT 3 OF 5</div>
+              <div class="mv" style="font-size:13px">FK_TXN_CUSTOMER violated by 12 orphan rows</div>
+              <div class="mvsub">ALTER TABLE … ADD CONSTRAINT failed · statements 1–2 applied · 4–5 not run · checkpoint chk_2026-07-02_1418 intact</div>
+            </div>
+            <div class="sec">
+              <div class="st">Recovery state</div>
+              <div class="srow"><span class="sl">Previous version</span><span class="sd">v2.7 · deployed 2026-06-24 · verified · stable 8 days</span><span class="badge2 g">healthy</span></div>
+              <div class="srow"><span class="sl">Rollback</span><span class="sd">generated script covers the 2 applied statements</span><span class="badge2 g">available</span></div>
+              <div class="srow"><span class="sl">Checkpoint</span><span class="sd">chk_2026-07-02_1418 — full restore in ~30s</span><span class="badge2 g">intact</span></div>
+              <div class="srow"><span class="sl">Data risk</span><span class="sd">no data mutated — DDL only · dashboards unaffected (v2.7 paths still valid)</span><span class="badge2 o">low</span></div>
+            </div>
+            <div class="sec">
+              <div class="st">Applied vs pending</div>
+              <table class="tablelite">
+                <tr><th>#</th><th>Statement</th><th>State</th></tr>
+                <tr><td>1</td><td>CREATE TABLE ORDER_MARGIN</td><td><span class="badge2 g">Applied</span></td></tr>
+                <tr><td>2</td><td>ALTER … ADD DISCOUNT_PCT</td><td><span class="badge2 g">Applied</span></td></tr>
+                <tr><td>3</td><td>ADD CONSTRAINT FK_TXN_CUSTOMER</td><td><span class="badge2 r">Failed</span></td></tr>
+                <tr><td>4</td><td>ALTER ROW ACCESS POLICY RAP_REGION</td><td><span class="badge2 gr">Not run</span></td></tr>
+                <tr><td>5</td><td>DROP TABLE STG_LEGACY_SALES</td><td><span class="badge2 gr">Not run</span></td></tr>
+              </table>
+            </div>
+            <div class="sec">
+              <div class="st">Actions</div>
+              <div class="chips-row"><button class="btn red">Rollback (undo 2 applied)</button><button class="btn">Restore checkpoint v2.7</button><button class="btn sm">Compare versions v2.7 ⇄ v2.8</button></div>
+              <div class="small" style="margin-top:8px">Or fix forward: clean the 12 orphan rows, then re-run the deploy from statement 3.</div>
+            </div>
+            <div class="ai">
+              <div class="aih"><span class="dot b"></span>AI Change Analyst<span class="live">LIVE</span></div>
+              <div class="aif"><span class="adot" style="background:var(--red)"></span><div><div class="at">16:47</div>12 FACT_TRANSACTIONS rows reference deleted customers (all from the 2024 migration). Cheapest fix: map them to the UNKNOWN customer record, then re-run — no rollback needed.</div></div>
+              <div class="aiq">Fix forward (map 12 orphans → UNKNOWN, re-run from statement 3) or roll back to v2.7?<div class="chips-row"><span class="achip" style="border-color:var(--brand);color:var(--brand)">Fix forward</span><span class="achip" style="border-color:var(--red);color:var(--red)">Rollback</span><span class="achip">Show the 12 rows</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="rail">
+          <div class="rtab"><span class="ri"></span><span class="rl">Overview</span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Ingest</span><span class="ind" style="background:var(--green)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Quality</span><span class="ind" style="background:var(--green)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Govern</span><span class="ind" style="background:var(--green)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Impact</span><span class="ind" style="background:var(--orange)"></span></div>
+          <div class="rtab active"><span class="ri"></span><span class="rl">Release</span><span class="ind" style="background:var(--red)"></span></div>
+          <div class="rtab"><span class="ri"></span><span class="rl">Hist+AI</span><span class="ind" style="background:var(--green)"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="caption">12 · RELEASE step 7/7 RECOVERY (only after deploy/failed) — previous version, rollback/checkpoint, applied-vs-pending, AI fix-forward vs rollback</div>
+</body></html>

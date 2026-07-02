@@ -296,6 +296,34 @@ export const API = {
     /** POST /explore-design/tasks/{name}/{action} — suspend|resume. */
     deTaskAction: (name: string, action: 'suspend' | 'resume') =>
       `/explore-design/tasks/${enc(name)}/${action}`,
+    // --- Release spine (ED redesign 2026-07: state machine + named approvers + AI analyst) ---
+    /**
+     * GET /explore-design/{project_id}/release-state — deploy state-machine
+     * snapshot: { status, label, next_action, counts:{changes,blockers,warnings,
+     * pending_approvals}, axis_signals:{overview…history: green|orange|red|blue|grey} }.
+     * 404/501 → FE degrades to a deployments-derived state (never fabricates).
+     */
+    releaseState: (projectId: string) => `/explore-design/${enc(projectId)}/release-state`,
+    /**
+     * GET|POST /explore-design/{project_id}/deployments/{deployment_id}/approvers —
+     * named-approver model. GET → { approvers:[…], policy:{required_count,
+     * mandatory_roles} }; POST adds a reviewer { username, role_label, required }.
+     */
+    deploymentApprovers: (projectId: string, deploymentId: string) =>
+      `/explore-design/${enc(projectId)}/deployments/${enc(deploymentId)}/approvers`,
+    /**
+     * POST /explore-design/{project_id}/deployments/{deployment_id}/approvers/{username}/decision
+     * — record a named approver's decision { decision: approve|reject|request-changes, comment }.
+     */
+    approverDecision: (projectId: string, deploymentId: string, username: string) =>
+      `/explore-design/${enc(projectId)}/deployments/${enc(deploymentId)}/approvers/${enc(username)}/decision`,
+    /**
+     * GET /explore-design/{project_id}/ai/history?limit=50 — AI change-analyst
+     * feed: { events:[{ts,kind,axis,severity,message,payload}] }. POST (same
+     * path, no query) appends an event (e.g. an interview outcome).
+     */
+    aiHistory: (projectId: string, limit?: number) =>
+      `/explore-design/${enc(projectId)}/ai/history${qs({ limit })}`,
   },
 
   /**
