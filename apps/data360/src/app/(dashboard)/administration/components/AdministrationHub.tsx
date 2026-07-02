@@ -69,6 +69,7 @@ import ServiceHealthPanel from './ServiceHealthPanel';
 import ConfigSummaryPanel from './ConfigSummaryPanel';
 import FeatureGovernanceMatrix from '../feature-governance/FeatureGovernanceMatrix';
 import FeatureRegistryTab from './FeatureRegistryTab';
+import RoleGrantsSamplePanel from './RoleGrantsSamplePanel';
 
 type TabId =
   | 'health'
@@ -445,6 +446,20 @@ export default function AdministrationHub() {
                     Pick a role to inspect its object-level privileges and revoke any one live.
                   </p>
                   <RoleGrantsPanel />
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                  <div className="mb-2 flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-slate-400" />
+                    <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                      Role grants sample
+                    </h2>
+                  </div>
+                  <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                    Simulate one of the 7 application data roles: per-module allow/deny from the
+                    read-only access simulator, plus the declared capabilities that role can reach.
+                  </p>
+                  <RoleGrantsSamplePanel />
                 </div>
               </div>
             )}

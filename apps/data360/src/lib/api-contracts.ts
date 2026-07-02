@@ -1228,6 +1228,22 @@ export const API = {
       /** POST /api/platform/grants/policies {role,policy_type,can:{read},policy_name?}. */
       policies: () => '/api/platform/grants/policies',
     },
+
+    /**
+     * GET /api/platform/access-simulator?role=&module=&page=&tab=&action_key= —
+     * read-only "what would <role> see?" simulation. Reads the CONFIGURED
+     * module/action/policy grants (backend platform_core/router.py:475) — it is
+     * NOT the admin bypass, so an account with no grant rows answers deny.
+     * Response: { account, role, module?, checks: { module?: {allowed},
+     * tab?: {allowed}, action?: {allowed}, policy?: {allowed}, data_scope } }.
+     */
+    accessSimulator: (opts: {
+      role: string; module?: string; page?: string; tab?: string; actionKey?: string;
+    }) =>
+      `/api/platform/access-simulator${qs({
+        role: opts.role, module: opts.module, page: opts.page, tab: opts.tab,
+        action_key: opts.actionKey,
+      })}`,
   },
 
   /**

@@ -1479,8 +1479,12 @@ function ApiHealthPageContent() {
         {' '}use the chips to reveal Expected and Healthy.
       </p>
 
-      {/* Functional API View — all backend endpoints (actions + response times) */}
-      <FunctionalApiView />
+      {/* Functional API View — all backend endpoints (actions + response times).
+          onRunTests reuses THIS page's probe sweep (runAll) so the view's
+          "Lancer les tests" button drives the exact same admin-gated mechanism;
+          sweepRunning lets it disable the button and auto-refresh its join
+          (wire capture + latest persisted run) when the sweep completes. */}
+      <FunctionalApiView onRunTests={runAll} sweepRunning={running} />
 
       {/* Stale-session re-login banner — only when MANY privilege errors cluster */}
       {showStaleBanner && (

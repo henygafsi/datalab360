@@ -151,4 +151,64 @@ export async function grantPolicy(body: {
   await apiClient.post(API.platform.grants.policies(), body);
 }
 
+// ── Access simulator (read-only) ─────────────────────────────────────────────
+
+/**
+ * The 7 application data roles — the REAL vocabulary from the backend role map
+ * (app/core/rbac.py:258 _SNOWFLAKE_TO_D360, mirrored in src/config/capabilities.ts).
+ */
+export const D360_DATA_ROLES = [
+  'Admin',
+  'Data Engineer',
+  'Data Analyst',
+  'Data Steward',
+  'Business User',
+  'AI Engineer',
+  'FinOps Manager',
+] as const;
+export type D360DataRole = (typeof D360_DATA_ROLES)[number];
+
+export interface AccessSimCheck {
+  allowed?: boolean | null;
+}
+export interface AccessSimDataScope {
+  scope?: string | null;
+  rules?: unknown[] | null;
+}
+/** GET /api/platform/access-simulator response (all fields defensive-optional). */
+export interface AccessSimulationResult {
+  account?: string | null;
+  role?: string | null;
+  module?: string | null;
+  page?: string | null;
+  tab?: string | null;
+  checks?: {
+    module?: AccessSimCheck | null;
+    tab?: AccessSimCheck | null;
+    action?: AccessSimCheck | null;
+    policy?: AccessSimCheck | null;
+    data_scope?: AccessSimDataScope | null;
+  } | null;
+}
+
+/**
+ * Read-only "what would <role> see?" simulation. IMPORTANT semantics: the
+ * backend reads the CONFIGURED grant rows (MODULE_GRANTS et al.) — it is NOT
+ * the admin bypass, so an account with no configured grants answers
+ * `allowed: false` for every role/module. Callers must present that honestly
+ * ("no grant configured"), never as a probe failure.
+ */
+export async function simulateRoleAccess(opts: {
+  role: string;
+  module?: string;
+  page?: string;
+  tab?: string;
+  actionKey?: string;
+}): Promise<AccessSimulationResult> {
+  const { data } = await apiClient.get<AccessSimulationResult>(
+    API.platform.accessSimulator(opts),
+  );
+  return data ?? {};
+}
+
 export { getApiErrorMessage };
