@@ -110,7 +110,32 @@ function formatConversationDate(dateStr: string): string {
 
 // ── Main Component ─────────────────────────────────────────────────────
 
-export default function CortexChatContent() {
+export interface QueuedPrompt {
+  /** Prompt text to inject into the chat. */
+  text: string;
+  /** Optional semantic model to run it against (preselected when known). */
+  model?: string;
+  /** Monotonic tick — a new value re-triggers injection of the same text. */
+  ts: number;
+}
+
+interface CortexChatContentProps {
+  /**
+   * 'tab'     — full experience inside the AI Chat tab (conversation sidebar open).
+   * 'landing' — compact chat-first hero: the sidebar starts closed (still
+   *             togglable — history keeps persisting either way) and the
+   *             built-in example grid is hidden because the landing renders
+   *             its own data-aware suggestion cards under the chat.
+   */
+  variant?: 'tab' | 'landing';
+  /** One-click prompt injected from outside (landing suggestion cards). */
+  queuedPrompt?: QueuedPrompt | null;
+}
+
+export default function CortexChatContent({
+  variant = 'tab',
+  queuedPrompt = null,
+}: CortexChatContentProps) {
   const searchParams = useSearchParams();
   const modelFromUrl = searchParams.get('model') || '';
   const contextModule = searchParams.get('context_module') || '';
@@ -133,7 +158,7 @@ export default function CortexChatContent() {
 
   // Conversation persistence
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(variant !== 'landing');
   const [conversationLoadError, setConversationLoadError] = useState<string | null>(null);
   const userInitials = getUserInitials();
 
@@ -251,11 +276,12 @@ export default function CortexChatContent() {
 
   // ── Send message with context accumulation (Bug 6) ────────────────
 
-  const handleSendMessage = async (prompt?: string) => {
+  const handleSendMessage = async (prompt?: string, modelOverride?: string) => {
     const messageText = prompt || inputValue.trim();
+    const modelToUse = modelOverride || selectedModel;
     if (!messageText || isQuerying || !canSend) return;
 
-    if (!selectedModel) {
+    if (!modelToUse) {
       toast.error('Please select a semantic model first');
       return;
     }
@@ -307,7 +333,7 @@ export default function CortexChatContent() {
 
       const response = await queryCortex({
         prompt: fullPrompt,
-        semantic_model: selectedModel || undefined,
+        semantic_model: modelToUse,
       });
 
       const resultContent = formatResults(response.results);
@@ -351,6 +377,28 @@ export default function CortexChatContent() {
       setIsQuerying(false);
     }
   };
+
+  // ── One-click prompts injected from the landing suggestion cards ──────
+  // Each queued prompt carries a monotonic `ts` so it is consumed exactly
+  // once (re-renders and unrelated state changes never re-fire it). When the
+  // chat can't send yet (models still loading / mid-query / no permission),
+  // the text is staged in the input instead of firing invisibly.
+  const consumedQueuedTs = useRef(0);
+  useEffect(() => {
+    if (!queuedPrompt || queuedPrompt.ts === consumedQueuedTs.current) return;
+    consumedQueuedTs.current = queuedPrompt.ts;
+    const wanted = queuedPrompt.model;
+    const wantedAvailable =
+      !!wanted && (models ?? []).some((m) => m.name.replace('.yaml', '') === wanted);
+    const target = wantedAvailable ? (wanted as string) : selectedModel;
+    if (wantedAvailable && wanted !== selectedModel) setSelectedModel(wanted as string);
+    if (target && !isQuerying && canSend) {
+      handleSendMessage(queuedPrompt.text, target);
+    } else {
+      setInputValue(queuedPrompt.text);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- consume-once queue keyed by ts
+  }, [queuedPrompt]);
 
   // ── Formatting ─────────────────────────────────────────────────────
 
@@ -497,7 +545,7 @@ export default function CortexChatContent() {
   // ── Render ─────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-[700px]">
+    <div className={`flex ${variant === 'landing' ? 'h-[480px] pt-2' : 'h-[700px]'}`}>
       {/* ── Sidebar: Conversation list (Bug 7) ──────────────────────── */}
       {sidebarOpen && (
         <div className="w-64 flex-shrink-0 border-r border-slate-200 dark:border-slate-700 flex flex-col bg-slate-50 dark:bg-slate-800/50 rounded-l-xl">
@@ -680,7 +728,9 @@ export default function CortexChatContent() {
                     and understand your data using natural language.
                   </p>
 
-                  {/* Example queries */}
+                  {/* Example queries — hidden on the landing, which renders
+                      richer data-aware suggestion cards under the chat */}
+                  {variant !== 'landing' && (
                   <div className="w-full max-w-2xl">
                     <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-3">Try asking:</p>
                     <div className="grid grid-cols-2 gap-3">
@@ -703,6 +753,7 @@ export default function CortexChatContent() {
                       })}
                     </div>
                   </div>
+                  )}
                 </>
               )}
             </div>

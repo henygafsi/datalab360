@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import type { IconType } from 'react-icons';
 import { Badge, Button, Input, Loader, Textarea } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { getCortexKpis, generateEmbeddings, queryCortex, type CortexKpis, type CortexQueryResult } from '@/app/services/cortex';
@@ -31,6 +32,7 @@ import KPICard from '@/components/analytics/KPICard';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import IntelligentCockpit, { IntelligentKpiStrip } from './components/IntelligentCockpit';
+import AskLanding from './components/AskLanding';
 
 // Import content components
 import SemanticModelsContent from './semantic-models-content';
@@ -85,104 +87,56 @@ interface CortexVectorColumn {
   ROW_COUNT?: number;
 }
 
-const TABS = [
+/**
+ * Secondary navigation — the 12 historical tabs regrouped into TWO compact,
+ * clearly-purposed groups (replacing the old wall of highlighted tab cards):
+ *
+ *   "Your data AI" — user-facing analytics on the caller's own data
+ *   "AI resources" — infra / resource management surfaces
+ *
+ * Every tab id is unchanged, so existing ?tab= deep-links keep resolving.
+ */
+interface NavItem {
+  id: TabType;
+  name: string;
+  icon: IconType;
+  /** Tooltip — the old tab-card description, kept for discoverability. */
+  hint: string;
+}
+
+const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
-    id: 'semantic-models' as TabType,
-    name: 'Semantic Models',
-    icon: PiDatabase,
-    description: 'YAML-based data models for natural-language analytics',
-    badge: 'AI-Powered',
-    badgeColor: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
+    label: 'Your data AI',
+    items: [
+      { id: 'cortex-chat', name: 'AI Chat', icon: PiChatCircleDots, hint: 'Ask questions about your data in natural language' },
+      { id: 'ai-console', name: 'AI Console', icon: PiLightning, hint: 'Docked NL to SQL analyst: pick a semantic model, ask, get SQL + results' },
+      { id: 'ai-advisor', name: 'AI Advisor', icon: PiSparkle, hint: 'AI recommendations for cost, performance & governance' },
+      { id: 'query-analytics', name: 'Query Analytics', icon: PiChartLineUp, hint: 'AI-powered query analysis & optimization' },
+      { id: 'local-analytics', name: 'Local Analytics', icon: PiDatabase, hint: 'Zero-cost queries on staged data' },
+      { id: 'semantic-models', name: 'Semantic Models', icon: PiDatabase, hint: 'YAML-based data models for natural-language analytics' },
+      { id: 'semantic-views', name: 'Semantic Views', icon: PiDatabase, hint: 'Create & manage semantic views for natural-language analytics' },
+      { id: 'vector-search', name: 'Vector Search', icon: PiVectorThree, hint: 'Embeddings, vector columns & similarity search' },
+    ],
   },
   {
-    id: 'ai-console' as TabType,
-    name: 'AI Console',
-    icon: PiLightning,
-    description: 'Docked NL to SQL analyst: pick a semantic model, ask, get SQL + results',
-    badge: 'AI',
-    badgeColor: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400',
-  },
-  {
-    id: 'cortex-chat' as TabType,
-    name: 'AI Chat',
-    icon: PiChatCircleDots,
-    description: 'Ask questions about your data in natural language',
-    badge: 'Beta',
-    badgeColor: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400',
-  },
-  {
-    id: 'ai-advisor' as TabType,
-    name: 'AI Advisor',
-    icon: PiSparkle,
-    description: 'AI recommendations for cost, performance & governance',
-    badge: 'New',
-    badgeColor: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400',
-  },
-  {
-    id: 'ml-features' as TabType,
-    name: 'ML Features',
-    icon: PiRobotDuotone,
-    description: 'Text analysis, translation & more',
-    badge: 'New',
-    badgeColor: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-  },
-  {
-    id: 'advanced-ml' as TabType,
-    name: 'Advanced ML',
-    icon: PiGear,
-    description: 'Fine-tuning, Classification & Document AI',
-    badge: 'Pro',
-    badgeColor: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
-  },
-  {
-    id: 'query-analytics' as TabType,
-    name: 'Query Analytics',
-    icon: PiChartLineUp,
-    description: 'AI-powered query analysis & optimization',
-    badge: 'AI',
-    badgeColor: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
-  },
-  {
-    id: 'local-analytics' as TabType,
-    name: 'Local Analytics',
-    icon: PiDatabase,
-    description: 'Zero-cost queries on staged data (DuckDB-style)',
-    badge: 'New',
-    badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
-  },
-  {
-    id: 'snowpark-services' as TabType,
-    name: 'Container Apps',
-    icon: PiCloudArrowUp,
-    description: 'Container services, apps & compute pools',
-    badge: 'Enterprise',
-    badgeColor: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
-  },
-  {
-    id: 'cortex-agents' as TabType,
-    name: 'AI Agents',
-    icon: PiRobotDuotone,
-    description: 'Autonomous AI agents combining analysis, search & tools',
-    badge: 'Preview',
-    badgeColor: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400',
-  },
-  {
-    id: 'semantic-views' as TabType,
-    name: 'Semantic Views',
-    icon: PiDatabase,
-    description: 'Create & manage semantic views for natural-language analytics',
-    badge: 'New',
-    badgeColor: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400',
-  },
-  {
-    id: 'vector-search' as TabType,
-    name: 'Vector Search',
-    icon: PiSparkle,
-    description: 'Embeddings, vector columns & similarity search',
-    badge: 'AI',
-    badgeColor: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
+    label: 'AI resources',
+    items: [
+      { id: 'ml-features', name: 'ML Features', icon: PiRobotDuotone, hint: 'Text analysis, translation & more' },
+      { id: 'advanced-ml', name: 'Advanced ML', icon: PiGear, hint: 'Fine-tuning, classification & document AI' },
+      { id: 'snowpark-services', name: 'Container Apps', icon: PiCloudArrowUp, hint: 'Container services, apps & compute pools' },
+      { id: 'cortex-agents', name: 'AI Agents', icon: PiRobotDuotone, hint: 'Autonomous AI agents combining analysis, search & tools' },
+    ],
   },
 ];
+
+/** Compact 11px nav pill — active state mirrors the old tab highlight. */
+function navPillClass(active: boolean): string {
+  return `inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+    active
+      ? 'border-purple bg-purple-lighter/50 text-purple'
+      : 'border-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700/50 dark:hover:text-gray-200'
+  }`;
+}
 
 function formatKpiValue(value: number | null | undefined, format: 'number' | 'percent' | 'seconds'): string {
   if (value === null || value === undefined) return '—';
@@ -211,19 +165,26 @@ function FeatureUnavailableNotice({ label }: { label: string }) {
 }
 
 export default function IntelligentPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   // useTrackEvent auto-fires PAGE_VIEW on mount via pathname; call trackTabSwitch on tab changes.
   const { trackTabSwitch } = useTrackEvent();
-  const tabFromUrl = useMemo(() => {
+  // Deep-links preserved: every historical ?tab= id still renders its tab.
+  // No (or an unknown) ?tab= lands on the chat-first "Ask AI" home instead.
+  const activeTab = useMemo<TabType | 'home'>(() => {
     const t = searchParams.get('tab');
     if (t === 'ml-features' || t === 'semantic-models' || t === 'ai-console' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services' || t === 'cortex-agents' || t === 'semantic-views' || t === 'vector-search' || t === 'ai-advisor') return t as TabType;
-    return 'semantic-models';
+    return 'home';
   }, [searchParams]);
-  const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
 
-  useEffect(() => {
-    setActiveTab(tabFromUrl);
-  }, [tabFromUrl]);
+  // Navigation writes the tab into the URL (shareable + back-button friendly).
+  const goTo = useCallback(
+    (id: TabType | 'home') => {
+      router.push(id === 'home' ? '/intelligent' : `/intelligent?tab=${id}`, { scroll: false });
+      trackTabSwitch(id);
+    },
+    [router, trackTabSwitch],
+  );
 
   // ── KPIs via useCacheAwareQuery ──
   const fetchKpis = useCallback(() => getCortexKpis(), []);
@@ -287,45 +248,12 @@ export default function IntelligentPage() {
     return tables.size;
   }, [vectorColumns]);
 
-  return (
-    <ErrorBoundary>
-    {/* Page shell: scrolling content column + docked intelligence cockpit at the right edge */}
-    <div className="flex items-start gap-4">
-    <div className="min-w-0 flex-1 space-y-8">
-      <Breadcrumb items={[{ label: 'Intelligent Analytics', href: '/intelligent' }]} />
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-purple-lighter/70">
-              <PiBrain className="h-6 w-6 text-purple" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-                Intelligent Analytics
-              </h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                AI-powered data insights across your platform
-              </p>
-            </div>
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          className="gap-2"
-          onClick={loadKpis}
-          disabled={kpisLoading}
-        >
-          <HiOutlineRefresh className={`w-4 h-4 ${kpisLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
-      </div>
-
-      {/* Unified intelligence KPI strip — click a KPI to open its cockpit axis */}
-      <IntelligentKpiStrip />
-
-      {/* KPI Stats Grid - from GET /cortex/kpis (no static data) */}
-      {kpisUnavailable && !kpisLoading && <div className="mb-3"><FeatureUnavailableNotice label="AI usage metrics" /></div>}
+  // KPI overview (GET /cortex/kpis, no static data) — a single definition
+  // rendered above tab content on tab views (as before) and below the chat
+  // hero on the chat-first home.
+  const kpiOverview = (
+    <section aria-label="AI usage metrics" className="space-y-6">
+      {kpisUnavailable && !kpisLoading && <FeatureUnavailableNotice label="AI usage metrics" />}
       {kpisError && !kpisLoading && (
         <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <PiLightning className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -372,7 +300,7 @@ export default function IntelligentPage() {
         />
       </div>
 
-      {/* Real Cortex spend strip — additive, scalars only, hidden when absent */}
+      {/* Real AI-engine spend strip — additive, scalars only, hidden when absent */}
       {hasCortexUsage && cortexUsage && (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/50 text-sm">
           <span className="font-medium text-gray-700 dark:text-gray-300">
@@ -404,46 +332,101 @@ export default function IntelligentPage() {
           )}
         </div>
       )}
+    </section>
+  );
+
+  return (
+    <ErrorBoundary>
+    {/* Page shell: scrolling content column + docked intelligence cockpit at the right edge */}
+    <div className="flex items-start gap-4">
+    <div className="min-w-0 flex-1 space-y-8">
+      <Breadcrumb items={[{ label: 'Intelligent Analytics', href: '/intelligent' }]} />
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-purple-lighter/70">
+              <PiBrain className="h-6 w-6 text-purple" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                Intelligent Analytics
+              </h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                AI-powered data insights across your platform
+              </p>
+            </div>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          className="gap-2"
+          onClick={loadKpis}
+          disabled={kpisLoading}
+        >
+          <HiOutlineRefresh className={`w-4 h-4 ${kpisLoading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Unified intelligence KPI strip — click a KPI to open its cockpit axis */}
+      <IntelligentKpiStrip />
+
+      {/* KPI overview — above the content on tab views (unchanged); on the
+          chat-first home it renders BELOW the chat + suggestions instead. */}
+      {activeTab !== 'home' && kpiOverview}
 
       {/* Main Content Card with Tabs */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-muted dark:border-gray-700 shadow-sm overflow-hidden">
-        {/* Tabs */}
-        <div role="tablist" className="flex gap-2 p-4 border-b border-muted dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50 overflow-x-auto">
-          {TABS.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => { setActiveTab(tab.id); trackTabSwitch(tab.id); }}
-                className={`flex items-center gap-3 px-5 py-3 text-sm font-medium transition-all duration-200 rounded-lg border-2 ${
-                  isActive
-                    ? 'border-purple bg-purple-lighter/50 text-purple'
-                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700/50'
-                }`}
+        {/* Compact grouped secondary nav — replaces the old wall of tab cards.
+            Two purposeful groups; every historical tab id keeps working. */}
+        <nav
+          role="tablist"
+          aria-label="Intelligent Analytics sections"
+          className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-muted bg-gray-50/50 px-4 py-2.5 dark:border-gray-700 dark:bg-gray-800/50"
+        >
+          <button
+            role="tab"
+            aria-selected={activeTab === 'home'}
+            title="Chat-first home — ask AI about your data"
+            onClick={() => goTo('home')}
+            className={navPillClass(activeTab === 'home')}
+          >
+            <PiChatCircleDots className="h-3.5 w-3.5" aria-hidden />
+            Ask AI
+          </button>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className="flex flex-wrap items-center gap-1">
+              <span
+                role="presentation"
+                className="mr-0.5 select-none border-l border-gray-200 pl-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:border-gray-700 dark:text-gray-500"
               >
-                <Icon className="w-5 h-5" />
-                <div className="text-left">
-                  <div className="flex items-center gap-2">
-                    <span>{tab.name}</span>
-                    {tab.badge && (
-                      <Badge className={`text-[10px] px-1.5 py-0.5 ${tab.badgeColor}`}>
-                        {tab.badge}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="text-xs opacity-70 mt-0.5 font-normal">{tab.description}</div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+                {group.label}
+              </span>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    role="tab"
+                    aria-selected={activeTab === item.id}
+                    title={item.hint}
+                    onClick={() => goTo(item.id)}
+                    className={navPillClass(activeTab === item.id)}
+                  >
+                    <Icon className="h-3.5 w-3.5" aria-hidden />
+                    {item.name}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
 
         {/* Tab Content */}
         <div role="tabpanel" className="p-6">
+          {/* Chat-first home: persisted AI chat + data-aware suggestions */}
+          {activeTab === 'home' && <AskLanding />}
           {activeTab === 'semantic-models' && <SemanticModelsContent />}
           {activeTab === 'ai-console' && <AiPromptConsoleContent />}
           {activeTab === 'cortex-chat' && <CortexChatContent />}
@@ -712,6 +695,9 @@ export default function IntelligentPage() {
           )}
         </div>
       </div>
+
+      {/* On the chat-first home the KPI overview lives under the hero */}
+      {activeTab === 'home' && kpiOverview}
 
       {/* Feature Highlights */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
