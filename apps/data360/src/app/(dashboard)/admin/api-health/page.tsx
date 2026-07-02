@@ -640,7 +640,7 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'getEventConflicts', fn: () => getEventConflicts(SEED.exploreProjectId) },
       { name: 'listEventTemplates', fn: () => listEventTemplates(SEED.exploreProjectId) },
       { name: 'listIngestionOperations', fn: () => listIngestionOperations(SEED.exploreProjectId) },
-      { name: 'getAISavingsSummary', fn: () => getAISavingsSummary() },
+      { name: 'getAISavingsSummary', fn: () => getAISavingsSummary(SEED.exploreProjectId) },
       { name: 'getWarehouseSizing', fn: () => getWarehouseSizing() },
       { name: 'getOptimalSchedule', fn: () => getOptimalSchedule() },
     ],

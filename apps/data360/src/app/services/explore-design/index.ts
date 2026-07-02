@@ -4703,8 +4703,10 @@ export async function submitAIFeedback(data: { suggestion_id: string; suggestion
   return res.data;
 }
 
-export async function getAISavingsSummary() {
-  const res = await apiClient.get(`${V1_EXPLORE}/ai/savings-summary`);
+export async function getAISavingsSummary(projectId: string) {
+  // Backend route is project-scoped: /explore-design/{project_id}/ai/savings
+  // (the old unscoped /ai/savings-summary path never existed backend-side -> 404).
+  const res = await apiClient.get(`${V1_EXPLORE}/${encodeURIComponent(projectId)}/ai/savings`);
   return res.data;
 }
 
