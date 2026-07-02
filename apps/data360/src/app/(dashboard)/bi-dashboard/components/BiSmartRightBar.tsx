@@ -180,6 +180,10 @@ export default function BiSmartRightBar({
   const canEdit = useCanPerform('bi_reporting', 'edit', projectId);
   const canPublish = useCanPerform('bi_reporting', 'publish', projectId);
   const canShare = useCanPerform('bi_reporting', 'share', projectId);
+  const refreshPerm = useCanPerform('bi_reporting', 'refresh', projectId);
+  const snapshotPerm = useCanPerform('bi_reporting', 'snapshot', projectId);
+  const canRefresh = refreshPerm.allowed || refreshPerm.loading;
+  const canSnapshot = snapshotPerm.allowed || snapshotPerm.loading;
 
   // Per-dashboard query cost — lazy-loaded only when the Details section is active.
   const [cost, setCost] = useState<DashboardCost | null>(null);
@@ -397,7 +401,8 @@ export default function BiSmartRightBar({
                 <button
                   type="button"
                   onClick={onRefreshNow}
-                  disabled={executing}
+                  disabled={!canRefresh || executing}
+                  title={!canRefresh ? 'Requires the "refresh" permission on Business Reporting.' : undefined}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
                   {executing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -406,7 +411,8 @@ export default function BiSmartRightBar({
                 <button
                   type="button"
                   onClick={onSnapshot}
-                  disabled={snapshotting}
+                  disabled={!canSnapshot || snapshotting}
+                  title={!canSnapshot ? 'Requires the "snapshot" permission on Business Reporting.' : undefined}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-600 px-2.5 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-cyan-700 disabled:opacity-50"
                 >
                   {snapshotting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}

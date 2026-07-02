@@ -37,6 +37,7 @@ import {
   autoStopService,
 } from '@/app/services/cortex/ai';
 import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { ConfirmDestructiveDialog, ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 
@@ -137,6 +138,12 @@ function ComputePoolsPanel() {
   const [creating, setCreating] = useState(false);
   const [busyPool, setBusyPool] = useState<string | null>(null);
 
+  // Action-RBAC: fine-grained gates (fail-open while `/my-permissions` loads).
+  const createPerm = useCanPerform('cortex', 'create');
+  const configurePerm = useCanPerform('cortex', 'configure');
+  const canCreate = createPerm.allowed || createPerm.loading;
+  const canConfigure = configurePerm.allowed || configurePerm.loading;
+
   const errMsg = (e: any) => toMessage(e, 'Failed');
   // `silent` polls refresh state in place without flashing the skeleton.
   const load = useCallback(async (silent = false) => {
@@ -221,7 +228,7 @@ function ComputePoolsPanel() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" onClick={handleCreate} disabled={creating}>{creating ? <Loader size="sm" /> : 'Create'}</Button>
+            <Button size="sm" onClick={handleCreate} disabled={!canCreate || creating} title={!canCreate ? "You lack the 'create' permission on Intelligence → Container Apps. Ask an administrator to grant it." : undefined}>{creating ? <Loader size="sm" /> : 'Create'}</Button>
             <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>Cancel</Button>
           </div>
         </div>
@@ -251,7 +258,8 @@ function ComputePoolsPanel() {
                     variant="outline"
                     size="sm"
                     className="gap-1"
-                    disabled={busyPool === p.name}
+                    disabled={!canConfigure || busyPool === p.name}
+                    title={!canConfigure ? "You lack the 'configure' permission on Intelligence → Container Apps. Ask an administrator to grant it." : undefined}
                     onClick={() => handleToggle(p)}
                     deniedReason="Requires the manage-compute-pools permission on Intelligence → Container Apps."
                   >
@@ -285,6 +293,14 @@ function ContainerServicesPanel() {
   const [autoStopTarget, setAutoStopTarget] = useState<ContainerService | null>(null);
   const [autoStopForm, setAutoStopForm] = useState<{ seconds: number; mode: 'suspend' | 'drop' }>({ seconds: 3600, mode: 'suspend' });
   const [autoStopBusy, setAutoStopBusy] = useState(false);
+
+  // Action-RBAC: fine-grained gates (fail-open while `/my-permissions` loads).
+  const createPerm = useCanPerform('cortex', 'create');
+  const deletePerm = useCanPerform('cortex', 'delete');
+  const configurePerm = useCanPerform('cortex', 'configure');
+  const canCreate = createPerm.allowed || createPerm.loading;
+  const canDelete = deletePerm.allowed || deletePerm.loading;
+  const canConfigure = configurePerm.allowed || configurePerm.loading;
 
   // `silent` skips the full-page skeleton toggle so background polls refresh the
   // status badges in place rather than flashing the table back to skeleton.
@@ -401,7 +417,7 @@ function ContainerServicesPanel() {
             <Textarea value={form.spec_yaml} onChange={(e) => setForm({ ...form, spec_yaml: e.target.value })} rows={6} placeholder="spec:\n  containers:\n    - name: main\n      image: /db/schema/repo/image:latest\n  endpoints:\n    - name: api\n      port: 8080" className="font-mono text-xs" />
           </div>
           <div className="flex gap-2">
-            <Button size="sm" onClick={handleCreate} disabled={creating}>{creating ? <Loader size="sm" /> : 'Deploy'}</Button>
+            <Button size="sm" onClick={handleCreate} disabled={!canCreate || creating} title={!canCreate ? "You lack the 'create' permission on Intelligence → Container Apps. Ask an administrator to grant it." : undefined}>{creating ? <Loader size="sm" /> : 'Deploy'}</Button>
             <Button variant="outline" size="sm" onClick={() => setShowCreate(false)}>Cancel</Button>
           </div>
         </div>
@@ -433,7 +449,8 @@ function ContainerServicesPanel() {
                       variant="outline"
                       size="sm"
                       className="gap-1"
-                      disabled={actionBusy === s.name}
+                      disabled={!canConfigure || actionBusy === s.name}
+                      title={!canConfigure ? "You lack the 'configure' permission on Intelligence → Container Apps. Ask an administrator to grant it." : undefined}
                       onClick={() => handleToggle(s)}
                       deniedReason="Requires the manage-services permission on Intelligence → Container Apps."
                     >
@@ -447,7 +464,8 @@ function ContainerServicesPanel() {
                       variant="outline"
                       size="sm"
                       className="gap-1"
-                      title="Schedule automatic suspend/drop after a delay (saves credits)"
+                      disabled={!canConfigure}
+                      title={!canConfigure ? "You lack the 'configure' permission on Intelligence → Container Apps. Ask an administrator to grant it." : 'Schedule automatic suspend/drop after a delay (saves credits)'}
                       onClick={() => { setAutoStopForm({ seconds: 3600, mode: 'suspend' }); setAutoStopTarget(s); }}
                       deniedReason="Requires the manage-services permission on Intelligence → Container Apps."
                     >
@@ -459,6 +477,8 @@ function ContainerServicesPanel() {
                       variant="outline"
                       size="sm"
                       className="gap-1 text-red-600 hover:text-red-700 dark:text-red-400"
+                      disabled={!canDelete}
+                      title={!canDelete ? "You lack the 'delete' permission on Intelligence → Container Apps. Ask an administrator to grant it." : undefined}
                       onClick={() => setDropTarget(s)}
                       deniedReason="Requires the manage-services permission on Intelligence → Container Apps."
                     >

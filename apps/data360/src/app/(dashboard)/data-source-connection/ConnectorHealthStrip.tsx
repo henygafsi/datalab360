@@ -64,7 +64,7 @@ const formatBytes = (bytes: number): string => {
  * previously unconsumed by the UI. Rendered above the connector picker so users
  * see at a glance which integrations are reachable before adding a new source.
  * Per-connector re-test / force-sync actions (POST /connect/connectors/{id}/test
- * and /sync) are gated with useCanPerform('connect', …) — 'read' for the probe,
+ * and /sync) are gated with useCanPerform('connect', …) — 'view' for the probe,
  * 'ingest' for the sync — and fail-open while permissions load.
  */
 export default function ConnectorHealthStrip() {
@@ -74,13 +74,13 @@ export default function ConnectorHealthStrip() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Re-testing a connector is a non-mutating probe (connect:read); forcing a sync
+  // Re-testing a connector is a non-mutating probe (connect:view); forcing a sync
   // triggers ingestion (connect:ingest — the same action page.tsx gates ingest on).
-  const testPerm = useCanPerform('connect', 'read');
+  const testPerm = useCanPerform('connect', 'view');
   const syncPerm = useCanPerform('connect', 'ingest');
   const canTest = testPerm.allowed || testPerm.loading;
   const canSync = syncPerm.allowed || syncPerm.loading;
-  const testDeniedReason = 'You lack the "read" permission on connect. Ask an administrator to grant it.';
+  const testDeniedReason = 'You lack the "view" permission on connect. Ask an administrator to grant it.';
   const syncDeniedReason = 'You lack the "ingest" permission on connect. Ask an administrator to grant it.';
 
   const load = useCallback(async () => {

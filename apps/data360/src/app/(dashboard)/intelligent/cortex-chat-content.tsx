@@ -33,6 +33,7 @@ import {
 } from '@/app/services/chat';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import AiCostBadge from './components/AiCostBadge';
 import { useTrackAiCharge } from './store/ai-store';
 import { useAiCostEstimate } from '@/hooks/useAiCostEstimate';
@@ -135,6 +136,12 @@ export default function CortexChatContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [conversationLoadError, setConversationLoadError] = useState<string | null>(null);
   const userInitials = getUserInitials();
+
+  // Action-RBAC: gate send/clear (fail-open while `/my-permissions` loads).
+  const sendPerm = useCanPerform('cortex', 'send');
+  const clearPerm = useCanPerform('cortex', 'clear');
+  const canSend = sendPerm.allowed || sendPerm.loading;
+  const canClear = clearPerm.allowed || clearPerm.loading;
 
   // ── Load models via useCacheAwareQuery ─────────────────────────────
   const fetchModels = useCallback(async () => {
@@ -246,7 +253,7 @@ export default function CortexChatContent() {
 
   const handleSendMessage = async (prompt?: string) => {
     const messageText = prompt || inputValue.trim();
-    if (!messageText || isQuerying) return;
+    if (!messageText || isQuerying || !canSend) return;
 
     if (!selectedModel) {
       toast.error('Please select a semantic model first');
@@ -614,6 +621,8 @@ export default function CortexChatContent() {
                 size="sm"
                 variant="outline"
                 onClick={handleClearChat}
+                disabled={!canClear}
+                title={!canClear ? "You lack the 'clear' permission on Intelligence → AI Chat. Ask an administrator to grant it." : undefined}
                 aria-label="Clear chat"
                 className="text-slate-500 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400"
               >
@@ -775,7 +784,8 @@ export default function CortexChatContent() {
             />
             <Button
               onClick={() => handleSendMessage()}
-              disabled={!inputValue.trim() || isQuerying || !selectedModel}
+              disabled={!inputValue.trim() || isQuerying || !selectedModel || !canSend}
+              title={!canSend ? "You lack the 'send' permission on Intelligence → AI Chat. Ask an administrator to grant it." : undefined}
               aria-label="Send message"
               className="absolute right-2 bottom-2 w-10 h-10 p-0 rounded-lg bg-gradient-to-r from-fuchsia-500 to-pink-500 hover:from-fuchsia-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >

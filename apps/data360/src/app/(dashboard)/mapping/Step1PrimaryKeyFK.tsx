@@ -12,6 +12,7 @@ import { getTables } from '@/app/services/mapping/getTables';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { addPrimaryKey } from './addPrimaryKey';
 import { addGroupEvent, GroupData } from '@/app/services/mapping/saveGroups';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 // --- Interface Definitions ---
@@ -107,6 +108,11 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
     const fetchingColumnsRef = useRef<Set<string>>(new Set());
     const processedGroupsRef = useRef<Set<string>>(new Set());
     const prevGroupsLengthRef = useRef<number>(0);
+
+    // Action-RBAC: proceeding persists PKs/groups (ALTER TABLE + group events) — gate
+    // on mapping:edit (fail-open while the allow-set loads).
+    const editPerm = useCanPerform('mapping', 'edit');
+    const canEdit = editPerm.allowed || editPerm.loading;
     
     // Memoize PK lookup for performance with debouncing
     const pkLookup = useMemo(() => {
@@ -1045,7 +1051,13 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
 
                 <div className="flex justify-between gap-2 mt-8">
                     <Button variant="outline" onClick={onBack}>Back</Button>
-                    <Button onClick={handleNextClick}>Next</Button>
+                    <Button
+                        onClick={handleNextClick}
+                        disabled={!canEdit}
+                        title={!canEdit ? "You lack the 'edit' permission on Mapping. Ask an administrator to grant it." : undefined}
+                    >
+                        Next
+                    </Button>
                 </div>
             </CardContent>
         </Card>

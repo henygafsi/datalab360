@@ -486,10 +486,10 @@ export default function DataSourceConnectionPage() {
     [dataSources, selectedSource]
   );
 
-  // Action-RBAC: gate this surface on connect:read. Fail-open while the allow-set
+  // Action-RBAC: gate this surface on connect:view. Fail-open while the allow-set
   // loads (useCanPerform also returns allowed on hard error), so we never bounce a
   // legitimate user to /access-denied on a transient permissions glitch.
-  const readPerm = useCanPerform('connect', 'read');
+  const readPerm = useCanPerform('connect', 'view');
   const canManageConnections = readPerm.allowed || readPerm.loading;
 
   // Only the unauthenticated case redirects (middleware also guards this route);

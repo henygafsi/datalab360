@@ -40,7 +40,7 @@ export function CarbonSidebar({ className }: { className?: string }) {
   // Admin roles get all modules, other users get their assigned modules
   // Session items can be either numeric IDs or string names - normalizeToIds handles both
   const allowedIds = useMemo(() => {
-    const isAdminRole = userRole === 'administrator' || userRole === 'modeler' || userRole === 'accountadmin' || userRole === 'sysadmin';
+    const isAdminRole = userRole === 'administrator' || userRole === 'modeler' || userRole === 'accountadmin' || userRole === 'sysadmin' || userRole === 'securityadmin';
 
     if (isAdminRole) {
       return getAllModuleIds(); // Returns [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]

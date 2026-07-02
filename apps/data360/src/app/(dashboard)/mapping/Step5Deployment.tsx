@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, CheckCircle2, XCircle, AlertCircle, Calendar } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import apiClient from '@/lib/api-client';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface TableSelection {
@@ -61,6 +62,11 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
     const [scheduledTime, setScheduledTime] = useState('');
     const [deploymentMethod, setDeploymentMethod] = useState('');
     const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+    // Action-RBAC: scheduling a deployment mutates state — gate on mapping:deploy
+    // (fail-open while the allow-set loads).
+    const deployPerm = useCanPerform('mapping', 'deploy');
+    const canDeploy = deployPerm.allowed || deployPerm.loading;
 
     const deployedMappings = mappingData?.column_mappings || [];
     const newColumns = mappingData?.new_target_columns || [];
@@ -504,7 +510,8 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                             </Button>
                             <Button
                                 onClick={handleScheduleDeployment}
-                                disabled={testStatus !== 'success' || scheduling || !scheduledDate || !scheduledTime || !deploymentMethod}
+                                disabled={!canDeploy || testStatus !== 'success' || scheduling || !scheduledDate || !scheduledTime || !deploymentMethod}
+                                title={!canDeploy ? "You lack the 'deploy' permission on Mapping. Ask an administrator to grant it." : undefined}
                                 className="bg-green-600 hover:bg-green-700"
                             >
                                 {scheduling ? (

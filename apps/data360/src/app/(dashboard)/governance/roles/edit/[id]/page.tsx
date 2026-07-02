@@ -12,6 +12,7 @@ import { toast } from 'react-hot-toast';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 export default function EditRolePage() {
   useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
@@ -24,6 +25,10 @@ export default function EditRolePage() {
   const [roleData, setRoleData] = useState<RoleTableDataType | null>(null);
   const [comment, setComment] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Action-level RBAC — gate the Save mutation
+  const editPerm = useCanPerform('gouvernance', 'edit');
+  const canEdit = editPerm.allowed || editPerm.loading;
 
   useEffect(() => {
     if (!roleId) {
@@ -175,7 +180,8 @@ export default function EditRolePage() {
           <div className="flex items-center gap-4 pt-4 border-t">
             <Button
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={!canEdit || isSaving}
+              title={!canEdit ? "Requires the 'edit' permission on Governance. Ask an administrator to grant it." : undefined}
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
             >
               {isSaving ? 'Saving...' : 'Save Changes'}

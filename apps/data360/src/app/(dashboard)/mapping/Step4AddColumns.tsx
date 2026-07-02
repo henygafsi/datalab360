@@ -13,6 +13,7 @@ import { Loader2, PlusCircle, XCircle } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 // Removed: import { getStepEventData } from './getStepEventData'; // Removed
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface TableSelection {
@@ -83,6 +84,12 @@ const Step4AddColumns: React.FC<Step4Props> = ({
     const [isLoading, setIsLoading] = useState(false);
     const [targetColumns, setTargetColumns] = useState<string[]>([]); // Stores names of existing target columns
     const [targetColumnsByTable, setTargetColumnsByTable] = useState<{ [tableKey: string]: string[] }>({});
+
+    // Action-RBAC: saving columns runs ALTER TABLE on the target — gate on mapping:edit
+    // (fail-open while the allow-set loads).
+    const editPerm = useCanPerform('mapping', 'edit');
+    const canEdit = editPerm.allowed || editPerm.loading;
+    const editDeniedTitle = !canEdit ? "You lack the 'edit' permission on Mapping. Ask an administrator to grant it." : undefined;
 
     const dataTypes = [
         'VARCHAR(255)',
@@ -345,7 +352,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                         ))}
                         <div className="flex justify-between gap-2 mt-6">
                             <Button variant="outline" onClick={onBack}>Back</Button>
-                            <Button onClick={handleSaveAndProceed} disabled={isLoading}>{isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : 'Next'}</Button>
+                            <Button onClick={handleSaveAndProceed} disabled={!canEdit || isLoading} title={editDeniedTitle}>{isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : 'Next'}</Button>
                         </div>
                     </div>
                 ) : selectedTargetTable ? (
@@ -428,7 +435,8 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                             </Button>
                             <Button
                                 onClick={handleSaveAndProceed}
-                                disabled={isLoading || !projectId}
+                                disabled={!canEdit || isLoading || !projectId}
+                                title={editDeniedTitle}
                             >
                                 {isLoading ? (
                                     <>
@@ -450,7 +458,8 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                             </Button>
                             <Button
                                 onClick={handleSaveAndProceed}
-                                disabled={isLoading || !selectedTargetTable || !projectId}
+                                disabled={!canEdit || isLoading || !selectedTargetTable || !projectId}
+                                title={editDeniedTitle}
                             >
                                 {isLoading ? (
                                     <>

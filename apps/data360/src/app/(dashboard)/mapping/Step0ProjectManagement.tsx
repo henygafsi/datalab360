@@ -22,6 +22,7 @@ import { getProjects } from './getProjects';
 import { getProjectLatestEvents } from './getProjectLatestEvents';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface Project {
@@ -44,6 +45,11 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
     const [newProjectName, setNewProjectName] = useState('');
     const [newProjectSharedWith, setNewProjectSharedWith] = useState('');
     const [isCreatingProject, setIsCreatingProject] = useState(false);
+
+    // Action-RBAC: creating a mapping project mutates state — gate on mapping:create
+    // (fail-open while the allow-set loads).
+    const createPerm = useCanPerform('mapping', 'create');
+    const canCreate = createPerm.allowed || createPerm.loading;
 
     // Fetch and enrich projects with latest events
     const fetchData = useCallback(async (): Promise<Project[]> => {
@@ -122,6 +128,11 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
 
     return (
         <ErrorBoundary>
+        {!createPerm.allowed && !createPerm.loading && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-300">
+                View-only access — you lack the &apos;create&apos; permission on Mapping. Ask an administrator to grant it.
+            </div>
+        )}
         <Card className="p-4">
             <CardHeader>
                 <div className="flex items-center justify-between">
@@ -160,7 +171,11 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
                             disabled={isCreatingProject}
                         />
                     </div>
-                    <Button onClick={handleCreateProject} disabled={isCreatingProject || !newProjectName.trim()}>
+                    <Button
+                        onClick={handleCreateProject}
+                        disabled={!canCreate || isCreatingProject || !newProjectName.trim()}
+                        title={!canCreate ? "You lack the 'create' permission on Mapping. Ask an administrator to grant it." : undefined}
+                    >
                         {isCreatingProject ? (
                             <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating...

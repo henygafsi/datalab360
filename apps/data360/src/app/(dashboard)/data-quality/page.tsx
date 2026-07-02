@@ -3217,8 +3217,8 @@ export default function DataQualityPage() {
                       <button
                         type="button"
                         onClick={() => handleRemoveDmf(ref)}
-                        disabled={removing}
-                        title={`Remove ${metric}${column ? ` on ${column}` : ''}`}
+                        disabled={!canAssociateDmf || removing}
+                        title={!canAssociateDmf ? 'You lack the "associate" permission on data quality. Ask an administrator to grant it.' : `Remove ${metric}${column ? ` on ${column}` : ''}`}
                         className="inline-flex items-center gap-1 rounded-md border border-red-200 dark:border-red-800 px-1.5 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                       >
                         {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}

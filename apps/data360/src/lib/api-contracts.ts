@@ -473,6 +473,8 @@ export const API = {
     d360Roles: () => '/gouvernance/d360-roles',
     /** GET /gouvernance/d360-roles/my-permissions — caller's effective action set (useCanPerform hook). */
     d360MyPermissions: () => '/gouvernance/d360-roles/my-permissions',
+    /** GET /gouvernance/d360-roles/my-module-access — caller's coarse module posture map (read|write|none). */
+    d360MyModuleAccess: () => '/gouvernance/d360-roles/my-module-access',
     /** GET /gouvernance/policies/dmf/list[?database=…&schema=…] — list available DMFs. */
     policyDmfList: () => '/gouvernance/policies/dmf/list',
     /** POST /gouvernance/policies/dmf — create a custom DMF (query params). */
