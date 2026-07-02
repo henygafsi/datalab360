@@ -27,11 +27,14 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import {
   SlidersHorizontal,
+  Plus,
   Sparkles,
   History as HistoryIcon,
   Calendar,
   Users,
   Info,
+  Table2,
+  Database,
   Camera,
   RefreshCw,
   Loader2,
@@ -65,6 +68,8 @@ import { useDashboardStatus, type UseDashboardStatus } from './useDashboardStatu
 
 export type BiPanelSection =
   | 'configure'
+  | 'add'
+  | 'data'
   | 'ai'
   | 'runs'
   | 'schedule'
@@ -96,6 +101,20 @@ interface BiSmartRightBarProps {
   /** The config form (a *ConfigModal in variant="panel"), hosted in Configure. */
   configSlot?: React.ReactNode;
 
+  /** Distinct data sources (DB.SCHEMA.TABLE) on the active page — Overview list. */
+  dataSources?: string[];
+
+  /** The widget being drilled into (drives the Data section header). */
+  drillWidget?: DashboardWidget | null;
+  /** The drill-through form+result (DrillThroughPanel variant="panel"), docked. */
+  drillSlot?: React.ReactNode;
+
+  /** The docked add-widget picker (AddWidgetSection: tiles + templates). */
+  addSlot?: React.ReactNode;
+
+  /** The docked AI Build flow (AiBuildSection: prompt → grid + review). */
+  aiBuildSlot?: React.ReactNode;
+
   onSnapshot: () => void;
   snapshotting: boolean;
   lastSnapshotId: string | null;
@@ -108,7 +127,9 @@ interface BiSmartRightBarProps {
 
 const RAIL: { id: BiPanelSection; icon: LucideIcon; label: string }[] = [
   { id: 'configure', icon: SlidersHorizontal, label: 'Configure widget' },
-  { id: 'ai', icon: Sparkles, label: 'AI proposals' },
+  { id: 'add', icon: Plus, label: 'Add widgets & templates' },
+  { id: 'data', icon: Table2, label: 'Drill-through data' },
+  { id: 'ai', icon: Sparkles, label: 'AI Build' },
   { id: 'runs', icon: HistoryIcon, label: 'Runs & snapshots' },
   { id: 'schedule', icon: Calendar, label: 'Refresh schedule' },
   { id: 'share', icon: Users, label: 'Share & users' },
@@ -161,6 +182,11 @@ export default function BiSmartRightBar({
   onCollapsedChange,
   editingWidget,
   configSlot,
+  dataSources,
+  drillWidget,
+  drillSlot,
+  addSlot,
+  aiBuildSlot,
   onSnapshot,
   snapshotting,
   lastSnapshotId,
@@ -274,10 +300,11 @@ export default function BiSmartRightBar({
               className={cn(
                 'relative flex h-9 w-9 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700',
                 item.id === 'configure' && editingWidget && 'text-cyan-600 dark:text-cyan-400',
+                item.id === 'data' && drillWidget && 'text-cyan-600 dark:text-cyan-400',
               )}
             >
               <Icon className="h-4 w-4" />
-              {item.id === 'configure' && editingWidget && (
+              {((item.id === 'configure' && editingWidget) || (item.id === 'data' && drillWidget)) && (
                 <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-cyan-500" />
               )}
             </button>
@@ -345,24 +372,91 @@ export default function BiSmartRightBar({
         <div
           className={cn(
             'flex-1 min-h-0',
-            section === 'configure' && configSlot ? 'overflow-y-auto' : 'overflow-y-auto p-4',
+            (section === 'configure' && configSlot) || (section === 'data' && drillSlot)
+              ? 'overflow-y-auto'
+              : 'overflow-y-auto p-4',
           )}
         >
           {section === 'configure' &&
             (configSlot ? (
               configSlot
             ) : (
+              /* No widget selected → a purposeful Overview, not a blank prompt.
+                 Name lives in the header + KPIs in the always-on strip; here we
+                 surface structure (pages / widgets / sources) + visibility. */
               <div className="p-4">
-                <SectionHeader title="Configure widget" subtitle="Source, filters, query & calculations." />
-                <EmptyNote>
+                <SectionHeader title="Dashboard overview" subtitle="Structure, sources & status of this dashboard." />
+                <dl className="space-y-2 text-xs">
+                  <Row k="Widgets" v={String(widgetCount)} />
+                  <Row k="Pages" v={String(pageCount)} />
+                  <Row k="Visibility" v={<StatusPill status={liveStatus.status} />} />
+                </dl>
+                <div className="mt-4">
+                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Data sources
+                  </p>
+                  {dataSources && dataSources.length > 0 ? (
+                    <ul className="space-y-1">
+                      {dataSources.map((s) => (
+                        <li
+                          key={s}
+                          className="flex items-center gap-1.5 truncate rounded-md border border-gray-200 px-2 py-1 font-mono text-[11px] text-gray-700 dark:border-gray-700 dark:text-gray-300"
+                          title={s}
+                        >
+                          <Database className="h-3 w-3 shrink-0 text-cyan-500" />
+                          <span className="truncate">{s}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <EmptyNote>No data source bound yet. Add a widget from the left palette to connect one.</EmptyNote>
+                  )}
+                </div>
+                <p className="mt-4 text-[11px] text-gray-400 dark:text-gray-500">
                   Select a widget on the canvas (its <SlidersHorizontal className="inline h-3 w-3" /> button)
-                  to edit it here — or add one from the left palette. No popups.
+                  to configure it here — or add one from the left palette. No popups.
+                </p>
+              </div>
+            ))}
+
+          {section === 'add' && (
+            <div>
+              <SectionHeader
+                title="Add widgets"
+                subtitle="Charts, KPIs, tables, text & templates — configured right here."
+              />
+              {addSlot ?? (
+                <EmptyNote>Open a dashboard page to add widgets.</EmptyNote>
+              )}
+            </div>
+          )}
+
+          {section === 'data' &&
+            (drillSlot ? (
+              drillSlot
+            ) : (
+              <div>
+                <SectionHeader title="Drill-through data" subtitle="Inspect the rows behind a chart — right here, no popup." />
+                <EmptyNote>
+                  Open a chart&apos;s <Table2 className="inline h-3 w-3" /> drill-through from the canvas to load its
+                  underlying rows into this panel.
                 </EmptyNote>
               </div>
             ))}
 
           {section === 'ai' && (
             <div>
+              {/* Docked AI Build — prompt → charts land directly on the grid,
+                  with an Undo/Refine review list (AiBuildSection). */}
+              {aiBuildSlot && (
+                <div className="mb-4">
+                  <SectionHeader
+                    title="AI Build"
+                    subtitle="Describe charts — they're generated straight onto the grid."
+                  />
+                  {aiBuildSlot}
+                </div>
+              )}
               {/* AI-prefilled cross-module CTA blocks (deep-link with intent), scoped
                   to this module + project. Rendered above the rule-based proposals. */}
               <AiActionBlocks
@@ -516,7 +610,7 @@ export default function BiSmartRightBar({
               )}
             >
               <Icon className="h-4 w-4" />
-              {item.id === 'configure' && editingWidget && !isActive && (
+              {((item.id === 'configure' && editingWidget) || (item.id === 'data' && drillWidget)) && !isActive && (
                 <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-cyan-500" />
               )}
             </button>

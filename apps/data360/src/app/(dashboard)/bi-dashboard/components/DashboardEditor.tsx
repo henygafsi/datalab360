@@ -18,12 +18,15 @@ import { useCanPerform } from '@/hooks/useCanPerform';
 import PageTabs from './PageTabs';
 import DashboardGrid from './DashboardGrid';
 import SmartFilterBar from './SmartFilterBar';
-import AddWidgetPanel from './AddChartPanel';
 import ChartPaletteRail from './ChartPaletteRail';
 import BiSmartRightBar, { type BiPanelSection, type AiProposal } from './BiSmartRightBar';
+import AddWidgetSection from './AddWidgetSection';
+import AiBuildSection from './AiBuildSection';
 import DashboardTemplates from './DashboardTemplates';
 import type { DashboardTemplate } from './DashboardTemplates';
 import CloneDashboardButton from './CloneDashboardButton';
+import TextConfigPanel from './widget-config/TextConfigPanel';
+import { nlConfigToChartConfig, nextWidgetPosition } from './nl-chart-utils';
 import type { AppliedFilter } from '../hooks/useSmartFilters';
 
 import {
@@ -57,6 +60,12 @@ interface DashboardEditorProps {
    * loads with that source pre-selected. Parsed as dot-separated db.schema.table.
    */
   initialSourceTable?: string;
+  /**
+   * Optional `?ai=build&prompt=…` deep-link (landing page's docked AI Build
+   * entry): opens the right bar's AI Build section with this prompt and
+   * auto-generates once — charts land directly on the grid.
+   */
+  initialAiPrompt?: string;
 }
 
 /** Convert widget chart_config to ComponentConfig for ConfigurationModal */
@@ -101,66 +110,10 @@ function toChartConfig(cfg: ComponentConfig): BIDashboardChartConfig {
   };
 }
 
-/**
- * Defensively turn the loose chart_config returned by POST /bi-dashboard/nl-to-chart
- * into a BIDashboardChartConfig, falling back to the dashboard's default db/schema.
- */
-function nlConfigToChartConfig(
-  raw: Record<string, unknown>,
-  defaults: { database?: string | null; schema?: string | null },
-): BIDashboardChartConfig {
-  const measuresRaw = raw.measures ?? raw.suggestedMeasures ?? raw.y;
-  const measures = Array.isArray(measuresRaw)
-    ? measuresRaw
-        .map((m) =>
-          typeof m === 'string'
-            ? { column: m, aggregator: 'SUM' }
-            : m && typeof m === 'object' && 'column' in m
-              ? {
-                  column: String((m as { column: unknown }).column),
-                  aggregator: String((m as { aggregator?: unknown }).aggregator || 'SUM'),
-                }
-              : null,
-        )
-        .filter((m): m is { column: string; aggregator: string } => !!m && !!m.column)
-    : typeof measuresRaw === 'string'
-      ? [{ column: measuresRaw, aggregator: 'SUM' }]
-      : [];
+// nlConfigToChartConfig + nextWidgetPosition moved to ./nl-chart-utils so the
+// docked AI Build section (AiBuildSection) reuses the exact same parsing.
 
-  const dimRaw = raw.x ?? raw.dimension ?? raw.suggestedDimension ?? raw.groupBy;
-  const x =
-    typeof dimRaw === 'string'
-      ? dimRaw
-      : Array.isArray(dimRaw) && typeof dimRaw[0] === 'string'
-        ? (dimRaw[0] as string)
-        : null;
-
-  const groupByRaw = raw.groupBy;
-  const groupBy = Array.isArray(groupByRaw)
-    ? groupByRaw.filter((g): g is string => typeof g === 'string')
-    : x
-      ? [x]
-      : [];
-
-  return {
-    database: String(raw.database || defaults.database || ''),
-    schema: String(raw.schema || defaults.schema || ''),
-    table: String(raw.table || ''),
-    x,
-    measures,
-    filters: [],
-    groupBy,
-    limit: typeof raw.limit === 'number' ? raw.limit : null,
-  };
-}
-
-/** Stack a freshly added widget below the existing ones (mirrors ChartPaletteRail). */
-function nextWidgetPosition(widgets: DashboardWidget[]): { x: number; y: number } {
-  if (widgets.length === 0) return { x: 0, y: 0 };
-  return { x: 0, y: Math.max(...widgets.map((w) => w.position_y + w.height)) };
-}
-
-export default function DashboardEditor({ projectId, projectName, initialSourceTable }: DashboardEditorProps) {
+export default function DashboardEditor({ projectId, projectName, initialSourceTable, initialAiPrompt }: DashboardEditorProps) {
   // Fire-and-forget analytics (R11/H10). The hook also auto-emits a PAGE_VIEW
   // for this per-project route; the explicit mount event below adds projectId.
   const { trackFeatureClick, trackTabSwitch } = useTrackEvent();
@@ -189,7 +142,6 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
   // Local state derived from dashboard data
   const [pages, setPages] = useState<FullDashboardPage[]>([]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
-  const [showAddWidget, setShowAddWidget] = useState(false);
   // ChartPaletteRail collapse state — persisted to localStorage so the
   // user's choice survives page reloads.
   const [paletteCollapsed, setPaletteCollapsed] = useState<boolean>(() => {
@@ -222,16 +174,22 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
   const prefillFiredRef = useRef(false);
 
   // BiSmartRightBar — docked right panel that hosts widget config (no popup) +
-  // runs / schedule / share / AI. Section + collapse persist to versioned keys.
+  // add / data / AI build / runs / schedule / share. Section + collapse persist
+  // to versioned keys. An ?ai=build deep-link overrides straight to AI Build.
   const [panelSection, setPanelSection] = useState<BiPanelSection>(() => {
+    if (initialAiPrompt) return 'ai';
     if (typeof window === 'undefined') return 'configure';
     try {
-      return (window.localStorage.getItem('data360.bi.panel.section.v1') as BiPanelSection) || 'configure';
+      const stored = window.localStorage.getItem('data360.bi.panel.section.v1');
+      const valid: BiPanelSection[] = ['configure', 'add', 'data', 'ai', 'runs', 'schedule', 'share', 'details'];
+      return stored && (valid as string[]).includes(stored) ? (stored as BiPanelSection) : 'configure';
     } catch {
       return 'configure';
     }
   });
   const [panelCollapsed, setPanelCollapsed] = useState<boolean>(() => {
+    // The AI Build deep-link must land on a visible panel.
+    if (initialAiPrompt) return false;
     if (typeof window === 'undefined') return false;
     try {
       return window.localStorage.getItem('data360.bi.panel.collapsed.v1') === '1';
@@ -305,7 +263,7 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
     for (const w of pageWidgets) {
       const c = w.chart_config;
       if (!c?.database || !c?.schema || !c?.table) continue;
-      const key = `${c.database} ${c.schema} ${c.table}`;
+      const key = `${c.database}|${c.schema}|${c.table}`;
       const entry = counts.get(key);
       if (entry) entry.n += 1;
       else counts.set(key, { database: c.database, schema: c.schema, table: c.table, n: 1 });
@@ -316,6 +274,17 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
     }
     return best ? { database: best.database, schema: best.schema, table: best.table } : undefined;
   }, [pageWidgets, urlSourceOverride]);
+
+  // Distinct DB.SCHEMA.TABLE sources on the active page — feeds the right-bar
+  // Overview (the default, no-widget-selected view) so the panel opens purposeful.
+  const dataSources = useMemo<string[]>(() => {
+    const set = new Set<string>();
+    for (const w of pageWidgets) {
+      const c = w.chart_config;
+      if (c?.database && c?.schema && c?.table) set.add(`${c.database}.${c.schema}.${c.table}`);
+    }
+    return [...set];
+  }, [pageWidgets]);
 
   // Rule-based AI proposals for the right panel — deterministic, so the "AI"
   // section never errors. They reference the page's real tables when present.
@@ -723,6 +692,46 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
       }
     },
     [projectId, activePageId, addDraft, pageWidgets, handleWidgetAdded],
+  );
+
+  // Save a NEW text widget from the docked Configure form (add flow). Replaces
+  // the fixed text drawer ChartPaletteRail/AddWidgetPanel used to open — the
+  // text tile now routes through addDraft like every other widget type.
+  const handleAddTextSave = useCallback(
+    async (title: string, content: string) => {
+      if (!activePageId) return;
+      const pos = nextWidgetPosition(pageWidgets);
+      try {
+        const response = await createWidget(projectId, {
+          page_id: activePageId,
+          widget_type: 'text',
+          chart_type: null,
+          title,
+          text_content: content,
+          position_x: pos.x,
+          position_y: pos.y,
+          width: 24,
+          height: 2,
+        });
+        handleWidgetAdded({
+          widget_id: response.widget_id,
+          page_id: activePageId,
+          widget_type: 'text',
+          chart_type: null,
+          title,
+          text_content: content,
+          position_x: pos.x,
+          position_y: pos.y,
+          width: 24,
+          height: 2,
+        });
+        setAddDraft(null);
+        toast.success(`${title} added`);
+      } catch (err) {
+        toast.error(getApiErrorMessage(err));
+      }
+    },
+    [projectId, activePageId, pageWidgets, handleWidgetAdded],
   );
 
   // NL-to-chart: turn a plain-language question into a chart widget on the
@@ -1233,11 +1242,22 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
               onDeleteWidget={handleDeleteWidget}
               onExecuteSingleWidget={handleExecuteSingle}
               onDuplicateWidget={handleDuplicateWidget}
-              onAddWidget={() => setShowAddWidget(true)}
+              onAddWidget={() => {
+                // Docked add flow — the bar's Add section (tiles + templates),
+                // replacing the old AddWidgetPanel portal drawer.
+                setPanelSection('add');
+                setPanelCollapsed(false);
+              }}
               onLayoutChange={handleLayoutChange}
               crossWidgetFilter={crossWidgetFilter}
               onCrossWidgetFilter={handleCrossWidgetFilter}
-              onDrillThrough={(widget) => setDrillWidget(widget)}
+              onDrillThrough={(widget) => {
+                // Dock the drill-through into the right bar's Data section — no
+                // popup. Expand the panel and focus the section.
+                setDrillWidget(widget);
+                setPanelSection('data');
+                setPanelCollapsed(false);
+              }}
             />
           </div>
           <BiSmartRightBar
@@ -1311,6 +1331,52 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
                   onSave={handleAddDataWidgetSave}
                   defaultSource={defaultSource}
                 />
+              ) : addDraft && addDraft.widgetType === 'text' ? (
+                <TextConfigPanel
+                  key="add-text"
+                  onClose={() => setAddDraft(null)}
+                  onSave={handleAddTextSave}
+                />
+              ) : undefined
+            }
+            addSlot={
+              <AddWidgetSection
+                onStartAdd={handleStartAdd}
+                onApplyTemplate={handleApplyTemplate}
+                applyingTemplate={applyingTemplate}
+              />
+            }
+            aiBuildSlot={
+              activePageId ? (
+                <AiBuildSection
+                  projectId={projectId}
+                  pageId={activePageId}
+                  defaults={{
+                    database: dashboard?.default_database,
+                    schema: dashboard?.default_schema,
+                  }}
+                  widgets={pageWidgets}
+                  onWidgetAdded={handleWidgetAdded}
+                  onUndoWidget={handleDeleteWidget}
+                  initialPrompt={initialAiPrompt}
+                />
+              ) : undefined
+            }
+            dataSources={dataSources}
+            drillWidget={drillWidget}
+            drillSlot={
+              drillWidget ? (
+                <DrillThroughPanel
+                  // key on the widget id: switching drill targets remounts so the
+                  // dimension/value/result reset (the reset effect keys on isOpen,
+                  // which is always true in docked panel mode).
+                  key={drillWidget.widget_id}
+                  variant="panel"
+                  isOpen
+                  onClose={() => setDrillWidget(null)}
+                  dashboardId={projectId}
+                  widget={drillWidget}
+                />
               ) : undefined
             }
             onSnapshot={handleSnapshot}
@@ -1323,30 +1389,10 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
         </div>
       )}
 
-      {/* Add Widget Panel */}
-      {activePageId && (
-        <AddWidgetPanel
-          projectId={projectId}
-          pageId={activePageId}
-          existingWidgets={pageWidgets}
-          isOpen={showAddWidget}
-          onClose={() => setShowAddWidget(false)}
-          onWidgetAdded={handleWidgetAdded}
-        />
-      )}
-
-        {/* Widget config (chart / kpi / table) now lives in BiSmartRightBar's
-            Configure section (variant="panel") — no popups. */}
-
-        {/* Drill-through panel */}
-      {drillWidget && (
-        <DrillThroughPanel
-          isOpen
-          onClose={() => setDrillWidget(null)}
-          dashboardId={projectId}
-          widget={drillWidget}
-        />
-      )}
+        {/* Widget config (chart / kpi / table / text), the add-widget picker AND
+            drill-through data now ALL live in BiSmartRightBar (Configure / Add /
+            Data sections, variant="panel") — no popups. The old AddWidgetPanel
+            portal drawer is retired (kept exported, unmounted). */}
 
       {/* Widget render status drawer — opened by the status pill in the toolbar. */}
       {statusDrawerOpen && (

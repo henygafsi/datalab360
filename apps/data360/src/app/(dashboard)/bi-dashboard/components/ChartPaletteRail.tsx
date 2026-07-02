@@ -24,13 +24,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from 'rizzui';
-import { createWidget } from '@/app/services/api/biDashboardApi';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import type {
-  DashboardWidget, BIDashboardChartConfig, WidgetType, DashboardChartType,
+  DashboardWidget, WidgetType, DashboardChartType,
 } from '@/app/services/api/types';
-import toast from 'react-hot-toast';
-import { getApiErrorMessage } from '@/lib/api-client';
 
 // Same tile catalogue the modal used — copy/paste to keep the two compatible.
 interface WidgetTile {
@@ -44,7 +41,9 @@ interface WidgetGroup {
   category: string;
   items: WidgetTile[];
 }
-const WIDGET_TYPES: WidgetGroup[] = [
+// Exported so the bar's Add section (AddWidgetSection in BiSmartRightBar)
+// renders the SAME catalogue — one source of truth for the tile set.
+export const WIDGET_TILE_GROUPS: WidgetGroup[] = [
   {
     category: 'Basic',
     items: [
@@ -89,8 +88,6 @@ const WIDGET_TYPES: WidgetGroup[] = [
   },
 ];
 
-type ActiveModal = 'chart' | 'kpi' | 'table' | 'text' | null;
-
 interface DraftPayload {
   widgetType: WidgetType;
   chartType: DashboardChartType | null;
@@ -103,14 +100,14 @@ interface ChartPaletteRailProps {
   projectId: string;
   pageId: string;
   existingWidgets: DashboardWidget[];
-  onWidgetAdded: (
+  onWidgetAdded?: (
     widget: DashboardWidget,
     prefetchedData?: Record<string, unknown>[],
   ) => void;
   /**
-   * Start adding a chart / kpi_card / table — opens its config form docked in
-   * the right panel (BiSmartRightBar's Configure section), never a popup.
-   * Hosted by DashboardEditor, exactly like the edit flow.
+   * Start adding a chart / kpi_card / table / text — opens its config form
+   * docked in the right panel (BiSmartRightBar's Configure section), never a
+   * popup. Hosted by DashboardEditor, exactly like the edit flow.
    */
   onStartAdd: (
     widgetType: WidgetType,
@@ -121,17 +118,8 @@ interface ChartPaletteRailProps {
   onCollapsedChange?: (collapsed: boolean) => void;
 }
 
-function nextPosition(widgets: DashboardWidget[]) {
-  if (widgets.length === 0) return { x: 0, y: 0 };
-  const maxY = Math.max(...widgets.map((w) => w.position_y + w.height));
-  return { x: 0, y: maxY };
-}
-
 export default function ChartPaletteRail({
   projectId,
-  pageId,
-  existingWidgets,
-  onWidgetAdded,
   onStartAdd,
   collapsed = false,
   onCollapsedChange,
@@ -144,11 +132,7 @@ export default function ChartPaletteRail({
   const canCreate = createPerm.allowed || createPerm.loading;
   const createDeniedReason = 'Requires the "create" permission on Business Reporting.';
 
-  const [activeModal, setActiveModal] = useState<ActiveModal>(null);
   const [search, setSearch] = useState('');
-  const [textTitle, setTextTitle] = useState('');
-  const [textContent, setTextContent] = useState('');
-  const [savingText, setSavingText] = useState(false);
   const [savedDraft, setSavedDraft] = useState<DraftPayload | null>(null);
 
   // ── Draft load on mount ───────────────────────────────────────────────
@@ -168,17 +152,6 @@ export default function ChartPaletteRail({
     }
   }, [projectId]);
 
-  // Esc-to-close for the inline text-widget modal (backdrop click already
-  // closes it; keyboard dismiss was missing).
-  useEffect(() => {
-    if (activeModal !== 'text') return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setActiveModal(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [activeModal]);
-
   const clearDraft = useCallback(() => {
     try {
       window.localStorage.removeItem(DRAFT_KEY(projectId));
@@ -188,39 +161,17 @@ export default function ChartPaletteRail({
     setSavedDraft(null);
   }, [projectId]);
 
-  const saveDraft = useCallback(
-    (payload: Omit<DraftPayload, 'savedAt'>) => {
-      try {
-        window.localStorage.setItem(
-          DRAFT_KEY(projectId),
-          JSON.stringify({ ...payload, savedAt: Date.now() }),
-        );
-        setSavedDraft({ ...payload, savedAt: Date.now() });
-      } catch {
-        /* ignore */
-      }
-    },
-    [projectId],
-  );
-
   const handleItemSelect = (
     widgetType: WidgetType,
     chartType: DashboardChartType | null,
   ) => {
-    if (widgetType === 'text') {
-      // Text keeps its small inline modal + draft/resume flow (cleared on save
-      // by createAndNotify).
-      saveDraft({ widgetType, chartType });
-      setActiveModal('text');
-    } else {
-      // Chart / KPI / Table configs open docked in the right panel
-      // (BiSmartRightBar's Configure section) — no popup. The live form state
-      // now lives in the panel (addDraft in DashboardEditor), so the
-      // localStorage draft for these types is vestigial — clear any stale one
-      // (and the redundant "Saved draft" banner) instead of writing a new one.
-      clearDraft();
-      onStartAdd(widgetType, chartType);
-    }
+    // Every type — chart / KPI / table / TEXT — opens docked in the right
+    // panel (BiSmartRightBar's Configure section). No popup. The live form
+    // state lives in the panel (addDraft in DashboardEditor), so the
+    // localStorage draft is vestigial — clear any stale one (and the
+    // redundant "Saved draft" banner) instead of writing a new one.
+    clearDraft();
+    onStartAdd(widgetType, chartType);
   };
 
   const resumeDraft = () => {
@@ -228,83 +179,8 @@ export default function ChartPaletteRail({
     handleItemSelect(savedDraft.widgetType, savedDraft.chartType);
   };
 
-  const createAndNotify = useCallback(
-    async (
-      widgetType: WidgetType,
-      chartType: DashboardChartType | null,
-      title: string,
-      chartConfig: BIDashboardChartConfig,
-      prefetchedData?: Record<string, unknown>[],
-      overrides?: { width?: number; height?: number; text_content?: string },
-    ) => {
-      const isKpi = widgetType === 'kpi_card';
-      const isTable = widgetType === 'table';
-      const width = overrides?.width ?? (isKpi ? 4 : isTable ? 12 : 12);
-      const height = overrides?.height ?? (isKpi ? 2 : 4);
-      const pos = nextPosition(existingWidgets);
-
-      try {
-        const response = await createWidget(projectId, {
-          page_id: pageId,
-          widget_type: widgetType,
-          chart_type: chartType,
-          title,
-          chart_config: chartConfig,
-          text_content: overrides?.text_content,
-          position_x: pos.x,
-          position_y: pos.y,
-          width,
-          height,
-        });
-        const newWidget: DashboardWidget = {
-          widget_id: response.widget_id,
-          page_id: pageId,
-          widget_type: widgetType,
-          chart_type: chartType,
-          title,
-          chart_config: chartConfig,
-          text_content: overrides?.text_content,
-          position_x: pos.x,
-          position_y: pos.y,
-          width,
-          height,
-        };
-        onWidgetAdded(newWidget, prefetchedData);
-        clearDraft();
-        setActiveModal(null);
-        toast.success(`${title} added`);
-      } catch (err) {
-        toast.error(getApiErrorMessage(err) || 'Failed to add widget');
-      }
-    },
-    [projectId, pageId, existingWidgets, onWidgetAdded, clearDraft],
-  );
-
-  const handleTextSave = async () => {
-    if (savingText) return;
-    if (!textTitle.trim()) {
-      toast.error('Title is required');
-      return;
-    }
-    setSavingText(true);
-    try {
-      await createAndNotify(
-        'text',
-        null,
-        textTitle.trim(),
-        { database: '', schema: '', table: '', x: null, measures: [], filters: [], groupBy: [], limit: null },
-        undefined,
-        { text_content: textContent, height: 2 },
-      );
-      setTextTitle('');
-      setTextContent('');
-    } finally {
-      setSavingText(false);
-    }
-  };
-
   // Filter tiles by search query
-  const filtered = WIDGET_TYPES.map((g) => ({
+  const filtered = WIDGET_TILE_GROUPS.map((g) => ({
     ...g,
     items: g.items.filter((it) =>
       it.title.toLowerCase().includes(search.toLowerCase()),
@@ -325,7 +201,7 @@ export default function ChartPaletteRail({
           <ChevronRight className="h-4 w-4" />
         </motion.button>
         <div className="my-2 h-px w-6 bg-slate-200 dark:bg-slate-700" />
-        {WIDGET_TYPES.flatMap((g) => g.items.slice(0, 2)).map((it) => {
+        {WIDGET_TILE_GROUPS.flatMap((g) => g.items.slice(0, 2)).map((it) => {
           const Icon = it.icon;
           return (
             <motion.button
@@ -346,8 +222,7 @@ export default function ChartPaletteRail({
   }
 
   return (
-    <>
-      <aside className="flex h-full w-64 flex-col border-r border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-900/40">
+    <aside className="flex h-full w-64 flex-col border-r border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-900/40">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2.5 dark:border-slate-700">
           <div className="flex items-center gap-1.5">
@@ -468,74 +343,9 @@ export default function ChartPaletteRail({
             ))
           )}
         </div>
-      </aside>
-
-      {/* Chart / KPI / Table configs are hosted in the right panel
-          (BiSmartRightBar) by DashboardEditor — no popup here. The text
-          widget keeps its small inline modal for now. */}
-      <AnimatePresence>
-        {activeModal === 'text' && (
-          <motion.div
-            initial={{ x: '100%', opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: '100%', opacity: 0 }}
-            transition={{ type: 'tween', duration: 0.2 }}
-            role="dialog"
-            aria-modal="false"
-            aria-label="Add text widget"
-            className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-md flex-col overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-          >
-              <h2 className="mb-4 text-lg font-bold text-slate-900 dark:text-white">
-                Add text widget
-              </h2>
-              <div className="space-y-3">
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Title
-                  </label>
-                  <Input
-                    value={textTitle}
-                    onChange={(e) => setTextTitle(e.target.value)}
-                    placeholder="e.g. Section header"
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Content <span className="font-normal text-slate-400">(Markdown)</span>
-                  </label>
-                  <textarea
-                    value={textContent}
-                    onChange={(e) => setTextContent(e.target.value)}
-                    rows={4}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
-                    placeholder="**Bold**, _italic_, [link](https://…)"
-                  />
-                </div>
-              </div>
-              <div className="mt-5 flex items-center justify-end gap-2">
-                <button
-                  onClick={() => {
-                    setActiveModal(null);
-                  }}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-                >
-                  Cancel
-                </button>
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={handleTextSave}
-                  disabled={!canCreate || savingText}
-                  title={!canCreate ? createDeniedReason : undefined}
-                  className="rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {savingText ? 'Adding…' : 'Add widget'}
-                </motion.button>
-              </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
+    </aside>
   );
 }
+
+// Chart / KPI / Table / Text configs are ALL hosted in the right panel
+// (BiSmartRightBar's Configure section) by DashboardEditor — no popup here.

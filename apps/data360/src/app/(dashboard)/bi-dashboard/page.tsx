@@ -15,8 +15,7 @@ import { createDashboard } from '@/app/services/api/biDashboardApi';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
 import ActionRail from '@/app/shared/action-rail/ActionRail';
 import ScoreCards from '@/app/shared/score-cards/ScoreCards';
-import AutoCreateModal from './components/AutoCreateModal';
-import AiDashboardWizard from './components/AiDashboardWizard';
+import AiBuildLaunchRail from './components/AiBuildLaunchRail';
 import CloneDashboardButton from './components/CloneDashboardButton';
 
 // ---------------------------------------------------------------------------
@@ -306,8 +305,7 @@ function BIDashboardPage() {
   const searchParams = useSearchParams();
   const urlProjectId = searchParams.get('project');
   const [showCreate, setShowCreate] = useState(false);
-  const [showAutoCreate, setShowAutoCreate] = useState(false);
-  const [showAiWizard, setShowAiWizard] = useState(false);
+  const [showAiBuild, setShowAiBuild] = useState(false);
   const [projects, setProjects] = useState<UnifiedProject[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   // A fetch failure must NOT read as "no dashboards yet" (an empty state implies
@@ -380,20 +378,17 @@ function BIDashboardPage() {
     window.location.href = `/bi-dashboard/${projectId}`;
   }, [trackFeatureClick]);
 
-  const handleAutoCreated = useCallback((projectId: string) => {
-    trackFeatureClick('bi_dashboard_auto_created', { projectId });
-    setShowAutoCreate(false);
-    window.location.href = `/bi-dashboard/${projectId}`;
-  }, [trackFeatureClick]);
-
-  // AI Wizard hands off (projectId, name) once the dashboard + its widgets are
-  // created; the extra name arg is surfaced in tracking only. The wizard
-  // self-closes after onCreated, so we mirror handleAutoCreated's navigation.
-  const handleAiWizardCreated = useCallback((projectId: string, name: string) => {
-    trackFeatureClick('bi_dashboard_ai_wizard_created', { projectId, name });
-    setShowAiWizard(false);
-    window.location.href = `/bi-dashboard/${projectId}`;
-  }, [trackFeatureClick]);
+  // Docked AI Build hand-off — the rail creates the dashboard (shell or
+  // auto-created from a source) and gives back the destination: the editor,
+  // where the AI Build section generates the charts straight onto the grid.
+  const handleAiBuildLaunch = useCallback(
+    (href: string, meta: { projectId: string; mode: 'describe' | 'source' }) => {
+      trackFeatureClick('bi_dashboard_ai_build_created', meta);
+      setShowAiBuild(false);
+      window.location.href = href;
+    },
+    [trackFeatureClick],
+  );
 
   return (
     <ErrorBoundary>
@@ -413,29 +408,19 @@ function BIDashboardPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* Single docked AI entry — replaces the "AI Wizard" modal and the
+                  "Auto-create" portal drawer (both kept exported, unmounted). */}
               <button
                 onClick={() => {
-                  trackFeatureClick('bi_dashboard_open_ai_wizard');
-                  setShowAiWizard(true);
+                  trackFeatureClick('bi_dashboard_open_ai_build');
+                  setShowAiBuild(true);
                 }}
                 disabled={!canCreate}
                 title={!canCreate ? CREATE_DENIED_REASON : undefined}
                 className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-700 hover:to-fuchsia-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Wand2 className="w-4 h-4" />
-                AI Wizard
-              </button>
-              <button
-                onClick={() => {
-                  trackFeatureClick('bi_dashboard_open_auto_create');
-                  setShowAutoCreate(true);
-                }}
-                disabled={!canCreate}
-                title={!canCreate ? CREATE_DENIED_REASON : undefined}
-                className="flex items-center gap-2 px-4 py-2 border border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-              >
-                <Sparkles className="w-4 h-4" />
-                Auto-create
+                AI Build
               </button>
               <button
                 onClick={() => {
@@ -509,22 +494,16 @@ function BIDashboardPage() {
           />
         )}
 
-        {/* Auto-create from table/schema — POST /bi-dashboard/auto-create */}
-        <AutoCreateModal
-          isOpen={showAutoCreate}
-          onClose={() => setShowAutoCreate(false)}
-          onCreated={(projectId) => handleAutoCreated(projectId)}
-        />
-
-        {/* AI Wizard — describe → propose (POST /bi-dashboard/nl-to-chart) →
-            create (POST /bi-dashboard + /bi-dashboard/{id}/widgets). Rendered
-            only while open: useDataSourcePicker fetches databases on mount, so
-            keeping it unmounted avoids that cost on every landing-page load. */}
-        {showAiWizard && (
-          <AiDashboardWizard
+        {/* AI Build — docked (ActionRail): Describe → dashboard shell → editor's
+            AI Build section generates onto the grid; or From source →
+            POST /bi-dashboard/auto-create. Rendered only while open:
+            useDataSourcePicker fetches databases on mount, so keeping it
+            unmounted avoids that cost on every landing-page load. */}
+        {showAiBuild && (
+          <AiBuildLaunchRail
             isOpen
-            onClose={() => setShowAiWizard(false)}
-            onCreated={handleAiWizardCreated}
+            onClose={() => setShowAiBuild(false)}
+            onLaunch={handleAiBuildLaunch}
           />
         )}
       </div>
