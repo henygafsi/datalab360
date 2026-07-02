@@ -145,6 +145,7 @@ const ModulesTab = lazy(() => import('./modules-tab'));
 const SnowflakeExplorerTab = lazy(() => import('./snowflake-explorer-tab'));
 const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
 const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
+const SnowflakeAccountsAuditSection = lazy(() => import('./SnowflakeAccountsAuditSection'));
 const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
 const DwhActionPlanTab = lazy(() => import('./dwh-action-plan-tab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
@@ -2348,6 +2349,12 @@ function CommandCenterDashboardInner() {
                       Connected Accounts
                     </h2>
                     <SnowflakeAccountsTab onNavigateTab={goToTab} />
+                  </section>
+                  <section>
+                    <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Accounts &amp; audit
+                    </h2>
+                    <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
                   </section>
                 </div>
               </Suspense>
