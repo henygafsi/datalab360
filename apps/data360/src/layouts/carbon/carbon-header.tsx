@@ -54,7 +54,6 @@ const searchSuggestions = {
     { label: 'AI Intelligence', href: '/intelligent', icon: HiOutlineCpuChip, description: 'Cortex AI, LLM, semantic models' },
     { label: 'Observability', href: '/observability', icon: HiOutlineEye, description: 'KPIs, lineage, performance monitoring' },
     { label: 'Account Overview', href: '/account-overview', icon: HiOutlineBuildingOffice, description: 'Command center, cross-account audit' },
-    { label: 'Data Engineer Hub', href: '/data-engineer-hub', icon: HiOutlineCircleStack, description: 'Dynamic tables, streams, alerts' },
   ],
   actions: [
     { label: 'New Explore Project', href: '/explore-design', icon: HiOutlineDocumentText, description: 'Create data modeling project' },

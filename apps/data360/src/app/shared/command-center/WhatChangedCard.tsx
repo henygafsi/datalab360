@@ -28,8 +28,11 @@ function fmtDate(iso: string): string {
   }
 }
 
-/** Locale-format a credit number to 1 decimal place. */
-function fmtCr(n: number): string {
+/** Locale-format a credit number to 1 decimal place ('—' when absent). */
+function fmtCr(n: number | null | undefined): string {
+  // Anomaly entries arrive with optional numeric fields; an undefined here
+  // crashed the whole card (and the page KPIs above it) via .toLocaleString().
+  if (typeof n !== 'number' || Number.isNaN(n)) return '—';
   return n.toLocaleString(undefined, { maximumFractionDigits: 1 });
 }
 

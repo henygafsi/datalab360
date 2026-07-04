@@ -17,7 +17,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { safeToFixed, safeArray } from '@/lib/format-number';
 import type { ClientAccount, AccountFilters, HealthScore } from '@/app/services/org-accounts/types';
 import AccountLifecycleMenu, { normalizeRole } from './AccountLifecycleMenu';
-import AccountCreationWizard from './AccountCreationWizard';
 
 interface AccountsTableProps {
   accounts: ClientAccount[];
@@ -28,6 +27,11 @@ interface AccountsTableProps {
   onAccountClick?: (account: ClientAccount) => void;
   /** Refetch parent data after a successful lifecycle mutation. */
   onAccountsChanged?: () => void;
+  /**
+   * Open the docked account-creation panel. The wizard itself is now rendered
+   * (docked) by the parent overview tab; this table only owns the gated trigger.
+   */
+  onNewAccount?: () => void;
   className?: string;
 }
 
@@ -94,6 +98,7 @@ export default function AccountsTable({
   loading = false,
   onAccountClick,
   onAccountsChanged,
+  onNewAccount,
   className,
 }: AccountsTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -101,7 +106,6 @@ export default function AccountsTable({
   const [sortField, setSortField] = useState<SortField>('account_name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [showFilters, setShowFilters] = useState(false);
-  const [showCreateWizard, setShowCreateWizard] = useState(false);
 
   // Role-aware actions. Falls back to 'user' if the auth hook hasn't
   // resolved yet — kebab will then hide everything except View + Export.
@@ -289,7 +293,7 @@ export default function AccountsTable({
               <Button
                 variant="solid"
                 size="sm"
-                onClick={() => setShowCreateWizard(true)}
+                onClick={() => onNewAccount?.()}
               >
                 <UserPlus className="h-4 w-4 mr-2" />
                 New account
@@ -335,17 +339,6 @@ export default function AccountsTable({
           </div>
         )}
       </div>
-
-      {/* Create wizard */}
-      <AccountCreationWizard
-        open={showCreateWizard}
-        onOpenChange={setShowCreateWizard}
-        currentUserRole={userRole}
-        onCreated={(newAccount) => {
-          onAccountsChanged?.();
-          onAccountClick?.(newAccount);
-        }}
-      />
 
       {/* Table */}
       <div className="overflow-x-auto">

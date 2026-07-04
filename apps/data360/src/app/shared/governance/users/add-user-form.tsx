@@ -135,13 +135,12 @@ export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormPr
         />
 
         <Input
-          label="Email"
+          label="Email (optional)"
           type="email"
           placeholder="user@company.com"
           prefix={<Mail className="h-4 w-4 text-gray-400" />}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          required
         />
 
         <Password

@@ -9,10 +9,11 @@
  * STORE" — this is the read side that surfaces those traces.
  *
  * Designed to mount next to the main canvas (right edge) in
- * explore-design/page.tsx. Auto-refreshes every 20s while the project
- * is the same.
+ * explore-design/page.tsx. Refreshes on PROJECT_EVENTS SSE invalidations
+ * (shared singleton stream) — no interval polling.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAtomValue } from 'jotai';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import {
@@ -27,10 +28,10 @@ import { ActionIcon } from 'rizzui';
 import { cn } from '@/lib/utils';
 import { listEvents } from '@/app/services/api/projectsApi';
 import type { ProjectEvent } from '@/app/services/api/types';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 dayjs.extend(relativeTime);
-
-const POLL_MS = 20_000;
 
 type StatusTone = {
   Icon: React.ComponentType<{ className?: string }>;
@@ -100,29 +101,31 @@ export default function HistoryRail({
     }
   }, [projectId]);
 
+  // Only fetch when the rail is actually open. listEvents is a cold ~14s call
+  // over the SVC-less local connection (prod pre-warms it); firing it on mount
+  // while the rail is collapsed put a slow request on the project-open critical
+  // path for a panel the user can't even see. Deferring to first-open keeps the
+  // browse path clear; the SSE refresh below (also open-gated) keeps it fresh.
   useEffect(() => {
+    if (!open) return;
     void refresh();
+  }, [projectId, refresh, open]);
+
+  // Event-driven refresh instead of the former 20s poll (~180 req/hr/user):
+  // the backend broadcasts a PROJECT_EVENTS cache invalidation over the shared
+  // singleton SSE stream whenever a new event is recorded — same pattern as
+  // shared/project-dashboard/recent-activities.tsx. The identity ref skips the
+  // persisted mount-time value so only post-mount events trigger a refetch.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const seenInvalidationRef = useRef(lastInvalidation);
+  useEffect(() => {
+    if (lastInvalidation === seenInvalidationRef.current) return;
+    seenInvalidationRef.current = lastInvalidation;
     if (!open || !projectId) return;
-
-    // Poll on an interval, but skip the network call while the tab is
-    // hidden — there is nobody looking at the rail. When the tab becomes
-    // visible again we do an immediate catch-up refresh.
-    const tick = () => {
-      if (document.visibilityState === 'hidden') return;
+    if (lastInvalidation?.keys.includes(CACHE_KEYS.PROJECT_EVENTS)) {
       void refresh();
-    };
-    const t = window.setInterval(tick, POLL_MS);
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') void refresh();
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-
-    return () => {
-      window.clearInterval(t);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [open, projectId, refresh]);
+    }
+  }, [lastInvalidation, open, projectId, refresh]);
 
   const grouped = useMemo(() => {
     // Bucket by day for visual scanning.

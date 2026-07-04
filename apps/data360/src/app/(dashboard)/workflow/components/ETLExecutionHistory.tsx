@@ -34,6 +34,7 @@ import { ConfirmDestructiveDialog } from '@/components/ui/confirm-dialog';
 
 import RunActionsMenu from './RunActionsMenu';
 import RunCompareDrawer from './RunCompareDrawer';
+import TaskLogsDrawer from './TaskLogsDrawer';
 
 // Format duration in seconds to human-readable string
 function formatDuration(seconds: number): string {
@@ -199,6 +200,8 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   }>({ open: false, runA: null, runB: null });
   const [rerunningId, setRerunningId] = useState<string | null>(null);
   const [killTarget, setKillTarget] = useState<WorkflowRun | null>(null);
+  // Read-only logs drawer target (run whose task logs are being viewed).
+  const [logsTarget, setLogsTarget] = useState<WorkflowRun | null>(null);
 
   // Cancel is a real execution-class mutation (suspends the task + aborts the
   // in-flight query), so it must be RBAC-gated exactly like Run in the
@@ -983,6 +986,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                       onCompare={() => handleCompare(run)}
                       onToggleExpected={() => toggleExpectedFailure(run.run_id)}
                       onKill={() => setKillTarget(run)}
+                      onViewLogs={() => setLogsTarget(run)}
                       canKill={canCancel}
                       canRerun={canCancel}
                       onCopyId={() => void handleCopyRunId(run.run_id)}
@@ -1225,6 +1229,14 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
         runA={compareDrawer.runA}
         runB={compareDrawer.runB}
         onClose={() => setCompareDrawer({ open: false, runA: null, runB: null })}
+      />
+
+      {/* Read-only task-logs drawer */}
+      <TaskLogsDrawer
+        open={!!logsTarget}
+        workflowId={pipelineId}
+        runId={logsTarget?.run_id ?? null}
+        onClose={() => setLogsTarget(null)}
       />
     </div>
   );

@@ -15,7 +15,7 @@
  */
 
 import { Sparkles } from 'lucide-react';
-import { ACCOUNT_ADN, AXIS_ICON, adnTone, adnOverall, ratingLabel, type AdnAxis } from './AdnAxes';
+import { AXIS_ICON, adnTone, adnOverall, ratingLabel, type AdnAxis } from './AdnAxes';
 
 /** Loosened axis shape: `Icon` is optional (resolved from AXIS_ICON by key). */
 export type ScoreAxis = Omit<AdnAxis, 'Icon'> & { Icon?: AdnAxis['Icon'] };
@@ -63,11 +63,13 @@ function Popover({ axis, overall }: { axis?: ScoreAxis; overall?: number }) {
 }
 
 export default function AdnScoreCard({
-  axes = ACCOUNT_ADN,
+  // `axes` is REQUIRED: callers must pass scores derived from their own real
+  // data. The old default (hardcoded sample ACCOUNT_ADN) was a fabrication trap.
+  axes,
   title = 'ADN',
   compact = false,
 }: {
-  axes?: ScoreAxis[];
+  axes: ScoreAxis[];
   title?: string;
   compact?: boolean;
 }) {

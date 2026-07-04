@@ -670,7 +670,7 @@ export default function AccessControlCenter() {
       </div>
 
       {/* ── Right: detail inspector ── */}
-      {selectedModule && (
+      {selectedModule ? (
         <AccessInspector
           moduleKey={selectedModule}
           moduleLabel={moduleLabel}
@@ -690,6 +690,44 @@ export default function AccessControlCenter() {
           onSectionChange={setInspectorSection}
           onClose={() => setSelectedModule(null)}
         />
+      ) : (
+        // DEFAULT / ACCESS OVERVIEW — no module selected. Rather than leave the
+        // inspector column empty, state the purpose (current subject + how many
+        // modules are governable, from the already-loaded registry) and what to
+        // do next. Switches to the per-module inspector once a module is picked.
+        <aside className="w-[360px] shrink-0 rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+          <div className="border-b border-slate-200/80 px-4 py-3.5 dark:border-slate-800">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Access overview
+            </p>
+            <h2 className="mt-1 truncate text-[15px] font-semibold leading-tight text-slate-900 dark:text-white">
+              {mode === 'role' ? 'Role access' : 'User access'}
+            </h2>
+            <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">
+              {subjectName ? `Subject · ${subjectName}` : `No ${mode} selected`}
+            </p>
+          </div>
+          <EmptyState
+            icon={Layers}
+            compact
+            title="Select a module to inspect"
+            description="Pick a module in the tree to review the roles with access, its usage, governance posture and entitlement toggles."
+          />
+          <div className="grid grid-cols-2 gap-2 px-4 pb-4">
+            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/40">
+              <p className="text-[10px] uppercase tracking-wide text-slate-400">Modules</p>
+              <p className="text-lg font-bold text-slate-800 dark:text-slate-100">
+                {Object.keys(registry.registry).length || '—'}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/40">
+              <p className="text-[10px] uppercase tracking-wide text-slate-400">Subject</p>
+              <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                {subjectName || dash(null)}
+              </p>
+            </div>
+          </div>
+        </aside>
       )}
 
       {/* ── Dialogs ── */}

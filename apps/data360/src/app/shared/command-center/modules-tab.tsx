@@ -451,7 +451,7 @@ function ModulesTab() {
   // ModuleHealthItem contract) consumed by the sparklines / usage trend below.
   const [rawModules, setRawModules] = useState<any[]>([]);
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
-  // Flagship "Module activity" audit rows (ACTIVITY_FEED) — own .catch so a 404
+  // "Module activity" audit rows (ACTIVITY_FEED) — own .catch so a 404
   // on the feed never errors the whole tab.
   const [activityRows, setActivityRows] = useState<Row[]>([]);
   // Default 30d to match the other command-center endpoints / sibling tabs.

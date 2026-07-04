@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 
 import * as workflowApi from '@/app/services/api/workflowApi';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { safeNum } from '@/lib/format-number';
 import type { WorkflowSchedule, WorkflowCronChoice } from '@/app/services/api/types';
@@ -157,6 +158,10 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
     is_active: schedule ? (schedule.state === 'started') : true,
   });
   const [isSaving, setIsSaving] = useState(false);
+
+  // Action-level RBAC — saving re-crons via POST /schedule (may also suspend/resume)
+  const schedulePerm = useCanPerform('workflow', 'schedule');
+  const canSchedule = schedulePerm.allowed || schedulePerm.loading;
 
   const isCustom = formData.mode === 'custom';
 
@@ -346,7 +351,8 @@ const ScheduleForm: React.FC<ScheduleFormProps> = ({
         </button>
         <button
           type="submit"
-          disabled={isSaving}
+          disabled={!canSchedule || isSaving}
+          title={!canSchedule ? "You lack the 'schedule' permission on workflow. Ask an administrator to grant it." : undefined}
           className="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {isSaving ? (
@@ -471,6 +477,16 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
   const [confirmDeleteSchedule, setConfirmDeleteSchedule] = useState<string | null>(null);
   const [busyTask, setBusyTask] = useState<string | null>(null);
 
+  // Action-level RBAC — AND-combined with the contributor isReadOnly prop
+  const schedulePerm = useCanPerform('workflow', 'schedule');
+  const suspendPerm = useCanPerform('workflow', 'suspend');
+  const resumePerm = useCanPerform('workflow', 'resume');
+  const deletePerm = useCanPerform('workflow', 'delete');
+  const canSchedule = schedulePerm.allowed || schedulePerm.loading;
+  const canSuspend = suspendPerm.allowed || suspendPerm.loading;
+  const canResume = resumePerm.allowed || resumePerm.loading;
+  const canDelete = deletePerm.allowed || deletePerm.loading;
+
   // Load schedules
   const loadSchedulesFn = useCallback(
     () => workflowApi.getWorkflowSchedules(pipelineId!),
@@ -527,8 +543,7 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
     setConfirmDeleteSchedule(null);
     try {
       // Real teardown — DELETE /workflow/{id}/schedule drops the Snowflake TASK
-      // (DROP TASK IF EXISTS). Previously this only suspended the task while
-      // claiming "deleted", which left the schedule live but paused.
+      // (DROP TASK IF EXISTS), not just a suspend.
       await workflowApi.deleteSchedule(pipelineId);
       toast.success('Schedule deleted');
       loadSchedules();
@@ -616,7 +631,9 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
         {!isReadOnly && (
           <button
             onClick={() => setShowForm(true)}
-            className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1"
+            disabled={!canSchedule}
+            title={!canSchedule ? "You lack the 'schedule' permission on workflow. Ask an administrator to grant it." : undefined}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
           >
             <Plus className="h-4 w-4" />
             {compact ? '' : 'Add'}
@@ -670,12 +687,16 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
                         onClick={() =>
                           isActive ? handleSuspend(schedule) : handleResume(schedule)
                         }
-                        disabled={busyTask === schedule.task_name}
+                        disabled={(isActive ? !canSuspend : !canResume) || busyTask === schedule.task_name}
                         className={cn(
                           'p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-wait',
                           isActive ? 'text-orange-500' : 'text-green-500'
                         )}
-                        title={isActive ? 'Pause' : 'Resume'}
+                        title={
+                          isActive
+                            ? (!canSuspend ? "You lack the 'suspend' permission on workflow. Ask an administrator to grant it." : 'Pause')
+                            : (!canResume ? "You lack the 'resume' permission on workflow. Ask an administrator to grant it." : 'Resume')
+                        }
                       >
                         {busyTask === schedule.task_name ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -714,8 +735,9 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
                     {!isReadOnly && confirmDeleteSchedule !== schedule.task_name && (
                       <button
                         onClick={() => handleDelete(schedule)}
-                        className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-red-500"
-                        title="Delete"
+                        disabled={!canDelete}
+                        className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={!canDelete ? "You lack the 'delete' permission on workflow. Ask an administrator to grant it." : 'Delete'}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>

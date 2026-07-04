@@ -236,14 +236,16 @@ export default function HealthOverview({
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <Text className="text-sm text-gray-500">Avg Score:</Text>
-              <Text className={cn('text-sm font-bold', avgScore >= 70 ? 'text-green-600' : avgScore >= 50 ? 'text-amber-600' : 'text-red-600')}>
-                {avgScore}
+              <Text className={cn('text-sm font-bold', scores.length === 0 ? 'text-gray-400' : avgScore >= 70 ? 'text-green-600' : avgScore >= 50 ? 'text-amber-600' : 'text-red-600')}>
+                {scores.length > 0 ? avgScore : '—'}
               </Text>
             </div>
             <div className="flex gap-2">
-              <Badge variant="flat" color="success" size="sm">
-                {healthyCount} Healthy
-              </Badge>
+              {scores.length > 0 && (
+                <Badge variant="flat" color="success" size="sm">
+                  {healthyCount} Healthy
+                </Badge>
+              )}
               {warningCount > 0 && (
                 <Badge variant="flat" color="warning" size="sm">
                   {warningCount} Warning

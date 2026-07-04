@@ -231,7 +231,20 @@ export default function PolicyMetadataPanel({
       {picker()}
 
       {!selected ? (
-        <StateBlock>Select a policy to edit its expiration and comment.</StateBlock>
+        // DEFAULT / OVERVIEW state — no policy picked yet. Purposeful summary
+        // (how many policies of this type are editable, reusing the already-loaded
+        // list) plus clear guidance, instead of a bare one-liner.
+        <div className="space-y-2 py-6 text-center">
+          <p className="text-2xl font-bold text-slate-700 dark:text-slate-200">
+            {listLoading ? '—' : policies.length > 0 ? policies.length : '—'}
+          </p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            {policyTypeLabel ?? policyType} {policies.length === 1 ? 'policy' : 'policies'} available to edit
+          </p>
+          <p className="text-xs text-slate-400">
+            Select a policy above to edit its expiration and comment in place.
+          </p>
+        </div>
       ) : (
         <>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400">

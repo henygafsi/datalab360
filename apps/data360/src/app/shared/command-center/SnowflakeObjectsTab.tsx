@@ -45,7 +45,12 @@ type SubTab = (typeof SUBTABS)[number];
 type MigrationClass = 'product' | 'preparation' | 'mvp' | 'cloned';
 interface SampleObject {
   name: string; type: string; db: string; schema: string; owner: string;
-  aiScore: number; storage: string; perfRisk: 'Low' | 'Medium' | 'High';
+  // aiScore: no quality/AI-scan feed exists in the loaded payload → always
+  // `null`, rendered "—". Never a fabricated score.
+  aiScore: number | null; storage: string;
+  // perfRisk: threshold derivation of REAL fields (clustering key + row count);
+  // `null` (→ "—") when row_count is absent and there is no clustering signal.
+  perfRisk: 'Low' | 'Medium' | 'High' | null;
   // secRisk: REAL masking/RLS/policy-reference signal is NOT in the loaded
   // ACCOUNT_USAGE payload (no such field on ObjectEnrichmentRow / table-storage),
   // so this is always `null` → rendered "—". Never a fabricated 'Low'.
@@ -53,7 +58,7 @@ interface SampleObject {
   roles: number | null; projects: number | null;
   products: number | null; cost: string; costMo: string; nextAction: string;
   migration: MigrationClass; tags: string[]; sensitivity: string;
-  classification: string; policy: string; rows: string; cols: number; timeTravel: string;
+  classification: string; policy: string; rows: string; cols: number | null; timeTravel: string;
   // ── real per-object enrichment overlay (present only when a matching
   //    /command-center/object-enrichment row merged onto this storage row) ──
   enriched?: boolean;
@@ -108,7 +113,7 @@ function mapObject(
   const rows = num('row_count');
   const usd = num('est_monthly_usd');
   const transient = r['is_transient'] === true || str('is_transient').toLowerCase() === 'yes' || str('is_transient').toLowerCase() === 'true';
-  const aiScore = Math.max(35, Math.min(98, Math.round(62 + (clustered ? 12 : 0) + (tb < 0.5 ? 10 : 0) - (tb > 2 ? 14 : 0) - (rows > 1e8 ? 6 : 0))));
+  const hasRowCount = r['row_count'] != null;
   const db = str('database_name');
   const schema = str('schema_name');
   const name = str('table_name') || '—';
@@ -132,9 +137,11 @@ function mapObject(
     db,
     schema,
     owner: str('owner') || '—',
-    aiScore,
+    // No AI/quality scan feed in this payload → unknown ("—"), never invented.
+    aiScore: null,
     storage: fmtSize(tb),
-    perfRisk: clustered ? 'Low' : rows > 1e8 ? 'High' : 'Medium',
+    // Threshold read of real fields; unknown ("—") when neither signal exists.
+    perfRisk: clustered ? 'Low' : hasRowCount ? (rows > 1e8 ? 'High' : 'Medium') : null,
     // No masking/RLS/policy signal in this payload → unknown, render "—".
     secRisk: null,
     roles: e?.distinct_roles ?? null,
@@ -145,11 +152,13 @@ function mapObject(
     nextAction: tb > 1 ? 'Model in Data360' : clustered ? 'Govern in Governance' : 'Review',
     migration: deriveMigration(tb, clustered),
     tags: [str('table_type') || 'TABLE', clustered ? 'Clustered' : '', transient ? 'Transient' : ''].filter(Boolean),
-    sensitivity: 'Internal',
+    // No sensitivity/classification feed in this payload → honest "—",
+    // never a fabricated per-object classification.
+    sensitivity: '—',
     classification: '—',
     policy: '—',
-    rows: rows.toLocaleString(),
-    cols: 0,
+    rows: hasRowCount ? rows.toLocaleString() : '—',
+    cols: null,
     timeTravel: '—',
     enriched,
     rolesSample: e?.roles ?? undefined,
@@ -475,10 +484,14 @@ function OverviewSub() {
                     </td>
                     <td className="whitespace-nowrap px-2.5 py-1.5 text-gray-600 dark:text-gray-300">{o.owner}</td>
                     <td className="px-2.5 py-1.5">
-                      <span className={`rounded-full px-1.5 py-0.5 font-semibold ${o.aiScore >= 80 ? RISK_TONE.Low : o.aiScore >= 65 ? RISK_TONE.Medium : RISK_TONE.High}`}>{o.aiScore}</span>
+                      {o.aiScore != null ? (
+                        <span className={`rounded-full px-1.5 py-0.5 font-semibold ${o.aiScore >= 80 ? RISK_TONE.Low : o.aiScore >= 65 ? RISK_TONE.Medium : RISK_TONE.High}`}>{o.aiScore}</span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-2.5 py-1.5 text-gray-700 dark:text-gray-300">{o.storage}</td>
-                    <td className="px-2.5 py-1.5"><span className={`rounded px-1.5 py-0.5 ${RISK_TONE[o.perfRisk]}`}>{o.perfRisk}</span></td>
+                    <td className="px-2.5 py-1.5">{o.perfRisk ? <span className={`rounded px-1.5 py-0.5 ${RISK_TONE[o.perfRisk]}`}>{o.perfRisk}</span> : <span className="text-gray-400">—</span>}</td>
                     <td className="px-2.5 py-1.5">{o.secRisk ? <span className={`rounded px-1.5 py-0.5 ${RISK_TONE[o.secRisk]}`}>{o.secRisk}</span> : <span className="text-gray-400">—</span>}</td>
                     <td className="whitespace-nowrap px-2.5 py-1.5 text-gray-500">{(!realLoaded || o.enriched) && o.roles != null && o.projects != null ? `${o.roles}r · ${o.projects}p` : '—'}</td>
                     <td className="px-2.5 py-1.5 text-gray-500">{(!realLoaded || o.enriched) && o.products != null ? `${o.products} prod.` : '—'}</td>
@@ -539,11 +552,12 @@ function OverviewSub() {
 
         {detailTab === 'Summary' && (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-6">
-            <DetailBox title="Overview"><Kv k="Rows" v={selected.rows} /><Kv k="Columns" v={String(selected.cols)} /></DetailBox>
+            <DetailBox title="Overview"><Kv k="Rows" v={selected.rows} /><Kv k="Columns" v={selected.cols != null ? String(selected.cols) : '—'} /></DetailBox>
             <DetailBox title="Storage & Time Travel"><Kv k="Total Size" v={selected.storage} /><Kv k="Time Travel" v={selected.timeTravel} /></DetailBox>
             <DetailBox title="Governance & Security"><Kv k="Sensitivity" v={selected.sensitivity} tone={selected.sensitivity === 'Sensitive' || selected.sensitivity === 'Restricted' ? 'rose' : undefined} /><Kv k="Classification" v={selected.classification} tone={selected.classification === 'PII' ? 'rose' : undefined} /><Kv k="Policy" v={selected.policy} tone={selected.policy !== '—' ? 'emerald' : undefined} /></DetailBox>
             <DetailBox title="Linked To"><Kv k="Roles" v={selected.roles != null ? String(selected.roles) : '—'} /><Kv k="Projects" v={selected.projects != null ? String(selected.projects) : '—'} /><Kv k="Products" v={selected.products != null ? String(selected.products) : '—'} /></DetailBox>
-            <DetailBox title="AI Insights"><li className="text-[11px] text-gray-600 dark:text-gray-300">{selected.cost === 'High' ? 'High scan cost in last 30 days' : 'Cost within budget'}</li><li className="text-[11px] text-gray-600 dark:text-gray-300">{selected.perfRisk === 'High' ? 'Costly queries detected' : 'Good clustering & pruning'}</li></DetailBox>
+            {/* Honest storage-derived signals only — no invented "AI" claims. */}
+            <DetailBox title="Storage Signals"><li className="text-[11px] text-gray-600 dark:text-gray-300">{selected.costMo !== '—' ? `Est. monthly cost ${selected.costMo}` : 'Monthly cost not available'}</li><li className="text-[11px] text-gray-600 dark:text-gray-300">{selected.tags.includes('Clustered') ? 'Clustering key defined' : 'No clustering key'}</li></DetailBox>
             <DetailBox title="Opportunities"><li className="text-[11px] text-gray-600 dark:text-gray-300">Model in Data360 ({MIGRATION_META[selected.migration].label})</li><li className="text-[11px] text-gray-600 dark:text-gray-300">Expose as API with cache</li></DetailBox>
           </div>
         )}
@@ -566,7 +580,7 @@ function OverviewSub() {
               <Kv k="Crédits attribués" v={selected.attributedCredits != null ? safeToFixed(selected.attributedCredits, 2) : '—'} />
               <Kv k="Requêtes facturables" v={selected.billableQueries != null ? String(selected.billableQueries) : '—'} />
             </DetailBox>
-            <DetailBox title="Performance"><Kv k="Perf risk" v={selected.perfRisk} /><Kv k="Storage" v={selected.storage} /></DetailBox>
+            <DetailBox title="Performance"><Kv k="Perf risk" v={selected.perfRisk ?? '—'} /><Kv k="Storage" v={selected.storage} /></DetailBox>
             <DetailBox title="Optimisation"><li className="text-[11px] text-gray-600 dark:text-gray-300">Right-size / cluster</li><li className="text-[11px] text-gray-600 dark:text-gray-300">Lower Time-Travel</li></DetailBox>
           </div>
         )}
@@ -631,16 +645,20 @@ function riskScore(r: 'Low' | 'Medium' | 'High') {
 }
 interface AdnAxis { key: string; label: string; score: number | null }
 function adnAxes(o: SampleObject): AdnAxis[] {
-  // 5 axes — Sécurité folds in governance + access; "Accès" renamed to "Sécurité".
-  // SEC: both inputs (secRisk + policy/classification) are absent from the loaded
-  // ACCOUNT_USAGE payload (no masking/RLS/policy-reference signal), so we surface
-  // it as unknown ("—") rather than a confident number off a constant.
+  // 5 axes — Sécurité folds in governance + access.
+  // Only axes backed by a REAL signal get a number:
+  //   DQ    — no quality/AI-scan feed in this payload → unknown ("—").
+  //   PERF  — threshold read of real clustering/row-count fields (null → "—").
+  //   SEC   — no masking/RLS/policy-reference signal in the payload → "—".
+  //   STORAGE — threshold read of the real storage size.
+  //   USAGE — a real project COUNT exists but no measured usage *score*; we
+  //           refuse to synthesize one (was `35 + projects*9`) → "—".
   return [
     { key: 'DQ', label: 'Qualité', score: o.aiScore },
-    { key: 'PERF', label: 'Perf', score: riskScore(o.perfRisk) },
+    { key: 'PERF', label: 'Perf', score: o.perfRisk ? riskScore(o.perfRisk) : null },
     { key: 'SEC', label: 'Sécurité', score: null },
     { key: 'STORAGE', label: 'Stockage', score: o.cost === 'High' ? 45 : o.cost === 'Medium' ? 70 : 90 },
-    { key: 'USAGE', label: 'Usage', score: o.projects != null ? Math.min(95, 35 + o.projects * 9) : null },
+    { key: 'USAGE', label: 'Usage', score: null },
   ];
 }
 function scoreTone(s: number | null) {

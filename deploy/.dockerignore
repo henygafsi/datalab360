@@ -1,0 +1,64 @@
+# Copy to BOTH repo roots as `.dockerignore`. This is the production-clean boundary:
+# everything here is excluded from the build context/image (keeps images small + secret-free).
+
+# --- secrets: NEVER in an image (inject at runtime) ---
+.env
+.env.*
+*.pem
+*.p8
+*.key
+.platform-credentials.txt
+
+# --- vcs / ci / editor ---
+.git
+.gitignore
+.github
+.gitlab-ci.yml
+.vscode
+.idea
+*.swp
+
+# --- deps & build artifacts (rebuilt inside the image) ---
+node_modules
+.pnpm-store
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.next
+.turbo
+dist
+build
+*.egg-info
+
+# --- tests, e2e, coverage (not shipped) ---
+e2e
+tests
+test
+**/*.test.*
+**/*.spec.*
+coverage
+.pytest_cache
+.mypy_cache
+.ruff_cache
+playwright-report
+test-results
+
+# --- docs, mockups, audits, scratch (not runtime) ---
+docs
+mockups
+*.md
+!README.md
+deploy/scratch
+obsidian
+vault
+
+# --- os / logs / backups ---
+.DS_Store
+Thumbs.db
+*.log
+*.bak
+*.bak-*
+*.orig
+*.tmp

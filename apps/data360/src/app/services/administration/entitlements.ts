@@ -4,7 +4,7 @@
  * administration/entitlements — Feature Governance admin service (G5).
  *
  * Wraps the ACCOUNTADMIN-gated entitlement + governance-posture backend
- * (`app/modules/administration/router.py`), which is otherwise orphaned (no FE):
+ * (`app/modules/administration/router.py`):
  *
  *   GET  /api/administration/entitlements
  *        → full per-module addon matrix (every registered feature merged with

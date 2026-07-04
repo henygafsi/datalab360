@@ -1,14 +1,17 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { Badge, Button, Loader } from 'rizzui';
-import { getCortexKpis, type CortexKpis } from '@/app/services/cortex';
+import { useRouter, useSearchParams } from 'next/navigation';
+import type { IconType } from 'react-icons';
+import { Badge, Button, Input, Loader, Textarea } from 'rizzui';
+import { toast } from 'react-hot-toast';
+import { getCortexKpis, generateEmbeddings, queryCortex, type CortexKpis, type CortexQueryResult } from '@/app/services/cortex';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   PiBrain,
   PiDatabase,
@@ -21,11 +24,15 @@ import {
   PiGear,
   PiChartLineUp,
   PiCloudArrowUp,
+  PiVectorThree,
+  PiMagnifyingGlass,
 } from 'react-icons/pi';
 import { HiOutlineRefresh } from 'react-icons/hi';
 import KPICard from '@/components/analytics/KPICard';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import Breadcrumb from '@/components/ui/Breadcrumb';
+import IntelligentCockpit, { IntelligentKpiStrip } from './components/IntelligentCockpit';
+import AskLanding from './components/AskLanding';
 
 // Import content components
 import SemanticModelsContent from './semantic-models-content';
@@ -80,104 +87,56 @@ interface CortexVectorColumn {
   ROW_COUNT?: number;
 }
 
-const TABS = [
+/**
+ * Secondary navigation — the 12 historical tabs regrouped into TWO compact,
+ * clearly-purposed groups (replacing the old wall of highlighted tab cards):
+ *
+ *   "Your data AI" — user-facing analytics on the caller's own data
+ *   "AI resources" — infra / resource management surfaces
+ *
+ * Every tab id is unchanged, so existing ?tab= deep-links keep resolving.
+ */
+interface NavItem {
+  id: TabType;
+  name: string;
+  icon: IconType;
+  /** Tooltip — the old tab-card description, kept for discoverability. */
+  hint: string;
+}
+
+const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
-    id: 'semantic-models' as TabType,
-    name: 'Semantic Models',
-    icon: PiDatabase,
-    description: 'YAML-based data models for natural-language analytics',
-    badge: 'AI-Powered',
-    badgeColor: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
+    label: 'Your data AI',
+    items: [
+      { id: 'cortex-chat', name: 'AI Chat', icon: PiChatCircleDots, hint: 'Ask questions about your data in natural language' },
+      { id: 'ai-console', name: 'AI Console', icon: PiLightning, hint: 'Docked NL to SQL analyst: pick a semantic model, ask, get SQL + results' },
+      { id: 'ai-advisor', name: 'AI Advisor', icon: PiSparkle, hint: 'AI recommendations for cost, performance & governance' },
+      { id: 'query-analytics', name: 'Query Analytics', icon: PiChartLineUp, hint: 'AI-powered query analysis & optimization' },
+      { id: 'local-analytics', name: 'Local Analytics', icon: PiDatabase, hint: 'Zero-cost queries on staged data' },
+      { id: 'semantic-models', name: 'Semantic Models', icon: PiDatabase, hint: 'YAML-based data models for natural-language analytics' },
+      { id: 'semantic-views', name: 'Semantic Views', icon: PiDatabase, hint: 'Create & manage semantic views for natural-language analytics' },
+      { id: 'vector-search', name: 'Vector Search', icon: PiVectorThree, hint: 'Embeddings, vector columns & similarity search' },
+    ],
   },
   {
-    id: 'ai-console' as TabType,
-    name: 'AI Console',
-    icon: PiLightning,
-    description: 'Docked NL to SQL analyst: pick a semantic model, ask, get SQL + results',
-    badge: 'AI',
-    badgeColor: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400',
-  },
-  {
-    id: 'cortex-chat' as TabType,
-    name: 'AI Chat',
-    icon: PiChatCircleDots,
-    description: 'Ask questions about your data in natural language',
-    badge: 'Beta',
-    badgeColor: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400',
-  },
-  {
-    id: 'ai-advisor' as TabType,
-    name: 'AI Advisor',
-    icon: PiSparkle,
-    description: 'AI recommendations for cost, performance & governance',
-    badge: 'New',
-    badgeColor: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400',
-  },
-  {
-    id: 'ml-features' as TabType,
-    name: 'ML Features',
-    icon: PiRobotDuotone,
-    description: 'Text analysis, translation & more',
-    badge: 'New',
-    badgeColor: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-  },
-  {
-    id: 'advanced-ml' as TabType,
-    name: 'Advanced ML',
-    icon: PiGear,
-    description: 'Fine-tuning, Classification & Document AI',
-    badge: 'Pro',
-    badgeColor: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
-  },
-  {
-    id: 'query-analytics' as TabType,
-    name: 'Query Analytics',
-    icon: PiChartLineUp,
-    description: 'AI-powered query analysis & optimization',
-    badge: 'AI',
-    badgeColor: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
-  },
-  {
-    id: 'local-analytics' as TabType,
-    name: 'Local Analytics',
-    icon: PiDatabase,
-    description: 'Zero-cost queries on staged data (DuckDB-style)',
-    badge: 'New',
-    badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
-  },
-  {
-    id: 'snowpark-services' as TabType,
-    name: 'Container Apps',
-    icon: PiCloudArrowUp,
-    description: 'Container services, apps & compute pools',
-    badge: 'Enterprise',
-    badgeColor: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
-  },
-  {
-    id: 'cortex-agents' as TabType,
-    name: 'AI Agents',
-    icon: PiRobotDuotone,
-    description: 'Autonomous AI agents combining analysis, search & tools',
-    badge: 'Preview',
-    badgeColor: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400',
-  },
-  {
-    id: 'semantic-views' as TabType,
-    name: 'Semantic Views',
-    icon: PiDatabase,
-    description: 'Create & manage semantic views for natural-language analytics',
-    badge: 'New',
-    badgeColor: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400',
-  },
-  {
-    id: 'vector-search' as TabType,
-    name: 'Vector Search',
-    icon: PiSparkle,
-    description: 'Embeddings, vector columns & similarity search',
-    badge: 'AI',
-    badgeColor: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400',
+    label: 'AI resources',
+    items: [
+      { id: 'ml-features', name: 'ML Features', icon: PiRobotDuotone, hint: 'Text analysis, translation & more' },
+      { id: 'advanced-ml', name: 'Advanced ML', icon: PiGear, hint: 'Fine-tuning, classification & document AI' },
+      { id: 'snowpark-services', name: 'Container Apps', icon: PiCloudArrowUp, hint: 'Container services, apps & compute pools' },
+      { id: 'cortex-agents', name: 'AI Agents', icon: PiRobotDuotone, hint: 'Autonomous AI agents combining analysis, search & tools' },
+    ],
   },
 ];
+
+/** Compact 11px nav pill — active state mirrors the old tab highlight. */
+function navPillClass(active: boolean): string {
+  return `inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+    active
+      ? 'border-purple bg-purple-lighter/50 text-purple'
+      : 'border-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700/50 dark:hover:text-gray-200'
+  }`;
+}
 
 function formatKpiValue(value: number | null | undefined, format: 'number' | 'percent' | 'seconds'): string {
   if (value === null || value === undefined) return '—';
@@ -206,19 +165,26 @@ function FeatureUnavailableNotice({ label }: { label: string }) {
 }
 
 export default function IntelligentPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   // useTrackEvent auto-fires PAGE_VIEW on mount via pathname; call trackTabSwitch on tab changes.
   const { trackTabSwitch } = useTrackEvent();
-  const tabFromUrl = useMemo(() => {
+  // Deep-links preserved: every historical ?tab= id still renders its tab.
+  // No (or an unknown) ?tab= lands on the chat-first "Ask AI" home instead.
+  const activeTab = useMemo<TabType | 'home'>(() => {
     const t = searchParams.get('tab');
     if (t === 'ml-features' || t === 'semantic-models' || t === 'ai-console' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services' || t === 'cortex-agents' || t === 'semantic-views' || t === 'vector-search' || t === 'ai-advisor') return t as TabType;
-    return 'semantic-models';
+    return 'home';
   }, [searchParams]);
-  const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
 
-  useEffect(() => {
-    setActiveTab(tabFromUrl);
-  }, [tabFromUrl]);
+  // Navigation writes the tab into the URL (shareable + back-button friendly).
+  const goTo = useCallback(
+    (id: TabType | 'home') => {
+      router.push(id === 'home' ? '/intelligent' : `/intelligent?tab=${id}`, { scroll: false });
+      trackTabSwitch(id);
+    },
+    [router, trackTabSwitch],
+  );
 
   // ── KPIs via useCacheAwareQuery ──
   const fetchKpis = useCallback(() => getCortexKpis(), []);
@@ -282,40 +248,12 @@ export default function IntelligentPage() {
     return tables.size;
   }, [vectorColumns]);
 
-  return (
-    <ErrorBoundary>
-    <div className="space-y-8">
-      <Breadcrumb items={[{ label: 'Intelligent Analytics', href: '/intelligent' }]} />
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-purple-lighter/70">
-              <PiBrain className="h-6 w-6 text-purple" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-                Intelligent Analytics
-              </h1>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                AI-powered data insights across your platform
-              </p>
-            </div>
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          className="gap-2"
-          onClick={loadKpis}
-          disabled={kpisLoading}
-        >
-          <HiOutlineRefresh className={`w-4 h-4 ${kpisLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
-      </div>
-
-      {/* KPI Stats Grid - from GET /cortex/kpis (no static data) */}
-      {kpisUnavailable && !kpisLoading && <div className="mb-3"><FeatureUnavailableNotice label="AI usage metrics" /></div>}
+  // KPI overview (GET /cortex/kpis, no static data) — a single definition
+  // rendered above tab content on tab views (as before) and below the chat
+  // hero on the chat-first home.
+  const kpiOverview = (
+    <section aria-label="AI usage metrics" className="space-y-6">
+      {kpisUnavailable && !kpisLoading && <FeatureUnavailableNotice label="AI usage metrics" />}
       {kpisError && !kpisLoading && (
         <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
           <PiLightning className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -362,7 +300,7 @@ export default function IntelligentPage() {
         />
       </div>
 
-      {/* Real Cortex spend strip — additive, scalars only, hidden when absent */}
+      {/* Real AI-engine spend strip — additive, scalars only, hidden when absent */}
       {hasCortexUsage && cortexUsage && (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/50 text-sm">
           <span className="font-medium text-gray-700 dark:text-gray-300">
@@ -394,46 +332,101 @@ export default function IntelligentPage() {
           )}
         </div>
       )}
+    </section>
+  );
+
+  return (
+    <ErrorBoundary>
+    {/* Page shell: scrolling content column + docked intelligence cockpit at the right edge */}
+    <div className="flex items-start gap-4">
+    <div className="min-w-0 flex-1 space-y-8">
+      <Breadcrumb items={[{ label: 'Intelligent Analytics', href: '/intelligent' }]} />
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-purple-lighter/70">
+              <PiBrain className="h-6 w-6 text-purple" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                Intelligent Analytics
+              </h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                AI-powered data insights across your platform
+              </p>
+            </div>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          className="gap-2"
+          onClick={loadKpis}
+          disabled={kpisLoading}
+        >
+          <HiOutlineRefresh className={`w-4 h-4 ${kpisLoading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Unified intelligence KPI strip — click a KPI to open its cockpit axis */}
+      <IntelligentKpiStrip />
+
+      {/* KPI overview — above the content on tab views (unchanged); on the
+          chat-first home it renders BELOW the chat + suggestions instead. */}
+      {activeTab !== 'home' && kpiOverview}
 
       {/* Main Content Card with Tabs */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-muted dark:border-gray-700 shadow-sm overflow-hidden">
-        {/* Tabs */}
-        <div role="tablist" className="flex gap-2 p-4 border-b border-muted dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50 overflow-x-auto">
-          {TABS.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => { setActiveTab(tab.id); trackTabSwitch(tab.id); }}
-                className={`flex items-center gap-3 px-5 py-3 text-sm font-medium transition-all duration-200 rounded-lg border-2 ${
-                  isActive
-                    ? 'border-purple bg-purple-lighter/50 text-purple'
-                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700/50'
-                }`}
+        {/* Compact grouped secondary nav — replaces the old wall of tab cards.
+            Two purposeful groups; every historical tab id keeps working. */}
+        <nav
+          role="tablist"
+          aria-label="Intelligent Analytics sections"
+          className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-muted bg-gray-50/50 px-4 py-2.5 dark:border-gray-700 dark:bg-gray-800/50"
+        >
+          <button
+            role="tab"
+            aria-selected={activeTab === 'home'}
+            title="Chat-first home — ask AI about your data"
+            onClick={() => goTo('home')}
+            className={navPillClass(activeTab === 'home')}
+          >
+            <PiChatCircleDots className="h-3.5 w-3.5" aria-hidden />
+            Ask AI
+          </button>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className="flex flex-wrap items-center gap-1">
+              <span
+                role="presentation"
+                className="mr-0.5 select-none border-l border-gray-200 pl-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:border-gray-700 dark:text-gray-500"
               >
-                <Icon className="w-5 h-5" />
-                <div className="text-left">
-                  <div className="flex items-center gap-2">
-                    <span>{tab.name}</span>
-                    {tab.badge && (
-                      <Badge className={`text-[10px] px-1.5 py-0.5 ${tab.badgeColor}`}>
-                        {tab.badge}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="text-xs opacity-70 mt-0.5 font-normal">{tab.description}</div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+                {group.label}
+              </span>
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    role="tab"
+                    aria-selected={activeTab === item.id}
+                    title={item.hint}
+                    onClick={() => goTo(item.id)}
+                    className={navPillClass(activeTab === item.id)}
+                  >
+                    <Icon className="h-3.5 w-3.5" aria-hidden />
+                    {item.name}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
 
         {/* Tab Content */}
         <div role="tabpanel" className="p-6">
+          {/* Chat-first home: persisted AI chat + data-aware suggestions */}
+          {activeTab === 'home' && <AskLanding />}
           {activeTab === 'semantic-models' && <SemanticModelsContent />}
           {activeTab === 'ai-console' && <AiPromptConsoleContent />}
           {activeTab === 'cortex-chat' && <CortexChatContent />}
@@ -449,8 +442,8 @@ export default function IntelligentPage() {
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">AI Agents</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Build autonomous AI agents that combine structured data analysis, unstructured search, and custom tools.</p>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Registered Agents</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Autonomous AI agents registered on this account, combining structured data analysis, unstructured search, and custom tools.</p>
                 </div>
                 <Button
                   variant="outline"
@@ -471,31 +464,6 @@ export default function IntelligentPage() {
                   <Button variant="text" size="sm" className="ml-auto shrink-0" onClick={loadAgents}>Retry</Button>
                 </div>
               )}
-
-              {/* Agent capabilities overview */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <PiDatabase className="w-5 h-5 text-blue-500" />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">Structured Analyst</span>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Structured data queries via semantic models. SQL generation from natural language.</p>
-                </div>
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <PiSparkle className="w-5 h-5 text-purple-500" />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">Semantic Search</span>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Unstructured data retrieval. Vector search over documents, PDFs, and text columns.</p>
-                </div>
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <div className="flex items-center gap-2 mb-2">
-                    <PiGear className="w-5 h-5 text-amber-500" />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">Custom Tools</span>
-                  </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Python UDFs, external APIs, and container functions as agent tools.</p>
-                </div>
-              </div>
 
               {/* Agent list */}
               {agentsLoading ? (
@@ -541,7 +509,7 @@ export default function IntelligentPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Semantic Views</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Define business-friendly views with dimensions, measures, time grains, and synonyms for natural-language analytics.</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Business-friendly semantic views registered for natural-language analytics, with their tables, measures, and status.</p>
                 </div>
                 <Button
                   variant="outline"
@@ -562,28 +530,6 @@ export default function IntelligentPage() {
                   <Button variant="text" size="sm" className="ml-auto shrink-0" onClick={loadSemanticViews}>Retry</Button>
                 </div>
               )}
-
-              {/* View builder info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">YAML-Based Definition</h4>
-                  <ul className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    <li className="flex items-center gap-2"><PiLightning className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Tables with columns, data types, and descriptions</li>
-                    <li className="flex items-center gap-2"><PiLightning className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Dimensions, measures, and time dimensions</li>
-                    <li className="flex items-center gap-2"><PiLightning className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Business synonyms and sample values</li>
-                    <li className="flex items-center gap-2"><PiLightning className="w-3.5 h-3.5 text-amber-500 shrink-0" /> Verified queries for accuracy validation</li>
-                  </ul>
-                </div>
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Natural-Language Analytics Integration</h4>
-                  <ul className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    <li className="flex items-center gap-2"><PiTrendUp className="w-3.5 h-3.5 text-green-500 shrink-0" /> Auto-generate YAML from table metadata</li>
-                    <li className="flex items-center gap-2"><PiTrendUp className="w-3.5 h-3.5 text-green-500 shrink-0" /> Validate with test questions before deploy</li>
-                    <li className="flex items-center gap-2"><PiTrendUp className="w-3.5 h-3.5 text-green-500 shrink-0" /> Version history with diff viewer</li>
-                    <li className="flex items-center gap-2"><PiTrendUp className="w-3.5 h-3.5 text-green-500 shrink-0" /> Stage to @semantic_model_stage</li>
-                  </ul>
-                </div>
-              </div>
 
               {/* Semantic views list */}
               {semanticViewsLoading ? (
@@ -685,6 +631,12 @@ export default function IntelligentPage() {
                 </div>
               </div>
 
+              {/* Embed a column + similarity search */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <VectorEmbedPanel onEmbedded={loadVectorColumns} />
+                <VectorSimilarityPanel columns={vectorColumns ?? []} />
+              </div>
+
               {/* Vector columns list */}
               {vectorColumnsLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -744,6 +696,9 @@ export default function IntelligentPage() {
         </div>
       </div>
 
+      {/* On the chat-first home the KPI overview lives under the hero */}
+      {activeTab === 'home' && kpiOverview}
+
       {/* Feature Highlights */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="border border-muted dark:border-gray-700 bg-white dark:bg-gray-900 p-6 rounded-xl transition-all duration-200 hover:shadow-md">
@@ -790,6 +745,237 @@ export default function IntelligentPage() {
         <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Semantic Models)</a>
       </div>
     </div>
+
+    {/* Docked right cockpit: score / recos / models / robotize / history / governance */}
+    <IntelligentCockpit kpis={kpis} />
+    </div>
     </ErrorBoundary>
+  );
+}
+
+// ── Vector Search helpers ─────────────────────────────────────────────────
+
+function vectorErrMessage(e: unknown): string {
+  if (e && typeof e === 'object' && 'message' in e) return String((e as { message: unknown }).message);
+  return 'Request failed';
+}
+
+/**
+ * Embed a column — turns a column's values into vectors via the managed
+ * embedding model (POST /cortex/embeddings). Gated by cortex:generate; on
+ * success it toasts and refreshes the vector-columns list.
+ */
+function VectorEmbedPanel({ onEmbedded }: { onEmbedded: () => void }) {
+  const generatePerm = useCanPerform('cortex', 'generate');
+  const canGenerate = generatePerm.allowed || generatePerm.loading;
+
+  const [target, setTarget] = useState('');
+  const [text, setText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ count: number; dims: number } | null>(null);
+
+  const run = useCallback(async () => {
+    const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      toast.error('Enter at least one value to embed (one per line).');
+      return;
+    }
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await generateEmbeddings(lines);
+      const dims = res[0]?.embedding?.length ?? 0;
+      setResult({ count: res.length, dims });
+      toast.success(
+        `Embedded ${res.length} value${res.length === 1 ? '' : 's'}${dims ? ` · ${dims} dims` : ''}${target.trim() ? ` → ${target.trim()}` : ''}`,
+      );
+      onEmbedded();
+    } catch (e) {
+      toast.error(vectorErrMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [text, target, onEmbedded]);
+
+  return (
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 space-y-3">
+      <div>
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+          <PiVectorThree className="w-4 h-4 text-rose-500" /> Embed a column
+        </h4>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Generate embeddings for a column&apos;s values. One value per line.</p>
+      </div>
+      <Input
+        label="Target (TABLE.COLUMN)"
+        placeholder="CUSTOMERS.DESCRIPTION"
+        value={target}
+        onChange={(e) => setTarget(e.target.value)}
+      />
+      <Textarea
+        label="Values to embed"
+        placeholder={'annual recurring revenue\nmonthly recurring revenue\ncustomer churn rate'}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+      />
+      <Button
+        size="sm"
+        className="w-full gap-1.5"
+        onClick={run}
+        isLoading={loading}
+        disabled={!canGenerate || loading}
+      >
+        <PiVectorThree className="h-4 w-4" /> Embed
+      </Button>
+      {!generatePerm.allowed && !generatePerm.loading && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400">You don&apos;t have permission to generate embeddings.</p>
+      )}
+      {result && (
+        <p className="text-xs text-gray-600 dark:text-gray-300">
+          Generated <span className="font-semibold">{result.count}</span> vector{result.count === 1 ? '' : 's'}
+          {result.dims ? <> × <span className="font-semibold">{result.dims}</span> dims</> : null}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Similarity search — runs a Cortex query (POST /cortex/query) that ranks the
+ * closest records to a phrase over one of the listed embedded columns.
+ */
+function VectorSimilarityPanel({ columns }: { columns: CortexVectorColumn[] }) {
+  const options = useMemo(
+    () =>
+      columns
+        .map((c) => `${c.table_name || c.TABLE_NAME || ''}.${c.column_name || c.COLUMN_NAME || ''}`)
+        .filter((label) => label !== '.'),
+    [columns],
+  );
+
+  const [selected, setSelected] = useState('');
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState<CortexQueryResult[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selected && options.length > 0) setSelected(options[0]);
+  }, [options, selected]);
+
+  const run = useCallback(async () => {
+    const q = query.trim();
+    if (!q) {
+      toast.error('Enter a phrase to search for.');
+      return;
+    }
+    if (!selected) {
+      toast.error('Select a vector column to search.');
+      return;
+    }
+    const table = selected.split('.')[0];
+    setLoading(true);
+    setResults(null);
+    setError(null);
+    try {
+      const res = await queryCortex({
+        prompt: `Find the rows in ${table} most similar to "${q}", ranked by vector cosine similarity on the ${selected} embedding column. Return the closest matches.`,
+      });
+      setResults(res.results ?? []);
+    } catch (e) {
+      setError(vectorErrMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [query, selected]);
+
+  return (
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 space-y-3">
+      <div>
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+          <PiMagnifyingGlass className="w-4 h-4 text-purple-500" /> Similarity search
+        </h4>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Find the closest records to a phrase across an embedded column.</p>
+      </div>
+      {options.length === 0 ? (
+        <p className="text-xs text-gray-400 dark:text-gray-500">No vector columns available to search yet.</p>
+      ) : (
+        <>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Vector column</label>
+            <select
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-2.5 py-1.5 text-sm text-gray-900 dark:text-gray-100"
+            >
+              {options.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </div>
+          <Input
+            label="Search phrase"
+            placeholder="customers who mentioned refunds"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
+          />
+          <Button size="sm" className="w-full gap-1.5" onClick={run} isLoading={loading} disabled={loading}>
+            <PiMagnifyingGlass className="h-4 w-4" /> Search
+          </Button>
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+          {results != null && results.length === 0 && !error && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">— No matches returned.</p>
+          )}
+          {results && results.length > 0 && (
+            <div className="space-y-2">
+              {results.map((r, i) => (
+                <VectorResultBlock key={i} result={r} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function VectorResultBlock({ result }: { result: CortexQueryResult }) {
+  const sql = result.query ?? (result.type === 'sql' ? result.text : undefined);
+  const rows: Record<string, unknown>[] = Array.isArray(result.data) ? (result.data as Record<string, unknown>[]) : [];
+  const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
+  return (
+    <div className="space-y-2">
+      {sql && (
+        <pre className="overflow-x-auto rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-[11px] leading-relaxed text-green-300">{sql}</pre>
+      )}
+      {result.text && result.type !== 'sql' && (
+        <p className="whitespace-pre-wrap text-xs text-gray-700 dark:text-gray-300">{result.text}</p>
+      )}
+      {cols.length > 0 && (
+        <div className="max-h-56 overflow-auto rounded-md border border-gray-200 dark:border-gray-700">
+          <table className="min-w-full text-[11px]">
+            <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+              <tr>
+                {cols.map((c) => (
+                  <th key={c} className="border-b border-gray-200 px-2 py-1.5 text-left font-semibold text-gray-600 dark:border-gray-700 dark:text-gray-300">{c}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 25).map((row, ri) => (
+                <tr key={ri} className="odd:bg-white even:bg-gray-50 dark:odd:bg-gray-900 dark:even:bg-gray-800/40">
+                  {cols.map((c) => (
+                    <td key={c} className="border-b border-gray-100 px-2 py-1 text-gray-700 dark:border-gray-800 dark:text-gray-300">
+                      {row[c] === null || row[c] === undefined ? '—' : String(row[c])}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

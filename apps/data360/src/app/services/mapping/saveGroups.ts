@@ -47,16 +47,21 @@ async function ensureProjectExists(projectId: string): Promise<void> {
 /**
  * Saves mapping groups using the event-based pattern.
  *
- * The historical /explore-design/guided/add-event/ route DOES NOT EXIST on the
- * current backend (the /explore-design router has no /guided sub-prefix and there
- * is no canonical group-event endpoint). Rather than silently pretend the groups
- * were persisted, we ensure the project exists and then surface an honest error so
- * the caller can inform the user instead of showing a false "saved" confirmation.
+ * POST /explore-design/guided/add-event, one call per group (the backend's
+ * AddEventRequest carries a single {group_index, sources, target}).
  */
 export async function addGroupEvent(payload: SaveGroupsPayload): Promise<void> {
     await ensureProjectExists(payload.project_id);
 
-    throw new Error(
-        'Saving mapping groups is not available: the backend does not expose a group-event endpoint.'
-    );
+    for (let i = 0; i < payload.groups.length; i++) {
+        const group = payload.groups[i];
+        await apiClient.post(API.exploreDesign.guidedAddEvent(), {
+            project_id: payload.project_id,
+            event_details: {
+                group_index: i,
+                sources: group.sources,
+                target: group.target,
+            },
+        });
+    }
 }

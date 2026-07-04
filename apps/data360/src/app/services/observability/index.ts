@@ -382,6 +382,22 @@ export async function getCrossModuleAlerts(days: number = 7): Promise<AlertsResp
   return apiCallWithTransform<AlertsResponse>(API.observability.alertsCrossModule(days));
 }
 
+/**
+ * Acknowledge an alert. `acknowledgedBy` must be the REAL session username —
+ * the backend records who took ownership (never send a placeholder string).
+ * POST /observability/alerts/{alertId}/ack
+ */
+export async function acknowledgeObservabilityAlert(
+  alertId: string,
+  acknowledgedBy: string,
+): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.post<Record<string, unknown>>(
+    API.observability.acknowledgeAlert(alertId),
+    { acknowledged_by: acknowledgedBy },
+  );
+  return data;
+}
+
 // =============================================================================
 // SLO TRACKING
 // =============================================================================

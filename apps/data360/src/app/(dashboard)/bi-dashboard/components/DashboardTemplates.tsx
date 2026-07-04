@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Button, Badge, Text, Modal } from 'rizzui';
+import { Button, Badge, Text } from 'rizzui';
 import {
   ShoppingCart, Package, Users, LayoutTemplate,
   TrendingUp, BarChart3, PieChart, LineChart,
   AlertTriangle, MapPin,
-  ChevronRight, X, Sparkles, Target, Loader2,
+  ChevronRight, ArrowLeft, Sparkles, Target, Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { DashboardChartType, WidgetType, DashboardTemplateAPI } from '@/app/services/api/types';
@@ -58,9 +58,9 @@ export interface DashboardTemplate {
 
 // ── Template Definitions (sourced from reporting-catalog.json) ──────
 //
-// The curated templates are no longer hand-coded here — reporting-catalog.json
-// is the single source of truth. We adapt the catalog's `dashboard_templates`
-// into the rich local `DashboardTemplate` shape this component renders.
+// The curated templates come from reporting-catalog.json — the single source
+// of truth. We adapt the catalog's `dashboard_templates` into the rich local
+// `DashboardTemplate` shape this component renders.
 
 // String icon name (catalog) → lucide component.
 const TEMPLATE_ICON_BY_NAME: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -180,25 +180,22 @@ function TemplateCard({
   );
 }
 
-// ── Template Detail Modal ──────────────────────────────────────────
+// ── Template Detail (inline drill-in — replaces the centered Modal) ─
 
-function TemplateDetailModal({
+function TemplateDetail({
   template,
-  isOpen,
-  onClose,
+  onBack,
   onApply,
 }: {
-  template: DashboardTemplate | null;
-  isOpen: boolean;
-  onClose: () => void;
+  template: DashboardTemplate;
+  onBack: () => void;
   onApply: (template: DashboardTemplate) => void;
 }) {
-  if (!template) return null;
   const Icon = template.icon;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="640px">
-      <div className="p-6">
+    <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+      <div className="p-4 sm:p-6">
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -215,10 +212,11 @@ function TemplateDetailModal({
             </div>
           </div>
           <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+            onClick={onBack}
+            aria-label="Back to templates"
+            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
           >
-            <X className="h-4 w-4 text-gray-400" />
+            <ArrowLeft className="h-3.5 w-3.5" /> Back
           </button>
         </div>
 
@@ -276,7 +274,7 @@ function TemplateDetailModal({
 
         {/* Actions */}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" size="md" onClick={onClose}>
+          <Button variant="outline" size="md" onClick={onBack}>
             Cancel
           </Button>
           <Button
@@ -289,7 +287,7 @@ function TemplateDetailModal({
           </Button>
         </div>
       </div>
-    </Modal>
+    </div>
   );
 }
 
@@ -297,6 +295,11 @@ function TemplateDetailModal({
 
 interface DashboardTemplatesProps {
   onApplyTemplate: (template: DashboardTemplate) => void;
+  /**
+   * Compact (single-column) rendering for narrow hosts — the bar's
+   * Add → Templates section (BiSmartRightBar / AddWidgetSection).
+   */
+  compact?: boolean;
 }
 
 // Adapt a backend-served template (minimal shape) into the rich local
@@ -324,11 +327,13 @@ function adaptApiTemplate(t: DashboardTemplateAPI): DashboardTemplate {
   };
 }
 
-export default function DashboardTemplates({ onApplyTemplate }: DashboardTemplatesProps) {
+export default function DashboardTemplates({ onApplyTemplate, compact = false }: DashboardTemplatesProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<DashboardTemplate | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
   const [apiTemplates, setApiTemplates] = useState<DashboardTemplate[]>([]);
   const [loadingApi, setLoadingApi] = useState(false);
+  const gridClass = compact
+    ? 'grid grid-cols-1 gap-3'
+    : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4';
 
   useEffect(() => {
     let cancelled = false;
@@ -350,17 +355,27 @@ export default function DashboardTemplates({ onApplyTemplate }: DashboardTemplat
 
   const handleSelect = useCallback((template: DashboardTemplate) => {
     setSelectedTemplate(template);
-    setDetailOpen(true);
   }, []);
 
   const handleApply = useCallback(
     (template: DashboardTemplate) => {
       onApplyTemplate(template);
-      setDetailOpen(false);
       setSelectedTemplate(null);
     },
     [onApplyTemplate]
   );
+
+  // Inline drill-in (no popup): selecting a template swaps the gallery for its
+  // detail view; Back returns to the gallery. Replaces the old centered Modal.
+  if (selectedTemplate) {
+    return (
+      <TemplateDetail
+        template={selectedTemplate}
+        onBack={() => setSelectedTemplate(null)}
+        onApply={handleApply}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -375,7 +390,7 @@ export default function DashboardTemplates({ onApplyTemplate }: DashboardTemplat
         </Badge>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className={gridClass}>
         {TEMPLATES.map((template) => (
           <TemplateCard
             key={template.id}
@@ -403,7 +418,7 @@ export default function DashboardTemplates({ onApplyTemplate }: DashboardTemplat
           </div>
 
           {apiTemplates.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className={gridClass}>
               {apiTemplates.map((template) => (
                 <TemplateCard
                   key={template.id}
@@ -415,16 +430,6 @@ export default function DashboardTemplates({ onApplyTemplate }: DashboardTemplat
           )}
         </div>
       )}
-
-      <TemplateDetailModal
-        template={selectedTemplate}
-        isOpen={detailOpen}
-        onClose={() => {
-          setDetailOpen(false);
-          setSelectedTemplate(null);
-        }}
-        onApply={handleApply}
-      />
     </div>
   );
 }

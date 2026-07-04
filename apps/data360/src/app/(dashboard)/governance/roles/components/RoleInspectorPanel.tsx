@@ -179,7 +179,49 @@ export default function RoleInspectorPanel({
     }
   }, [mintReady, mintName, mintDb, mintSchema, mintTable, mintPrivs, onMutated]);
 
-  if (!role) return null;
+  // DEFAULT VIEW — no role inspected yet. Rather than collapse the docked column
+  // (return null), the inspector opens with a purposeful overview: how many roles
+  // are available to inspect (from the candidate list already fetched by the host)
+  // and clear guidance on what to select. It switches to the per-role grants/
+  // hierarchy/mint story once a role is picked.
+  if (!role) {
+    const overviewSection: RightTabSection = {
+      id: 'overview',
+      icon: ShieldCheck,
+      label: 'Overview',
+      description: 'Inspect a role\'s object grants, hierarchy and mint access roles.',
+      render: () => (
+        <div className="space-y-3 py-2">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Inspect and edit a role&apos;s access. Pick a role above to see the object
+            privileges it carries, the roles granted into it, and to mint reusable
+            access roles.
+          </p>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-800/40">
+            <p className="text-[10px] uppercase tracking-wide text-slate-400">Roles available</p>
+            <p className="text-lg font-bold text-slate-800 dark:text-slate-100">
+              {candidateRoles.length > 0 ? candidateRoles.length : '—'}
+            </p>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Select or type a role name in the launcher to open its inspector.
+          </p>
+        </div>
+      ),
+    };
+    return (
+      <RightTabPanel
+        title="Role inspector"
+        subtitle="No role selected"
+        sections={[overviewSection]}
+        activeSection="overview"
+        onSectionChange={() => { /* single default section — no switching */ }}
+        onClose={onClose}
+        storageKey="data360.gov.roleInspector.overview.v1"
+        accentClassName="bg-emerald-500"
+      />
+    );
+  }
 
   // ── shared honest-state primitives ──
   const StateBlock = ({ children }: { children: React.ReactNode }) => (

@@ -1,8 +1,7 @@
 /**
- * Org-level FinOps reads (`/org-accounts/organization/*`) — W6 reintegration of
- * three genuinely-unwired cost endpoints: costs by account (currency), storage
- * per account, and remaining credit balance. Complements the already-wired
- * credits/warehouse-credits views.
+ * Org-level FinOps reads (`/org-accounts/organization/*`) — three cost
+ * endpoints: costs by account (currency), storage per account, and remaining
+ * credit balance. Complements the credits/warehouse-credits views.
  */
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';

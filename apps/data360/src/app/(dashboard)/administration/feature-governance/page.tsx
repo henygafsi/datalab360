@@ -12,9 +12,20 @@
  */
 import { ShieldCheck } from 'lucide-react';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import FeatureGovernanceMatrix from './FeatureGovernanceMatrix';
 
+// Admin-only: gate the route itself so non-admins get an explanatory restricted
+// state instead of the full matrix shell with 403ing data calls.
 export default function FeatureGovernancePage() {
+  return (
+    <AdminRouteGuard surface="Feature Governance">
+      <FeatureGovernancePageContent />
+    </AdminRouteGuard>
+  );
+}
+
+function FeatureGovernancePageContent() {
   // Auto-fire a PAGE_VIEW on mount. Tracking lives in this route wrapper (not the
   // matrix) because FeatureGovernanceMatrix is also embedded in the access-center
   // tab — tracking inside it would double-count.

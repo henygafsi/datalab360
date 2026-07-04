@@ -3,11 +3,11 @@
 'use client';
 
 import { Button } from 'rizzui';
+import { useSetAtom } from 'jotai';
 import cn from '@core/utils/class-names';
 import { PiUserPlusBold } from 'react-icons/pi';
-import { useModal } from '@/app/shared/modal-views/use-modal';
 import { useCanPerform } from '@/hooks/useCanPerform';
-import AddUserForm from './add-user-form';
+import { addUserPanelOpenAtom } from '../create-panel-atoms';
 
 type AddUserButtonProps = {
   title?: string;
@@ -22,9 +22,10 @@ export default function AddUserButton({
   modalBtnLabel = 'Add User',
   className,
   buttonLabel = 'Add User',
-  onAddUserSuccess,
 }: React.PropsWithChildren<AddUserButtonProps>) {
-  const { openModal, closeModal } = useModal();
+  // Open the DOCKED create panel (hosted in UsersTable) rather than a centered
+  // modal. The atom bridges this header CTA to the table's flex-sibling panel.
+  const setOpen = useSetAtom(addUserPanelOpenAtom);
   // System 2 Action-RBAC: creating users maps to gouvernance:create. Keep enabled
   // while the allow-set loads (fail-open) so there's no flash of a disabled CTA.
   const { allowed, loading } = useCanPerform('gouvernance', 'create');
@@ -38,17 +39,7 @@ export default function AddUserButton({
           ? 'You lack the "create" permission on governance. Ask an administrator to grant it.'
           : undefined
       }
-      onClick={() =>
-        openModal({
-          view: (
-            <AddUserForm
-              onAddUserSuccess={onAddUserSuccess}
-              onClose={closeModal}
-            />
-          ),
-          customSize: '500px',
-        })
-      }
+      onClick={() => setOpen(true)}
       className={cn('w-full @lg:w-auto', className)}
     >
       <PiUserPlusBold className="me-1.5 h-[17px] w-[17px]" />

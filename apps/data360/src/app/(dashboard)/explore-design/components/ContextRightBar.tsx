@@ -158,22 +158,40 @@ export interface ContextRightBarProps {
    * SmartRightBar service) inside the block, not here.
    */
   ingestionTrace?: IngestionTraceEntry | null;
+  /**
+   * Optional per-tab severity → colour dot on each collapsed mini-rail icon
+   * (redesign spec §1 tab colour indicators): 🟢 ok · 🟠 warn · 🔴 blocker ·
+   * 🔵 pending/changes · ⚪ idle/not-configured. When omitted (default), no dots
+   * render — behaviour unchanged. Keyed by the current `RightBarTab` union.
+   */
+  tabSeverity?: Partial<Record<RightBarTab, RailSeverity>>;
+  /**
+   * Optional live-analyst card rendered as the panel's sticky footer, visible
+   * across every tab (redesign spec §5 — "AI Change Analyst · Live" at the
+   * bottom of the right-bar). Omitted → no footer, behaviour unchanged.
+   */
+  analystSlot?: React.ReactNode;
 }
+
+// Rail severity → literal Tailwind dot classes. Interpolated `bg-${x}-500` would
+// be purged by the content scanner, so map each severity to a LITERAL string.
+export type RailSeverity = 'ok' | 'warn' | 'blocker' | 'pending' | 'idle';
+const RAIL_SEVERITY_DOT: Record<RailSeverity, string> = {
+  ok: 'bg-emerald-500',
+  warn: 'bg-amber-500',
+  blocker: 'bg-red-500',
+  pending: 'bg-blue-500',
+  idle: 'bg-slate-300 dark:bg-slate-600',
+};
 
 // ---------------------------------------------------------------------------
 // Tab rail icons
 // ---------------------------------------------------------------------------
 
-const TABS: { id: RightBarTab; icon: React.ElementType; label: string }[] = [
-  { id: 'actions', icon: Zap, label: 'Actions' },
-  { id: 'ai', icon: Brain, label: 'AI Assist' },
-  { id: 'quality', icon: BarChart3, label: 'Quality' },
-  { id: 'cost', icon: Coins, label: 'Cost & KPIs' },
-  { id: 'governance', icon: Shield, label: 'Governance' },
-  { id: 'deploy', icon: Rocket, label: 'Deploy' },
-  { id: 'history', icon: Clock, label: 'History' },
-  { id: 'help', icon: HelpCircle, label: 'Help' },
-];
+// The collapsed mini-rail is derived from the SAME `sections` array that drives the
+// docked panel (id + icon + label + description), so the two can never drift — this
+// removes the former hard-coded `TABS` list whose 'Release' label had already
+// diverged from the section's 'Deploy'.
 
 // Versioned, minimal localStorage key (client-localstorage-schema): the shared
 // RightTabPanel persists the user's last-viewed section ("draft of menu") to this
@@ -190,7 +208,8 @@ export default function ContextRightBar({
   columnClassifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify,
   onAddEvent, profileData, historyEvents,
   pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onDeselectTable,
-  emptyOverride, onNodeAction, deployOverride, ingestionTrace,
+  emptyOverride, onNodeAction, deployOverride, ingestionTrace, tabSeverity,
+  analystSlot,
 }: ContextRightBarProps) {
 
   // Model-general landing: when nothing is selected and the caller supplied an
@@ -200,6 +219,11 @@ export default function ContextRightBar({
 
   const tableName = selectedTable?.table || '';
   const fqn = selectedTable ? `${selectedTable.database}.${selectedTable.schema}.${selectedTable.table}` : '';
+  // The primary (first) axis is mode-dependent: with a table selected it is that
+  // table's do-everything hub ("Table"); with nothing selected it is the project
+  // roll-up ("Overview"). One label drives both the docked rail and the collapsed
+  // mini-rail (the mini-rail is derived from `sections`, so they never drift).
+  const primaryLabel = selectedTable ? 'Table' : 'Overview';
   const classifications = selectedTable ? columnClassifications.get(selectedTable.id) : undefined;
 
   // Role-filtered quick-actions (System 2 Action-RBAC, project-scoped). Each one
@@ -273,29 +297,48 @@ export default function ContextRightBar({
   // Six docked sections — bodies kept verbatim from the previous panel. Each
   // guards on `selectedTable` so an unselected table shows the same empty state
   // across every section (behaviour preserved from the old inline tab content).
+  // Each section is a data-modelling / cataloging AXIS. `label` is the axis name
+  // (mode-aware for the first one), `description` is the icon-rail tooltip, and
+  // `help` powers the "?" popover next to the active section title. A visible
+  // one-line <AxisIntro> at the top of each body states the axis + its actions so
+  // the panel is self-explaining without a hover. NOTE: `id`s are FROZEN — they are
+  // the shared RightBarTab union that page.tsx keys its state/severity/quick-actions
+  // on. This is a labelling/clarity pass, not an id/data-flow change.
   const sections: RightTabSection[] = [
     {
-      id: 'actions', icon: Zap, label: 'Actions',
+      id: 'actions', icon: Zap, label: primaryLabel,
+      description: selectedTable
+        ? 'Everything you can do to this table — structure, keys, ingestion, governance and release.'
+        : 'Project overview — model health, tables, relations and release readiness.',
+      help: selectedTable
+        ? 'The table hub. Draft modelling changes (rename, keys, relations), configure ingestion, apply masking/RLS, and add changes to a release. Every mutating action is role-gated and queued for deploy.'
+        : 'With no table selected this is the project roll-up: model health, table/relation counts, data-quality, PII risk, cost impact and release readiness. Pick a table on the left to act on it.',
       render: () => selectedTable ? (
-        <ActionsPanel
-          table={selectedTable}
-          columns={tableColumns}
-          projectId={projectId}
-          focusedAction={focusedAction}
-          onFocusAction={onFocusAction}
-          onAddEvent={onAddEvent}
-          classifications={classifications}
-          userRole={userRole}
-          database={selectedDatabase}
-          onDeselectTable={onDeselectTable}
-          onNodeAction={onNodeAction}
-        />
+        <>
+          <AxisIntro icon={Zap} text={`Act on ${tableName}: modelling, keys, ingestion, governance and release — all queued for deploy.`} />
+          <ActionsPanel
+            table={selectedTable}
+            columns={tableColumns}
+            projectId={projectId}
+            focusedAction={focusedAction}
+            onFocusAction={onFocusAction}
+            onAddEvent={onAddEvent}
+            classifications={classifications}
+            userRole={userRole}
+            database={selectedDatabase}
+            onDeselectTable={onDeselectTable}
+            onNodeAction={onNodeAction}
+          />
+        </>
       ) : empty,
     },
     {
       id: 'ai', icon: Brain, label: 'AI Assist',
+      description: 'Classify columns and ask the AI about this table and model.',
+      help: 'AI helpers for modelling: auto-classify columns (identifiers, measures, PII, dates…) and a free-text assistant that answers questions about the table, its policies and quality. Suggestions appear even before a table is picked.',
       render: () => (
         <div>
+          <AxisIntro icon={Brain} text="Auto-classify columns and ask the AI about this table's structure, quality and governance." />
           {/* AI-prefilled cross-module CTA blocks (deep-link with intent), scoped
               to explore-design + the selected object / active project. Shown above
               the per-table AI assist so suggestions exist even before a table is
@@ -308,7 +351,7 @@ export default function ContextRightBar({
                 objectFqn: fqn || undefined,
                 projectId: projectId ?? undefined,
               }}
-              title="Actions IA suggérées"
+              title="Suggested AI actions"
             />
           </div>
           {selectedTable ? (
@@ -326,7 +369,9 @@ export default function ContextRightBar({
       ),
     },
     {
-      id: 'quality', icon: BarChart3, label: 'Quality',
+      id: 'quality', icon: BarChart3, label: 'Data Quality',
+      description: 'Profiling results and freshness / completeness monitoring.',
+      help: 'The data-quality axis: quality score, null columns, primary-key candidate and freshness. Run profiling on demand and draft freshness monitoring (applied on deploy). Read-only for viewers.',
       render: () => selectedTable
         ? <QualityPanel table={selectedTable} columns={tableColumns} projectId={projectId} profileData={profileData} onAddEvent={onAddEvent} ingestionTrace={ingestionTrace ?? null} />
         : empty,
@@ -338,7 +383,9 @@ export default function ContextRightBar({
       // so the tab is useful even with nothing selected. The strip renders honest
       // "—" for null/unprovisioned KPIs and self-hides (renders null) on a 404/501
       // — i.e. when the rollup route isn't provisioned the body is simply empty.
-      id: 'cost', icon: Coins, label: 'Cost & KPIs',
+      id: 'cost', icon: Coins, label: 'Impact & Cost',
+      description: 'Per-project cost, usage, savings and KPI roll-up.',
+      help: 'Project-level (not per-table) economics: runs, cost, performance, recommendations and storage, plus AI credits saved / ROI and the most-recent ingestion run. Read-only; "—" means not yet provisioned for this project.',
       render: () => projectId ? <CostKpiPanel projectId={projectId} /> : <SelectProjectEmpty />,
     },
     {
@@ -348,21 +395,30 @@ export default function ContextRightBar({
       // governance is queued/applied and which roles it affects. Its single CTA
       // deep-links back to that Actions group (onTabChange + onFocusAction).
       id: 'governance', icon: Shield, label: 'Governance',
+      description: 'Masking, row-level security and access on this table.',
+      help: 'The governance axis (read-only status): which masking / row-access / aggregation policies are queued this session vs. live on the object, and which roles they affect. Apply new policies from the Table tab.',
       render: () => selectedTable ? (
-        <GovernanceAccessPanel
-          table={selectedTable}
-          columns={tableColumns}
-          projectId={projectId}
-          onApplyPolicy={() => { onTabChange('actions'); onFocusAction('policies'); }}
-        />
+        <>
+          <AxisIntro icon={Shield} text="Masking, row-level security and access on this table — apply new policies from the Table tab." />
+          <GovernanceAccessPanel
+            table={selectedTable}
+            columns={tableColumns}
+            projectId={projectId}
+            onApplyPolicy={() => { onTabChange('actions'); onFocusAction('policies'); }}
+          />
+        </>
       ) : empty,
     },
     {
-      // Deploy tab body. The page injects the embedded 8-step deployment stepper
-      // via `deployOverride` (docked, no modal) — rendered regardless of table
-      // selection since deployment is project/event-scoped. Fallback: the legacy
-      // inline `DeployPanel` (table-gated) when no override is supplied.
-      id: 'deploy', icon: Rocket, label: 'Deploy',
+      // Release (deploy) tab body. The page injects the embedded multi-step
+      // deployment stepper via `deployOverride` (docked, no modal) — rendered
+      // regardless of table selection since deployment is project/event-scoped.
+      // Fallback: the legacy inline `DeployPanel` (table-gated) when no override.
+      // NOTE: id stays 'deploy' (frozen union / page width logic); only the
+      // user-facing label is the axis name 'Release'.
+      id: 'deploy', icon: Rocket, label: 'Release',
+      description: 'Review, validate and deploy the pending changes.',
+      help: 'The release axis: a guided pipeline over the changes queued in this project — review the DDL/SQL, run pre-checks and a dry-run, analyse downstream impact, then execute the deploy and post-verify. Project/release-scoped, not per-table.',
       render: () => deployOverride ?? (selectedTable ? (
         <DeployPanel
           projectId={projectId}
@@ -375,10 +431,22 @@ export default function ContextRightBar({
     },
     {
       id: 'history', icon: Clock, label: 'History',
-      render: () => selectedTable ? <HistoryPanel events={historyEvents} /> : empty,
+      description: 'Timeline of changes, deploys and events.',
+      help: 'The audit trail for this table: modelling edits, policy changes, ingestion runs and deploys, grouped by day with actor and status. Read-only.',
+      render: () => selectedTable ? (
+        <>
+          <AxisIntro icon={Clock} text="Timeline of changes, deploys and events for this table — most recent first." />
+          <HistoryPanel events={historyEvents} />
+        </>
+      ) : empty,
     },
     {
+      // Kept as a small, secondary help affordance (last on the rail) rather than a
+      // primary modelling axis. Each axis also carries its own inline "?" popover
+      // (the section `help` above), so this tab is a fallback, not the main guide.
       id: 'help', icon: HelpCircle, label: 'Help',
+      description: 'What this table is and recommended next steps.',
+      help: 'A guided summary for this table — what it is, recommended next modelling steps, and a governance readiness checklist. Every other tab also has its own "?" for axis-specific help.',
       render: () => selectedTable ? <HelpPanel table={selectedTable} /> : empty,
     },
   ];
@@ -402,17 +470,27 @@ export default function ContextRightBar({
         >
           <PanelRight className="h-4 w-4" />
         </button>
-        {TABS.map((tab) => {
+        {sections.map((tab) => {
           const Icon = tab.icon;
+          const severity = tabSeverity?.[tab.id as RightBarTab];
           return (
-            <Tooltip key={tab.id} content={tab.label} placement="left">
+            <Tooltip key={tab.id} content={tab.description ?? tab.label} placement="left">
               <button
-                onClick={() => { onTabChange(tab.id); onToggle(); }}
+                onClick={() => { onTabChange(tab.id as RightBarTab); onToggle(); }}
                 aria-label={tab.label}
                 aria-pressed={false}
-                className="p-2 rounded-lg transition-colors text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-600"
+                className="relative p-2 rounded-lg transition-colors text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-600"
               >
                 <Icon className="h-4 w-4" />
+                {severity && (
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'absolute right-1 top-1 h-1.5 w-1.5 rounded-full ring-1 ring-white dark:ring-slate-900',
+                      RAIL_SEVERITY_DOT[severity],
+                    )}
+                  />
+                )}
               </button>
             </Tooltip>
           );
@@ -421,8 +499,11 @@ export default function ContextRightBar({
 
       <div className={cn(!isOpen && 'hidden')}>
         <RightTabPanel
-          title={tableName || 'Table actions'}
-          subtitle={selectedTable ? fqn : undefined}
+          // Honest header: with a table selected the title is its name (fqn in the
+          // subtitle); with nothing selected the panel is the project overview, not
+          // "Table actions".
+          title={selectedTable ? tableName : 'Overview'}
+          subtitle={selectedTable ? fqn : 'Project model & release'}
           accentClassName="bg-blue-500"
           kpiStrip={kpiStrip}
           quickActions={quickActions}
@@ -442,6 +523,11 @@ export default function ContextRightBar({
           // scrolling the page (the default cap let the footer fall ~86px below
           // the fold). Other tabs keep the taller default.
           maxHeightClassName={activeTab === 'deploy' ? 'max-h-[calc(100vh-13rem)]' : undefined}
+          footer={
+            analystSlot ? (
+              <div className="max-h-56 overflow-y-auto">{analystSlot}</div>
+            ) : undefined
+          }
         />
       </div>
     </div>
@@ -1497,11 +1583,16 @@ function IngestionCostPanel({ table, trace }: { table: TableItem; trace: Ingesti
 
 // Subtle, role-aware one-liner for a tab's intro. Keeps it quiet (slate text,
 // info icon) — the goal is orientation, not a banner.
-function TabRoleHint({ text }: { text: string }) {
+// One-line axis descriptor rendered at the very top of a section body. States what
+// the axis is + the actions it offers, so each tab is self-explaining without a
+// hover/click (complements the icon-rail tooltip + the "?" help popover). Carries
+// its own padding since it sits above the panel's own p-4 container.
+function AxisIntro({ icon: Icon, text }: { icon: React.ElementType; text: string }) {
   return (
-    <p className="flex items-start gap-1.5 text-[10px] text-slate-400 dark:text-slate-500 px-1">
-      <Info className="h-3 w-3 shrink-0 mt-px" aria-hidden /> {text}
-    </p>
+    <div className="flex items-start gap-2 px-4 pt-3.5 pb-0.5">
+      <Icon className="h-3.5 w-3.5 shrink-0 mt-0.5 text-slate-400 dark:text-slate-500" aria-hidden />
+      <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">{text}</p>
+    </div>
   );
 }
 
@@ -1524,9 +1615,9 @@ function QualityPanel({ table, columns, projectId, profileData, onAddEvent, inge
 
   return (
     <div className="p-4 space-y-4">
-      <TabRoleHint text={canWrite
-        ? 'Profile this table and draft freshness monitoring.'
-        : 'View-only: all quality metrics here are readable; setting up monitoring needs edit access.'} />
+      <AxisIntro icon={BarChart3} text={canWrite
+        ? 'Data quality for this table — profile it and draft freshness / completeness monitoring (applied on deploy).'
+        : 'Data quality for this table — all metrics are readable; setting up monitoring needs edit access.'} />
       {/* Ingestion & Cost — Snowpipe/COPY trace + per-table credits for this table. */}
       <IngestionCostPanel table={table} trace={ingestionTrace ?? null} />
 

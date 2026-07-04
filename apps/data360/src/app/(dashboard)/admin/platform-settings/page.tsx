@@ -11,6 +11,7 @@ import {
   PiMagnifyingGlassBold,
   PiXBold,
 } from 'react-icons/pi';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
 import Pager, { usePagination } from '@/components/ui/Pager';
@@ -74,7 +75,17 @@ function normalizeConfig(payload: unknown): PlatformConfigEntry[] {
   return [];
 }
 
+// Admin-only: gate the route itself so non-admins get an explanatory restricted
+// state instead of the full settings shell with 403ing data calls.
 export default function PlatformSettingsPage() {
+  return (
+    <AdminRouteGuard surface="Platform Settings">
+      <PlatformSettingsPageContent />
+    </AdminRouteGuard>
+  );
+}
+
+function PlatformSettingsPageContent() {
   const [entries, setEntries] = useState<PlatformConfigEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

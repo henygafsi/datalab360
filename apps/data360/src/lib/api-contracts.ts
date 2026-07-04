@@ -14,7 +14,7 @@ import { API_CONFIG } from '@/config/database.config';
  *     apiClient.get(API.common.tables(db, schema))
  *     apiClient.post(API.workflow.execute(id), body)
  *
- * Every path below is verified against the live FastAPI routers
+ * Every path below maps to a FastAPI router
  * (app/modules/<module>/router*.py + app/main.py). Grouped by domain.
  *
  * NOTE: the legacy `API_CONTRACTS` object further down returns ABSOLUTE urls
@@ -60,14 +60,11 @@ export const API = {
     sourceCatalog: () => '/connect/source-catalog',
     /** POST /connect/connectors — create a new connector. */
     createConnector: () => '/connect/connectors',
-    // TODO(henry-P1): the 3 per-connector routes below are NOT in the backend (verified
-    // 2026-06-07 against 896-route dump — only GET /connect/connectors + /health exist).
-    // UI consumers must use the 404-self-disable pattern until backend ships them.
-    /** GET /connect/connectors/{id} — get connector by id. (backend gap) */
+    /** GET /connect/connectors/{id} — get connector by id. */
     getConnector: (id: string) => `/connect/connectors/${enc(id)}`,
-    /** POST /connect/connectors/{id}/test — test a connector connection. (backend gap) */
+    /** POST /connect/connectors/{id}/test — test a connector connection. */
     testConnector: (id: string) => `/connect/connectors/${enc(id)}/test`,
-    /** POST /connect/connectors/{id}/sync — trigger a manual sync. (backend gap) */
+    /** POST /connect/connectors/{id}/sync — trigger a manual sync. */
     syncConnector: (id: string) => `/connect/connectors/${enc(id)}/sync`,
     createInternalStage: () => '/connect/stages/internal',
     listStages: () => '/connect/stages',
@@ -226,6 +223,10 @@ export const API = {
   exploreDesign: {
     /** POST /explore-design — create an explore-design project. */
     createProject: () => '/explore-design',
+    /** POST /explore-design/guided/add-event — persist one mapping-wizard group (sources→target). */
+    guidedAddEvent: () => '/explore-design/guided/add-event',
+    /** POST /explore-design/guided/test_mapping — server-side mapping validation. */
+    guidedTestMapping: () => '/explore-design/guided/test_mapping',
     /** GET /explore-design/recent-deployment-errors */
     recentDeploymentErrors: (limit?: number) =>
       `/explore-design/recent-deployment-errors${qs({ limit })}`,
@@ -267,7 +268,7 @@ export const API = {
       `/explore-design/${enc(projectId)}/ingestion/operations`,
     /** GET /explore-design/schema-clone/list — list schema clones (project_id as query param) */
     schemaCloneList: () => `/explore-design/schema-clone/list`,
-    // --- Business glossary (W6 reintegration: was unwired) -------------------
+    // --- Business glossary -------------------
     /** GET /explore-design/glossary — list business glossary terms. */
     glossaryList: () => '/explore-design/glossary',
     /** POST /explore-design/glossary — create/update a glossary term (admin). */
@@ -278,7 +279,7 @@ export const API = {
     glossaryAiDraft: () => '/explore-design/glossary/ai-draft',
     /** DELETE /explore-design/glossary/{term} — delete a glossary term (admin). */
     glossaryDelete: (term: string) => `/explore-design/glossary/${enc(term)}`,
-    // --- Snowflake object management (W6 reintegration: dynamic tables/streams/tasks) ---
+    // --- Snowflake object management (dynamic tables/streams/tasks) ---
     /** GET|POST /explore-design/dynamic-tables — list / create dynamic tables. */
     dynamicTables: () => '/explore-design/dynamic-tables',
     /** GET|PATCH|DELETE /explore-design/dynamic-tables/{name} — describe / alter / drop. */
@@ -299,6 +300,34 @@ export const API = {
     /** POST /explore-design/tasks/{name}/{action} — suspend|resume. */
     deTaskAction: (name: string, action: 'suspend' | 'resume') =>
       `/explore-design/tasks/${enc(name)}/${action}`,
+    // --- Release spine (state machine + named approvers + AI analyst) ---
+    /**
+     * GET /explore-design/{project_id}/release-state — deploy state-machine
+     * snapshot: { status, label, next_action, counts:{changes,blockers,warnings,
+     * pending_approvals}, axis_signals:{overview…history: green|orange|red|blue|grey} }.
+     * 404/501 → FE degrades to a deployments-derived state (never fabricates).
+     */
+    releaseState: (projectId: string) => `/explore-design/${enc(projectId)}/release-state`,
+    /**
+     * GET|POST /explore-design/{project_id}/deployments/{deployment_id}/approvers —
+     * named-approver model. GET → { approvers:[…], policy:{required_count,
+     * mandatory_roles} }; POST adds a reviewer { username, role_label, required }.
+     */
+    deploymentApprovers: (projectId: string, deploymentId: string) =>
+      `/explore-design/${enc(projectId)}/deployments/${enc(deploymentId)}/approvers`,
+    /**
+     * POST /explore-design/{project_id}/deployments/{deployment_id}/approvers/{username}/decision
+     * — record a named approver's decision { decision: approve|reject|request-changes, comment }.
+     */
+    approverDecision: (projectId: string, deploymentId: string, username: string) =>
+      `/explore-design/${enc(projectId)}/deployments/${enc(deploymentId)}/approvers/${enc(username)}/decision`,
+    /**
+     * GET /explore-design/{project_id}/ai/history?limit=50 — AI change-analyst
+     * feed: { events:[{ts,kind,axis,severity,message,payload}] }. POST (same
+     * path, no query) appends an event (e.g. an interview outcome).
+     */
+    aiHistory: (projectId: string, limit?: number) =>
+      `/explore-design/${enc(projectId)}/ai/history${qs({ limit })}`,
   },
 
   /**
@@ -407,7 +436,7 @@ export const API = {
     gitRepositoryTags: (name: string) => `/workflow/git/repositories/${enc(name)}/tags`,
     /** POST /workflow/git/repositories/{name}/fetch — fetch remote changes for a Git repository. */
     gitRepositoryFetch: (name: string) => `/workflow/git/repositories/${enc(name)}/fetch`,
-    /** PATCH /workflow/compute-pools/{name} — alter a compute pool (api_workflow_alter_compute_pool, 2026-06-21). */
+    /** PATCH /workflow/compute-pools/{name} — alter a compute pool (api_workflow_alter_compute_pool). */
     computePool: (name: string) => `/workflow/compute-pools/${enc(name)}`,
     /** GET/POST /workflow/notebooks — list or create Snowflake notebooks. */
     notebooks: () => '/workflow/notebooks',
@@ -476,6 +505,8 @@ export const API = {
     d360Roles: () => '/gouvernance/d360-roles',
     /** GET /gouvernance/d360-roles/my-permissions — caller's effective action set (useCanPerform hook). */
     d360MyPermissions: () => '/gouvernance/d360-roles/my-permissions',
+    /** GET /gouvernance/d360-roles/my-module-access — caller's coarse module posture map (read|write|none). */
+    d360MyModuleAccess: () => '/gouvernance/d360-roles/my-module-access',
     /** GET /gouvernance/policies/dmf/list[?database=…&schema=…] — list available DMFs. */
     policyDmfList: () => '/gouvernance/policies/dmf/list',
     /** POST /gouvernance/policies/dmf — create a custom DMF (query params). */
@@ -492,7 +523,7 @@ export const API = {
     complianceScore: () => '/gouvernance/compliance/score',
     /** GET /gouvernance/access-review/summary — access-review findings (mfa gaps, expiring policies, orphan grants). */
     accessReviewSummary: () => '/gouvernance/access-review/summary',
-    // --- Identity & integrations (W6 reintegration: oauth / gui-perms / ent-users) ---
+    // --- Identity & integrations (oauth / gui-perms / ent-users) ---
     /** GET|POST /gouvernance/oauth/integrations — list / create OAuth|SAML security integrations. */
     oauthIntegrations: () => '/gouvernance/oauth/integrations',
     /** GET /gouvernance/oauth/network-policies — list network policies. */
@@ -1002,7 +1033,7 @@ export const API = {
     /** GET /data-quality/trend-analysis — daily avg DMF metric history */
     trendAnalysis: () => '/data-quality/trend-analysis',
     // TODO(henry-P1): /anomalies, /snapshot, /anomaly-detection and /trust-center/* are NOT
-    // in the backend (verified 2026-06-07 vs 896-route dump). Closest real trust routes live
+    // in the backend. Closest real trust routes live
     // under /observability/trust-center/{findings,summary}. 404-self-disable until shipped.
     /** GET /data-quality/anomalies — ML anomaly results. (backend gap) */
     anomalies: () => '/data-quality/anomalies',
@@ -1099,7 +1130,7 @@ export const API = {
     /** GET /catalog/profile/{db}/{schema}/{table} */
     tableProfile: (db: string, s: string, t: string) =>
       `/catalog/profile/${enc(db)}/${enc(s)}/${enc(t)}`,
-    /** @deprecated No backend route (404 local+live, 2026-06-07) and no consumer — remove or implement before use. */
+    /** @deprecated No backend route (404 local+live) and no consumer — remove or implement before use. */
     viewDdl: (db: string, s: string, v: string) =>
       `/catalog/views/${enc(db)}/${enc(s)}/${enc(v)}/ddl`,
     /** GET /catalog/refresh?scope=<scope>[&db=<db>] — legacy query-param form kept for compat. */
@@ -1111,7 +1142,7 @@ export const API = {
     notifyConsumers: () => '/catalog/tables/notify-consumers',
     /** GET /catalog/scores — global catalog trust/quality averages ({ averages: { trust_avg } }) */
     scores: () => '/catalog/scores',
-    /** @deprecated No backend route (404 local+live, 2026-06-07) and no consumer — remove or implement before use. */
+    /** @deprecated No backend route (404 local+live) and no consumer — remove or implement before use. */
     detectedModels: (projectId?: string) =>
       `/sources/detected-models${projectId ? `?project_id=${enc(projectId)}` : ''}`,
   },
@@ -1197,6 +1228,22 @@ export const API = {
       /** POST /api/platform/grants/policies {role,policy_type,can:{read},policy_name?}. */
       policies: () => '/api/platform/grants/policies',
     },
+
+    /**
+     * GET /api/platform/access-simulator?role=&module=&page=&tab=&action_key= —
+     * read-only "what would <role> see?" simulation. Reads the CONFIGURED
+     * module/action/policy grants (backend platform_core/router.py:475) — it is
+     * NOT the admin bypass, so an account with no grant rows answers deny.
+     * Response: { account, role, module?, checks: { module?: {allowed},
+     * tab?: {allowed}, action?: {allowed}, policy?: {allowed}, data_scope } }.
+     */
+    accessSimulator: (opts: {
+      role: string; module?: string; page?: string; tab?: string; actionKey?: string;
+    }) =>
+      `/api/platform/access-simulator${qs({
+        role: opts.role, module: opts.module, page: opts.page, tab: opts.tab,
+        action_key: opts.actionKey,
+      })}`,
   },
 
   /**
@@ -1263,7 +1310,7 @@ export const API = {
    * Standalone cache-service router (`/cache/*`) — SVC-first cache observability
    * & control (distinct from `admin.cache` = `/admin/cache/*`). Read endpoints
    * feed FinOps/cost monitoring; control endpoints (clear/warmup/refresh) are
-   * admin-gated. Reintegration batch W6 (was unwired). [trace: app/modules/cache]
+   * admin-gated.
    */
   cacheService: {
     svcHealth:       () => '/cache/svc-health',
@@ -1551,7 +1598,7 @@ export const API_CONTRACTS = {
       getUrl: () => `${API_CONFIG.BASE_URL}/workflow`,
     },
   },
-  /** @deprecated Both /bi/sales/* routes 404 local+live (2026-06-07) and have no consumer — legacy block, superseded by /bi-dashboard/*. */
+  /** @deprecated Both /bi/sales/* routes 404 local+live and have no consumer — legacy block, superseded by /bi-dashboard/*. */
   biRetail: {
     salesOverview: {
       method: 'GET' as const,

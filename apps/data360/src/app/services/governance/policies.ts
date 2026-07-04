@@ -1707,8 +1707,7 @@ export interface UpdatePolicyMetadataResult {
  * PUT /gouvernance/policies/{policy_type}/{policy_name}/metadata
  *   ?database=&schema=   body: { expiration_date?, comment? }
  *
- * Path-form note (verified against the references/unapply-all siblings, NOT the
- * enriched-list form): policy_type comes BEFORE policy_name and uses the
+ * Path-form note: policy_type comes BEFORE policy_name and uses the
  * lowercase-hyphen casing — same skeleton as getPolicyReferences. The enriched
  * LIST endpoint (UPPERCASE, no name) is a different route shape.
  *

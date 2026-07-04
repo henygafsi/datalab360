@@ -94,9 +94,10 @@ export default function AiComputeCostPanel({ days, refreshKey }: AiComputeCostPa
   }, [days, refreshKey]);
 
   const summary = data?.summary;
-  const aiCredits = summary?.ai_credits ?? 0;
-  const mlCredits = summary?.ml_compute_credits ?? 0;
-  const totalCredits = summary?.total_credits ?? 0;
+  // null (→ "—") when the summary block is absent — never a fabricated 0.00.
+  const aiCredits = summary?.ai_credits ?? null;
+  const mlCredits = summary?.ml_compute_credits ?? null;
+  const totalCredits = summary?.total_credits ?? null;
 
   // Daily trend: merge per-service AI credits (daily_costs) and ML compute
   // (ml_compute) into one date-keyed series of AI vs ML credits.
@@ -171,17 +172,17 @@ export default function AiComputeCostPanel({ days, refreshKey }: AiComputeCostPa
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-lg bg-white/70 p-4 dark:bg-gray-800/40">
               <Text className="text-xs uppercase tracking-wider text-gray-500">AI credits</Text>
-              <div className="mt-1 text-2xl font-bold text-purple-600">{formatCredits(aiCredits)}</div>
+              <div className="mt-1 text-2xl font-bold text-purple-600">{aiCredits != null ? formatCredits(aiCredits) : '—'}</div>
               <Text className="text-xs text-gray-500">AI function spend</Text>
             </div>
             <div className="rounded-lg bg-white/70 p-4 dark:bg-gray-800/40">
               <Text className="text-xs uppercase tracking-wider text-gray-500">ML compute credits</Text>
-              <div className="mt-1 text-2xl font-bold text-fuchsia-600">{formatCredits(mlCredits)}</div>
+              <div className="mt-1 text-2xl font-bold text-fuchsia-600">{mlCredits != null ? formatCredits(mlCredits) : '—'}</div>
               <Text className="text-xs text-gray-500">Model / forecast compute</Text>
             </div>
             <div className="rounded-lg bg-white/70 p-4 dark:bg-gray-800/40">
               <Text className="text-xs uppercase tracking-wider text-gray-500">Total AI spend</Text>
-              <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">{formatCredits(totalCredits)}</div>
+              <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">{totalCredits != null ? formatCredits(totalCredits) : '—'}</div>
               <Text className="text-xs text-gray-500">credits over window</Text>
             </div>
           </div>

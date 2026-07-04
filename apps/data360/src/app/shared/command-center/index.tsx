@@ -133,17 +133,19 @@ import {
   type RecommendationCta as CcRecommendationCta,
 } from '@/app/services/command-center/recommendations';
 import { useOverviewKpis } from '@/hooks/useOverviewKpis';
-import { useAuth } from '@/hooks/useAuth';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
-import { isAdminRole } from '@/config/constants';
+import AxisCockpit from '@/app/shared/cockpit/AxisCockpit';
+import KpiStrip from '@/app/shared/cockpit/KpiStrip';
+import { useCommandCenterCockpit } from './CommandCenterCockpit';
 
 // Lazy-loaded new tabs
 const ModulesTab = lazy(() => import('./modules-tab'));
 const SnowflakeExplorerTab = lazy(() => import('./snowflake-explorer-tab'));
 const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
 const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
+const SnowflakeAccountsAuditSection = lazy(() => import('./SnowflakeAccountsAuditSection'));
 const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
 const DwhActionPlanTab = lazy(() => import('./dwh-action-plan-tab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
@@ -1417,6 +1419,18 @@ function CommandCenterDashboardInner() {
   const [filterOptions, setFilterOptions] =
     useState<FilterOptionsResponse | null>(null);
 
+  // Unified Axis Cockpit (shared right-edge primitive) + KPI strip. Reuses the
+  // shell-fetched state above (summary / module-health / activity-feed / cost)
+  // and lazily fetches an axis's data only the first time it is opened.
+  const cockpit = useCommandCenterCockpit({
+    days: filters.days,
+    summary,
+    moduleHealth,
+    activityFeed,
+    costData,
+    onNavigateTab: goToTab,
+  });
+
   // Auto-refresh has been removed entirely. Data freshness is now driven only
   // by SSE cache-invalidation events from the backend + the manual refresh
   // button in the header.
@@ -2044,6 +2058,14 @@ function CommandCenterDashboardInner() {
         </div>
       </motion.div>
 
+      {/* ── Unified KPI strip (shared primitive) ─────────────────────
+          Honest "—" until each figure is known (never fake zeros); every
+          KPI deep-links into its owning cockpit axis on the right edge. */}
+      <KpiStrip
+        items={cockpit.kpiItems}
+        className="mb-6 rounded-xl border border-slate-200 shadow-sm dark:border-slate-800"
+      />
+
       {/* ── Error Banner ──────────────────────────────────────────── */}
       {error && (
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
@@ -2328,6 +2350,12 @@ function CommandCenterDashboardInner() {
                     </h2>
                     <SnowflakeAccountsTab onNavigateTab={goToTab} />
                   </section>
+                  <section>
+                    <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      Accounts &amp; audit
+                    </h2>
+                    <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
+                  </section>
                 </div>
               </Suspense>
             )}
@@ -2344,6 +2372,20 @@ function CommandCenterDashboardInner() {
             onClose={() => setPanelOpen(false)}
           />
         )}
+        {/* ── Unified Axis Cockpit (rightmost column, shared primitive):
+            overview / cost / perf / quality / AI / governance / history.
+            Always-visible mini-rail with severity dots; panels are docked
+            (zero popups) and each axis fetches lazily on first open. */}
+        <div className="sticky top-4 hidden shrink-0 self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 md:block">
+          <AxisCockpit
+            axes={cockpit.axes}
+            open={cockpit.open}
+            activeAxis={cockpit.activeAxis}
+            onOpenAxis={cockpit.openAxis}
+            onClose={cockpit.close}
+            className="max-h-[calc(100vh-2rem)]"
+          />
+        </div>
       </div>
     </div>
   );
@@ -2955,9 +2997,16 @@ const OverviewTab = memo(function OverviewTab({
     refresh: refreshKpis,
   } = useOverviewKpis(daysToRange(globalDays ?? 30));
 
-  // Role gates the admin-only "Provision KPIs" affordance (UX gate only —
-  // the backend 403 is the real guard).
-  const { role } = useAuth();
+  // Gates the admin-only "Provision KPIs" recovery banner. Provisioning the
+  // Overview KPI cache is a create-scoped action on the account-overview surface,
+  // whose frontend action-registry module is `org_accounts` (see BACKEND_MODULE_ALIAS
+  // in the Access Center: "Account / org overview = command center"). Replaces the
+  // former coarse admin-role check. UX gate only — the backend 403 is the real
+  // guard — and useCanPerform fail-opens on hard error.
+  const { allowed: canProvision, loading: provisionPermLoading } = useCanPerform(
+    'org_accounts',
+    'create',
+  );
 
   // Compact the AI recommendations block so the Overview isn't a long scroll.
   // The three advisors (Snowflake insights · AI advisor · top problems) live
@@ -3020,10 +3069,10 @@ const OverviewTab = memo(function OverviewTab({
   // When NOT provisioned we must NOT trust its all-zero fields — fall the
   // cards back to /command-center/summary, or render "—" (no fake 0s).
   const provisioned = kpis?._provisioned !== false;
-  // KPI-cache provisioning has no granular Action-RBAC action to gate on, so
-  // this stays a coarse admin-role check — via the shared isAdminRole helper
-  // rather than an inline role-array literal.
-  const isAdmin = isAdminRole(role);
+  // Deny only once the allow-set has actually loaded without the action — while
+  // loading (or on a hard error → fail-open) keep the recovery banner visible so
+  // an admin's only visible provisioning path never flashes away.
+  const provisionDenied = !canProvision && !provisionPermLoading;
 
   // Prefer cache row over legacy summary call.
   // NOTE: `Number(x) ?? 0` is a trap — Number(undefined) is NaN and `?? 0`
@@ -3159,7 +3208,7 @@ const OverviewTab = memo(function OverviewTab({
           BootstrapRecoveryBanner above only fires on a THROWN error, which the
           404→empty-payload path no longer raises — so this is the affordance
           users actually see on the unprovisioned backend. */}
-      {!provisioned && isAdmin && (
+      {!provisioned && !provisionDenied && (
         <ProvisionKpisBanner onProvisioned={() => void refreshKpis()} />
       )}
 
@@ -4197,7 +4246,11 @@ const ProjectsTab = memo(function ProjectsTab({
       ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   return (
-    <>
+    // Docked review inspector: projects content on the left, the deployment
+    // review panel mounts as a flex SIBLING on the right (no overlay) so both
+    // stay visible + interactive — mirrors the policy-grants docked pattern.
+    <div className="flex items-start gap-4">
+      <div className="min-w-0 flex-1 space-y-6">
       {/* Deployment-health CTA — points at the real cause (failures vs pending). */}
       {failedDeployments > 0 ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
@@ -4975,7 +5028,9 @@ const ProjectsTab = memo(function ProjectsTab({
         </div>
       )}
 
-      {/* Approval Detail Modal */}
+      </div>
+
+      {/* Approval Detail — docked review inspector (flex sibling, not an overlay) */}
       {detailModal && (
         <ApprovalDetailModal
           isOpen={!!detailModal}
@@ -5006,7 +5061,7 @@ const ProjectsTab = memo(function ProjectsTab({
           }}
         />
       )}
-    </>
+    </div>
   );
 });
 
@@ -5644,8 +5699,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
 
   const { totalLogins, successLogins } = loginSummary.reduce(
     (acc: { totalLogins: number; successLogins: number }, r: any) => {
-      acc.totalLogins += r.event_count;
-      if (r.is_success === 'YES') acc.successLogins += r.event_count;
+      acc.totalLogins += safeNum(r.event_count);
+      if (r.is_success === 'YES') acc.successLogins += safeNum(r.event_count);
       return acc;
     },
     { totalLogins: 0, successLogins: 0 }
@@ -5724,7 +5779,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-8">
         <KpiCard
           label="Total Logins"
-          value={totalLogins.toLocaleString()}
+          value={hasLoginActivity ? totalLogins.toLocaleString() : '—'}
           icon={Users}
           color="blue"
         />
@@ -5736,7 +5791,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         />
         <KpiCard
           label="Failed Attempts"
-          value={failedLoginCount.toLocaleString()}
+          value={hasLoginActivity ? failedLoginCount.toLocaleString() : '—'}
           icon={AlertTriangle}
           color={failedLoginCount > 0 ? 'red' : 'green'}
         />
@@ -5990,7 +6045,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
                       style={{ backgroundColor: COLORS[i % COLORS.length] }}
                     />
                     <p className="text-xl font-bold text-gray-400 dark:text-gray-500">
-                      0
+                      —
                     </p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
                       {row.name}

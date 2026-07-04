@@ -456,7 +456,69 @@ function DataProductsPage() {
               onPublished={() => void fetchProducts()}
             />
           </div>
-        ) : null}
+        ) : (
+          // DEFAULT VIEW — nothing selected. Rather than collapse the column, the
+          // rail opens with a purposeful "Products overview" summarising the
+          // portfolio (reuses the already-computed `stats` + catalog `trustAvg`;
+          // honest "—" when empty) plus the primary Create action, then switches
+          // to the per-product detail once a card is selected.
+          <div className="w-[380px] shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-y-auto p-5 space-y-5">
+            <div>
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <Package className="h-4 w-4 text-blue-600" />
+                Products overview
+              </h3>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Publish, certify and share governed data products. Select a product
+                to manage its lifecycle, KPIs and consumers.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: 'Products', value: fmtNum(stats.total), sub: loading ? '—' : `${stats.active} active`, icon: <Package className="h-3.5 w-3.5" />, color: 'blue' },
+                { label: 'Certified', value: fmtNum(stats.certified), sub: 'verified', icon: <ShieldCheck className="h-3.5 w-3.5" />, color: 'emerald' },
+                { label: 'Consumers', value: fmtNum(stats.consumers), sub: 'subscribers', icon: <Users className="h-3.5 w-3.5" />, color: 'amber' },
+                { label: 'Trust', value: scoresError ? '—' : trustAvg != null ? `${Math.round(trustAvg)}` : '—', sub: 'catalog avg', icon: <Activity className="h-3.5 w-3.5" />, color: 'emerald' },
+              ].map((m) => (
+                <div key={m.label} className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
+                  <p className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
+                    <span className={cn(`text-${m.color}-500`)}>{m.icon}</span>{m.label}
+                  </p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white">{loading ? '—' : m.value}</p>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500">{m.sub}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+              <Tag className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+              {loading ? '—' : `${fmtNum(stats.domains)} domain${stats.domains === 1 ? '' : 's'}`} ·{' '}
+              {stats.avgQuality === null ? '—' : `${stats.avgQuality}% avg quality`}
+            </div>
+
+            <div className="pt-1 border-t border-gray-100 dark:border-gray-800">
+              <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 pt-3 pb-1.5">
+                Primary actions
+              </p>
+              <Button
+                size="sm"
+                className="w-full gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={() => {
+                  trackFeatureClick('create_product_toggle', { module: 'data_products' });
+                  setShowCreate(true);
+                }}
+                disabled={!canCreateProduct}
+                title={!canCreateProduct ? 'You lack the "create" permission on data products. Ask an administrator to grant it.' : undefined}
+              >
+                <Plus className="h-3.5 w-3.5" />Create Product
+              </Button>
+              <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+                Or select a product card to view its details.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Cross-module links */}

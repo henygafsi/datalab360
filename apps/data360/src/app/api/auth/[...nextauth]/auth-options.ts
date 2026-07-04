@@ -128,10 +128,20 @@ export const authOptions: NextAuthOptions = {
           };
         } catch (error: any) {
           if (process.env.NODE_ENV === 'development') {
+            // Message only — never log the credentials object (contains the password).
             console.error('[Auth] Login failed:', error?.message ?? error);
           }
-          // Rethrow so the client receives the backend error message (e.g. Snowflake account not found)
-          throw error;
+          // Rethrow a CLEAN Error carrying the backend `detail` string (already
+          // extracted by login()): NextAuth puts a thrown authorize() Error's
+          // message into the `?error=` query param / `result.error`, which the
+          // sign-in form renders (with a special case for the 250001
+          // "Multi-factor authentication is required" enrollment error).
+          // A bare rethrow could surface an axios object; normalize to Error.
+          const detail =
+            typeof error?.message === 'string' && error.message.trim().length > 0
+              ? error.message
+              : 'Invalid credentials';
+          throw new Error(detail);
         }
       },
     }),

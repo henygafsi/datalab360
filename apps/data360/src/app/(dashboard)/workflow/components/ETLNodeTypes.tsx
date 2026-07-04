@@ -234,6 +234,18 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
         dotClass
       )} />
 
+      {/* AI-draft badge — set by the docked AI Build flow (data.aiDraft) while
+          the generated block is pending Accept/Undo in the right rail. Cleared
+          on Accept. */}
+      {Boolean(data?.aiDraft) && (
+        <div
+          className="absolute -top-2.5 right-4 z-10 flex items-center gap-0.5 rounded-full bg-violet-600 px-1.5 py-0.5 text-[9px] font-bold text-white shadow-sm"
+          title="AI draft — review it in the AI panel (Accept / Undo / Refine)"
+        >
+          ✦ AI draft
+        </div>
+      )}
+
       {/* Header */}
       <div className={cn('px-3 py-2 rounded-t-lg flex items-center gap-2 relative', error ? 'bg-red-50 dark:bg-red-900/20' : blockDef.bgColor)}>
         <div className={cn('p-1.5 rounded-lg bg-white/80 dark:bg-slate-700/80', error ? 'text-red-500' : blockDef.color)}>

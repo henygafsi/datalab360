@@ -433,13 +433,48 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastInvalidation]);
 
-  // Idle state: nothing selected — keep the column footprint with a quiet hint.
+  // DEFAULT / CATALOG OVERVIEW — nothing selected. Rather than a bare one-line
+  // hint, the panel opens by stating the page's purpose and what the object
+  // inspector will show, then switches to the per-object story on selection.
+  // NOTE: per-type object counts are intentionally NOT shown here — they live in
+  // SourcesOverview and are not lifted to this component's props, so surfacing
+  // them would need a new fetch (out of scope). We keep the overview honest:
+  // purpose + guidance, no fabricated numbers.
   if (!selected) {
     return (
-      <div className="flex h-full w-[380px] shrink-0 flex-col items-center justify-center border-l border-gray-200 px-6 text-center dark:border-gray-700">
-        <Package className="mb-2 h-8 w-8 text-gray-300 dark:text-gray-600" />
-        <p className="text-xs text-gray-400 dark:text-gray-500">
-          Select a table to see its context, governance, lineage, ingestion and ownership.
+      <div className="h-full w-[380px] shrink-0 overflow-y-auto border-l border-gray-200 p-5 dark:border-gray-700">
+        <div className="mb-4 flex items-start gap-2.5">
+          <Package className="mt-0.5 h-5 w-5 shrink-0 text-blue-500" />
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Catalog overview</h3>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              Browse, enrich and understand your source objects. Select a table to
+              open its full context.
+            </p>
+          </div>
+        </div>
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+          What you can inspect
+        </p>
+        <ul className="space-y-2">
+          {[
+            { icon: Gauge, label: 'Trust scores', hint: 'Quality, governance and cost rollup' },
+            { icon: Shield, label: 'Governance', hint: 'Sensitive columns and policies' },
+            { icon: GitBranch, label: 'Lineage', hint: 'Upstream and downstream impact' },
+            { icon: User, label: 'Ownership', hint: 'Owner, team and top consumers' },
+          ].map(({ icon: Icon, label, hint }) => (
+            <li key={label} className="flex items-start gap-2.5 rounded-lg border border-gray-100 px-3 py-2 dark:border-gray-800">
+              <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{label}</p>
+                <p className="text-[10px] text-gray-400 dark:text-gray-500">{hint}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-4 text-[11px] text-gray-400 dark:text-gray-500">
+          Pick an object from the source tree, or use the header to search or refresh
+          the catalog.
         </p>
       </div>
     );

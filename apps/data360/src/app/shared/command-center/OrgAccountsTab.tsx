@@ -141,7 +141,7 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
     error: null,
   });
   const router = useRouter();
-  // Flagship per-account audit (/org-accounts/accounts/audit) — ORGADMIN-only,
+  // Per-account audit (/org-accounts/accounts/audit) — ORGADMIN-only,
   // fetched lazily once overview confirms org-admin scope (see effect below).
   const [accountsAudit, setAccountsAudit] = useState<{ rows: Row[]; loaded: boolean }>({
     rows: [],
@@ -239,7 +239,7 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
     void fetchAll();
   }, []);
 
-  // Flagship per-account audit (/org-accounts/accounts/audit) — ORGADMIN-only.
+  // Per-account audit (/org-accounts/accounts/audit) — ORGADMIN-only.
   // Fetched lazily once overview resolves and confirms org-admin scope, so a
   // non-ORGADMIN account never fires this 60s-timeout call. Route-order note:
   // if the backend hasn't registered /accounts/audit ahead of crud's

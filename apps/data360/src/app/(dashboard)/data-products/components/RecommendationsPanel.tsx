@@ -56,10 +56,10 @@ const SEVERITY_TINT: Record<string, string> = {
  *
  * The backend (`AI_RECOMMENDATIONS` SELECT) aliases its columns as
  * `feature` / `rationale` / `estimated_savings_usd` — NOT the legacy
- * `title` / `explanation` / `expected_gain` that an earlier version of this
- * panel read directly. Reading the legacy names alone rendered blank cards at
- * runtime. We prefer the populated names and fall back to the legacy ones so
- * both old and new backends display, and never show an empty headline.
+ * `title` / `explanation` / `expected_gain`. Reading the legacy names alone
+ * renders blank cards, so we prefer the populated names and fall back to the
+ * legacy ones so both old and new backends display, and never show an empty
+ * headline.
  */
 function recoDisplay(r: Recommendation): {
   headline: string;

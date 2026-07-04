@@ -74,7 +74,8 @@ export default function ExecutiveOverview({ days = 30, onNavigateTab }: { days?:
   const trend = Number(cst.credit_trend_pct);
 
   const kpis: Kpi[] = [
-    { label: 'Utilisateurs actifs (7j)', value: fnum(p.active_users_7d ?? p.total_users), icon: Users, tone: 'blue' },
+    // Honest: no cross-metric fallback — total_users is NOT "actifs (7j)".
+    { label: 'Utilisateurs actifs (7j)', value: fnum(p.active_users_7d), icon: Users, tone: 'blue' },
     { label: 'Projets', value: fnum(p.total_projects), icon: Rocket, tone: 'violet', onClick: () => onNavigateTab?.('projects') },
     { label: 'Workflows', value: fnum(p.total_workflows), icon: Workflow, tone: 'indigo', onClick: () => onNavigateTab?.('modules') },
     {

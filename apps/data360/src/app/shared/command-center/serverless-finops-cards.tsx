@@ -8,9 +8,8 @@
  *    no per-row detail endpoint (by-category, serverless, resource monitors, storage).
  *  - AUDIT DÉTAILLÉ: per-driver tables from dedicated ACCOUNT_USAGE endpoints
  *    (cost-by-warehouse, cost-by-service, clustering-costs, pipe-usage,
- *    mv-refresh-costs, task-history). These previously 404'd (phantom); the
- *    backend endpoints now exist and return {data, columns} so every driver is
- *    auditable in-app without opening Snowflake.
+ *    mv-refresh-costs, task-history). Each returns {data, columns} so every
+ *    driver is auditable in-app without opening Snowflake.
  */
 
 import { useEffect, useState } from 'react';

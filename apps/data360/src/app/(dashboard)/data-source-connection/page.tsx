@@ -67,6 +67,7 @@ import SourceHub, { type SourceSelection } from '@/app/shared/source-hub/SourceH
 import SourceAiSummary from '@/app/shared/source-hub/SourceAiSummary';
 import ConnectorAiHelper from './ConnectorAiHelper';
 import ConnectorHealthStrip from './ConnectorHealthStrip';
+import ConnectCockpit, { ConnectKpiStrip, useConnectCockpitData } from './ConnectCockpit';
 import SourceCatalogSection from './SourceCatalogSection';
 import InternalStageCreator from './InternalStageCreator';
 import SnowflakeExplorerTab from '@/app/shared/command-center/snowflake-explorer-tab';
@@ -486,11 +487,35 @@ export default function DataSourceConnectionPage() {
     [dataSources, selectedSource]
   );
 
-  // Action-RBAC: gate this surface on connect:read. Fail-open while the allow-set
+  // Action-RBAC: gate this surface on connect:view. Fail-open while the allow-set
   // loads (useCanPerform also returns allowed on hard error), so we never bounce a
   // legitimate user to /access-denied on a transient permissions glitch.
-  const readPerm = useCanPerform('connect', 'read');
+  const readPerm = useCanPerform('connect', 'view');
   const canManageConnections = readPerm.allowed || readPerm.loading;
+
+  // Unified right cockpit (shared AxisCockpit primitive) + top KPI strip.
+  // Auto-opens on the Sources overview so the rail never sits blank-until-select;
+  // one shared fetch (connectors health + registered connectors — the same
+  // sources the ConnectorHealthStrip reads) feeds the KPI strip and every axis.
+  const [cockpitOpen, setCockpitOpen] = useState<boolean>(true);
+  const [cockpitAxis, setCockpitAxis] = useState<string | null>('sources');
+  const cockpitData = useConnectCockpitData(status === 'authenticated' && canManageConnections);
+  const openCockpitAxis = (id: string) => {
+    setCockpitAxis(id);
+    setCockpitOpen(true);
+    trackTabSwitch(`cockpit:${id}`);
+  };
+  // Cockpit "Add connection" CTA → back to the provider picker in add mode.
+  // (handleBackToProviderSelection is declared below; the call is click-time only.)
+  const focusAddConnection = () => {
+    handleBackToProviderSelection();
+    setShowAddConnection(true);
+    trackFeatureClick('cockpit_add_connection');
+    // Wait a tick so the step-0 picker grid exists before scrolling to it.
+    setTimeout(() => {
+      document.getElementById('data-source-cards')?.scrollIntoView({ behavior: 'smooth' });
+    }, 150);
+  };
 
   // Only the unauthenticated case redirects (middleware also guards this route);
   // permission gaps degrade gracefully rather than bouncing the user.
@@ -2800,8 +2825,11 @@ export default function DataSourceConnectionPage() {
             return (
                 <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-3xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl p-8">
 
-                    {/* Connector health at a glance (GET /connect/connectors/health) */}
-                    <ConnectorHealthStrip />
+                    {/* Connector health at a glance (GET /connect/connectors/health).
+                        The cockpit's Ingestion axis scrolls here for per-connector Test/Sync. */}
+                    <div id="connector-health-strip" className="scroll-mt-28">
+                        <ConnectorHealthStrip />
+                    </div>
 
                     {/* Browse already-connected sources (GET /connect/source-catalog) */}
                     <SourceCatalogSection />
@@ -3270,7 +3298,10 @@ export default function DataSourceConnectionPage() {
 
     return (
       <ErrorBoundary>
-        <div className="space-y-8">
+        {/* Two-column shell: page content + the unified right cockpit (axis rail).
+            The rail is always visible on xl+; the docked panel opens to its left. */}
+        <div className="flex items-start gap-6">
+          <div className="min-w-0 flex-1 space-y-8">
             <Breadcrumb onHomeClick={() => router.push(routes.home)} />
 
             {/* Page Header */}
@@ -3325,6 +3356,18 @@ export default function DataSourceConnectionPage() {
                 </div>
             </div>
 
+            {/* Unified KPI strip (shared cockpit primitive) — honest "—" fallbacks;
+                each KPI deep-links into its owning cockpit axis */}
+            <ConnectKpiStrip
+                data={cockpitData}
+                stagesFallback={
+                    canManageConnections && !connectionsLoading && !connectionsError
+                        ? activeConnections.length
+                        : null
+                }
+                onOpenAxis={openCockpitAxis}
+            />
+
             <div className="animate-fade-in-up">{renderForm()}</div>
 
             <ConnectorAiHelper
@@ -3339,6 +3382,24 @@ export default function DataSourceConnectionPage() {
               <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Model Sources)</a>
               <a href="/workflow" className="text-blue-600 dark:text-blue-400 hover:underline">Workflow (Ingest Pipelines)</a>
             </div>
+          </div>
+
+          {/* Unified right cockpit — docked axis rail + panel (no popups). Sticky
+              below the app header; hidden below xl (the fixed sidebar already takes
+              280px) where the KPI strip remains the cockpit summary. */}
+          <div className="sticky top-24 hidden h-[calc(100vh-8rem)] shrink-0 xl:block">
+            <ConnectCockpit
+                data={cockpitData}
+                open={cockpitOpen}
+                activeAxis={cockpitAxis}
+                onOpenAxis={openCockpitAxis}
+                onClose={() => setCockpitOpen(false)}
+                onOpenAiHelper={() => { setShowAiHelper(true); trackFeatureClick('open_ai_helper'); }}
+                onAddConnection={focusAddConnection}
+                canCreate={canCreate}
+                createDeniedReason={createDeniedReason}
+            />
+          </div>
         </div>
       </ErrorBoundary>
     );

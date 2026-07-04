@@ -1,7 +1,7 @@
 /**
  * Snowflake object management (`/explore-design/{dynamic-tables,streams,tasks}/*`)
- * — W6 reintegration of three cohesive, previously-unwired clusters: dynamic
- * tables, streams and tasks (CRUD + lifecycle). Self-contained typed client.
+ * — dynamic tables, streams and tasks (CRUD + lifecycle). Self-contained typed
+ * client.
  */
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';

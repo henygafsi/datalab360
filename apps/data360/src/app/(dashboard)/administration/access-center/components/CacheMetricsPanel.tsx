@@ -165,7 +165,7 @@ function EmptyNote({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Loading skeleton — shimmer cards + a grey table block, no fabricated values. */
+/** Loading skeleton — shimmer cards + a grey table block. */
 function Skeleton() {
   return (
     <div className="space-y-5">

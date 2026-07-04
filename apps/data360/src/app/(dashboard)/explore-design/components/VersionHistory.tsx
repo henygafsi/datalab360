@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useVersionStore, Version, VersionComparison, VersionType, getVersionTypeLabel, formatVersionDisplay } from '../stores/version-store';
 import { formatDistanceToNow, format } from 'date-fns';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 // Version status config
 const statusConfig = {
@@ -61,6 +62,12 @@ const VersionHistory: React.FC<VersionHistoryProps> = ({
   const [comparison, setComparison] = useState<VersionComparison | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+
+  // Action-level RBAC for destructive version actions
+  const approvePerm = useCanPerform('explore_design', 'approve');
+  const archivePerm = useCanPerform('explore_design', 'archive');
+  const canPublish = approvePerm.allowed || approvePerm.loading;
+  const canArchive = archivePerm.allowed || archivePerm.loading;
 
   // Get versions based on project
   const displayVersions = useMemo(() => {
@@ -427,6 +434,8 @@ const VersionHistory: React.FC<VersionHistoryProps> = ({
                               {version.status === 'draft' && (
                                 <Button
                                   size="sm"
+                                  disabled={!canPublish}
+                                  title={!canPublish ? "You lack the 'approve' permission on explore_design. Ask an administrator to grant it." : undefined}
                                   onClick={() => publishVersion(version.version_id)}
                                 >
                                   <Tag className="h-4 w-4 mr-1" />
@@ -442,10 +451,17 @@ const VersionHistory: React.FC<VersionHistoryProps> = ({
                                 </Tooltip>
                               )}
                               {(version.status === 'published' || version.status === 'deployed') && (
-                                <Tooltip content="Archive this version">
+                                <Tooltip
+                                  content={
+                                    !canArchive
+                                      ? "You lack the 'archive' permission on explore_design. Ask an administrator to grant it."
+                                      : 'Archive this version'
+                                  }
+                                >
                                   <Button
                                     variant="outline"
                                     size="sm"
+                                    disabled={!canArchive}
                                     onClick={() => archiveVersion(version.version_id)}
                                   >
                                     <Archive className="h-4 w-4" />

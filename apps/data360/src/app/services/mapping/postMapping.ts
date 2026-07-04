@@ -1,3 +1,6 @@
+import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
+
 /**
  * The shape of the test mapping payload
  * Expected by the backend test_mapping endpoint
@@ -33,14 +36,13 @@ export interface TestMappingResponse {
 /**
  * Sends mapping data for server-side validation.
  *
- * The historical /explore-design/guided/test_mapping/ route DOES NOT EXIST on the
- * current backend (the /explore-design router has no /guided sub-prefix) and there
- * is no canonical server-side mapping-validation endpoint. Rather than fabricating
- * validation results that would read as a passing test, this surfaces an honest
- * error which the caller already handles (toast + alert).
+ * POST /explore-design/guided/test_mapping (BaseMappingRequest — the payload
+ * shape above matches its ColumnMapping items exactly).
  */
-export async function postMapping(_payload: TestMappingPayload): Promise<TestMappingResponse> {
-    throw new Error(
-        'Server-side mapping validation is not available: the backend does not expose a test-mapping endpoint.'
+export async function postMapping(payload: TestMappingPayload): Promise<TestMappingResponse> {
+    const { data } = await apiClient.post<TestMappingResponse>(
+        API.exploreDesign.guidedTestMapping(),
+        payload,
     );
+    return data;
 }

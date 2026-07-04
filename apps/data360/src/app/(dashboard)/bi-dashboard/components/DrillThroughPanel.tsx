@@ -16,6 +16,13 @@ interface DrillThroughPanelProps {
   /** Optional: which dimension was clicked, plus its value (chart-click case) */
   initialDimension?: string;
   initialValue?: unknown;
+  /**
+   * 'portal' (legacy) renders a fixed right-edge overlay. 'panel' (default)
+   * renders the bare content so BiSmartRightBar can dock it inline — no popup,
+   * the Data360 right-bar pattern. In panel mode the parent should key this on
+   * the widget id so switching drill targets resets the form/result.
+   */
+  variant?: 'portal' | 'panel';
 }
 
 export default function DrillThroughPanel({
@@ -25,6 +32,7 @@ export default function DrillThroughPanel({
   widget,
   initialDimension,
   initialValue,
+  variant = 'panel',
 }: DrillThroughPanelProps) {
   const cfg = (widget.chart_config || {}) as {
     x?: string;
@@ -51,15 +59,16 @@ export default function DrillThroughPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, initialDimension, initialValue]);
 
-  // Esc-to-close (panel only closed via backdrop click / X button before).
+  // Esc-to-close — portal overlay only. In docked panel mode there is nothing to
+  // close (the bar owns its own collapse), so the global key handler is skipped.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || variant !== 'portal') return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, variant]);
 
   const runDrill = async () => {
     if (!dimension) {
@@ -87,29 +96,25 @@ export default function DrillThroughPanel({
 
   if (!isOpen) return null;
 
-  return (
-    <div
-      className="fixed inset-y-0 right-0 z-[70] flex"
-      role="dialog"
-      aria-modal="false"
-      aria-label="Drill-through details"
-    >
-      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b dark:border-slate-700">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
-              Drill-through · {widget.title || 'Widget'}
-            </h3>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {cfg.database}.{cfg.schema}.{cfg.table}
-            </p>
-          </div>
+  const content = (
+    <>
+      <div className="flex items-center justify-between px-4 py-3 border-b dark:border-slate-700">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+            Drill-through · {widget.title || 'Widget'}
+          </h3>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            {cfg.database}.{cfg.schema}.{cfg.table}
+          </p>
+        </div>
+        {variant === 'portal' && (
           <button onClick={onClose} aria-label="Close" className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
             <X className="h-4 w-4 text-slate-400" />
           </button>
-        </div>
+        )}
+      </div>
 
-        <div className="px-4 py-3 border-b dark:border-slate-700 grid grid-cols-2 gap-3">
+      <div className="px-4 py-3 border-b dark:border-slate-700 grid grid-cols-2 gap-3">
           <div>
             <label className="block text-[11px] font-medium text-slate-500 mb-1">Dimension</label>
             <select
@@ -191,7 +196,26 @@ export default function DrillThroughPanel({
               </table>
             </div>
           )}
-        </div>
+      </div>
+    </>
+  );
+
+  // Docked (default): render bare content so BiSmartRightBar hosts it inline.
+  // The bar's Data section supplies its own scroll container + header chrome.
+  if (variant === 'panel') {
+    return <div className="flex h-full flex-col">{content}</div>;
+  }
+
+  // Legacy portal overlay — kept for any caller still rendering it as an overlay.
+  return (
+    <div
+      className="fixed inset-y-0 right-0 z-[70] flex"
+      role="dialog"
+      aria-modal="false"
+      aria-label="Drill-through details"
+    >
+      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col">
+        {content}
       </div>
     </div>
   );

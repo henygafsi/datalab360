@@ -3,6 +3,7 @@
  * Works in both server-side (SSR) and client-side contexts
  */
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import { RoleTableDataType } from '@/app/shared/governance/roles/table';
 import { invalidateMyPermissions } from '@/hooks/useCanPerform';
 
@@ -448,6 +449,37 @@ export async function getMyPermissions(): Promise<MyPermissionsResponse> {
     permission_count: d.permission_count ?? 0,
     source: d.source ?? 'matrix',
     uninitialized: Boolean(d.uninitialized),
+  };
+}
+
+/** Coarse per-module posture for the calling user. */
+export type ModuleAccessLevel = 'read' | 'write' | 'none';
+
+/** Response of GET /gouvernance/d360-roles/my-module-access. */
+export interface MyModuleAccessResponse {
+  username: string;
+  snowflake_role: string;
+  d360_role: string;
+  /** Exhaustive {module: level} map over every action-registry module. */
+  modules: Record<string, ModuleAccessLevel>;
+  source: 'db' | 'matrix' | string;
+}
+
+/**
+ * Coarse module→read|write|none posture for the CALLING user — the feed for
+ * page-level viewer-mode banners and sidebar read-only badges, without deriving
+ * posture from hundreds of my-permissions action rows.
+ * GET /gouvernance/d360-roles/my-module-access
+ */
+export async function getMyModuleAccess(): Promise<MyModuleAccessResponse> {
+  const response = await apiClient.get(API.gouvernance.d360MyModuleAccess());
+  const d = response.data ?? {};
+  return {
+    username: d.username ?? '',
+    snowflake_role: d.snowflake_role ?? '',
+    d360_role: d.d360_role ?? '',
+    modules: d.modules ?? {},
+    source: d.source ?? 'matrix',
   };
 }
 

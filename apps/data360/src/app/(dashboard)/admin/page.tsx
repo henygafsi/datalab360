@@ -2,13 +2,13 @@
  * Administration landing index (`/admin`).
  *
  * `/admin` had no page of its own, so navigating to it (breadcrumbs, stray
- * deep-links, the route registry) returned a 404. This is a pure-navigation
- * landing: a card grid that links to the real `/admin/*` sub-pages. No data
- * feeds, no fabricated metrics — each card just routes into a surface that has
- * its own gate and its own loading/empty/error states.
+ * deep-links, the route registry) returned a 404. The card grid routes into
+ * the real `/admin/*` sub-pages; below it, the live platform-usage panel
+ * (per-module success rates + most active users) gives the landing real
+ * operational data instead of links alone.
  *
- * Server component by design: every href is a static `routes.*` entry, so the
- * page resolves to real, registry-backed routes by construction.
+ * Server component shell; ActivityDashboard is a self-contained client panel
+ * with its own loading/empty/error states.
  */
 import Link from 'next/link';
 import {
@@ -20,6 +20,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { routes } from '@/config/routes';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
+import ActivityDashboard from './ActivityDashboard';
 
 interface AdminCard {
   label: string;
@@ -57,6 +59,7 @@ const ADMIN_CARDS: AdminCard[] = [
 
 export default function AdminLandingPage() {
   return (
+    <AdminRouteGuard surface="The Administration area">
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-slate-800 dark:text-slate-100">
@@ -93,6 +96,9 @@ export default function AdminLandingPage() {
           );
         })}
       </div>
+
+      <ActivityDashboard />
     </div>
+    </AdminRouteGuard>
   );
 }

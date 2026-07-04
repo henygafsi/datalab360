@@ -112,6 +112,37 @@ const StatCard = ({ icon: Icon, label, value, color, badge }: {
   </ModernCard>
 );
 
+// A posture-count chip. When it has a backing list (count > 0) and an `onOpen`
+// handler, it becomes a button that drills into that list; otherwise it renders
+// as a plain, non-interactive badge.
+const ReviewBadge = ({ label, count, onOpen }: {
+  label: string;
+  count: number;
+  onOpen?: () => void;
+}) => {
+  const text = `${label} ${count}`;
+  if (count > 0 && onOpen) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        title={`View ${label.toLowerCase()} (${count})`}
+        className="rounded-full transition-transform hover:scale-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+      >
+        <Badge className="cursor-pointer bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600 text-xs">
+          {text}
+          <span className="ml-1 opacity-60" aria-hidden>›</span>
+        </Badge>
+      </button>
+    );
+  }
+  return (
+    <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">
+      {text}
+    </Badge>
+  );
+};
+
 // ============= CONSTANTS =============
 
 const AXIS_TYPE_ICONS: Record<string, React.ElementType> = {
@@ -158,6 +189,9 @@ export default function SecurityMatrixPage() {
   const [accessReview, setAccessReview] = useState<AccessReviewSummary | null>(null);
   const [compliance, setCompliance] = useState<ComplianceScore | null>(null);
   const [postureLoading, setPostureLoading] = useState(false);
+  // Access-review drill-down: which posture count's backing list is open in the
+  // read-only detail rail (null = closed). Data is already in `accessReview`.
+  const [reviewDrill, setReviewDrill] = useState<'mfa' | 'expiring' | 'orphan' | null>(null);
 
   // Matrix state
   const [matrixData, setMatrixData] = useState<SecurityMatrixResponse | null>(null);
@@ -248,6 +282,16 @@ export default function SecurityMatrixPage() {
     loadMatrix();
     loadAxes();
   }, [loadMatrix, loadAxes]);
+
+  // Deep link from the governance landing cockpit: ?drill=mfa|expiring|orphan
+  // opens the corresponding access-review drill rail on arrival. One-shot read
+  // of window.location (no useSearchParams → no Suspense deopt at build).
+  useEffect(() => {
+    const drill = new URLSearchParams(window.location.search).get('drill');
+    if (drill === 'mfa' || drill === 'expiring' || drill === 'orphan') {
+      setReviewDrill(drill);
+    }
+  }, []);
 
   // Posture header reads (gouvernance:view). Skipped entirely when the caller
   // lacks view; both getters never throw, so no error state is needed here.
@@ -651,15 +695,9 @@ export default function SecurityMatrixPage() {
             {/* Access-review breakdown — only when measured */}
             {accessReview?.available && (
               <div className="flex flex-wrap items-center gap-2">
-                <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">
-                  MFA gaps {accessReview.mfa_gaps.length}
-                </Badge>
-                <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">
-                  Expiring policies {accessReview.expiring_policies.length}
-                </Badge>
-                <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">
-                  Orphan grants {accessReview.orphan_grants.length}
-                </Badge>
+                <ReviewBadge label="MFA gaps" count={accessReview.mfa_gaps.length} onOpen={() => setReviewDrill('mfa')} />
+                <ReviewBadge label="Expiring policies" count={accessReview.expiring_policies.length} onOpen={() => setReviewDrill('expiring')} />
+                <ReviewBadge label="Orphan grants" count={accessReview.orphan_grants.length} onOpen={() => setReviewDrill('orphan')} />
                 {accessReview.window_days > 0 && (
                   <span className="text-xs text-slate-400 dark:text-slate-500">{accessReview.window_days}-day window</span>
                 )}
@@ -1218,6 +1256,98 @@ export default function SecurityMatrixPage() {
               </p>
             )}
           </div>
+      </PolicyFormPanel>
+
+      {/* Access-review drill-down (read-only) — the list behind each posture count.
+          Data is already in `accessReview`; this rail just surfaces it. */}
+      <PolicyFormPanel
+        isOpen={reviewDrill !== null}
+        onClose={() => setReviewDrill(null)}
+        accentClassName="bg-amber-500"
+        title={
+          reviewDrill === 'mfa' ? 'MFA gaps'
+            : reviewDrill === 'expiring' ? 'Expiring policies'
+            : reviewDrill === 'orphan' ? 'Orphan grants'
+            : 'Access review'
+        }
+        description={
+          reviewDrill === 'mfa' ? 'Users that can sign in without multi-factor authentication.'
+            : reviewDrill === 'expiring' ? `Policies expiring within the ${accessReview?.window_days ?? 0}-day review window.`
+            : reviewDrill === 'orphan' ? 'Grants whose grantee no longer resolves to an active principal.'
+            : undefined
+        }
+        footer={<Button variant="outline" onClick={() => setReviewDrill(null)}>Close</Button>}
+      >
+        {reviewDrill === 'mfa' && (
+          accessReview && accessReview.mfa_gaps.length > 0 ? (
+            <div className="space-y-2">
+              {accessReview.mfa_gaps.map((g, i) => (
+                <div key={`${g.username}-${i}`} className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <HiOutlineFingerPrint className="w-4 h-4 shrink-0 text-amber-500" />
+                    <span className="truncate text-sm font-medium text-slate-900 dark:text-white">{dash(g.username)}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 pl-6 text-xs text-slate-500 dark:text-slate-400">
+                    <span>Default role: {dash(g.default_role)}</span>
+                    <span>Login: {dash(g.login_name)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 dark:text-slate-400">No MFA gaps to review.</p>
+          )
+        )}
+
+        {reviewDrill === 'expiring' && (
+          accessReview && accessReview.expiring_policies.length > 0 ? (
+            <div className="space-y-2">
+              {accessReview.expiring_policies.map((p, i) => (
+                <div key={`${p.name ?? 'policy'}-${i}`} className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <HiOutlineExclamationTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+                    <span className="truncate text-sm font-medium text-slate-900 dark:text-white">{dash(p.name)}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 pl-6 text-xs text-slate-500 dark:text-slate-400">
+                    {p.policy_type && (
+                      <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-xs">{p.policy_type}</Badge>
+                    )}
+                    <span>Expires: {dash(p.expiration_date)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 dark:text-slate-400">No expiring policies to review.</p>
+          )
+        )}
+
+        {reviewDrill === 'orphan' && (
+          accessReview && accessReview.orphan_grants.length > 0 ? (
+            <div className="space-y-2">
+              {accessReview.orphan_grants.map((o, i) => (
+                <div key={`${o.grantee ?? 'grantee'}-${o.object ?? 'object'}-${i}`} className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <HiOutlineLockClosed className="w-4 h-4 shrink-0 text-amber-500" />
+                    <span className="truncate text-sm font-medium text-slate-900 dark:text-white">{dash(o.grantee)}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 pl-6 text-xs text-slate-500 dark:text-slate-400">
+                    <span>Privilege: {dash(o.privilege)}</span>
+                    <span>Object: {dash(o.object)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 dark:text-slate-400">No orphan grants to review.</p>
+          )
+        )}
+
+        {accessReview?.generated_at && (
+          <p className="pt-1 text-xs text-slate-400 dark:text-slate-500">
+            Snapshot generated {new Date(accessReview.generated_at).toLocaleString()}
+          </p>
+        )}
       </PolicyFormPanel>
     </div>
     </ErrorBoundary>

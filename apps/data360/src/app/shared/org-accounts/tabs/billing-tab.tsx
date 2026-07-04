@@ -333,7 +333,7 @@ export default function BillingTab({ refreshKey }: BillingTabProps) {
                       <Text className="text-sm font-medium text-gray-900 dark:text-white">{formatCurrency(acc.total_cost, acc.currency)}</Text>
                     </td>
                     <td className="px-4 py-2 text-right">
-                      <Text className="text-sm text-gray-600 dark:text-gray-300">{totalCost > 0 ? ((acc.total_cost / totalCost) * 100).toFixed(1) : '0.0'}%</Text>
+                      <Text className="text-sm text-gray-600 dark:text-gray-300">{totalCost > 0 ? `${((acc.total_cost / totalCost) * 100).toFixed(1)}%` : '—'}</Text>
                     </td>
                     <td className="px-4 py-2">
                       <Text className="text-sm text-gray-600 dark:text-gray-300">{acc.currency}</Text>

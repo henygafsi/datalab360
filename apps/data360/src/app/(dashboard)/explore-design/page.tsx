@@ -13,10 +13,10 @@ import { toast } from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import {
   Search, Database, Table2, Columns3, Key, Shield, RefreshCw,
-  Settings, ChevronRight, ChevronDown, Filter, Download, Upload,
+  Settings, ChevronRight, ChevronDown, Filter, Upload,
   Layers, Grid3X3, LayoutGrid, CheckSquare, Square, AlertTriangle,
   Clock, History, Lock, Eye, Play, Save, X, Plus, Minus, Trash2,
-  FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
+  FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
   WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer,
   BookTemplate, Activity, AlertCircle, MoreVertical, FolderOpen,
@@ -68,7 +68,14 @@ import dynamic from 'next/dynamic';
 const ModelingCanvas = dynamic(() => import('./components/ModelingCanvas'), { ssr: false });
 const SourceMindMap = dynamic(() => import('./components/SourceMindMap'), { ssr: false });
 const ContextRightBar = dynamic(() => import('./components/ContextRightBar'), { ssr: false });
-import type { RightBarTab, FocusedAction } from './components/ContextRightBar';
+import type { RightBarTab, FocusedAction, RailSeverity } from './components/ContextRightBar';
+import ModelKpiStrip, { type ModelKpis } from './components/ModelKpiStrip';
+import DeployStateButton, { deriveDeployState, type DeployState } from './components/DeployStateButton';
+import ReleasePanel from './components/release/ReleasePanel';
+import AiChangeAnalyst from './components/AiChangeAnalyst';
+import { useReleaseState } from './components/release/useReleaseState';
+import type { AxisSignal, ReleaseStatus } from './components/release/types';
+import { useDeploymentReadiness } from './hooks/useDeploymentReadiness';
 import { useIngestionTrace } from '@/hooks/useIngestionTrace';
 import EventTable from './components/EventTable';
 import DeploymentValidation from './components/DeploymentValidation';
@@ -456,19 +463,16 @@ const CompactSourceSelector: React.FC<{
     icon?: React.ElementType;
     danger?: boolean;
   }> = [
-    { id: 'transfer_ownership', label: 'Transfer Ownership', icon: ArrowLeftRight },
-    { id: 'apply_masking_all', label: 'Apply Masking to All Tables', icon: Shield },
-    { id: 'apply_rls_all', label: 'Apply RLS to All Tables', icon: Lock },
-    { id: 'set_ingestion_all', label: 'Set Ingestion for All', icon: RefreshCw },
-    { id: 'divider', label: '' }, // No icon for dividers
+    // Only actions backed by a working endpoint are exposed. Transfer Ownership,
+    // Export DDL, Drop Schema, and the "apply … to All" bulk operations have no
+    // backend support yet — their handlers stay in handleSchemaAction (kept as
+    // dead switch cases) but are no longer surfaced, so the menu never offers a
+    // broken no-op action.
     { id: 'clone_schema', label: 'Clone Schema', icon: Layers },
-    { id: 'export_ddl', label: 'Export DDL', icon: Download },
     { id: 'divider2', label: '' },
     { id: 'list_dynamic_tables', label: 'List Dynamic Tables', icon: RefreshCw },
     { id: 'list_streams', label: 'List Streams', icon: GitBranch },
     { id: 'list_alerts', label: 'List Alerts', icon: AlertTriangle },
-    { id: 'divider3', label: '' },
-    { id: 'drop_schema', label: 'Drop Schema', icon: Trash2, danger: true },
   ];
 
   return (
@@ -1163,6 +1167,15 @@ export default function ExploreDesignPage() {
   // the allow-set loads (mirrors canDropObjects). Drop reuses dropObjPerm.
   const editColPerm = useCanPerform('explore_design', 'edit');
   const canEditCols = editColPerm.allowed || editColPerm.loading;
+
+  // Action-RBAC for CREATE DDL (schema clone + add-column). Replaces the prior
+  // hardcoded viewer-role gate on those actions. Fail-open while the allow-set
+  // loads (mirrors canDropObjects / canEditCols). readOnlyGuard (contributor
+  // role axis) is kept alongside — the two guards cover different concerns.
+  const createObjPerm = useCanPerform('explore_design', 'create');
+  const canCreateObjects = createObjPerm.allowed || createObjPerm.loading;
+  const createDeniedReason =
+    'You lack the "create" permission on Explore & Design. Ask an administrator to grant it.';
   // Inline per-column ALTER editor (rename / retype / drop-confirm). No browser
   // dialogs (this file replaced confirm() with inline state, see confirmDrop).
   const [columnEdit, setColumnEdit] = useState<
@@ -1757,6 +1770,131 @@ export default function ExploreDesignPage() {
     return merged;
   }, [events, backendMappings]);
 
+  // ── Redesign Wave A: top KPI strip + Deploy state-machine + rail severity ──
+  // All derived from data already in hand. Any value we can't source honestly is
+  // left `undefined` → the strip renders "—" (never a fabricated 0). The
+  // deployment-readiness GET degrades silently on 404/501 (unavailable flag).
+  const { data: deploymentReadiness } = useDeploymentReadiness(selectedProjectId);
+
+  // Blocking issues = breaking changes (fallback: high-risk impacts) from the
+  // readiness rollup. `undefined` readiness → 0 blockers (honest: none known).
+  const deployBlockers =
+    deploymentReadiness?.lineage_impact?.breaking_changes?.length ??
+    deploymentReadiness?.lineage_impact?.impact_summary?.high_risk ??
+    0;
+
+  // Project-level PII signal from whatever column classification has actually run
+  // (empty until the user classifies → undefined, not a fake "Low").
+  const piiLevel = useMemo<'Low' | 'Medium' | 'High' | undefined>(() => {
+    if (!classificationDetails || classificationDetails.length === 0) return undefined;
+    let hasPii = false;
+    let hasMedium = false;
+    for (const c of classificationDetails) {
+      const r = (c.piiRisk || '').toString().toLowerCase();
+      if (r === 'high') return 'High';
+      if (r === 'medium') hasMedium = true;
+      if (r === 'high' || r === 'medium' || r === 'low') hasPii = true;
+    }
+    if (hasMedium) return 'Medium';
+    return hasPii ? 'Low' : undefined;
+  }, [classificationDetails]);
+
+  // Real counts sourced from the same page state ModelOverview uses.
+  const kpiTableCount = tables.length || modelingTableIds.size;
+  const kpiRelationCount = tables.length > 0
+    ? defaultRelationships.length + initialColumnMappings.length
+    : 0;
+  const kpiColumnTotal = tables.reduce((sum, t) => sum + (t.columnCount || 0), 0);
+
+  const modelKpis = useMemo<ModelKpis>(() => ({
+    // No clean project-level model-health / cost($/mo) / DQ% source today →
+    // honest "—" rather than inventing them (spec: never fake).
+    modelHealth: undefined,
+    tables: { count: kpiTableCount },
+    relations: { count: kpiRelationCount },
+    // Columns lazy-load per table; a 0 sum on a populated model means "not loaded
+    // yet", so show "—" rather than a misleading 0.
+    columns: { count: kpiColumnTotal > 0 ? kpiColumnTotal : undefined },
+    dataQuality: undefined,
+    piiRisk: piiLevel ? { level: piiLevel } : undefined,
+    costImpact: undefined,
+    releaseReadiness: {
+      status: deployBlockers > 0
+        ? 'Blocked'
+        : displayablePendingEvents.length > 0
+          ? 'On track'
+          : undefined,
+    },
+  }), [kpiTableCount, kpiRelationCount, kpiColumnTotal, piiLevel, deployBlockers, displayablePendingEvents.length]);
+
+  // Server release-state (GET /explore-design/{id}/release-state): the full
+  // 12-state machine + per-axis signals, SSE-refreshed. Degrades to null/derived
+  // on 404 (endpoint not deployed yet) — local heuristics below take over.
+  const { state: releaseServerState, degraded: releaseDegraded } =
+    useReleaseState(selectedProjectId);
+
+  // Deploy button state — server truth first (full lifecycle incl. approval /
+  // deployed / failed phases the page can't source locally); the local
+  // pendingChanges+blockers heuristic is the degraded fallback.
+  const deployState = useMemo<DeployState>(() => {
+    if (releaseServerState && !releaseDegraded) {
+      const map: Record<ReleaseStatus, DeployState> = {
+        no_changes: 'no-changes',
+        draft_changes: 'draft',
+        checks_not_run: 'checks-not-run',
+        blocked: 'blocked',
+        ready_for_approval: 'ready-not-approved',
+        awaiting_approval: 'awaiting-approval',
+        approved: 'approved',
+        deploying: 'approved',
+        deployed: 'deployed',
+        verified: 'deployed',
+        failed: 'failed',
+        rolled_back: 'failed',
+      };
+      return map[releaseServerState.status] ?? 'draft';
+    }
+    return deriveDeployState({
+      pendingChanges: displayablePendingEvents.length,
+      blockers: deployBlockers,
+    });
+  }, [releaseServerState, releaseDegraded, displayablePendingEvents.length, deployBlockers]);
+
+  // Per-tab colour dots on the collapsed rail — local heuristics first, then the
+  // server release-state axis_signals overlay them (server truth wins where it
+  // has a non-grey signal). Keyed by the current RightBarTab union.
+  const rightBarSeverity = useMemo<Partial<Record<RightBarTab, RailSeverity>>>(() => {
+    const sev: Partial<Record<RightBarTab, RailSeverity>> = {};
+    sev.deploy = deployBlockers > 0
+      ? 'blocker'
+      : displayablePendingEvents.length > 0
+        ? 'pending'
+        : 'idle';
+    if (piiLevel === 'High') sev.governance = 'blocker';
+    else if (piiLevel === 'Medium') sev.governance = 'warn';
+    if (displayablePendingEvents.length > 0) sev.history = 'pending';
+
+    const signals = releaseServerState?.axis_signals;
+    if (signals) {
+      const toRail: Record<AxisSignal, RailSeverity> = {
+        green: 'ok', orange: 'warn', red: 'blocker', blue: 'pending', grey: 'idle',
+      };
+      // Axis → right-bar tab homes (grey = "no signal source" → keep local value).
+      const homes: Array<[keyof NonNullable<typeof signals>, RightBarTab]> = [
+        ['data_quality', 'quality'],
+        ['governance', 'governance'],
+        ['impact_cost', 'cost'],
+        ['release', 'deploy'],
+        ['history', 'history'],
+      ];
+      for (const [axis, tab] of homes) {
+        const s = signals[axis];
+        if (s && s !== 'grey') sev[tab] = toRail[s];
+      }
+    }
+    return sev;
+  }, [deployBlockers, displayablePendingEvents.length, piiLevel, releaseServerState]);
+
   // Redirect to sign-in when offline
   useEffect(() => {
     if (isOffline && connectionError?.includes('session expired')) {
@@ -2049,6 +2187,7 @@ export default function ExploreDesignPage() {
       return;
     }
 
+    let cancelled = false;
     const loadTables = async () => {
       setIsLoadingTables(true);
       setCatalogLoadError(null);
@@ -2063,6 +2202,9 @@ export default function ExploreDesignPage() {
         const tableListResults = await Promise.allSettled(
           schemaEntries.map(([schemaName, dbName]) => getTables(dbName, schemaName)),
         );
+        // Guard fast project/schema switches: a stale in-flight load must not
+        // clobber the newer selection's table list.
+        if (cancelled) return;
         // Preserve the prior error semantics: a failed schema read used to throw
         // into the outer catch and surface catalogLoadError. With allSettled the
         // healthy schemas still render, but if any rejected we keep that signal
@@ -2111,53 +2253,88 @@ export default function ExploreDesignPage() {
         }
         setExpandedSchemas(expandKeys);
 
-        // Load columns for new tables (for modeling view)
-        // Only load for tables not already in tableColumnsMap
-        const tablesToLoadColumns = newTables.filter(t => !tableColumnsMap.has(t.id));
-        if (tablesToLoadColumns.length > 0) {
-          const columnsPromises = tablesToLoadColumns.map(async (table) => {
-            try {
-              const cols = await getTableColumns(table.database, table.schema, table.table);
-              if (cols && cols.length > 0) {
-                const formattedColumns: ColumnInfo[] = cols.map((col: any) => ({
-                  name: col.COLUMN_NAME || col.name,
-                  dataType: col.data_type || col.DATA_TYPE || col.dataType || 'VARCHAR',
-                  isNullable: col.IS_NULLABLE === 'YES' || col.isNullable !== false,
-                  isPrimaryKey: col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true,
-                  isSensitive: false,
-                }));
-                return { tableId: table.id, columns: formattedColumns };
-              }
-              return null;
-            } catch (err) {
-              console.error(`[Explore-Design] Failed to load columns for ${table.id}:`, err);
-              return null;
-            }
-          });
-
-          const columnsResults = await Promise.all(columnsPromises);
-
-          // Update tableColumnsMap with loaded columns
-          setTableColumnsMap(prev => {
-            const next = new Map(prev);
-            columnsResults.forEach(result => {
-              if (result) {
-                next.set(result.tableId, result.columns);
-              }
-            });
-            return next;
-          });
-
-        }
+        // NOTE: columns are intentionally NOT fetched here. Eagerly loading
+        // getTableColumns for EVERY table in the schema (13+ cold calls over a
+        // no-retry connection, serialised on the single local Snowflake conn)
+        // used to run inside this try — and because `isLoadingTables` only
+        // cleared in the `finally` AFTER `await Promise.all(columnsPromises)`,
+        // the picker (gated on isLoadingTables) stayed frozen on "Loading
+        // tables…" until every column fetch resolved, even though the table
+        // LIST (setTables above) was already in hand. The list needs no column
+        // data (columnCount stays 0 in the list view). Columns now load lazily:
+        // per clicked table (selectedTable effect) and, in the background, for
+        // tables actually on the modeling canvas / selected for a bulk action
+        // (the hydrate-columns effect below). This decouples the browse path
+        // from the slow per-table column reads.
       } catch (error) {
+        if (cancelled) return;
         setCatalogLoadError('Failed to load tables. Check your connection and retry.');
         toast.error('Failed to load tables');
       } finally {
-        setIsLoadingTables(false);
+        if (!cancelled) setIsLoadingTables(false);
       }
     };
     loadTables();
+    return () => { cancelled = true; };
   }, [selectedDatabase, selectedSchemas, allTableConfigs, refreshTrigger, targetTableIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lazily hydrate columns for the tables the user actually works with — those
+  // on the modeling canvas (nodes render their fields) or checkbox-selected for
+  // a bulk action / relationship pick. This REPLACES the old eager "fetch every
+  // schema table's columns on open" storm that froze the picker. Non-blocking:
+  // the table list is already rendered; these fill tableColumnsMap in the
+  // background so the ModelingCanvas nodes, RelationshipModal target-column
+  // picker, and the bulk PK/masking handlers have their columns. Idempotent —
+  // only ids missing from the map are fetched, so once populated a re-run
+  // computes an empty `toLoad`, updates no state, and can't loop.
+  useEffect(() => {
+    const wanted = new Set<string>([
+      ...Array.from(modelingTableIds),
+      ...Array.from(selectedTables),
+    ]);
+    const toLoad = Array.from(wanted).filter(
+      id => !tableColumnsMap.has(id) && tables.some(t => t.id === id),
+    );
+    if (toLoad.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(
+        toLoad.map(async (id) => {
+          const table = tables.find(t => t.id === id);
+          if (!table) return null;
+          try {
+            const cols = await getTableColumns(table.database, table.schema, table.table);
+            if (!cols || cols.length === 0) return null;
+            const formattedColumns: ColumnInfo[] = cols.map((col: any) => ({
+              name: col.name || col.COLUMN_NAME || col.column_name || 'unknown',
+              dataType: col.data_type || col.type || col.DATA_TYPE || col.dataType || 'VARCHAR',
+              isNullable:
+                col.isNull === 'Y' || col.is_nullable === 'YES' ||
+                col.IS_NULLABLE === 'YES' || col.isNullable !== false,
+              isPrimaryKey:
+                col.isPk === 'Y' || col.is_primary_key === true ||
+                col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true,
+              isSensitive: false,
+            }));
+            return { id, columns: formattedColumns };
+          } catch (err) {
+            console.error(`[Explore-Design] Lazy column load failed for ${id}:`, err);
+            return null;
+          }
+        }),
+      );
+      if (cancelled) return;
+      const loaded = results.filter(Boolean) as { id: string; columns: ColumnInfo[] }[];
+      if (loaded.length === 0) return;
+      setTableColumnsMap(prev => {
+        const next = new Map(prev);
+        loaded.forEach(r => next.set(r.id, r.columns));
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [modelingTableIds, selectedTables, tables, tableColumnsMap]);
 
   // Load columns when a table is selected
   useEffect(() => {
@@ -3238,6 +3415,7 @@ export default function ExploreDesignPage() {
     }
 
     // Add to modeling state
+    markScratchStarted();
     setModelingTableIds(prev => {
       const next = new Set(prev);
       tablesToAdd.forEach(id => next.add(id));
@@ -3267,6 +3445,17 @@ export default function ExploreDesignPage() {
     toast.success(`Added ${tablesToAdd.length} table${tablesToAdd.length > 1 ? 's' : ''} to modeling`);
     setSelectedTables(new Set());
   }, [selectedTables, modelingTableIds, tables, selectedProjectId, addEvent]);
+
+  // Adding any table IS the "start from scratch" choice — commit it so the
+  // Start-Modeling onboarding gate never re-appears over a populated canvas
+  // (and survives a reload via the per-project cache).
+  const markScratchStarted = useCallback(() => {
+    if (modelingChoice) return;
+    setModelingChoice('scratch');
+    if (selectedProjectId) {
+      modelingChoicesByProject.current.set(selectedProjectId, { choice: 'scratch' });
+    }
+  }, [modelingChoice, selectedProjectId]);
 
   // Remove table from modeling view
   const handleRemoveFromModeling = useCallback((tableId: string) => {
@@ -3338,6 +3527,7 @@ export default function ExploreDesignPage() {
       status: 'pending',
       sensitiveColumns: 0,
     };
+    markScratchStarted();
     setTables(prev => (prev.some(t => t.id === tableId) ? prev : [...prev, newTable]));
     setTargetTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
     setModelingTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
@@ -3370,6 +3560,7 @@ export default function ExploreDesignPage() {
       id: tableId, database: db, schema, table: created.table,
       columnCount: 0, hasPrimaryKey: false, status: 'configured', sensitiveColumns: 0,
     };
+    markScratchStarted();
     setTables(prev => (prev.some(t => t.id === tableId) ? prev : [...prev, newTable]));
     setTargetTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
     setModelingTableIds(prev => { const next = new Set(prev); next.add(tableId); return next; });
@@ -3606,6 +3797,12 @@ export default function ExploreDesignPage() {
         toast('Select a table, then configure ingestion from the Ingestion Config panel.');
         break;
       case 'clone_schema': {
+        // Action-RBAC gate: schema clone issues CREATE DDL. A denied role must
+        // not be able to trigger it (replaces the old viewer-only check).
+        if (!canCreateObjects) {
+          toast.error(createDeniedReason);
+          break;
+        }
         if (!db) {
           toast.error('Select a database first');
           break;
@@ -3654,7 +3851,7 @@ export default function ExploreDesignPage() {
       default:
         toast.error(`Unknown action: ${action}`);
     }
-  }, [handleListDataEngObjects, selectedDatabase]);
+  }, [handleListDataEngObjects, selectedDatabase, canCreateObjects, createDeniedReason]);
 
   // Toggle fullscreen mode
   const toggleFullscreen = useCallback(() => {
@@ -3687,20 +3884,38 @@ export default function ExploreDesignPage() {
   const deployTabNode = (
     <ErrorBoundary>
       {selectedProjectId ? (
-        <PermissionGate
-          module="explore_design"
-          action="deploy"
-          projectId={selectedProjectId}
-          title="Deployment restricted"
-          description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to the data warehouse requires an administrator to grant deploy access."
-        >
-          <DeploymentValidation
-            embedded
-            database={selectedDatabase}
-            schemas={schemaKeys}
-            projectId={selectedProjectId}
-          />
-        </PermissionGate>
+        <div className="space-y-4">
+          {/* Primary Release experience — the 7-step in-panel flow (Changes →
+              Readiness → Impact → Approval → Deploy → Verify → Recovery). It
+              reads freely and gates its own mutations per step; the whole-tab
+              PermissionGate now protects only the legacy stepper below. */}
+          <ReleasePanel projectId={selectedProjectId} />
+
+          {/* Legacy technical stepper — kept reachable (its execute spine is
+              battle-proven) but collapsed so the Release flow has ONE deploy
+              CTA (spec §4: no double deploy button). */}
+          <details className="rounded-xl border border-slate-200 dark:border-slate-700">
+            <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+              Classic deployment stepper (technical view)
+            </summary>
+            <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+              <PermissionGate
+                module="explore_design"
+                action="deploy"
+                projectId={selectedProjectId}
+                title="Deployment restricted"
+                description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to the data warehouse requires an administrator to grant deploy access."
+              >
+                <DeploymentValidation
+                  embedded
+                  database={selectedDatabase}
+                  schemas={schemaKeys}
+                  projectId={selectedProjectId}
+                />
+              </PermissionGate>
+            </div>
+          </details>
+        </div>
       ) : (
         <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-400">
           <Rocket className="mb-3 h-8 w-8 text-slate-300" />
@@ -3876,11 +4091,14 @@ export default function ExploreDesignPage() {
             {/* Cross-page governed access — grant/revoke roles for this page. */}
             <ManageAccessButton module="explore-design" page="explore-design" iconOnly objectLabel="Explore & Design" />
 
-            {/* Primary action: Deploy — only thing besides search that stays
-                always-visible. Everything else lives in the overflow menu. */}
-            <Button
-              size="sm"
-              className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:from-blue-700 hover:to-indigo-700"
+            {/* Primary action: Deploy — the state-machine button whose label +
+                variant morph by project lifecycle (redesign spec §3). Keeps ALL
+                the legacy guards (read-only / no-project / conflict-check) in its
+                onClick; the state's own disabled phases are additive on top. */}
+            <DeployStateButton
+              state={deployState}
+              disabled={!selectedProjectId || isReadOnly}
+              changeCount={displayablePendingEvents.length}
               onClick={async () => {
                 if (readOnlyGuard()) return;
                 if (!selectedProjectId) {
@@ -3898,16 +4116,7 @@ export default function ExploreDesignPage() {
                 setActiveRightTab('deploy');
                 if (!rightBarOpen) setRightBarOpen(true);
               }}
-              disabled={!selectedProjectId || isReadOnly}
-            >
-              <Rocket className="h-3.5 w-3.5" />
-              Deploy
-              {displayablePendingEvents.length > 0 && (
-                <Badge className="bg-white/20 px-1 py-0 text-[10px] text-white">
-                  {displayablePendingEvents.length}
-                </Badge>
-              )}
-            </Button>
+            />
 
             {/* Overflow menu — Undo/Redo + Templates + DAG + Ingestion + AI +
                 Refresh + Import + Export + Filters + panel toggles. Replaces
@@ -4171,6 +4380,13 @@ export default function ExploreDesignPage() {
           stats={stats}
           projectId={selectedProjectId}
         />
+      )}
+
+      {/* Top KPI strip (redesign Wave A / mockup 01) — one row below the header,
+          above the workspace, covering BOTH catalog + modeling views. Props-
+          driven; unsourced values render "—" (never fake 0s). */}
+      {!isFullscreen && selectedProjectId && (
+        <ModelKpiStrip kpis={modelKpis} />
       )}
 
       {/* Main Content */}
@@ -4533,8 +4749,9 @@ export default function ExploreDesignPage() {
                         <span className="flex-1" />
                         {/* Quick actions → open right bar tabs */}
                         <button
-                          onClick={() => { if (readOnlyGuard()) return; setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
-                          disabled={isReadOnly}
+                          onClick={() => { if (readOnlyGuard()) return; if (!canCreateObjects) { toast.error(createDeniedReason); return; } setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
+                          disabled={isReadOnly || !canCreateObjects}
+                          title={!canCreateObjects ? createDeniedReason : undefined}
                           className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
                         >
                           <Plus className="h-3 w-3" /> Add Column
@@ -4729,8 +4946,9 @@ export default function ExploreDesignPage() {
                                   <td className="px-2.5 py-0.5" />
                                   <td colSpan={inlinePreviewData.columns.length} className="px-2.5 py-0.5">
                                     <button
-                                      onClick={() => { if (readOnlyGuard()) return; setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
-                                      disabled={isReadOnly}
+                                      onClick={() => { if (readOnlyGuard()) return; if (!canCreateObjects) { toast.error(createDeniedReason); return; } setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
+                                      disabled={isReadOnly || !canCreateObjects}
+                                      title={!canCreateObjects ? createDeniedReason : undefined}
                                       className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition-colors disabled:opacity-40"
                                     >
                                       <Plus className="h-3 w-3" /> Add column / calculated field
@@ -4830,8 +5048,18 @@ export default function ExploreDesignPage() {
                 userRole={sessionRole || (userRole as string) || undefined}
                 onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'catalog', pendingEvents: displayablePendingEvents.length }); setActiveRightTab('deploy'); setRightBarOpen(true); }}
                 onDeselectTable={() => { setSelectedTable(null); setRightBarOpen(false); }}
+                analystSlot={selectedProjectId ? <AiChangeAnalyst projectId={selectedProjectId} /> : undefined}
                 deployOverride={deployTabNode}
                 ingestionTrace={selectedIngestion}
+                tabSeverity={rightBarSeverity}
+                emptyOverride={
+                  <ModelOverview
+                    tableCount={tables.length || modelingTableIds.size}
+                    relationCount={tables.length > 0 ? defaultRelationships.length + initialColumnMappings.length : 0}
+                    targetDwh={selectedDatabase || dwhTargetDatabase || ''}
+                    projectId={selectedProjectId}
+                  />
+                }
               />
               </div>{/* end center+right row */}
             </>
@@ -5053,8 +5281,9 @@ export default function ExploreDesignPage() {
                 </button>
               )}
               {/* Inline onboarding (no popup): choose DWH template or scratch
-                  directly on the canvas. Replaces the Start-Modeling modal. */}
-              {!modelingChoice && (
+                  directly on the canvas. Only shown for a genuinely empty,
+                  not-yet-started model — never overlay a populated canvas. */}
+              {!modelingChoice && modelingTableIds.size === 0 && (
                 <ModelingTemplateModal
                   inline
                   isOpen
@@ -5084,6 +5313,16 @@ export default function ExploreDesignPage() {
                 tableColumns={tableColumnsMap}
                 onColumnsMapUpdate={setTableColumnsMap}
                 onTableSelect={handleTableClick}
+                onBlankClick={() => {
+                  // Spec §1: empty-canvas click with nothing selected closes the
+                  // right-bar; with a selection it only clears the selection
+                  // (the bar falls back to the project-overview landing).
+                  if (selectedTable) {
+                    setSelectedTable(null);
+                  } else if (rightBarOpen) {
+                    setRightBarOpen(false);
+                  }
+                }}
                 selectedTableId={selectedTable?.id}
                 onTableExclude={handleRemoveFromModeling}
                 onOpenContextBar={handleOpenContextBar}
@@ -5250,9 +5489,11 @@ export default function ExploreDesignPage() {
                 userRole={sessionRole || (userRole as string) || undefined}
                 onOpenDeployModal={() => { trackFeatureClick('deploy', { view: 'modeling', pendingEvents: displayablePendingEvents.length }); setActiveRightTab('deploy'); setRightBarOpen(true); }}
                 onDeselectTable={() => { setSelectedTable(null); }}
+                analystSlot={selectedProjectId ? <AiChangeAnalyst projectId={selectedProjectId} /> : undefined}
                 onNodeAction={handleNodeContextAction}
                 deployOverride={deployTabNode}
                 ingestionTrace={selectedIngestion}
+                tabSeverity={rightBarSeverity}
                 emptyOverride={
                   <ModelOverview
                     // Count the tables actually present in the model (what the

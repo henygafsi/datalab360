@@ -788,8 +788,11 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         </div>
       )}
 
+      {/* Content region — body + docked side panels share one horizontal flex row
+          (panels are layout-docked flex-children, not fixed overlays) */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
       {/* Content - Scrollable (no static/mock data: stages and files from API only) */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 min-w-0 overflow-auto">
         {loading && allStages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -1094,12 +1097,11 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         )}
       </div>
 
-      {/* File Preview — non-blocking right-side panel (read-only viewer) */}
+      {/* File Preview — layout-docked right-side panel (read-only viewer) */}
       {previewOpen && (
       <aside
-        role="dialog"
         aria-label="File preview"
-        className="fixed right-0 top-0 z-40 flex h-full w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        className="flex-shrink-0 flex h-full w-[46rem] max-w-[70vw] flex-col border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
       >
         <div className="flex flex-col h-full">
           {/* Panel Header */}
@@ -1231,12 +1233,11 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
       </aside>
       )}
 
-      {/* Stage grants — non-blocking right-side panel (read-only viewer) */}
+      {/* Stage grants — layout-docked right-side panel (read-only viewer) */}
       {grantsOpen && (
       <aside
-        role="dialog"
         aria-label="Stage permissions"
-        className="fixed right-0 top-0 z-40 flex h-full w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        className="flex-shrink-0 flex h-full w-[26rem] max-w-[70vw] flex-col border-l border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
       >
         <div className="p-4 border-b dark:border-slate-700 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate pr-4">
@@ -1286,6 +1287,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         </div>
       </aside>
       )}
+      </div>
 
       {/* Footer - Fixed */}
       <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-6 py-3">

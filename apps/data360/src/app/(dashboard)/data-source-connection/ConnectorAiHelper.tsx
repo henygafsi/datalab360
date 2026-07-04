@@ -1,7 +1,9 @@
 'use client';
 
 /**
- * AI connector-helper modal for the Connect module.
+ * AI connector-helper — a docked (non-blocking) right-side panel for the Connect
+ * module. The assistant builds the connector configuration inline and applies it
+ * straight to the connection form (no centered-modal step wizard).
  *
  * Journey: paste a connection string / config blob / free-text description →
  *   1. runs matchConnectorFromText() — instant, deterministic, offline.
@@ -117,31 +119,14 @@ export default function ConnectorAiHelper({ open, onClose, onUseConnector }: Con
     }
   }, [open]);
 
-  // Focus trap + Escape to close.
+  // Escape to close. This is a non-blocking docked panel — no focus trap /
+  // aria-modal (those belong only to a blocking modal).
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const root = dialogRef.current;
-      if (!root) return;
-      const focusable = root.querySelectorAll<HTMLElement>(
-        'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])',
-      );
-      const list = Array.from(focusable).filter((el) => !el.hasAttribute('disabled'));
-      if (list.length === 0) return;
-      const first = list[0];
-      const last = list[list.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
       }
     };
     document.addEventListener('keydown', onKey);
@@ -207,20 +192,13 @@ export default function ConnectorAiHelper({ open, onClose, onUseConnector }: Con
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      ref={dialogRef}
+      role="dialog"
+      aria-labelledby={titleId}
+      className="fixed right-0 top-0 z-40 flex h-screen w-full max-w-xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800"
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
-      >
         {/* Header */}
-        <div className="flex items-center justify-between bg-gradient-to-r from-purple-600 to-fuchsia-600 px-5 py-4">
+        <div className="flex-shrink-0 flex items-center justify-between bg-gradient-to-r from-purple-600 to-fuchsia-600 px-5 py-4">
           <div className="flex items-center gap-2 text-white">
             <Sparkles className="h-5 w-5" />
             <h2 id={titleId} className="text-base font-semibold">AI Connector Helper</h2>
@@ -235,9 +213,10 @@ export default function ConnectorAiHelper({ open, onClose, onUseConnector }: Con
           </button>
         </div>
 
-        <div className="max-h-[70vh] overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto p-5">
           <label htmlFor={`${titleId}-input`} className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-200">
-            Paste a connection string, a config file, or describe your data source.
+            Describe your data source, or paste a connection string / config file. The
+            assistant identifies the connector and builds its configuration — then applies it to the form.
           </label>
           <textarea
             ref={textareaRef}
@@ -296,7 +275,6 @@ export default function ConnectorAiHelper({ open, onClose, onUseConnector }: Con
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 }
@@ -383,8 +361,11 @@ function MatchResult({
         onClick={onUse}
         className="mt-3 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
       >
-        Use this connector
+        Apply to connection form
       </button>
+      <p className="mt-1.5 text-center text-[11px] text-slate-400 dark:text-slate-500">
+        Populates the fields directly — edit the intent above and re-analyze to adjust.
+      </p>
     </div>
   );
 }

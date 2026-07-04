@@ -17,6 +17,19 @@ export async function getCacheKeys(pattern = '*'): Promise<CacheKeysResponse> {
 }
 
 export interface CacheStats {
+  /** Live hit/miss counters as reported by the backend cache layer. */
+  cache_stats?: {
+    hits?: number | null;
+    misses?: number | null;
+    sets?: number | null;
+    deletes?: number | null;
+    errors?: number | null;
+    /** Percentage 0–100 (backend-computed). */
+    hit_rate?: number | null;
+    total_requests?: number | null;
+  } | null;
+  redis_info?: Record<string, unknown> | null;
+  cache_keys?: { total_keys?: number | null } | null;
   [k: string]: unknown;
 }
 
@@ -26,10 +39,18 @@ export async function getCacheStats(): Promise<CacheStats> {
 }
 
 export interface CacheBreakdown {
-  by_class: { class: string; prefix: string; count: number }[];
+  by_class: {
+    class: string;
+    prefix: string;
+    count: number;
+    oldest_ttl?: number | null;
+    newest_ttl?: number | null;
+    ttl_sampled?: number | null;
+  }[];
   total: number;
   cached_queries: { fqdn: string; db: string; schema: string; table: string }[];
   cached_queries_truncated?: boolean;
+  generated_at?: string;
 }
 
 /** Cached-key counts per class + the cached-query list (GET /cache/breakdown). */

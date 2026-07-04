@@ -103,18 +103,27 @@ function detectModule(pathname: string): string {
  *   trackFeatureClick('deploy_model', { tables: 5 });
  *   trackError('Failed to load policies');
  */
+// PAGE_VIEW dedup marker is MODULE-scoped, not per-instance: every component
+// calling useTrackEvent() runs the auto-fire effect, and a per-instance ref made
+// each consumer emit its own PAGE_VIEW (2-3x per navigation on pages mounting
+// several consumers, e.g. command-center). One route change = one PAGE_VIEW,
+// regardless of how many components use the helpers.
+let lastTrackedPageView = '';
+
 export function useTrackEvent() {
   const pathname = usePathname();
-  const lastPageView = useRef<string>('');
   const pageViewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-track page views on route change (debounced)
+  // Auto-track page views on route change (debounced, once per route globally)
   useEffect(() => {
-    if (pathname === lastPageView.current) return;
+    if (pathname === lastTrackedPageView) return;
 
     if (pageViewTimer.current) clearTimeout(pageViewTimer.current);
     pageViewTimer.current = setTimeout(() => {
-      lastPageView.current = pathname;
+      // Re-check inside the timer: a sibling instance may have fired for this
+      // route while our debounce was pending.
+      if (pathname === lastTrackedPageView) return;
+      lastTrackedPageView = pathname;
       queueEvent({
         event_type: 'PAGE_VIEW',
         module: detectModule(pathname),

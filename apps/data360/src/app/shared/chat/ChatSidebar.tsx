@@ -6,6 +6,10 @@ import { Button, Badge } from 'rizzui';
 import { useAuth } from '@/hooks/useAuth';
 import { usePathname } from 'next/navigation';
 import apiClient from '@/lib/api-client';
+import AiBuildConversation, {
+  OPEN_AI_BUILD_EVENT,
+  isAiBuildConversationTitle,
+} from './AiBuildConversation';
 
 interface Conversation {
   conversation_id: string;
@@ -72,6 +76,10 @@ export default function ChatSidebar() {
   const [loading, setLoading] = useState(false);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [isAskingAI, setIsAskingAI] = useState(false);
+  // AI-build view (chat-first module/project creation). When set, the docked
+  // panel renders AiBuildConversation instead of the regular list/thread.
+  const [showAiBuild, setShowAiBuild] = useState(false);
+  const [aiBuildConv, setAiBuildConv] = useState<{ conversation_id: string; title: string } | null>(null);
   const [attachFile, setAttachFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -145,6 +153,20 @@ export default function ChatSidebar() {
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  // ── External entry point: open the docked panel on the AI-build view ──
+  // (e.g. the Project page's "Build with AI" launcher dispatches this event).
+  useEffect(() => {
+    const openAiBuild = () => {
+      setIsOpen(true);
+      setShowNewChat(false);
+      setActiveConversation(null);
+      setAiBuildConv(null);
+      setShowAiBuild(true);
+    };
+    window.addEventListener(OPEN_AI_BUILD_EVENT, openAiBuild);
+    return () => window.removeEventListener(OPEN_AI_BUILD_EVENT, openAiBuild);
+  }, []);
 
   const loadConversations = async () => {
     try {
@@ -386,6 +408,13 @@ export default function ChatSidebar() {
   );
 
   const openConversation = useCallback((conv: Conversation) => {
+    // Stored AI-build discussions reopen in the AI-build view so the proposal
+    // card and the AI reply loop keep working across sessions.
+    if (isAiBuildConversationTitle(conv.title)) {
+      setAiBuildConv({ conversation_id: conv.conversation_id, title: conv.title });
+      setShowAiBuild(true);
+      return;
+    }
     setActiveConversation(conv);
     loadMessages(conv.conversation_id);
   }, []);
@@ -428,6 +457,18 @@ export default function ChatSidebar() {
       {/* Chat panel */}
       {isOpen && (
         <div className="fixed bottom-24 right-6 z-50 flex h-[560px] w-[400px] flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900">
+          {showAiBuild ? (
+            /* Chat-first AI build flow — same docked panel, no popup */
+            <AiBuildConversation
+              initialConversation={aiBuildConv}
+              onBack={() => {
+                setShowAiBuild(false);
+                setAiBuildConv(null);
+                loadConversations();
+              }}
+            />
+          ) : (
+          <>
           {/* Header */}
           <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
             {activeConversation ? (
@@ -448,6 +489,14 @@ export default function ChatSidebar() {
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Badge className="text-[9px] px-1.5 py-0.5" color="success">{safeOnlineUsers.length} online</Badge>
+                  <button
+                    aria-label="Build with AI"
+                    title="Describe a module or project — AI turns it into a stored build discussion"
+                    onClick={() => { setShowNewChat(false); setAiBuildConv(null); setShowAiBuild(true); }}
+                    className="flex items-center gap-1 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-2 py-1 text-[10px] font-semibold text-white hover:from-violet-700 hover:to-indigo-700"
+                  >
+                    <Sparkles className="h-3 w-3" /> Build with AI
+                  </button>
                   <button aria-label="New conversation" onClick={() => setShowNewChat(true)} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
                     <Plus className="h-4 w-4" />
                   </button>
@@ -710,6 +759,8 @@ export default function ChatSidebar() {
                 </button>
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
       )}

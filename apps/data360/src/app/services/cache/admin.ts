@@ -164,7 +164,7 @@ export async function invalidateCacheSurface(
   return data ?? {};
 }
 
-// ── Service & cache health (newly surfaced — previously unwired backend) ──────
+// ── Service & cache health ──────
 
 export interface CacheKpis {
   hit_rate?: number | null;

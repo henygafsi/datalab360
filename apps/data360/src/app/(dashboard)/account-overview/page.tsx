@@ -1,17 +1,22 @@
 'use client';
 
 import { useState, useEffect, useCallback, Component, type ReactNode } from 'react';
+import Link from 'next/link';
 import { PiWarningCircleBold } from 'react-icons/pi';
-import { Inbox, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Inbox, Loader2, AlertTriangle, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
 import CommandCenterDashboard from '@/app/shared/command-center';
 import OnboardingTour from '@/app/shared/onboarding-tour';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
 import { useAuth } from '@/hooks/useAuth';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   getInbox,
   getMyRequests,
   getAllRequests,
+  approveRequest,
+  denyRequest,
   type AccessRequest,
 } from '@/app/services/access-requests';
 
@@ -84,17 +89,27 @@ function AccessRequestsWidget() {
   const { role: authRole } = useAuth();
   const isAdmin = ADMIN_ROLES.includes((authRole ?? '').toUpperCase());
 
+  // Approve/Deny reuse the SAME governance gate the Access Center inbox uses
+  // (approve → grant, deny → revoke) — a gate admins provably hold since that
+  // inbox runs with it. Fail-open while the allow-set loads so the controls
+  // never flash disabled for an admin.
+  const { allowed: canApprove } = useCanPerform('gouvernance', 'grant');
+  const { allowed: canDeny } = useCanPerform('gouvernance', 'revoke');
+  const canDecide = isAdmin && (canApprove || canDeny);
+
   const [kpiCount, setKpiCount] = useState<number | null>(null);
   const [rows, setRows] = useState<AccessRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  // REQUEST_ID of the row whose approve/deny is currently in flight.
+  const [actingId, setActingId] = useState<string | null>(null);
   // 'unavailable' = the route is structurally absent or forbidden for this role
   // (403/404/501 — e.g. getAllRequests is account-admin-only): degrade silently,
   // matching the platform's "unprovisioned route is invisible" convention.
   // 'error' = a transient failure (network / timeout / 5xx): show a retry affordance.
   const [status, setStatus] = useState<'ok' | 'unavailable' | 'error'>('ok');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setStatus('ok');
     try {
       // KPI: admin = inbox count (pending queue); non-admin = my submissions count
@@ -120,6 +135,33 @@ function AccessRequestsWidget() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Approve / deny a pending request inline. Optimistic: the row's status flips
+  // and the pending KPI drops immediately, then we reconcile silently against
+  // the server (which also reverts the row on failure — no manual rollback).
+  const handleDecision = useCallback(
+    async (req: AccessRequest, decision: 'approve' | 'deny') => {
+      setActingId(req.REQUEST_ID);
+      const nextStatus = decision === 'approve' ? 'APPROVED' : 'DENIED';
+      setRows((rs) =>
+        rs.map((r) =>
+          r.REQUEST_ID === req.REQUEST_ID ? { ...r, STATUS: nextStatus } : r,
+        ),
+      );
+      setKpiCount((c) => (c != null && c > 0 ? c - 1 : c));
+      try {
+        if (decision === 'approve') await approveRequest(req.REQUEST_ID);
+        else await denyRequest(req.REQUEST_ID);
+        toast.success(decision === 'approve' ? 'Request approved' : 'Request denied');
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Action failed');
+      } finally {
+        setActingId(null);
+        await load(true); // silent reconcile — keeps the optimistic feel
+      }
+    },
+    [load],
+  );
+
   // Structurally-unavailable routes vanish (never crash, never nag); transient
   // failures fall through and render an inline retry below.
   if (status === 'unavailable' && !loading) return null;
@@ -132,19 +174,29 @@ function AccessRequestsWidget() {
         <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
           {isAdmin ? 'Access Requests — Pending Inbox' : 'Access Requests — My Requests'}
         </h2>
-        {loading ? (
-          <Loader2
-            className="ml-auto h-3.5 w-3.5 animate-spin text-slate-400"
-            aria-label="Loading access requests"
-          />
-        ) : status === 'error' ? null : (
-          <span
-            className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-            title={isAdmin ? 'Pending requests awaiting approval' : 'Total submissions'}
-          >
-            {kpiCount != null ? kpiCount.toLocaleString() : '—'} pending
-          </span>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {loading ? (
+            <Loader2
+              className="h-3.5 w-3.5 animate-spin text-slate-400"
+              aria-label="Loading access requests"
+            />
+          ) : status === 'error' ? null : (
+            <span
+              className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+              title={isAdmin ? 'Pending requests awaiting approval' : 'Total submissions'}
+            >
+              {kpiCount != null ? kpiCount.toLocaleString() : '—'} pending
+            </span>
+          )}
+          {isAdmin && (
+            <Link
+              href="/administration/access-center"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Manage in Access Center
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Recent requests table */}
@@ -193,7 +245,8 @@ function AccessRequestsWidget() {
                 <th className="pb-1.5 pr-3">Asset</th>
                 <th className="pb-1.5 pr-3">Privilege</th>
                 <th className="pb-1.5 pr-3">Status</th>
-                <th className="pb-1.5">Date</th>
+                <th className={canDecide ? 'pb-1.5 pr-3' : 'pb-1.5'}>Date</th>
+                {canDecide && <th className="pb-1.5">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -227,7 +280,43 @@ function AccessRequestsWidget() {
                       {r.STATUS ?? '—'}
                     </span>
                   </td>
-                  <td className="py-1.5 text-slate-400">{fmtDateShort(r.CREATED_AT)}</td>
+                  <td className={canDecide ? 'py-1.5 pr-3 text-slate-400' : 'py-1.5 text-slate-400'}>
+                    {fmtDateShort(r.CREATED_AT)}
+                  </td>
+                  {canDecide && (
+                    <td className="py-1.5">
+                      {r.STATUS?.toUpperCase() === 'PENDING' ? (
+                        <span className="inline-flex items-center gap-1">
+                          {canApprove && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDecision(r, 'approve')}
+                              disabled={actingId === r.REQUEST_ID}
+                              aria-label={`Approve access request from ${r.REQUESTER ?? 'requester'}`}
+                              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300"
+                            >
+                              <CheckCircle2 className="h-3 w-3" aria-hidden="true" />
+                              Approve
+                            </button>
+                          )}
+                          {canDeny && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDecision(r, 'deny')}
+                              disabled={actingId === r.REQUEST_ID}
+                              aria-label={`Deny access request from ${r.REQUESTER ?? 'requester'}`}
+                              className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300"
+                            >
+                              <XCircle className="h-3 w-3" aria-hidden="true" />
+                              Deny
+                            </button>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 dark:text-slate-600">—</span>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

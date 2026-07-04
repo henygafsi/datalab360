@@ -26,6 +26,12 @@ export default function BIDashboardProjectPage() {
   const searchParams = useSearchParams();
   // ?source_table=DB.SCHEMA.TABLE — pre-fills the add-widget source picker on mount.
   const initialSourceTable = searchParams?.get('source_table') ?? undefined;
+  // ?ai=build&prompt=… — the landing page's docked AI Build hand-off: opens the
+  // right bar's AI Build section with the prompt and generates onto the grid.
+  const initialAiPrompt =
+    searchParams?.get('ai') === 'build'
+      ? (searchParams?.get('prompt') ?? undefined) || undefined
+      : undefined;
 
   const [dashboard, setDashboard] = useState<FullDashboard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -123,6 +129,7 @@ export default function BIDashboardProjectPage() {
               projectId={projectId}
               projectName={dashboard?.project_name ?? 'BI Dashboard'}
               initialSourceTable={initialSourceTable}
+              initialAiPrompt={initialAiPrompt}
             />
           </div>
         )}

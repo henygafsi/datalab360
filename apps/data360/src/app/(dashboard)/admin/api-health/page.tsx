@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 
 import { routes } from '@/config/routes';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import { KpiStrip } from './components/KpiStrip';
 import { DrillPanel } from './components/DrillPanel';
 import { ReleaseHistory } from './components/ReleaseHistory';
@@ -319,12 +320,12 @@ const FAKE_TABLE = 'TEST_TABLE';
 // ════════════════════════════════════════════════════════════
 // Real-resource SEED — discovered live before a full sweep.
 //
-// Project-scoped READ probes used to send the fake id __test_health_check__ and
-// (correctly) get back "PROJECT_NOT_FOUND". That's an Expected rejection, not a
-// bug — but it never EXERCISES the real read path with real data. `seedRealResources()`
-// discovers a genuine project the caller's account/role already owns (a real
-// account + real user, per the validation ask) and threads its id into those
-// reads, so they execute against live data and return real 200s instead of 404s.
+// A project-scoped READ probe with the fake id __test_health_check__ gets back
+// "PROJECT_NOT_FOUND" — an Expected rejection, not a bug — but it never
+// EXERCISES the real read path with real data. `seedRealResources()`
+// discovers a genuine project the caller's account/role already owns and threads
+// its id into those reads, so they execute against live data and return real
+// 200s instead of 404s.
 //
 // Lazily read INSIDE each closure (`SEED.exploreProjectId`), so the value the
 // setup phase writes is the value the probe uses. Falls back to FAKE_ID when the
@@ -639,7 +640,7 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'getEventConflicts', fn: () => getEventConflicts(SEED.exploreProjectId) },
       { name: 'listEventTemplates', fn: () => listEventTemplates(SEED.exploreProjectId) },
       { name: 'listIngestionOperations', fn: () => listIngestionOperations(SEED.exploreProjectId) },
-      { name: 'getAISavingsSummary', fn: () => getAISavingsSummary() },
+      { name: 'getAISavingsSummary', fn: () => getAISavingsSummary(SEED.exploreProjectId) },
       { name: 'getWarehouseSizing', fn: () => getWarehouseSizing() },
       { name: 'getOptimalSchedule', fn: () => getOptimalSchedule() },
     ],
@@ -908,8 +909,7 @@ const TEST_MODULES: ModuleDef[] = [
     tests: [
       { name: 'listProjects', fn: () => projectsApi.listProjects() },
       { name: 'getProject', fn: () => projectsApi.getProject(SEED.apiProjectId) },
-      // POST /projects now exists (backend create route added 2026-06-21, closing the
-      // documented method gap). Probe with an empty body on purpose → 422
+      // Probe POST /projects with an empty body on purpose → 422
       // "project_name/project_type field required" = Expected, side-effect-free
       // (a real create would persist a junk project on every board run).
       { name: 'createProject', fn: () => projectsApi.createProject({} as any) },
@@ -1102,7 +1102,17 @@ const LAST_RUN_STORAGE_KEY = 'd360_api_health_last_run';
 const resultsAtom = atomWithStorage<ResultsMap>(RESULTS_STORAGE_KEY, {});
 const lastRunAtAtom = atomWithStorage<number | null>(LAST_RUN_STORAGE_KEY, null);
 
+// Admin-only: gate the route itself so non-admins get an explanatory restricted
+// state instead of the diagnostics board with 403ing probe calls.
 export default function ApiHealthPage() {
+  return (
+    <AdminRouteGuard surface="API Health">
+      <ApiHealthPageContent />
+    </AdminRouteGuard>
+  );
+}
+
+function ApiHealthPageContent() {
   const [results, setResults] = useAtom(resultsAtom);
   const [lastRunAt, setLastRunAt] = useAtom(lastRunAtAtom);
   const [running, setRunning] = useState(false);
@@ -1469,8 +1479,12 @@ export default function ApiHealthPage() {
         {' '}use the chips to reveal Expected and Healthy.
       </p>
 
-      {/* Functional API View — all backend endpoints (actions + response times) */}
-      <FunctionalApiView />
+      {/* Functional API View — all backend endpoints (actions + response times).
+          onRunTests reuses THIS page's probe sweep (runAll) so the view's
+          "Lancer les tests" button drives the exact same admin-gated mechanism;
+          sweepRunning lets it disable the button and auto-refresh its join
+          (wire capture + latest persisted run) when the sweep completes. */}
+      <FunctionalApiView onRunTests={runAll} sweepRunning={running} />
 
       {/* Stale-session re-login banner — only when MANY privilege errors cluster */}
       {showStaleBanner && (

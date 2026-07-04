@@ -18,6 +18,7 @@
  * redirect links rather than a second editor on the same allow-set.
  */
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import AdminRouteGuard from '@/components/AdminRouteGuard';
 import RouteFallback from '@/components/ui/RouteFallback';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -1458,10 +1459,14 @@ function Data360ConfigPageInner() {
 
 // useSearchParams() requires a Suspense boundary in the App Router (otherwise
 // `next build` throws / the whole page de-opts to client rendering).
+// Admin-only: the AdminRouteGuard gates the route so non-admins get an
+// explanatory restricted state instead of the config shell with 403ing calls.
 export default function Data360ConfigPage() {
   return (
+    <AdminRouteGuard surface="Data360 Configuration">
     <Suspense fallback={<RouteFallback />}>
       <Data360ConfigPageInner />
     </Suspense>
+    </AdminRouteGuard>
   );
 }

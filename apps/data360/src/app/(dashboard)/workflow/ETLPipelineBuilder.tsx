@@ -48,8 +48,17 @@ import { etlNodeTypes } from './components/ETLNodeTypes';
 import { getBlockByType, convertLegacyType } from './components/etl-blocks';
 import { auditCatalogCoherence } from './components/catalog-coherence';
 import GuidedAiWorkflowWizard from './components/GuidedAiWorkflowWizard';
+import AiBuildSection, {
+  type AiBuildDraft,
+  type AiBuildReviewRow,
+} from './components/AiBuildSection';
+import type { AiGenerateSource } from './components/useAiPipelineGenerate';
 import ImportTasksModal from './components/ImportTasksModal';
 import ScanIntentPrefill, { type ScanSuggestionMeta } from './components/ScanIntentPrefill';
+import WorkflowListCockpit, {
+  type CockpitOpenSection,
+  type CockpitWorkflowItem,
+} from './components/WorkflowListCockpit';
 import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
 import UnifiedProjectWizard, {
   type UnifiedProjectWizardResult,
@@ -65,7 +74,7 @@ import RunApprovalStatusHero from './components/RunApprovalStatusHero';
 import RollbackVersionDialog from './components/RollbackVersionDialog';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import WorkflowSmartPanel, { type CanvasNodeSnapshot } from './components/WorkflowSmartPanel';
-import { validateGraph } from './components/etl-catalog-grounding';
+import { validateGraph, validateNode } from './components/etl-catalog-grounding';
 import CustomConnectionLine from './components/CustomConnectionLine';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
@@ -688,6 +697,17 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // banner telling the user to configure each block before running. Auto-
   // dismissed by clicking the X or starting to configure a node.
   const [aiNextStepHint, setAiNextStepHint] = useState(false);
+  // Docked AI Build draft (AiBuildSection in the right rail): the generated
+  // blocks/edges currently on the canvas pending Accept / Undo / Refine.
+  // Lifted here (not inside the section) so the draft survives rail flips.
+  const [aiDraft, setAiDraft] = useState<AiBuildDraft | null>(null);
+  const [aiAccepting, setAiAccepting] = useState(false);
+  // Ref mirror of aiDraft for async closures (pipeline load) that must not
+  // capture a stale value — see handleLoadPipeline's draft-preservation.
+  const aiDraftRef = useRef<AiBuildDraft | null>(null);
+  useEffect(() => {
+    aiDraftRef.current = aiDraft;
+  }, [aiDraft]);
 
   // Workflow tags (chip strip in header). Loaded from getWorkflow when a
   // workflow is opened; edits persist via PATCH /workflow/{id} (a workflow is a
@@ -1762,8 +1782,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       try {
         setIsPipelineLoading(true);
         // Fetch full workflow metadata (tags, created_at) alongside steps.
-        // getWorkflow was previously dead in app code — now used to feed
-        // the header tags chip strip and the draft-restore comparison.
+        // getWorkflow feeds the header tags chip strip and the draft-restore
+        // comparison.
         // Parallelize the whole open waterfall: steps + metadata + contributors +
         // latest deployment all resolve together instead of in three serial stages.
         // Only `listSteps` is allowed to reject the load (its 404 drives the
@@ -1786,8 +1806,22 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           workflowApi.listDeployments(wf.id, { limit: 1 }).catch(() => null),
         ]);
         const { nodes: newNodes, edges: newEdges } = stepsToReactFlow(stepsResponse.steps || []);
-        setNodes(newNodes);
-        setEdges(newEdges);
+        // Preserve a pending AI Build draft: when a load resolves AFTER the
+        // docked AI flow dropped a draft on the canvas (slow open, SSE-driven
+        // reload), carry the draft nodes/edges over instead of wiping them —
+        // they are still pending Accept/Undo in the right rail. The baseline
+        // stays loaded-only, so the draft correctly shows as "added" in the
+        // Changes diff.
+        const pendingDraft = aiDraftRef.current;
+        if (pendingDraft) {
+          const draftNodeIds = new Set(pendingDraft.nodeIds);
+          const draftEdgeIds = new Set(pendingDraft.edgeIds);
+          setNodes((prev) => [...newNodes, ...prev.filter((n) => draftNodeIds.has(n.id))]);
+          setEdges((prev) => [...newEdges, ...prev.filter((e) => draftEdgeIds.has(e.id))]);
+        } else {
+          setNodes(newNodes);
+          setEdges(newEdges);
+        }
         // Capture the loaded graph as the diff baseline for the SmartPanel
         // "Changes" section (live canvas is compared against this).
         setBaselineBlocks(toBlockSnapshots(newNodes));
@@ -1798,7 +1832,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         lastLoadedUpdatedAtRef.current = workflowMeta?.created_at
           ? new Date(workflowMeta.created_at).getTime()
           : 0;
-        setIsDirty(false);
+        setIsDirty(Boolean(pendingDraft));
         setApprovalStatus('none');
         dirtyNodeIdsRef.current.clear();
         setSaveStatus('idle');
@@ -1993,9 +2027,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     const t = toast.loading('Deleting workflow…');
     try {
       // A workflow IS a project row (workflow_id === project_id), so the real
-      // soft-delete is DELETE /projects/{id}. This replaces the former
-      // step-clear loop, which only emptied the canvas and overstated the
-      // outcome as "deleted" while the project row survived.
+      // soft-delete is DELETE /projects/{id}, not just clearing the canvas steps.
       await deleteProject(activeWorkflowId);
       await loadWorkflows();
       handleNewPipeline();
@@ -2465,8 +2497,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   // Normalize the per-step results across BOTH execution engines. The CTE
   // engine returns them under `steps` (+ failures under `error.failed_steps`),
-  // the legacy engine under `execution_details.steps_results`. Reading only the
-  // latter is why a CTE failure used to collapse into one workflow-level error.
+  // the legacy engine under `execution_details.steps_results`. Reading only one
+  // collapses a CTE failure into a single workflow-level error.
   const normalizedSteps = useMemo(() => {
     if (!lastExecution) return [] as any[];
     const le = lastExecution as any;
@@ -2764,6 +2796,106 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   const joinInputColumns = useMemo(() => getJoinInputColumns(), [getJoinInputColumns]);
 
+  // ── Docked AI Build (AiBuildSection) — apply / review / undo ─────────────
+  // Apply a generated graph DIRECTLY onto the real canvas as an "AI draft":
+  // ids are remapped to a unique stamp (no collision with loaded steps or a
+  // previous draft), nodes carry data.aiDraft=true (violet badge) and arrive
+  // selected; any previous un-accepted draft is swapped out first.
+  const handleAiBuildApply = useCallback(
+    (
+      genNodes: Node[],
+      genEdges: Edge[],
+      prompt: string,
+      source: AiGenerateSource,
+      fallbackReason?: string,
+    ) => {
+      const prevNodeIds = new Set(aiDraft?.nodeIds ?? []);
+      const prevEdgeIds = new Set(aiDraft?.edgeIds ?? []);
+      const stamp = Date.now().toString(36);
+      const idMap = new Map(genNodes.map((n) => [n.id, `ai_${stamp}_${n.id}`]));
+
+      const draftNodes = genNodes.map((n) => ({
+        ...n,
+        id: idMap.get(n.id)!,
+        selected: true,
+        data: { ...n.data, aiDraft: true, nodeId: idMap.get(n.id)! },
+      }));
+      const draftEdges = genEdges
+        .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+        .map((e, i) => ({
+          ...e,
+          id: `ai_${stamp}_e${i}`,
+          source: idMap.get(e.source)!,
+          target: idMap.get(e.target)!,
+        }));
+
+      setNodes((prev) => {
+        const kept = prev.filter((n) => !prevNodeIds.has(n.id));
+        // Drop the new draft BELOW any existing blocks so nothing overlaps.
+        const offsetY = kept.length
+          ? Math.max(...kept.map((n) => n.position.y)) + 200
+          : 0;
+        return [
+          ...kept.map((n) => ({ ...n, selected: false })),
+          ...draftNodes.map((n) => ({
+            ...n,
+            position: { x: n.position.x, y: n.position.y + offsetY },
+          })),
+        ];
+      });
+      setEdges((prev) => [
+        ...prev.filter(
+          (e) => !prevEdgeIds.has(e.id) && !prevNodeIds.has(e.source) && !prevNodeIds.has(e.target),
+        ),
+        ...draftEdges,
+      ]);
+      setIsDirty(true);
+      setAiDraft({
+        prompt,
+        nodeIds: draftNodes.map((n) => n.id),
+        edgeIds: draftEdges.map((e) => e.id),
+        source,
+        fallbackReason,
+      });
+    },
+    [aiDraft, setNodes, setEdges],
+  );
+
+  // Undo — remove exactly the draft's nodes/edges from the canvas.
+  const handleAiBuildUndo = useCallback(() => {
+    if (!aiDraft) return;
+    const ids = new Set(aiDraft.nodeIds);
+    const eids = new Set(aiDraft.edgeIds);
+    setNodes((prev) => prev.filter((n) => !ids.has(n.id)));
+    setEdges((prev) =>
+      prev.filter((e) => !eids.has(e.id) && !ids.has(e.source) && !ids.has(e.target)),
+    );
+    setAiDraft(null);
+    toast('AI draft removed from the canvas.', { icon: '↩️' });
+  }, [aiDraft, setNodes, setEdges]);
+
+  // Live per-block review rows for the docked review list — recomputed from
+  // the REAL canvas nodes, so configuring a block on the canvas clears its
+  // missing-param flag in the panel immediately.
+  const aiDraftReview = useMemo<AiBuildReviewRow[]>(() => {
+    if (!aiDraft) return [];
+    const ids = new Set(aiDraft.nodeIds);
+    return nodes
+      .filter((n) => ids.has(n.id))
+      .map((n) => {
+        const data = (n.data ?? {}) as Record<string, unknown>;
+        const issues = validateNode({ type: String(n.type ?? ''), data });
+        return {
+          id: n.id,
+          label: String(data.label ?? data.name ?? n.id),
+          type: String(n.type ?? 'unknown'),
+          missingParams: issues
+            .filter((i) => i.kind === 'missing_required' && i.field)
+            .map((i) => i.field as string),
+        };
+      });
+  }, [aiDraft, nodes]);
+
   // UnifiedProjectWizard handoff — branches on the explicit build mode.
   //   manual   → land on the empty canvas (default).
   //   ai       → open GuidedAiWorkflowWizard pre-seeded with the description.
@@ -2928,33 +3060,56 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <span className="text-gray-900 dark:text-white font-medium">Workflow</span>
           </nav>
         </div>
-        {/* AI-suggested workflow prefill — shown when the Account-Overview advisor
-            deep-links with ?intent=create&from=scan. One click creates a named,
-            fully-sourced pipeline from the scanned objects. Manual gate stays below. */}
-        {scanPrefillActive && (
-          <ScanIntentPrefill
-            onApply={applyScanSuggestion}
-            onDismiss={() => {
-              setScanPrefillDismissed(true);
-              stripScanParams();
-            }}
-            applying={scanApplying}
-          />
-        )}
-        <ProjectGatePanel
-          module="workflow"
-          projects={workflows}
-          loading={isLoading}
-          error={loadError}
-          onRetry={loadWorkflows}
-          onSelect={(projectId) => {
-            const w = workflows.find((wf) => wf.id === projectId);
-            if (!w) return;
+        {/* Unified list-view cockpit — KPI strip + right AxisCockpit rail
+            (deployment / runs / perf / cost / history / AI entry point).
+            LIST VIEW ONLY: the builder view keeps its approved docked right
+            bar (WorkflowSmartPanel + AI BUILD) — the two never coexist. */}
+        <WorkflowListCockpit
+          workflows={workflows}
+          workflowsLoading={isLoading}
+          onOpenWorkflow={async (wf: CockpitWorkflowItem, section?: CockpitOpenSection) => {
             projectGateDismissedRef.current = true;
-            handleLoadPipeline(w);
+            await handleLoadPipeline({ id: wf.id, name: wf.name });
+            // Focus the requested SmartPanel section AFTER the steps land: the
+            // empty-canvas guard resets 'runs' while nodes are still loading.
+            if (section) setActiveTab(section);
           }}
-          onCreateNew={() => setShowCreateWizard(true)}
-        />
+          onBuildWithAi={() => {
+            // Hand off to the EXISTING docked AI BUILD bar on a fresh canvas —
+            // no new AI surface here.
+            projectGateDismissedRef.current = true;
+            handleNewPipeline();
+            setActiveTab('ai');
+          }}
+        >
+          {/* AI-suggested workflow prefill — shown when the Account-Overview advisor
+              deep-links with ?intent=create&from=scan. One click creates a named,
+              fully-sourced pipeline from the scanned objects. Manual gate stays below. */}
+          {scanPrefillActive && (
+            <ScanIntentPrefill
+              onApply={applyScanSuggestion}
+              onDismiss={() => {
+                setScanPrefillDismissed(true);
+                stripScanParams();
+              }}
+              applying={scanApplying}
+            />
+          )}
+          <ProjectGatePanel
+            module="workflow"
+            projects={workflows}
+            loading={isLoading}
+            error={loadError}
+            onRetry={loadWorkflows}
+            onSelect={(projectId) => {
+              const w = workflows.find((wf) => wf.id === projectId);
+              if (!w) return;
+              projectGateDismissedRef.current = true;
+              handleLoadPipeline(w);
+            }}
+            onCreateNew={() => setShowCreateWizard(true)}
+          />
+        </WorkflowListCockpit>
         {/* Unified creation flow — reachable from the inline pre-state. */}
         <UnifiedProjectWizard
           open={showCreateWizard}
@@ -2966,10 +3121,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     );
   }
 
-  // AI Assist agent handlers — shared by the embedded right-pane tab (aiSlot).
-  // (The legacy centered-modal mount below is now inert: its triggers route to
-  // the AI tab via setActiveTab('ai'); it renders null while showAiGenerate stays
-  // false. Kept for one release, slated for removal once the tab is validated.)
+  // AI persistence path — shared by the docked AI Build "Accept all" and the
+  // classic wizard fallback (the centered-modal mount below, now reachable
+  // only via the "classic step-by-step wizard" link in AiBuildSection).
   const handleAiClose = () => {
     setShowAiGenerate(false);
     setAiSeedDescription('');
@@ -3047,6 +3201,31 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     } catch (err) {
       const msg = getApiErrorMessage(err) || 'Auto-save failed — click Save to retry';
       toast.error(msg);
+    }
+  };
+
+  // Accept the docked AI Build draft: clear the draft markers on the canvas,
+  // then persist the FULL canvas through the existing AI-accept path above
+  // (steps replace/create + server-side validation) — no forked persistence.
+  const handleAiBuildAccept = async () => {
+    if (!aiDraft || aiAccepting) return;
+    setAiAccepting(true);
+    try {
+      const ids = new Set(aiDraft.nodeIds);
+      const acceptedNodes = nodes.map((n) =>
+        ids.has(n.id)
+          ? { ...n, selected: false, data: { ...n.data, aiDraft: false } }
+          : n,
+      );
+      await handleAiCreated(
+        acceptedNodes as unknown as Node[],
+        edges as unknown as Edge[],
+        { description: aiDraft.prompt },
+      );
+      setAiDraft(null);
+      setAiSeedDescription('');
+    } finally {
+      setAiAccepting(false);
     }
   };
 
@@ -3658,12 +3837,22 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           isReadOnly={isReadOnly}
           canDeploy={canWfDeploy}
           aiSlot={
-            <GuidedAiWorkflowWizard
-              embedded
-              open
-              onClose={handleAiClose}
-              onCreated={handleAiCreated}
-              initialDescription={aiSeedDescription}
+            /* Docked AI Build — the PRIMARY AI path. NL prompt → blocks land
+               directly on the real canvas as a draft; review/accept/undo/
+               refine here. The classic GuidedAiWorkflowWizard stays reachable
+               via the section's "classic step-by-step wizard" link (modal
+               mount below). */
+            <AiBuildSection
+              seedPrompt={aiSeedDescription}
+              canBuild={canWfCreate || canWfEdit}
+              isReadOnly={isReadOnly}
+              draft={aiDraft}
+              draftReview={aiDraftReview}
+              isAccepting={aiAccepting}
+              onApply={handleAiBuildApply}
+              onAccept={handleAiBuildAccept}
+              onUndo={handleAiBuildUndo}
+              onOpenClassicWizard={() => setShowAiGenerate(true)}
             />
           }
           hasConnectorSource={cloneTestConnectorIds.length > 0}
@@ -4277,17 +4466,16 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         </div>
       )}
 
-      {/* AI Guided Workflow — 9-step wizard. Generated nodes/edges are
-          dropped onto the React Flow canvas via setNodes/setEdges, AND
-          auto-saved to the backend as a draft project so the user has a
-          real, named workflow to come back to (not just transient state). */}
+      {/* AI Guided Workflow — classic 9-step wizard, kept as a FALLBACK.
+          No longer the primary AI path (that's the docked AI Build section in
+          the right rail); reachable only via the "classic step-by-step
+          wizard" link there. Generated nodes/edges are dropped onto the React
+          Flow canvas via setNodes/setEdges, AND auto-saved to the backend as
+          a draft project. */}
       <GuidedAiWorkflowWizard
         open={showAiGenerate}
         initialDescription={aiSeedDescription}
-        onClose={() => {
-          setShowAiGenerate(false);
-          setAiSeedDescription('');
-        }}
+        onClose={handleAiClose}
         onCreated={async (genNodes, genEdges, meta) => {
           // 1) Drop nodes/edges on the canvas immediately so the user sees
           //    the result of their wizard work without delay.

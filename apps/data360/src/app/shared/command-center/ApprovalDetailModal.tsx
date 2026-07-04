@@ -11,7 +11,6 @@ import { listDDLActions } from '@/app/services/api/exploreDesignApi';
 import { listEvents } from '@/app/services/api/projectsApi';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { createPortal } from 'react-dom';
 
 // Lazy-load the ReactFlow canvas to avoid SSR issues
 const WorkflowPreviewCanvas = dynamic(() => import('./WorkflowPreviewCanvas'), { ssr: false });
@@ -107,16 +106,18 @@ export default function ApprovalDetailModal({
 
   if (!isOpen) return null;
 
-  return createPortal(
-    <div
+  return (
+    <aside
       role="region"
       aria-modal="false"
       aria-label="Review Deployment"
-      // Right-docked side panel — NO click-blocking backdrop, the page behind
-      // stays interactive. Closes via the X / Cancel buttons or Escape.
-      className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl bg-white dark:bg-gray-900 shadow-2xl flex flex-col border-l border-gray-200 dark:border-gray-700 motion-safe:animate-slide-in-right"
+      // Docked flex-sibling inspector (2026 right-tab UX standard) — mounts beside
+      // the projects content as a sticky, full-height card rather than a portal
+      // overlay. The page behind stays fully visible + interactive; closes via the
+      // X / Cancel buttons or Escape.
+      className="sticky top-4 flex max-h-[calc(100vh-6rem)] w-full max-w-2xl shrink-0 flex-col self-start overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg ring-1 ring-slate-900/[0.03] dark:border-gray-700 dark:bg-gray-900 dark:ring-white/5 motion-safe:animate-slide-in-right"
     >
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full min-h-0">
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-center justify-between">
@@ -262,7 +263,6 @@ export default function ApprovalDetailModal({
           )}
         </div>
       </div>
-    </div>,
-    document.body
+    </aside>
   );
 }
