@@ -406,14 +406,16 @@ export default function AccountCreationWizard({
 
   return (
     <>
-      {/* Right-docked side panel — NO click-blocking backdrop, the accounts
-          table behind stays interactive. Closes via the X / Cancel buttons or
-          Escape (which runs the dirty-discard flow). */}
+      {/* DOCKED create panel — a flex-child sibling of the dashboard content
+          (NOT a fixed overlay). The page reflows beside it and stays fully
+          interactive. Genuine 3-step flow, so it keeps its own Back/Continue/
+          Create footer rather than folding into a RightTabPanel section.
+          Closes via the X / Cancel buttons or Escape (dirty-discard flow). */}
       <div
         role="region"
         aria-modal="false"
         aria-labelledby="account-wizard-title"
-        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        className="sticky top-4 flex max-h-[calc(100vh-6rem)] w-[420px] shrink-0 flex-col self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 ring-1 ring-slate-900/[0.03] dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/20 dark:ring-white/5"
       >
         <div className="flex flex-1 flex-col overflow-y-auto p-6">
           <div className="flex items-start justify-between gap-3">

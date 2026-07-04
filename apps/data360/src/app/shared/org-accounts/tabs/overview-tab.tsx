@@ -31,6 +31,7 @@ import {
 } from '@/app/services/org-accounts/hooks';
 import { ActionRail } from '@/app/shared/action-rail';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import { useAuth } from '@/hooks/useAuth';
 import type {
   DashboardOverviewResponse,
   DashboardUsageResponse,
@@ -55,7 +56,10 @@ import QueryVolumeCard from '../query-volume-card';
 import AccountsTable from '../accounts-table';
 import AlertsPanel from '../alerts-panel';
 import HealthOverview from '../health-overview';
-import AccountDetailModal from '../account-detail-modal';
+import AccountContextBar from '../AccountContextBar';
+import AccountCreationWizard from '../AccountCreationWizard';
+import { normalizeRole } from '../AccountLifecycleMenu';
+import { PanelRightOpen } from 'lucide-react';
 import {
   CreditsTrendChart,
   StorageTrendChart,
@@ -131,7 +135,18 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
   const [creditDateRange, setCreditDateRange] = useState<DateRange>('30d');
   const [storageDateRange, setStorageDateRange] = useState<DateRange>('30d');
   const [selectedAccount, setSelectedAccount] = useState<ClientAccount | null>(null);
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  // Docked inspector: auto-open (default true), dismissable on desktop, and the
+  // parent renders a re-open affordance when closed. The bar shows the estate
+  // overview when nothing is selected and the account-360 when a row is picked.
+  const [barOpen, setBarOpen] = useState(true);
+  // Docked create panel (lifted out of AccountsTable so it can share the right
+  // column with the inspector). Mutually exclusive with the inspector.
+  const [showCreateWizard, setShowCreateWizard] = useState(false);
+
+  // Role for the docked wizard (create gating stays role-string based, matching
+  // the AccountsTable "New account" trigger — not loosened).
+  const { role: rawRole, username: currentUsername } = useAuth();
+  const userRole = normalizeRole(rawRole, currentUsername);
 
   // ── Create resource monitor (non-blocking ActionRail) ───────────────────
   // create is wired (POST /resource-monitors). There is NO backend DELETE, so
@@ -324,7 +339,10 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
   }, [storageAccounts]);
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      {/* Left: the full dashboard column. `min-w-0` lets the charts shrink
+          instead of overflowing when the docked inspector claims the right. */}
+      <div className="min-w-0 flex-1 space-y-6">
       {/* Date range selector */}
       <div className="flex items-center justify-end gap-2">
         <PiCalendarDuotone className="h-4 w-4 text-gray-500 dark:text-gray-400" />
@@ -378,8 +396,12 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
         storageUsage={storageUsageMap}
         loading={overviewLoading}
         onAccountClick={(account) => {
+          setShowCreateWizard(false);
           setSelectedAccount(account);
-          setIsDetailModalOpen(true);
+          setBarOpen(true);
+        }}
+        onNewAccount={() => {
+          setShowCreateWizard(true);
         }}
       />
 
@@ -658,15 +680,47 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
         <HealthOverview healthScores={healthScores} loading={healthLoading} />
         <AlertsPanel alerts={alerts} loading={alertsLoading} />
       </div>
+      </div>
 
-      <AccountDetailModal
-        account={selectedAccount}
-        isOpen={isDetailModalOpen}
-        onClose={() => {
-          setIsDetailModalOpen(false);
-          setSelectedAccount(null);
-        }}
-      />
+      {/* ── Right column: docked create panel OR account inspector OR a
+          re-open affordance when the inspector was dismissed. Mutually
+          exclusive so the left column width never jumps. ──────────────── */}
+      {showCreateWizard ? (
+        <AccountCreationWizard
+          open
+          onOpenChange={setShowCreateWizard}
+          currentUserRole={userRole}
+          onCreated={(newAccount) => {
+            void fetchOverview();
+            fetchSecondaryData(globalDays);
+            setShowCreateWizard(false);
+            setSelectedAccount(newAccount);
+            setBarOpen(true);
+          }}
+        />
+      ) : barOpen ? (
+        <AccountContextBar
+          open
+          onClose={() => setBarOpen(false)}
+          selectedAccount={selectedAccount}
+          onClearSelection={() => setSelectedAccount(null)}
+          overview={overview}
+          usage={usageData}
+          onAccountChanged={() => {
+            void fetchOverview();
+            fetchSecondaryData(globalDays);
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setBarOpen(true)}
+          className="sticky top-4 inline-flex shrink-0 items-center gap-2 self-start rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+        >
+          <PanelRightOpen className="h-4 w-4" />
+          Inspector
+        </button>
+      )}
 
       {/* ── Create resource monitor (non-blocking ActionRail) ────────────── */}
       <ActionRail

@@ -1,0 +1,69 @@
+# Preventive CI/CD — every deploy passes code-health + endpoint-health gates first.
+# Copy to repo root as .gitlab-ci.yml (backend and/or front). Stages fail-fast: a broken
+# import, dropped route, or 5xx/404 regression STOPS the pipeline before anything ships.
+stages: [preflight, build, verify, deploy]
+
+variables:
+  DOCKER_BUILDKIT: "1"
+  IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+
+# ─────────── BACKEND ───────────
+backend:preflight:            # broken imports / dropped routes / syntax / secret hygiene
+  stage: preflight
+  image: python:3.11-slim
+  script:
+    - pip install -q -r requirements.txt
+    - bash deploy/scripts/backend-preflight.sh
+  artifacts: { paths: [backend/routes.snapshot.json], expire_in: 30 days, when: always }
+  rules: [{ changes: [app/**/*, requirements.txt] }]
+
+backend:build:
+  stage: build
+  needs: [backend:preflight]
+  image: docker:26
+  services: [docker:26-dind]
+  script:
+    - docker build -f deploy/backend.Dockerfile -t $IMAGE .   # Dockerfile re-runs the import gate
+    - docker push $IMAGE
+  rules: [{ changes: [app/**/*, requirements.txt, deploy/backend.Dockerfile] }]
+
+backend:verify:               # boot the image, probe EVERY GET, fail on 5xx/404 regression
+  stage: verify
+  needs: [backend:build]
+  image: node:20-slim
+  services: [{ name: "$IMAGE", alias: api }]
+  variables: { BASE: "http://api:8000", FAIL_ON: "5xx,unreachable", TOKEN: "$SVC_HEALTH_JWT" }
+  script:
+    - node deploy/scripts/endpoint-health.mjs
+  artifacts: { paths: [endpoint-health-report.json], expire_in: 30 days, when: always }
+
+backend:deploy:
+  stage: deploy
+  needs: [backend:verify]
+  script:
+    - echo "promote $IMAGE"   # replace rsync-to-droplet with: docker pull + compose up on the host
+    # POST-DEPLOY smoke against the live host (non-fatal drift check):
+    - BASE=$PROD_API_URL FAIL_ON=5xx node deploy/scripts/endpoint-health.mjs || echo "⚠ post-deploy drift — investigate"
+  rules: [{ if: '$CI_COMMIT_BRANCH == "main"', when: manual }]
+  environment: { name: production, url: https://api.datalab360.io }
+
+# ─────────── FRONTEND ───────────
+web:checks:                   # lint + typecheck + dead-code (only changed target)
+  stage: preflight
+  image: node:20-slim
+  script:
+    - corepack enable && pnpm install --frozen-lockfile
+    - pnpm --filter data360 lint
+    - pnpm --filter data360 exec tsc --noEmit
+    - pnpm dlx knip --no-exit-code || true   # dead-file report (advisory; review before deleting)
+  rules: [{ changes: [apps/data360/**/*] }]
+
+web:build:
+  stage: build
+  needs: [web:checks]
+  image: docker:26
+  services: [docker:26-dind]
+  script:
+    - docker build -f deploy/frontend.Dockerfile --build-arg NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL -t $IMAGE-web .
+    - docker push $IMAGE-web
+  rules: [{ changes: [apps/data360/**/*, deploy/frontend.Dockerfile] }]
