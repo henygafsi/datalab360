@@ -33,6 +33,7 @@ import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import CortexChatContent, { type QueuedPrompt } from '../cortex-chat-content';
+import AgentProposals from './AgentProposals';
 
 // Same scope keys as the AI Advisor tab / cockpit so the lists line up.
 const RECO_PAGE = 'intelligent';
@@ -167,6 +168,15 @@ export default function AskLanding() {
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
         <CortexChatContent variant="landing" queuedPrompt={queued} />
       </div>
+
+      {/* Agent proposals — governed next actions from the project's 360 context.
+          coco_sql runs inline (read-only); mutations hand off to the chat. */}
+      {(projectsQ.data?.length ?? 0) > 0 && (
+        <AgentProposals
+          projects={projectsQ.data ?? []}
+          onHandOffToChat={(prompt) => setQueued({ text: prompt, ts: Date.now() })}
+        />
+      )}
 
       {/* Suggestions — one-click prompts from data the caller already has */}
       <section aria-label="Suggested questions">
