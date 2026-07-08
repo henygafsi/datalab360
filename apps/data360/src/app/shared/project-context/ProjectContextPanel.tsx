@@ -16,6 +16,10 @@ import {
   ArrowRight,
   Download,
   RefreshCw,
+  Database,
+  BarChart3,
+  Boxes,
+  CircleDot,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { dash } from '@/app/shared/ui/format';
@@ -27,8 +31,9 @@ import {
   type Recommendation,
   type RecommendationSeverity,
 } from '@/app/services/command-center/recommendations';
+import { getProject360, type Project360 } from '@/app/services/projects/context360';
 
-export type ProjectContextTabId = 'deployment' | 'versions' | 'history' | 'grants' | 'errors' | 'recos';
+export type ProjectContextTabId = 'overview' | 'deployment' | 'versions' | 'history' | 'grants' | 'errors' | 'recos';
 
 export interface ProjectContextPanelProps {
   /** Project or workflow identifier */
@@ -54,6 +59,7 @@ export interface ProjectContextPanelProps {
 }
 
 const TAB_CONFIG: { id: ProjectContextTabId; label: string; icon: React.ElementType }[] = [
+  { id: 'overview', label: 'Overview', icon: Sparkles },
   { id: 'deployment', label: 'Deployment', icon: Rocket },
   { id: 'versions', label: 'Versions', icon: GitBranch },
   { id: 'history', label: 'History', icon: History },
@@ -84,8 +90,28 @@ export function ProjectContextPanel({
 }: ProjectContextPanelProps) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const [activeTab, setActiveTab] = useState<ProjectContextTabId>('deployment');
+  const [activeTab, setActiveTab] = useState<ProjectContextTabId>('overview');
   const [recosLoading, setRecosLoading] = useState(false);
+
+  // Project-360 context — fetched once per project (server-side cached 60s), so
+  // the panel LEADS with what the project IS instead of dead placeholder tabs.
+  const [ctx360, setCtx360] = useState<Project360 | null>(null);
+  const [ctx360Loading, setCtx360Loading] = useState(false);
+  const [ctx360Gap, setCtx360Gap] = useState(false);
+  const ctx360ForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!projectId || ctx360ForRef.current === projectId) return;
+    ctx360ForRef.current = projectId;
+    setCtx360Loading(true);
+    setCtx360Gap(false);
+    getProject360(projectId)
+      .then((c) => setCtx360(c))
+      .catch((err) => {
+        if (isUnavailable(err)) setCtx360Gap(true);
+        setCtx360(null);
+      })
+      .finally(() => setCtx360Loading(false));
+  }, [projectId]);
 
   // Restore the last-used tab ONCE on mount (draft → preselect). Done in an
   // effect (not a lazy initializer) so server and client first-render agree —
@@ -195,16 +221,23 @@ export function ProjectContextPanel({
 
   const tabsWithContent = TAB_CONFIG;
 
+  // Fallbacks now DISPLAY DATA from the 360 context (or a contextual link),
+  // never dead "appears here when available" text.
   const placeholders: Record<ProjectContextTabId, React.ReactNode> = {
-    deployment: <div className="p-4 text-sm text-slate-500 dark:text-slate-400">Deployment: use the Deploy button above or open the deployment panel.</div>,
-    versions: <div className="p-4 text-sm text-slate-500 dark:text-slate-400">Versions: version history and switch/rollback appear here when available.</div>,
-    history: <div className="p-4 text-sm text-slate-500 dark:text-slate-400">History: runs and events appear here when available.</div>,
-    grants: <div className="p-4 text-sm text-slate-500 dark:text-slate-400">Grants: see Gouvernance → Roles & permissions for project-related grants.</div>,
-    errors: <div className="p-4 text-sm text-slate-500 dark:text-slate-400">Errors: recent deployment or run errors will appear here.</div>,
+    overview: null, // built-in below
+    deployment: <div className="p-4 text-sm text-slate-500 dark:text-slate-400">Use the <b>Deploy</b> affordance in Overview, or open the deployment wizard.</div>,
+    versions: <div className="p-4 text-sm text-slate-500 dark:text-slate-400">{ctx360?.project.version != null ? `Current version v${ctx360.project.version}. Version compare & rollback open from the deployment wizard.` : 'No version yet — deploy to create one.'}</div>,
+    history: <EventsList events={ctx360?.recent_events} loading={ctx360Loading} />,
+    grants: <GrantsSummary ctx={ctx360} onNavigate={(p) => router.push(p)} />,
+    errors: <EventsList events={(ctx360?.recent_events ?? []).filter((e) => (e.status ?? '').toUpperCase().includes('FAIL') || (e.status ?? '').toUpperCase().includes('ERROR'))} loading={ctx360Loading} emptyLabel="No recent errors — all traced events succeeded." />,
     recos: null, // built-in below
   };
 
   const currentContent = (() => {
+    if (activeTab === 'overview') {
+      return <Project360Overview ctx={ctx360} loading={ctx360Loading} gap={ctx360Gap}
+                                 projectId={projectId} variant={variant} onNavigate={(p) => router.push(p)} />;
+    }
     if (activeTab === 'deployment') return deploymentSlot ?? placeholders.deployment;
     if (activeTab === 'versions') return versionsSlot ?? placeholders.versions;
     if (activeTab === 'history') return historySlot ?? placeholders.history;
@@ -440,6 +473,179 @@ function RecosTab({
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline CTA affordance — looks like a button, is a contextual link. Per the
+// design rule: "call-to-actions button-like, not real buttons" — these NAVIGATE
+// within the governed project's context, they don't submit forms.
+// ---------------------------------------------------------------------------
+function Cta({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200 transition hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:ring-indigo-800 dark:hover:bg-indigo-900/50"
+    >
+      {label}
+      <ArrowRight className="h-3 w-3" />
+    </button>
+  );
+}
+
+const SCORE_KEYS: { key: string; label: string }[] = [
+  { key: 'quality', label: 'DQ' },
+  { key: 'governance', label: 'GOV' },
+  { key: 'finops', label: 'COST' },
+  { key: 'modeling', label: 'MODEL' },
+  { key: 'ml_ready', label: 'ML' },
+];
+
+function scoreTint(v: number): string {
+  if (v >= 80) return 'text-emerald-600 dark:text-emerald-400';
+  if (v >= 60) return 'text-amber-600 dark:text-amber-400';
+  return 'text-red-600 dark:text-red-400';
+}
+
+// The headline "talking" panel: shows what the project IS + contextual CTAs.
+function Project360Overview({
+  ctx, loading, gap, projectId, variant, onNavigate,
+}: {
+  ctx: Project360 | null;
+  loading: boolean;
+  gap: boolean;
+  projectId: string | null;
+  variant: 'workflow' | 'explore-design';
+  onNavigate: (path: string) => void;
+}) {
+  if (gap) {
+    return <p role="status" className="p-4 text-sm italic text-slate-400">Project context isn&apos;t available on this backend yet.</p>;
+  }
+  if (loading && !ctx) {
+    return (
+      <div className="space-y-2 p-4" aria-hidden="true">
+        {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-14 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />)}
+      </div>
+    );
+  }
+  if (!ctx) {
+    return <p className="p-4 text-sm text-slate-500">Select a project to see its purpose, sources and scores.</p>;
+  }
+  const p = ctx.project;
+  const scores = ctx.scores ?? {};
+  const designPath = variant === 'workflow' ? '/workflow' : '/explore-design';
+  return (
+    <div className="space-y-4 p-4">
+      {/* Purpose — the project talking about itself */}
+      <div>
+        <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+          {p.purpose || <span className="italic text-slate-400">No purpose set — describe what this project delivers.</span>}
+        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 dark:bg-slate-800">{p.type}</span>
+          {p.status && <span className="rounded bg-slate-100 px-1.5 py-0.5 dark:bg-slate-800">{p.status}</span>}
+          {p.version != null && <span className="rounded bg-slate-100 px-1.5 py-0.5 dark:bg-slate-800">v{p.version}</span>}
+          {p.owner && <span>owner {p.owner}</span>}
+        </div>
+      </div>
+
+      {/* Scores — already-computed, shown by default (no click needed) */}
+      {ctx.scores && (
+        <div className="flex flex-wrap gap-3 rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/50">
+          {SCORE_KEYS.map(({ key, label }) => {
+            const v = scores[key];
+            if (v == null) return null;
+            return (
+              <div key={key} className="flex flex-col">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>
+                <span className={cn('text-sm font-bold tabular-nums', scoreTint(Number(v)))}>{Math.round(Number(v))}</span>
+              </div>
+            );
+          })}
+          {scores.trust_score != null && (
+            <div className="ml-auto flex flex-col">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Trust</span>
+              <span className={cn('text-sm font-bold tabular-nums', scoreTint(Number(scores.trust_score)))}>{Math.round(Number(scores.trust_score))}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Sources / blocks / charts — the composition, described not hidden */}
+      <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+        <Facet icon={Database} label="Sources" n={ctx.sources?.length ?? 0} />
+        {ctx.etl_blocks != null && <Facet icon={Boxes} label="ETL blocks" n={ctx.etl_blocks.length} />}
+        {ctx.charts != null && <Facet icon={BarChart3} label="Charts" n={ctx.charts.length} />}
+      </div>
+
+      {/* Contextual CTAs — button-like, navigate within this project's context */}
+      <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+        <Cta label={`Open in ${variant === 'workflow' ? 'Workflow' : 'Explore & Design'}`} onClick={() => onNavigate(designPath)} />
+        <Cta label="Data Quality" onClick={() => onNavigate('/data-quality')} />
+        <Cta label="Governance" onClick={() => onNavigate('/governance/projects' + (projectId ? `?project=${projectId}` : ''))} />
+        <Cta label="Lineage" onClick={() => onNavigate('/observability/lineage')} />
+      </div>
+    </div>
+  );
+}
+
+function Facet({ icon: Icon, label, n }: { icon: React.ElementType; label: string; n: number }) {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 dark:border-slate-700">
+      <Icon className="h-3.5 w-3.5 text-slate-400" />
+      <span className="text-slate-500 dark:text-slate-400">{label}</span>
+      <span className="ml-auto font-semibold tabular-nums text-slate-700 dark:text-slate-200">{n}</span>
+    </div>
+  );
+}
+
+// Recent events — the valuable trace (data-touching actions), not per-access UI hits.
+function EventsList({ events, loading, emptyLabel }: {
+  events?: Project360['recent_events']; loading?: boolean; emptyLabel?: string;
+}) {
+  if (loading && !events) {
+    return <div className="space-y-2 p-4" aria-hidden="true">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-slate-100 dark:bg-slate-800" />)}</div>;
+  }
+  const items = events ?? [];
+  if (items.length === 0) {
+    return <p className="p-4 text-sm text-slate-500 dark:text-slate-400">{emptyLabel ?? 'No recent activity on this project.'}</p>;
+  }
+  return (
+    <ul className="divide-y divide-slate-100 p-2 dark:divide-slate-800">
+      {items.map((e, i) => {
+        const failed = (e.status ?? '').toUpperCase().includes('FAIL') || (e.status ?? '').toUpperCase().includes('ERROR');
+        return (
+          <li key={i} className="flex items-center gap-2 px-2 py-1.5 text-xs">
+            <CircleDot className={cn('h-3 w-3 shrink-0', failed ? 'text-red-500' : 'text-emerald-500')} />
+            <span className="font-medium text-slate-700 dark:text-slate-200">{e.type ?? 'event'}</span>
+            <span className="text-slate-400">{e.status}</span>
+            {e.by && <span className="ml-auto text-slate-400">{e.by}</span>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// Grants: describe the project's ownership + governance posture from 360, with
+// a contextual jump to the governance surface — not a dead cross-reference.
+function GrantsSummary({ ctx, onNavigate }: { ctx: Project360 | null; onNavigate: (p: string) => void }) {
+  if (!ctx) return <p className="p-4 text-sm text-slate-500">Grants load with the project context.</p>;
+  const gov = ctx.scores?.governance;
+  return (
+    <div className="space-y-3 p-4 text-sm">
+      <p className="text-slate-700 dark:text-slate-200">
+        Owned by <b>{ctx.project.owner ?? 'unknown'}</b>
+        {gov != null && <> · governance score <b className={scoreTint(Number(gov))}>{Math.round(Number(gov))}</b></>}.
+      </p>
+      {ctx.project.tags && ctx.project.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1">{ctx.project.tags.map((t) => (
+          <span key={t} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">{t}</span>
+        ))}</div>
+      )}
+      <Cta label="Manage grants in Governance" onClick={() => onNavigate('/governance/grants')} />
     </div>
   );
 }
