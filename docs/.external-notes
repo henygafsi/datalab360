@@ -1,0 +1,34 @@
+# Notes that live outside this repo (vault root or backend/docs).
+# One name per line; validate_wiki.py treats these wikilink targets as valid.
+Home
+Backend-Home
+Coding-Bible
+Endpoint-Skeleton
+Tags
+Grants
+D360-Roles
+Events
+Cache
+Snowflake-Tables
+Docs-Sync-CI
+SVC-Restore
+MCP-Setup
+Auth
+Common
+Projects
+Explore-Design
+Workflow
+BI-Dashboard
+Data-Products
+Catalog
+Connectors
+Gouvernance
+Cortex
+Data-Quality
+Observability
+Org-Accounts
+Command-Center
+Snowflake-Explorer
+Recommendations
+Administration
+Chat-Notifications-Workspace
