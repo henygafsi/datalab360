@@ -19,7 +19,6 @@
  * `ignore` cleanup flag prevents setState after unmount / stale responses — no
  * SWR or localStorage cache (nothing here is worth persisting).
  */
-// ////dependency//// shared.score-cards → services.command-center.score-cards
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';

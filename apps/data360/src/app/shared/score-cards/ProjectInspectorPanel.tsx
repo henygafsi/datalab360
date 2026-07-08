@@ -35,7 +35,6 @@
  *   · loading → skeleton; unavailable (404/501) → a quiet "not provisioned" note,
  *     never a failing Retry; genuine error → one retry affordance.
  */
-// ////dependency//// shared.score-cards.ProjectInspectorPanel → shared.score-cards.{useProjectRollup,ProjectKpiStrip}
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {

@@ -37,8 +37,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ETLPalette from './components/ETLPalette';
 import ETLConfigSidebar from './components/ETLConfigSidebar';
 import ScheduleManager from './components/ScheduleManager';
-// WorkflowProjectBar's operational tabs (Usage / Cost / Governance) were folded
-// into the single WorkflowSmartPanel rail — the standalone second rail is gone.
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 import ETLExecutionHistory from './components/ETLExecutionHistory';

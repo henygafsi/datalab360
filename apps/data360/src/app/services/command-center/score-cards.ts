@@ -17,7 +17,6 @@
  * Backend prefix is `/command-center` (no `/api` — axios baseURL adds none),
  * matching command-center/index.ts and command-center/recommendations.ts.
  */
-// ////dependency//// services.command-center → lib.api-client (apiClient)
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 

@@ -70,11 +70,6 @@ export default function AuthWrapperOne({
                   alt="Data360"
                   style={{ maxWidth: '80%' }}
                 />
-                {/* <Image
-                  src={logoImgText}
-                  alt="Data360"
-                  className="ps-2.5 dark:invert"
-                /> */}
               </Link>
               <Title
                 as="h2"

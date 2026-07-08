@@ -207,5 +207,3 @@ function Upload(
 export default forwardRef(Upload);
 Upload.displayName = 'Upload';
 
-// Upload.displayName = 'Upload';
-// export default Upload;

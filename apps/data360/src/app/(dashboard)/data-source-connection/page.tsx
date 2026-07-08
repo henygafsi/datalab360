@@ -906,7 +906,6 @@ export default function DataSourceConnectionPage() {
                   throw new Error("Notification integration not created, cannot fetch details.");
               }
               const response = await getIntegrationDetails(azureFormData.notification_integration_name);
-              // console.log('Notification Integration Details:', response);
               // Assuming response.details contains the fields
               setAzureConsentUrl(response?.azure_consent_url || null);
               setAzureMultiTenantAppName(response?.azure_multi_tenant_app_name || null);

@@ -13,7 +13,6 @@
  * UI nests replies client-side. Every fetcher degrades to an empty/neutral
  * value on failure so one 403/404 never blanks the collaboration panel.
  */
-// ////dependency//// services.projects → lib.api-client
 import apiClient from '@/lib/api-client';
 
 const PREFIX = '/projects';

@@ -1,5 +1,4 @@
 /** Explore & Design API: metadata, events, deployments. Data journey: UI → service → /explore-design/guided/*. */
-// ////dependency//// service → lib.api-client (centralized auth+interceptors)
 import apiClient from '@/lib/api-client';
 import { toMessage } from '@/lib/error-messages';
 
@@ -3575,7 +3574,6 @@ export async function executeEventAction(event: LocalDesignEvent, projectId?: st
   const { type, target, payload } = event;
   const { database, schema, table, column } = target;
 
-  // console.log('🚀 Executing event action:', { type, target, payload });
 
   try {
     switch (type) {

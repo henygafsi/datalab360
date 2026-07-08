@@ -1111,7 +1111,7 @@ function TrendChart({ trendData }: { trendData: MetricRow[] }) {
   );
 }
 
-// ── AxisCockpit helpers (unified right cockpit, 2026-07-02 redesign) ──
+// ── AxisCockpit helpers (unified right cockpit) ──
 // Small presentational primitives for the cockpit axis panels. They follow the
 // page's gray palette + honest "—" convention (absent → dash, real 0 preserved).
 

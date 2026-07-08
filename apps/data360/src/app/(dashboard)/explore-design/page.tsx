@@ -1,6 +1,4 @@
 'use client';
-// Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
-// ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.governance (policies)
 import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
 import { toMessage } from '@/lib/error-messages';
 import PermissionGate from '@/components/ui/PermissionGate';
@@ -120,7 +118,6 @@ import IngestionResultsPanel from './components/IngestionResultsPanel';
 import DagViewer from './components/DagViewer';
 import CascadeConfirmModal from './components/CascadeConfirmModal';
 import ImpactAnalysisPanel from './components/ImpactAnalysisPanel';
-// PreCheckGate, DryRunPanel, PostVerifyBanner are now integrated inside DeploymentValidation's step flow
 import WhereClauseBuilder from './components/WhereClauseBuilder';
 import QualityGatesPanel from './components/QualityGatesPanel';
 import IngestionDryRunPanel from './components/IngestionDryRunPanel';
@@ -154,8 +151,6 @@ interface GlobalSearchResult {
 }
 
 // View modes — only `catalog` and `modeling` are actually rendered as tabs.
-// The legacy `'semantic'` member was kept around for an old experimental
-// view that was removed; dropping it here so the type matches the UI.
 type ViewMode = 'catalog' | 'modeling';
 
 // Type for masking policy display (mapped from MaskingPolicy)
@@ -2830,16 +2825,6 @@ export default function ExploreDesignPage() {
           .catch((ddlErr) => {
             console.warn('[handleProjectSelect] Failed to load DDL actions:', ddlErr);
           });
-
-        // Load saved column mappings from backend (legacy fallback for pre-event mappings)
-        /**try {
-          const mappingsResponse = await listMappings(projectId);
-          setBackendMappings(mappingsResponse.mappings || []);
-          // console.log('[handleProjectSelect] Loaded backend mappings:', mappingsResponse.mappings?.length || 0);
-        } catch (mappingErr) {
-          console.warn('[handleProjectSelect] Failed to load backend mappings:', mappingErr);
-          setBackendMappings([]);
-        }**/
 
         // If we found database/schema info, restore the selections
         if (schemasByDatabase.size > 0) {
@@ -5765,10 +5750,6 @@ export default function ExploreDesignPage() {
         </div>
       )}
 
-      {/* Deployment is no longer a centered modal — the 8-step stepper now lives
-          docked in the right-bar "Deploy" tab (see `deployTabNode`, injected into
-          ContextRightBar via `deployOverride`). The former <Modal> render was
-          removed per redesign R1/R2 (match the workflow module's deploy-in-a-tab). */}
 
       {/* AI-Guided Modeling Wizard — on approval it emits model events into the
           event store, then hands off to the existing DeploymentValidation

@@ -233,37 +233,6 @@ export default function StepConfigure() {
         )}
       </div>
 
-      {/* Version Type
-      <div>
-        <h3 className="text-sm font-semibold mb-2">Version Bump</h3>
-        <div className="flex gap-2">
-          {(['patch', 'minor', 'major'] as const).map(v => (
-            <button
-              key={v}
-              className={cn(
-                'px-4 py-2 rounded-lg border text-sm font-medium transition-all',
-                config.versionType === v
-                  ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300'
-                  : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:border-slate-300',
-              )}
-              onClick={() => updateConfig('versionType', v)}
-            >
-              {v.charAt(0).toUpperCase() + v.slice(1)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Changelog 
-      <div>
-        <label className="text-sm font-semibold block mb-2">Changelog Summary</label>
-        <Input
-          size="sm"
-          placeholder="Describe the changes being deployed..."
-          value={config.changelogSummary}
-          onChange={(e) => updateConfig('changelogSummary', e.target.value)}
-        />
-      </div>*/}
 
       {/* Approvers (if with_approval) */}
       {config.deploymentType === 'with_approval' && (

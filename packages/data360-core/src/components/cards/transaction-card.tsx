@@ -44,7 +44,6 @@ export default function TransactionCard({
         </span>
         <div className="space-y-2">
           <p className="text-gray-500 ">{title}</p>
-          {/* <p className="text-2xl font-medium text-gray-900 @[19rem]:text-3xl font-lexend"> */}
           <p className="font-lexend text-lg font-semibold text-gray-900 2xl:text-[20px] 3xl:text-[22px] dark:text-gray-700">
             {amount}
           </p>

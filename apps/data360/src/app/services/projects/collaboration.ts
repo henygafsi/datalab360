@@ -23,7 +23,6 @@
  *   GET  /projects/{id}/runs?page_size=         → PROJECT_RUNS (run health)
  *   GET  /projects/{id}/deployments?limit=      → deploy / approval state
  */
-// ////dependency//// services.projects → services.api.projectsApi → lib.api-client
 import apiClient from '@/lib/api-client';
 import {
   getProject,

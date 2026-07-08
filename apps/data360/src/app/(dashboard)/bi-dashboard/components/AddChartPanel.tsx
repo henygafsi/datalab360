@@ -220,7 +220,6 @@ export default function AddWidgetPanel({
     chartConfig: BIDashboardChartConfig;
     prefetchedData?: Record<string, unknown>[];
   }) => {
-    // console.log('[BI] KPI save — chartConfig:', result.chartConfig, 'prefetchedData:', result.prefetchedData);
     setSaving(true);
     try {
       await createAndNotify('kpi_card', null, result.title, result.chartConfig, result.prefetchedData);
@@ -237,7 +236,6 @@ export default function AddWidgetPanel({
     chartConfig: BIDashboardChartConfig;
     prefetchedData?: Record<string, unknown>[];
   }) => {
-    // console.log('[BI] Table save — chartConfig:', result.chartConfig, 'prefetchedData:', result.prefetchedData);
     setSaving(true);
     try {
       await createAndNotify('table', null, result.title, result.chartConfig, result.prefetchedData, { width: 12, height: 4 });

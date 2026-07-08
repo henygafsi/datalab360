@@ -25,7 +25,6 @@
  * memo on the same SSE projects/rollup cache-invalidation the app already
  * broadcasts, so a real change never lingers in the cache.
  */
-// ////dependency//// shared.score-cards → services.command-center.score-cards, providers.CacheInvalidationProvider
 import { useCallback, useEffect, useState } from 'react';
 import { useAtomValue } from 'jotai';
 import {

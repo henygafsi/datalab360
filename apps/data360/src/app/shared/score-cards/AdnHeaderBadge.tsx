@@ -28,7 +28,6 @@
  * dynamic interpolation would silently drop styles. Literal strings are always
  * statically scannable by the JIT.
  */
-// ////dependency//// shared.score-cards → shared.score-cards.useProjectRollup, shared.command-center.AdnAxes
 import Link from 'next/link';
 import { Sparkles, ArrowRight } from 'lucide-react';
 import { useProjectRollup } from '@/app/shared/score-cards/useProjectRollup';

@@ -1,7 +1,6 @@
 /**
  * Secure API client: adds auth headers, handles 401/403. Data journey: UI/service → apiClient → backend.
  */
-// ////dependency//// lib → config.database.config, lib.auth (session/token)
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { API_CONFIG } from '@/config/database.config';
 import {

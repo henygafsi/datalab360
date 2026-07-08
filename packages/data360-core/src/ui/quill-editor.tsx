@@ -41,23 +41,6 @@ export default function QuillEditor({
     ],
   };
 
-  // const quillFormats = [
-  //   'header',
-  //   'bold',
-  //   'italic',
-  //   'underline',
-  //   'strike',
-  //   'list',
-  //   'bullet',
-  //   'blockquote',
-  //   'code-block',
-  //   'script',
-  //   'indent',
-  //   'color',
-  //   'background',
-  //   'font',
-  //   'align',
-  // ];
 
   return (
     <div className={cn(className)}>
