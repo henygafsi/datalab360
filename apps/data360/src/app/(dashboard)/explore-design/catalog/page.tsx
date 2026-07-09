@@ -19,6 +19,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import CatalogCard from './components/CatalogCard';
 import CatalogDetailDrawer from './components/CatalogDetailDrawer';
 import CatalogGraphCanvas from './components/CatalogGraphCanvas';
+import CatalogNodeCockpit from './components/CatalogNodeCockpit';
 import type { CatalogGraphNode } from '@/app/services/catalog/graph';
 import {
   useExploreCatalog,
@@ -98,24 +99,21 @@ export default function ExploreDesignCatalogPage() {
   // ── Docked detail drawer ───────────────────────────────────────────────────
   const [selected, setSelected] = useState<CatalogItem | null>(null);
 
-  // Canvas node → grid item mapping so a node click opens the same drawer
-  // (same right-tab behaviour for project/product — both are model/table based).
+  // Canvas node → the level-aware cockpit (same rail for schema/product/project;
+  // all three are model/table based, so the axes never change shape).
+  const [selectedNode, setSelectedNode] = useState<CatalogGraphNode | null>(null);
+  const [graphNonce, setGraphNonce] = useState(0);
   const onSelectNode = useCallback(
     (node: CatalogGraphNode) => {
-      const label = node.label.toLowerCase();
-      const match =
-        items.find((i) => i.name.toLowerCase() === label) ??
-        (node.database
-          ? items.find((i) => i.name.toLowerCase() === node.database!.toLowerCase())
-          : undefined);
-      if (match) setSelected(match);
+      setSelectedNode(node);
+      setSelected(null);
       trackFeatureClick('ed_catalog_graph_node', {
         module: 'explore_design',
         kind: node.kind,
         schema_type: node.schema_type ?? null,
       });
     },
-    [items, trackFeatureClick],
+    [trackFeatureClick],
   );
   useEffect(() => {
     // Drop the selection if it filtered out of view (honest sync).
@@ -283,7 +281,7 @@ export default function ExploreDesignCatalogPage() {
       <div className="flex gap-4">
         <div className="min-w-0 flex-1">
           {view === 'canvas' ? (
-            <CatalogGraphCanvas onSelectNode={onSelectNode} />
+            <CatalogGraphCanvas key={graphNonce} onSelectNode={onSelectNode} />
           ) : loading && items.length === 0 ? (
             <div
               className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
@@ -340,11 +338,17 @@ export default function ExploreDesignCatalogPage() {
           )}
         </div>
 
-        {selected && (
+        {view === 'canvas' && selectedNode ? (
+          <CatalogNodeCockpit
+            node={selectedNode}
+            onClose={() => setSelectedNode(null)}
+            onClassified={() => setGraphNonce((n) => n + 1)}
+          />
+        ) : selected ? (
           <div className="w-80 shrink-0">
             <CatalogDetailDrawer item={selected} onClose={() => setSelected(null)} />
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
