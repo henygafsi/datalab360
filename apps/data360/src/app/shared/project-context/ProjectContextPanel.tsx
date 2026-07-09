@@ -32,6 +32,7 @@ import {
   type RecommendationSeverity,
 } from '@/app/services/command-center/recommendations';
 import { getProject360, type Project360 } from '@/app/services/projects/context360';
+import DeploymentSteps from './DeploymentSteps';
 
 export type ProjectContextTabId = 'overview' | 'deployment' | 'versions' | 'history' | 'grants' | 'errors' | 'recos';
 
@@ -225,7 +226,12 @@ export function ProjectContextPanel({
   // never dead "appears here when available" text.
   const placeholders: Record<ProjectContextTabId, React.ReactNode> = {
     overview: null, // built-in below
-    deployment: <div className="p-4 text-sm text-slate-500 dark:text-slate-400">Use the <b>Deploy</b> affordance in Overview, or open the deployment wizard.</div>,
+    deployment: (
+      <DeploymentSteps
+        projectId={projectId}
+        projectType={ctx360?.project.type ?? (variant === 'workflow' ? 'workflow' : 'explore_design')}
+      />
+    ),
     versions: <div className="p-4 text-sm text-slate-500 dark:text-slate-400">{ctx360?.project.version != null ? `Current version v${ctx360.project.version}. Version compare & rollback open from the deployment wizard.` : 'No version yet — deploy to create one.'}</div>,
     history: <EventsList events={ctx360?.recent_events} loading={ctx360Loading} />,
     grants: <GrantsSummary ctx={ctx360} onNavigate={(p) => router.push(p)} />,
