@@ -18,6 +18,8 @@ import { useTrackEvent } from '@/hooks/useTrackEvent';
 import EmptyState from '@/components/ui/EmptyState';
 import CatalogCard from './components/CatalogCard';
 import CatalogDetailDrawer from './components/CatalogDetailDrawer';
+import CatalogGraphCanvas from './components/CatalogGraphCanvas';
+import type { CatalogGraphNode } from '@/app/services/catalog/graph';
 import {
   useExploreCatalog,
   type CatalogItem,
@@ -90,8 +92,31 @@ export default function ExploreDesignCatalogPage() {
     });
   }, [items, tab, query, projectFilter, tagFilter]);
 
+  // ── Center view: floating graph canvas (default) or classic grid ──────────
+  const [view, setView] = useState<'canvas' | 'grid'>('canvas');
+
   // ── Docked detail drawer ───────────────────────────────────────────────────
   const [selected, setSelected] = useState<CatalogItem | null>(null);
+
+  // Canvas node → grid item mapping so a node click opens the same drawer
+  // (same right-tab behaviour for project/product — both are model/table based).
+  const onSelectNode = useCallback(
+    (node: CatalogGraphNode) => {
+      const label = node.label.toLowerCase();
+      const match =
+        items.find((i) => i.name.toLowerCase() === label) ??
+        (node.database
+          ? items.find((i) => i.name.toLowerCase() === node.database!.toLowerCase())
+          : undefined);
+      if (match) setSelected(match);
+      trackFeatureClick('ed_catalog_graph_node', {
+        module: 'explore_design',
+        kind: node.kind,
+        schema_type: node.schema_type ?? null,
+      });
+    },
+    [items, trackFeatureClick],
+  );
   useEffect(() => {
     // Drop the selection if it filtered out of view (honest sync).
     if (selected && !filtered.some((i) => i.id === selected.id)) setSelected(null);
@@ -215,9 +240,29 @@ export default function ExploreDesignCatalogPage() {
             </option>
           ))}
         </select>
-        <span className="ml-auto text-[11px] text-slate-400 dark:text-slate-500">
-          {loading ? '…' : `${filtered.length} object(s)`}
-        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex rounded-md border border-slate-200 p-0.5 text-[11px] dark:border-slate-700" role="group" aria-label="Center view">
+            {(['canvas', 'grid'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                aria-pressed={view === v}
+                className={cn(
+                  'rounded px-2 py-0.5 font-medium capitalize transition-colors',
+                  view === v
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-400',
+                )}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+          <span className="text-[11px] text-slate-400 dark:text-slate-500">
+            {loading ? '…' : `${filtered.length} object(s)`}
+          </span>
+        </div>
       </div>
 
       {/* ── Honest degradation notes ── */}
@@ -234,10 +279,12 @@ export default function ExploreDesignCatalogPage() {
         </p>
       )}
 
-      {/* ── Grid + docked drawer ── */}
+      {/* ── Center (canvas | grid) + docked drawer ── */}
       <div className="flex gap-4">
         <div className="min-w-0 flex-1">
-          {loading && items.length === 0 ? (
+          {view === 'canvas' ? (
+            <CatalogGraphCanvas onSelectNode={onSelectNode} />
+          ) : loading && items.length === 0 ? (
             <div
               className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
               aria-hidden="true"
