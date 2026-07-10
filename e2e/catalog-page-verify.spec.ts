@@ -1,11 +1,13 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Live verification for the /explore-design/catalog redesign:
- *  - same-page tab switching (Sources | Products | All) — no reload, no error boundary
- *  - grid view with master pagination controls
- *  - floating graph canvas paints custom nodes (not default rectangles)
- *  - clicking a schema node opens the cockpit with the Tables inventory
+ * Live verification for the /explore-design/catalog master console:
+ *  - viewport-fit: the page root fits the viewport (inner regions scroll)
+ *  - per-axis summary strip (6 cards from the real /catalog/scores rollup)
+ *  - master TABLE view by default — real rows, no blank names, row click
+ *    opens the docked drill-in drawer
+ *  - same-page tab switching (no reload)
+ *  - canvas stays available as the alternate view and paints custom nodes
  */
 const USER = process.env.D360_USER ?? 'HAHA';
 const PASS = process.env.D360_PASS ?? '';
@@ -22,7 +24,7 @@ async function signIn(page: import('@playwright/test').Page) {
   await page.waitForURL((u) => !u.pathname.includes('/signin'), { timeout: 90_000 });
 }
 
-test('catalog page: tabs stay on-page, pagination + canvas + cockpit tables render', async ({ page }) => {
+test('catalog master console: axis cards, master table, drawer, tabs, canvas', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 300)));
 
@@ -31,45 +33,50 @@ test('catalog page: tabs stay on-page, pagination + canvas + cockpit tables rend
   await page.waitForLoadState('networkidle', { timeout: 120_000 }).catch(() => {});
   expect(await page.getByText('Something went wrong', { exact: false }).isVisible().catch(() => false)).toBe(false);
 
-  // ── Same-page tab switch: no full navigation (marker survives replaceState) ──
+  // ── Per-axis summary strip: all 6 axis cards present ──
+  const strip = page.locator('section[aria-label="Catalog score highlights"]');
+  await expect(strip).toBeVisible({ timeout: 30_000 });
+  for (const axis of ['Quality', 'Governance', 'Modeling', 'FinOps', 'ML ready', 'Trust']) {
+    await expect(strip.getByText(axis, { exact: true })).toBeVisible();
+  }
+
+  // ── Viewport-fit: the catalog root box fits inside the viewport ──
+  const rootBox = await page.locator('div.flex.flex-col.overflow-hidden').first().boundingBox();
+  const viewport = page.viewportSize();
+  expect(rootBox, 'catalog root should render').not.toBeNull();
+  if (rootBox && viewport) {
+    expect(rootBox.height, 'page root must fit the viewport (no page scroll)').toBeLessThanOrEqual(viewport.height);
+  }
+
+  // ── Master TABLE view is the default: rows render, no blank names ──
+  const rows = page.locator('tbody tr[aria-selected]');
+  await expect.poll(async () => rows.count(), { timeout: 60_000, intervals: [2000] }).toBeGreaterThan(0);
+  const rowCount = await rows.count();
+  const firstName = (await rows.first().locator('td').first().innerText()).trim();
+  console.log(`TABLE rows=${rowCount} firstName="${firstName}"`);
+  expect(firstName.length, 'first object name must not be blank').toBeGreaterThan(0);
+  await page.screenshot({ path: 'e2e/results/catalog-master-table.png', fullPage: false });
+
+  // ── Row click → docked drill-in drawer ──
+  await rows.first().click();
+  await expect(page.locator('aside, [class*="w-80"]').first()).toBeVisible({ timeout: 15_000 });
+  await page.screenshot({ path: 'e2e/results/catalog-drawer-drill.png', fullPage: false });
+
+  // ── Same-page tab switch: marker survives (no navigation/reload) ──
   await page.evaluate(() => { (window as any).__no_reload_marker = 1; });
   for (const label of ['Sources', 'Products', 'All']) {
-    await page.getByRole('tab', { name: label }).click();
-    await expect(page.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'true');
+    await page.getByRole('tab', { name: new RegExp(`^${label}`) }).click();
+    await expect(page.getByRole('tab', { name: new RegExp(`^${label}`) })).toHaveAttribute('aria-selected', 'true');
   }
   expect(await page.evaluate(() => (window as any).__no_reload_marker)).toBe(1);
   expect(page.url()).toContain('tab=all');
 
-  // ── Graph canvas paints custom nodes ──
+  // ── Canvas stays available as the alternate view and paints nodes ──
+  await page.getByRole('group', { name: 'Center view' }).getByRole('button', { name: /canvas/i }).click();
   const canvasNodes = page.locator('.react-flow__node');
   await expect.poll(async () => canvasNodes.count(), { timeout: 120_000, intervals: [3000] }).toBeGreaterThan(0);
-  const nodeCount = await canvasNodes.count();
-  console.log(`CANVAS nodes=${nodeCount}`);
-  await page.screenshot({ path: 'e2e/results/catalog-canvas-redesign.png', fullPage: true });
-
-  // ── Click a schema node → cockpit with Tables inventory ──
-  // Schema nodes carry the KPI stat cells; click the first node that mentions tables.
-  const schemaNode = canvasNodes.filter({ hasText: /tables/i }).first();
-  if (await schemaNode.count()) {
-    await schemaNode.click({ force: true });
-    const cockpit = page.getByRole('complementary').or(page.locator('aside'));
-    await expect(cockpit.first()).toBeVisible({ timeout: 15_000 });
-    const tablesSection = page.getByText(/Tables/i).first();
-    await expect(tablesSection).toBeVisible({ timeout: 30_000 });
-    await page.screenshot({ path: 'e2e/results/catalog-cockpit-tables.png' });
-  } else {
-    console.log('No schema node with table KPIs on this environment — cockpit check skipped honestly.');
-  }
-
-  // ── Grid view + pagination bar ──
-  await page.getByRole('button', { name: /grid/i }).first().click();
-  await page.waitForTimeout(1500);
-  const paginationNav = page.getByRole('navigation', { name: /pagination/i });
-  const cards = page.locator('[class*="grid"] > *');
-  const cardCount = await cards.count();
-  const hasPagination = await paginationNav.isVisible().catch(() => false);
-  console.log(`GRID cards=${cardCount} paginationVisible=${hasPagination} (bar hides when <=12 objects)`);
-  await page.screenshot({ path: 'e2e/results/catalog-grid-pagination.png', fullPage: true });
+  console.log(`CANVAS nodes=${await canvasNodes.count()}`);
+  await page.screenshot({ path: 'e2e/results/catalog-canvas-view.png', fullPage: false });
 
   expect(pageErrors, `pageErrors: ${pageErrors.join(' | ')}`).toEqual([]);
 });

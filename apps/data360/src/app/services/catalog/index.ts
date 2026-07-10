@@ -312,11 +312,22 @@ export async function getCatalogOverview(): Promise<CatalogOverviewResponse> {
 
 export interface CatalogSourcesResponse {
   sources: Array<{
+    // Legacy shape — kept REQUIRED for existing consumers (SourceHub,
+    // data-source-connection); the live 2026-07 payload may omit them, so
+    // catalog readers must fall back to label/source_id (see useExploreCatalog).
     name: string;
     type: string;
     database?: string;
+    /** Live shape (GET /catalog/sources 2026-07): label/source_type/source_id. */
+    label?: string;
+    source_id?: string;
+    source_type?: string;
+    owner?: string | null;
     schema_count?: number;
     table_count?: number;
+    row_count?: number;
+    size_bytes?: number;
+    last_altered_at?: string | null;
   }>;
   by_type: Record<string, number>;
   count: number;
