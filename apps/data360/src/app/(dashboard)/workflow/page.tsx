@@ -53,7 +53,17 @@ const WorkflowPage: React.FC = () => {
   const isDesktop = useIsDesktop();
   return (
     <ErrorBoundary>
-      <div className="flex flex-col h-screen bg-white dark:bg-gray-900">
+      {/*
+       * Viewport-fit shell (no page scroll — user directive 2026-07-10).
+       * The page renders inside the carbon dashboard chrome: header (85px) +
+       * main pt-6 (24px) above, lg:pb-16 (64px) + footer (73px) below = 246px.
+       * `h-screen` here previously overflowed the document by exactly that
+       * chrome height, so the PAGE scrolled while the canvas also panned.
+       * Sizing to the remaining space keeps the builder canvas panning/zooming
+       * internally (react-flow) and the smart panel scrolling internally,
+       * while the document itself never scrolls.
+       */}
+      <div className="flex flex-col h-[calc(100dvh-246px)] min-h-[480px] overflow-hidden bg-white dark:bg-gray-900">
         <div className="flex-1 overflow-hidden">
           {isDesktop ? <ETLPipelineBuilder /> : <MobileNotice />}
         </div>
