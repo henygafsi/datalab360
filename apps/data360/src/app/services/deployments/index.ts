@@ -269,6 +269,11 @@ export function fmtDuration(ms: number): string {
   const s = ms / 1000;
   if (s < 60) return `${s.toFixed(1)}s`;
   const m = Math.floor(s / 60);
-  const rem = Math.round(s - m * 60);
-  return `${m}m ${rem}s`;
+  if (m < 60) return `${m}m ${Math.round(s - m * 60)}s`;
+  // Roll long waits up — the header chip once showed a review pending for
+  // 3.5 days as a ticking "5044m 2s". Above an hour, seconds are noise.
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h ${m - h * 60}m`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h - d * 24}h`;
 }

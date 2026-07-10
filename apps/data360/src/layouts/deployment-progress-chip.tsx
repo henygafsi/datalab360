@@ -117,7 +117,14 @@ function DeployRow({ row }: { row: DeploymentRow }) {
               </span>
             </span>
             <span>·</span>
-            <span>{fmtDuration(row.elapsed_ms)}</span>
+            {/* A human approval gate can legitimately wait days — show WHEN
+                it started waiting, not a ticking elapsed (the chip once read
+                "Review · 5044m 2s" for a 3.5-day-old pending approval). */}
+            <span>
+              {row.status === 'PENDING_APPROVAL' && row.started_at
+                ? `since ${new Date(row.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+                : fmtDuration(row.elapsed_ms)}
+            </span>
             {failedSteps.length > 0 && (
               <>
                 <span>·</span>
