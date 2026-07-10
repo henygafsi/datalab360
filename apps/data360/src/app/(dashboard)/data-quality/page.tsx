@@ -3,6 +3,7 @@
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import { toMessage } from '@/lib/error-messages';
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
@@ -61,7 +62,7 @@ import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import InsightActionButton from '@/app/shared/insights/InsightActionButton';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
-import SmartRightBar from './components/SmartRightBar';
+import SmartRightBar, { type AxisHighlight } from './components/SmartRightBar';
 import AxisCockpit, { type AxisDef, type AxisSeverity } from '@/app/shared/cockpit/AxisCockpit';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import { useProjectContext } from '@/hooks/useProjectContext';
@@ -175,6 +176,39 @@ const TAB_LABELS: Record<string, string> = {
 const TAB_IDS = Object.keys(TAB_ENDPOINTS);
 
 const PAGINATED_TABS = new Set(['completeness', 'uniqueness', 'freshness', 'schema', 'cost', 'security']);
+
+// ── Main viewport tabs (redesign 2026-07: "no one page and lifetime scroll") ──
+// The page shell is capped to the viewport and NEVER scrolls; each main tab owns
+// an internal overflow-y-auto panel. All pre-redesign content is preserved and
+// re-disposed across four tabs:
+//   overview   → breach alert + AI next steps + charts + recommendations
+//   dimensions → 8 metric dimensions (search / filters / table / pagination)
+//   monitors   → DMF Results + full DMF lifecycle action bar + AI suggestions
+//   audit      → Query Audit history + related-module links
+type MainTabId = 'overview' | 'dimensions' | 'monitors' | 'audit';
+
+const MAIN_TABS: { id: MainTabId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'overview', label: 'Overview', icon: Gauge },
+  { id: 'dimensions', label: 'Dimensions', icon: Table2 },
+  { id: 'monitors', label: 'Monitors (DMF)', icon: FileSearch },
+  { id: 'audit', label: 'Activity & Audit', icon: Activity },
+];
+
+/** Metric dimension sub-tabs shown under "Dimensions" (DMF has its own main tab). */
+const DIMENSION_TAB_IDS = TAB_IDS.filter((t) => t !== 'dmf');
+
+/**
+ * Parse ?tab= — accepts the four main-tab ids, plus any legacy dimension id
+ * (e.g. ?tab=freshness) which deep-links into the owning main tab with that
+ * dimension pre-selected.
+ */
+function parseMainTab(raw: string | null): { main: MainTabId; dimension?: string } {
+  if (raw === 'overview' || raw === 'dimensions' || raw === 'monitors' || raw === 'audit') return { main: raw };
+  if (raw && TAB_IDS.includes(raw)) {
+    return raw === 'dmf' ? { main: 'monitors', dimension: 'dmf' } : { main: 'dimensions', dimension: raw };
+  }
+  return { main: 'overview' };
+}
 
 /** sessionStorage key: per-session dismissal of the read-only module notice. */
 const RO_NOTICE_KEY = 'd360.read-only-notice.data_quality';
@@ -1250,7 +1284,33 @@ export default function DataQualityPage() {
   // top routed component; SmartRightBar deliberately does NOT call this hook to
   // avoid duplicate page views). Manual helpers track tab switches + key actions.
   const { trackTabSwitch, trackFeatureClick, trackExport } = useTrackEvent();
-  const [activeTab, setActiveTab] = useState('completeness');
+  // ?tab= is parsed ONCE on mount (deep links keep working); switches are pure
+  // state + history.replaceState — no navigation, no remount (catalog pattern).
+  const searchParams = useSearchParams();
+  const [initialTabs] = useState(() => parseMainTab(searchParams.get('tab')));
+  const [mainTab, setMainTabState] = useState<MainTabId>(initialTabs.main);
+  const [activeTab, setActiveTab] = useState(
+    initialTabs.dimension ?? (initialTabs.main === 'monitors' ? 'dmf' : 'completeness'),
+  );
+
+  const setMainTab = useCallback((next: MainTabId) => {
+    setMainTabState(next);
+    window.history.replaceState(null, '', `?tab=${next}`);
+    trackTabSwitch(`main:${next}`);
+    // Keep the dimension state consistent with the owning main tab: Monitors
+    // always shows the DMF results; leaving it restores the first dimension.
+    if (next === 'monitors') setActiveTab('dmf');
+    else if (next === 'dimensions') setActiveTab((prev) => (prev === 'dmf' ? 'completeness' : prev));
+  }, [trackTabSwitch]);
+
+  /** Deep-link to a metric dimension from anywhere (KPI CTA, cockpit, banners). */
+  const gotoDimension = useCallback((tab: string) => {
+    trackTabSwitch(tab);
+    const main: MainTabId = tab === 'dmf' ? 'monitors' : 'dimensions';
+    setMainTabState(main);
+    window.history.replaceState(null, '', `?tab=${main}`);
+    setActiveTab(tab);
+  }, [trackTabSwitch]);
   const [loading, setLoading] = useState(true);
   const [tabLoading, setTabLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -2380,7 +2440,7 @@ export default function DataQualityPage() {
         goodRange: '0 violations',
       },
       ...(violationCount > 0
-        ? { cta: { label: 'Review breaches', onClick: () => setActiveTab('freshness') } }
+        ? { cta: { label: 'Review breaches', onClick: () => gotoDimension('freshness') } }
         : {}),
     },
     {
@@ -2547,7 +2607,7 @@ export default function DataQualityPage() {
             )}
             <button
               type="button"
-              onClick={() => { trackTabSwitch('freshness'); setActiveTab('freshness'); }}
+              onClick={() => gotoDimension('freshness')}
               className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
             >
               Open Freshness tab →
@@ -2636,14 +2696,14 @@ export default function DataQualityPage() {
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => { trackTabSwitch('completeness'); setActiveTab('completeness'); }}
+                onClick={() => gotoDimension('completeness')}
                 className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
               >
                 Completeness tab →
               </button>
               <button
                 type="button"
-                onClick={() => { trackTabSwitch('uniqueness'); setActiveTab('uniqueness'); }}
+                onClick={() => gotoDimension('uniqueness')}
                 className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
               >
                 Uniqueness tab →
@@ -2727,7 +2787,7 @@ export default function DataQualityPage() {
           </div>
           <button
             type="button"
-            onClick={() => { trackTabSwitch('dmf'); setActiveTab('dmf'); }}
+            onClick={() => gotoDimension('dmf')}
             className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
           >
             Open DMF Results tab →
@@ -2787,7 +2847,7 @@ export default function DataQualityPage() {
             )}
             <button
               type="button"
-              onClick={() => { trackTabSwitch('cost'); setActiveTab('cost'); }}
+              onClick={() => gotoDimension('cost')}
               className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
             >
               Open Storage tab →
@@ -2922,11 +2982,43 @@ export default function DataQualityPage() {
     },
   ];
 
+  // ── Right-rail "overview by axis" — bucket-colored highlight chips REUSING the
+  // page's existing data services (summary / tabData / breaches / threshold rules).
+  // Honest '—' whenever a dimension hasn't been measured/loaded yet (severity
+  // 'idle' renders the neutral chip). Clicking an entry opens that cockpit axis.
+  const rightbarAxes: AxisHighlight[] = [
+    { id: 'dq_score', label: 'Data Quality', display: summary ? `${summary.health_score}%` : '—', severity: cockpitDqSeverity },
+    { id: 'freshness', label: 'Freshness', display: summary ? `${summary.freshness_violations ?? 0} viol.` : '—', severity: cockpitFreshSeverity },
+    {
+      id: 'integrity',
+      label: 'Integrity',
+      display: tabData.completeness === undefined && tabData.uniqueness === undefined
+        ? '—'
+        : `${dupColumns + lowCompColumns} issue${dupColumns + lowCompColumns === 1 ? '' : 's'}`,
+      severity: cockpitIntegritySeverity,
+    },
+    {
+      id: 'thresholds',
+      label: 'Thresholds',
+      display: dmfBreaches.length > 0
+        ? `${dmfBreaches.length} breach${dmfBreaches.length === 1 ? '' : 'es'}`
+        : thrRules ? `${thrRules.length} rules` : '—',
+      severity: cockpitThresholdSeverity,
+    },
+    { id: 'cost', label: 'Storage', display: tabData.cost === undefined ? '—' : `${tabData.cost.length} tables`, severity: cockpitCostSeverity },
+    { id: 'history', label: 'History', display: summary?.checks_run_30d != null ? `${summary.checks_run_30d} checks` : '—', severity: cockpitHistorySeverity },
+    { id: 'ai', label: 'AI & Findings', display: loading ? '—' : String(recommendations.length), severity: cockpitAiSeverity },
+  ];
+
   return (
     <ErrorBoundary>
-    {/* 14:6 main+rightbar layout */}
-    <div className="flex gap-0 min-h-screen">
-    <div className="flex-1 min-w-0 p-4 space-y-4">
+    {/* Viewport-fit shell (redesign 2026-07): the page NEVER scrolls. The row is
+        capped to the viewport (app header + layout paddings + footer measure
+        ≈246px live — 250 leaves a small buffer) and each main tab scrolls inside
+        its own panel. min-h keeps very short viewports usable (they regain page
+        scroll — an honest, deliberate floor). */}
+    <div data-dq-root className="flex h-[calc(100dvh-250px)] min-h-[560px] gap-0 overflow-hidden">
+    <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden p-4 pb-2">
       <Breadcrumb items={[{ label: 'Data Quality', href: '/data-quality' }]} />
       {/* ── Header Bar ── */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl px-5 py-4 flex items-center justify-between">
@@ -3092,63 +3184,7 @@ export default function DataQualityPage() {
         </div>
       )}
 
-      {/* Threshold breach alert — surfaced prominently so violations aren't buried */}
-      {!loading && dmfBreaches.length > 0 && (
-        <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
-          <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-red-700 dark:text-red-400">
-              {dmfBreaches.length} DMF threshold {dmfBreaches.length === 1 ? 'breach' : 'breaches'} detected
-            </p>
-            <p className="text-xs text-red-600 dark:text-red-400 break-words">
-              {dmfBreaches.slice(0, 3).map((b) => `${String(b.METRIC_NAME ?? '?')} on ${String(b.TABLE_NAME ?? '?')}`).join('; ')}
-              {dmfBreaches.length > 3 ? ` (+${dmfBreaches.length - 3} more)` : ''}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setActiveTab('dmf')}
-            className="inline-flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded h-7 px-2 hover:bg-red-100 dark:hover:bg-red-900/30 flex-shrink-0"
-          >
-            View DMF results
-          </button>
-        </div>
-      )}
-
-      {/* AI flow: discussion → proposed action → execute → capitalize as an event.
-          Rule-based (no LLM call): when breaches exist, propose scheduling a recurring
-          quality check. The action route is a backend gap — InsightActionButton
-          self-disables on 404/501 until it ships. */}
-      {!loading && dmfBreaches.length > 0 && (
-        <AIActionFlow
-          title="Recommended next steps"
-          context={{
-            module: 'data_quality',
-            entityType: 'dmf_breaches',
-            entityId: 'dashboard',
-            data: { breachCount: dmfBreaches.length },
-          }}
-          suggestions={
-            [
-              {
-                id: 'dq-schedule-check',
-                title: 'Schedule a recurring quality check',
-                rationale: `${dmfBreaches.length} threshold ${dmfBreaches.length === 1 ? 'breach is' : 'breaches are'} active. A scheduled DMF check catches regressions early instead of waiting for a manual run.`,
-                action: {
-                  label: 'Schedule check',
-                  endpoint: API.dataQuality.dmfSchedule(),
-                  method: 'POST',
-                  payload: { cadence: 'daily', source: 'ai_action_flow' },
-                  cost: '~1 credit/run',
-                  risk: 'low — creates a scheduled task, no data change',
-                },
-              },
-            ] satisfies Suggestion[]
-          }
-        />
-      )}
-
-      {/* ── Compact KPI Bar ── */}
+      {/* ── Compact KPI Bar (always visible — KPI row first) ── */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl" aria-live="polite" aria-atomic="true">
         {loading ? (
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 divide-x divide-gray-200 dark:divide-gray-700" role="status" aria-label="Loading quality scores">
@@ -3203,6 +3239,109 @@ export default function DataQualityPage() {
           </div>
         )}
       </div>
+
+      {/* ── Main viewport tabs — one tab per viewport, no page scroll ── */}
+      <div role="tablist" aria-label="Data quality views" className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto no-scrollbar flex-shrink-0">
+        {MAIN_TABS.map((t) => {
+          const Icon = t.icon;
+          const isActive = mainTab === t.id;
+          const badge =
+            t.id === 'overview' && !loading && recommendations.length > 0 ? recommendations.length
+              : t.id === 'monitors' && !loading && dmfBreaches.length > 0 ? dmfBreaches.length
+                : null;
+          return (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={isActive}
+              data-dq-main-tab={t.id}
+              onClick={() => setMainTab(t.id)}
+              className={cn(
+                'relative flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold transition-colors',
+                isActive
+                  ? 'text-blue-600 dark:text-blue-400'
+                  : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200',
+              )}
+            >
+              <Icon className={cn('h-3.5 w-3.5', isActive ? '' : 'text-gray-400')} />
+              {t.label}
+              {badge !== null && (
+                <span className={cn(
+                  'rounded-full px-1.5 py-0 text-[10px] tabular-nums',
+                  t.id === 'monitors'
+                    ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+                )}>
+                  {badge}
+                </span>
+              )}
+              {isActive && (
+                <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-500" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Tab body — the ONLY scroll container of the main column ── */}
+      <div role="tabpanel" data-dq-panel={mainTab} className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-0.5">
+
+      {mainTab === 'overview' && (<>
+      {/* Threshold breach alert — surfaced prominently so violations aren't buried */}
+      {!loading && dmfBreaches.length > 0 && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
+          <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-red-700 dark:text-red-400">
+              {dmfBreaches.length} DMF threshold {dmfBreaches.length === 1 ? 'breach' : 'breaches'} detected
+            </p>
+            <p className="text-xs text-red-600 dark:text-red-400 break-words">
+              {dmfBreaches.slice(0, 3).map((b) => `${String(b.METRIC_NAME ?? '?')} on ${String(b.TABLE_NAME ?? '?')}`).join('; ')}
+              {dmfBreaches.length > 3 ? ` (+${dmfBreaches.length - 3} more)` : ''}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => gotoDimension('dmf')}
+            className="inline-flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded h-7 px-2 hover:bg-red-100 dark:hover:bg-red-900/30 flex-shrink-0"
+          >
+            View DMF results
+          </button>
+        </div>
+      )}
+
+      {/* AI flow: discussion → proposed action → execute → capitalize as an event.
+          Rule-based (no LLM call): when breaches exist, propose scheduling a recurring
+          quality check. The action route is a backend gap — InsightActionButton
+          self-disables on 404/501 until it ships. */}
+      {!loading && dmfBreaches.length > 0 && (
+        <AIActionFlow
+          title="Recommended next steps"
+          context={{
+            module: 'data_quality',
+            entityType: 'dmf_breaches',
+            entityId: 'dashboard',
+            data: { breachCount: dmfBreaches.length },
+          }}
+          suggestions={
+            [
+              {
+                id: 'dq-schedule-check',
+                title: 'Schedule a recurring quality check',
+                rationale: `${dmfBreaches.length} threshold ${dmfBreaches.length === 1 ? 'breach is' : 'breaches are'} active. A scheduled DMF check catches regressions early instead of waiting for a manual run.`,
+                action: {
+                  label: 'Schedule check',
+                  endpoint: API.dataQuality.dmfSchedule(),
+                  method: 'POST',
+                  payload: { cadence: 'daily', source: 'ai_action_flow' },
+                  cost: '~1 credit/run',
+                  risk: 'low — creates a scheduled task, no data change',
+                },
+              },
+            ] satisfies Suggestion[]
+          }
+        />
+      )}
 
       {/* ── Charts Section ── */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
@@ -3292,7 +3431,10 @@ export default function DataQualityPage() {
         )}
       </div>
 
-      {/* ── Search & Filters + Tab Navigation + Data Table ── */}
+      </>)}
+
+      {/* ── Dimensions & Monitors: Search & Filters + Tab Navigation + Data Table ── */}
+      {(mainTab === 'dimensions' || mainTab === 'monitors') && (
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
         {/* Search + Filters Bar */}
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 space-y-2">
@@ -3372,10 +3514,12 @@ export default function DataQualityPage() {
           )}
         </div>
 
-        {/* Tab Navigation with sliding gradient indicator */}
+        {/* Dimension navigation with sliding gradient indicator — only under the
+            Dimensions main tab (Monitors is locked to the DMF results view). */}
+        {mainTab === 'dimensions' && (
         <LayoutGroup id="dq-tabs">
           <div className="no-scrollbar flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-            {TAB_IDS.map((tabId) => {
+            {DIMENSION_TAB_IDS.map((tabId) => {
               const Icon = TAB_ICONS[tabId];
               const isActive = activeTab === tabId;
               const rowCount = paginationMeta[tabId]?.total ?? (tabData[tabId] || []).length;
@@ -3424,8 +3568,9 @@ export default function DataQualityPage() {
             })}
           </div>
         </LayoutGroup>
+        )}
 
-        {/* DMF lifecycle action bar — shown on the DMF Results tab */}
+        {/* DMF lifecycle action bar — shown on the Monitors (DMF) main tab */}
         {activeTab === 'dmf' && (
           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-violet-50/50 dark:bg-violet-900/10">
             <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -3616,9 +3761,11 @@ export default function DataQualityPage() {
           )}
         </div>
       </div>
+      )}
 
+      {mainTab === 'audit' && (<>
       {/* Query Audit Section — recent queries against monitored tables */}
-      <div className="mt-6">
+      <div>
         <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
           <FileSearch className="h-5 w-5 text-blue-500" />
           Query Audit
@@ -3630,12 +3777,15 @@ export default function DataQualityPage() {
       </div>
 
       {/* Related Modules */}
-      <div className="mt-6 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+      <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
         <span>Related:</span>
         <a href="/governance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Policies)</a>
         <a href="/observability" className="text-blue-600 dark:text-blue-400 hover:underline">Observability (Lineage)</a>
         <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Catalog)</a>
       </div>
+      </>)}
+
+      </div>{/* /tab body */}
 
       {/* ── DMF lifecycle ActionRail — non-blocking; the dashboard stays visible ── */}
       <ActionRail
@@ -4284,9 +4434,14 @@ export default function DataQualityPage() {
       </ActionRail>
     </div>
 
-    {/* SmartRightBar — 8-section docked right-tab context panel (shared RightTabPanel) */}
+    {/* SmartRightBar — 8-section docked right-tab context panel (shared RightTabPanel).
+        The no-selection view is the "overview by axis": bucket-colored highlight
+        chips computed from the page's existing data; clicking one opens the
+        matching cockpit axis. */}
     <SmartRightBar
       selectedRow={selectedRow}
+      axes={rightbarAxes}
+      onOpenAxis={openCockpitAxis}
       overview={summary ? {
         total_tables: summary.total_tables,
         health_score: summary.health_score,
@@ -4316,8 +4471,9 @@ export default function DataQualityPage() {
         module's home axis). Coexists with SmartRightBar as a flex sibling;
         z-30 keeps it BELOW the fixed ActionRails (z-40) and the mobile sheet
         (z-[60]), so the DMF / Run-check / Save-threshold rails overlay it when
-        open. Sticky below the app header (z-[9999]) with an internal scroll. ── */}
-    <div className="sticky top-16 z-30 hidden h-[calc(100vh-4rem)] shrink-0 self-start lg:flex">
+        open. The viewport-fit shell already caps the row, so the cockpit simply
+        stretches the row height with its own internal scroll (no sticky). ── */}
+    <div className="z-30 hidden min-h-0 shrink-0 self-stretch lg:flex">
       <AxisCockpit
         axes={cockpitAxes}
         open={cockpitOpen}

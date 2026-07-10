@@ -42,6 +42,29 @@ export interface QualityOverview {
   checks_run_30d?: number | null;
 }
 
+/**
+ * One "overview by axis" entry for the default (no-selection) view. Computed by
+ * the page from its EXISTING data services (quality summary, dimension rows,
+ * breaches, threshold rules) — this component only renders what it is given.
+ * `severity` mirrors the cockpit's AxisSeverity buckets; 'idle' = not measured
+ * yet and MUST be shown as an honest neutral chip (typically display '—').
+ */
+export interface AxisHighlight {
+  id: string;
+  label: string;
+  display: string;
+  severity: 'ok' | 'warn' | 'blocker' | 'pending' | 'idle';
+}
+
+/** Bucket-colored chip classes per axis severity (ok/warn/blocker/idle). */
+const AXIS_CHIP_CLS: Record<AxisHighlight['severity'], string> = {
+  ok: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800',
+  warn: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800',
+  blocker: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800',
+  pending: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800',
+  idle: 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-slate-800/60 dark:text-slate-400 dark:border-slate-700',
+};
+
 // ── Local presentational helpers (duplicated from the parent page to keep this
 // component self-contained and avoid a page ↔ component import cycle) ──
 
@@ -66,6 +89,10 @@ interface SmartRightBarProps {
   selectedRow: MetricRow | null;
   /** Page-level rollup for the default "Quality overview" (nothing-selected state). */
   overview?: QualityOverview | null;
+  /** "Overview by axis" — bucket-colored highlight chips (page-computed, reuse only). */
+  axes?: AxisHighlight[];
+  /** Opens the matching cockpit axis when an axis entry is clicked. */
+  onOpenAxis?: (id: string) => void;
   data: {
     dqScore: number | null;
     dmfCount: number | null;
@@ -88,6 +115,8 @@ interface SmartRightBarProps {
 export default function SmartRightBar({
   selectedRow,
   overview,
+  axes,
+  onOpenAxis,
   data,
   loading,
   onRunCheck,
@@ -152,6 +181,37 @@ export default function SmartRightBar({
             <ShieldCheck className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
             Classification coverage: {pct(overview?.classification_coverage)}
           </div>
+          {/* Overview by axis — bucket-colored highlight chips (existing data only;
+              'idle' axes show a neutral chip with an honest '—'). Click → cockpit axis. */}
+          {axes && axes.length > 0 && (
+            <div className="space-y-1 pt-1 border-t border-gray-100 dark:border-gray-800">
+              <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 pt-2">
+                <Gauge className="h-3 w-3" /> Overview by axis
+              </p>
+              {axes.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  data-dq-axis={a.id}
+                  onClick={() => onOpenAxis?.(a.id)}
+                  disabled={!onOpenAxis}
+                  title={onOpenAxis ? `Open the ${a.label} axis in the quality cockpit` : undefined}
+                  className={cn(
+                    'w-full flex items-center justify-between gap-2 rounded-lg border border-gray-100 dark:border-gray-800 px-2.5 py-1.5 text-left transition-colors',
+                    onOpenAxis ? 'hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer' : 'cursor-default',
+                  )}
+                >
+                  <span className="min-w-0 truncate text-xs font-medium text-gray-700 dark:text-gray-300">{a.label}</span>
+                  <span className={cn(
+                    'inline-flex flex-shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+                    AXIS_CHIP_CLS[a.severity] ?? AXIS_CHIP_CLS.idle,
+                  )}>
+                    {a.display}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="space-y-1.5 pt-1 border-t border-gray-100 dark:border-gray-800">
             <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 pt-2">
               <Table2 className="h-3 w-3" /> Primary actions
@@ -198,6 +258,7 @@ export default function SmartRightBar({
         onClose={onClose}
         storageKey="data360.dataQuality.smartPanel.overview.v1"
         accentClassName="bg-blue-500"
+        maxHeightClassName="max-h-full"
       />
     );
   }
@@ -480,6 +541,7 @@ export default function SmartRightBar({
       onClose={onClose}
       storageKey="data360.dataQuality.smartPanel.v1"
       accentClassName="bg-blue-500"
+      maxHeightClassName="max-h-full"
     />
   );
 }
