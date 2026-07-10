@@ -2,18 +2,17 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useAtomValue } from 'jotai';
-import toast from 'react-hot-toast';
 import { Badge, Tooltip } from 'rizzui';
 import {
   HiOutlineArrowPath,
   HiOutlineClock,
-  HiOutlineSignal,
   HiCheckCircle,
   HiExclamationTriangle,
   HiXCircle,
   HiQuestionMarkCircle,
 } from 'react-icons/hi2';
-import { Activity } from 'lucide-react';
+import { Activity, RefreshCw, SignalHigh } from 'lucide-react';
+import InsightActionButton from '@/app/shared/insights/InsightActionButton';
 import {
   getConnectorsHealth,
   listConnectors,
@@ -70,7 +69,6 @@ const formatBytes = (bytes: number): string => {
 export default function ConnectorHealthStrip() {
   const [summary, setSummary] = useState<ConnectorsHealthSummary | null>(null);
   const [connectors, setConnectors] = useState<ConnectorInfo[]>([]);
-  const [busy, setBusy] = useState<{ id: string; action: 'test' | 'sync' } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,35 +99,6 @@ export default function ConnectorHealthStrip() {
       setConnectors([]);
     }
   }, []);
-
-  const runTest = useCallback(async (c: ConnectorInfo) => {
-    setBusy({ id: c.id, action: 'test' });
-    try {
-      const res = await testConnector(c.id);
-      if (res.ok === false) {
-        toast.error(res.message || `${c.name} connection test failed.`);
-      } else {
-        toast.success(res.message || `${c.name} connection is reachable.`);
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : `${c.name} connection test failed.`);
-    } finally {
-      setBusy(null);
-    }
-  }, []);
-
-  const runSync = useCallback(async (c: ConnectorInfo) => {
-    setBusy({ id: c.id, action: 'sync' });
-    try {
-      const res = await syncConnector(c.id);
-      toast.success(res.message || `Sync started for ${c.name}.`);
-      void load(); // refetch health after the mutation
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : `Failed to sync ${c.name}.`);
-    } finally {
-      setBusy(null);
-    }
-  }, [load]);
 
   useEffect(() => {
     void load();
@@ -302,37 +271,45 @@ export default function ConnectorHealthStrip() {
           <div className="mb-2 text-xs font-medium text-slate-500 dark:text-slate-400">
             Registered connectors
           </div>
+          {/* Unified rich CTAs (InsightActionButton): honest RBAC gating via
+              `capable` + the real denied reason, self-disable on 404/501, and
+              inline error surfacing — no toast-only failures. */}
           <div className="flex flex-col gap-1.5">
-            {connectors.map((c) => {
-              const testing = busy?.id === c.id && busy.action === 'test';
-              const syncing = busy?.id === c.id && busy.action === 'sync';
-              const rowBusy = busy?.id === c.id;
-              return (
-                <div key={c.id} className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-700 dark:text-slate-200">
-                    {c.name}
-                  </span>
-                  <button
-                    onClick={() => void runTest(c)}
-                    disabled={!canTest || rowBusy}
-                    title={!canTest ? testDeniedReason : undefined}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
-                  >
-                    <HiOutlineSignal className={`h-3.5 w-3.5 ${testing ? 'animate-pulse' : ''}`} />
-                    {testing ? 'Testing…' : 'Test'}
-                  </button>
-                  <button
-                    onClick={() => void runSync(c)}
-                    disabled={!canSync || rowBusy}
-                    title={!canSync ? syncDeniedReason : undefined}
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
-                  >
-                    <HiOutlineArrowPath className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-                    {syncing ? 'Syncing…' : 'Sync'}
-                  </button>
-                </div>
-              );
-            })}
+            {connectors.map((c) => (
+              <div key={c.id} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm text-slate-700 dark:text-slate-200">
+                  {c.name}
+                </span>
+                <InsightActionButton
+                  label="Test"
+                  icon={SignalHigh}
+                  size="sm"
+                  variant="subtle"
+                  capable={canTest}
+                  unavailableHint={testDeniedReason}
+                  successToast={`${c.name} connection is reachable`}
+                  onAction={async () => {
+                    const res = await testConnector(c.id);
+                    if (res.ok === false) {
+                      throw new Error(res.message || `${c.name} connection test failed.`);
+                    }
+                    return res;
+                  }}
+                />
+                <InsightActionButton
+                  label="Sync"
+                  icon={RefreshCw}
+                  size="sm"
+                  variant="subtle"
+                  capable={canSync}
+                  unavailableHint={syncDeniedReason}
+                  successToast={`Sync started for ${c.name}`}
+                  pingBell
+                  onAction={() => syncConnector(c.id)}
+                  onDone={() => void load()}
+                />
+              </div>
+            ))}
           </div>
         </div>
       )}
