@@ -811,11 +811,17 @@ const WorkflowDevToolsPage: React.FC = () => {
         </p>
       </header>
 
-      <nav className="flex gap-1 border-b border-slate-200 px-6 dark:border-slate-700" aria-label="Developer tools">
+      <nav
+        className="flex gap-1 border-b border-slate-200 px-6 dark:border-slate-700"
+        aria-label="Developer tools"
+        role="tablist"
+      >
         {TABS.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             type="button"
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={cn(
               'flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',

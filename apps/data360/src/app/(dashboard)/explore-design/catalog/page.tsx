@@ -317,7 +317,7 @@ export default function ExploreDesignCatalogPage() {
   const sortHint = (k: SortKey) => (sortKey === k ? (sortAsc ? ' ▲' : ' ▼') : '');
 
   return (
-    <div className="flex h-[calc(100dvh-180px)] min-h-[540px] flex-col gap-3 overflow-hidden">
+    <div className="flex h-[calc(100dvh-248px)] min-h-[540px] flex-col gap-3 overflow-hidden">
       {/* ── Row 1: compact header — identity · tabs · view toggle ── */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex items-center gap-3">
