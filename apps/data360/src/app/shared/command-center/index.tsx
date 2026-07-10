@@ -16,7 +16,7 @@ import Link from 'next/link';
 import { Text, Title, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
-import { motion, LayoutGroup } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   RefreshCw,
   LayoutDashboard,
@@ -139,6 +139,10 @@ import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } 
 import AxisCockpit from '@/app/shared/cockpit/AxisCockpit';
 import KpiStrip from '@/app/shared/cockpit/KpiStrip';
 import { useCommandCenterCockpit } from './CommandCenterCockpit';
+import SectionRail from './SectionRail';
+import AccessRequestsCard from './AccessRequestsCard';
+import { TabGrid, KpiZone, Board, Cell as GridCell, MoreDrawer } from './TabGridKit';
+import type { KpiDimension } from '@/app/services/command-center/score-cards';
 
 // Lazy-loaded new tabs
 const ModulesTab = lazy(() => import('./modules-tab'));
@@ -1006,19 +1010,29 @@ function AuditTable<T extends Record<string, any>>({
   const deferredColFilters = useDeferredValue(colFilters);
   const [page, setPage] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
+  // Excel-grade quick filter: one input matching across EVERY column.
+  const [quickFilter, setQuickFilter] = useState('');
+  const deferredQuickFilter = useDeferredValue(quickFilter);
 
   // Filter (memoized + deferred for smooth typing on large datasets)
-  const filtered = useMemo(
-    () =>
-      data.filter((row) =>
-        Object.entries(deferredColFilters).every(([key, val]) => {
-          if (!val) return true;
-          const cellVal = String(row[key] ?? '').toLowerCase();
-          return cellVal.includes(val.toLowerCase());
-        })
-      ),
-    [data, deferredColFilters]
-  );
+  const filtered = useMemo(() => {
+    const q = deferredQuickFilter.trim().toLowerCase();
+    return data.filter((row) => {
+      if (
+        q &&
+        !columns.some((col) =>
+          String(row[col.key] ?? '').toLowerCase().includes(q),
+        )
+      ) {
+        return false;
+      }
+      return Object.entries(deferredColFilters).every(([key, val]) => {
+        if (!val) return true;
+        const cellVal = String(row[key] ?? '').toLowerCase();
+        return cellVal.includes(val.toLowerCase());
+      });
+    });
+  }, [data, columns, deferredColFilters, deferredQuickFilter]);
 
   // Sort (memoized for large datasets)
   const sorted = useMemo(
@@ -1090,9 +1104,23 @@ function AuditTable<T extends Record<string, any>>({
           </Badge>
         </div>
         <div className="flex items-center gap-2">
+          <div className="relative hidden sm:block">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={quickFilter}
+              onChange={(e) => {
+                setQuickFilter(e.target.value);
+                setPage(0);
+              }}
+              placeholder="Quick filter…"
+              aria-label="Quick filter across all columns"
+              className="w-40 rounded-lg border border-gray-200 bg-white py-1 pl-7 pr-2 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+            />
+          </div>
           <button
             aria-label={
-              showFilters ? 'Hide search filters' : 'Show search filters'
+              showFilters ? 'Hide column filters' : 'Show column filters'
             }
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
@@ -1114,14 +1142,14 @@ function AuditTable<T extends Record<string, any>>({
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-xs">
           <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800/80">
             <tr className="border-b border-gray-200 dark:border-gray-700">
               {columns.map((col) => (
                 <th
                   key={col.key}
                   className={cn(
-                    'px-3 py-2.5 font-medium text-gray-500 dark:text-gray-400',
+                    'px-3 py-1.5 font-medium text-gray-500 dark:text-gray-400',
                     col.align === 'right' ? 'text-right' : 'text-left',
                     col.width
                   )}
@@ -1183,7 +1211,7 @@ function AuditTable<T extends Record<string, any>>({
                   <td
                     key={col.key}
                     className={cn(
-                      'px-3 py-2',
+                      'px-3 py-1.5',
                       col.align === 'right' ? 'text-right' : 'text-left',
                       !col.render && 'text-gray-700 dark:text-gray-300'
                     )}
@@ -1299,6 +1327,9 @@ function CommandCenterDashboardInner() {
   // lazy initializer diverged server vs client → a hydration mismatch + wrong-tab
   // flash on the primary navigation.
   const [activeTab, _setActiveTab] = useState<string>('overview');
+  // The viewport-fit frame's inner scroll container — reset to top on switch
+  // so a new section always starts at its KPI row, never mid-scroll.
+  const panelScrollRef = useRef<HTMLDivElement | null>(null);
   const setActiveTab = useCallback((id: string) => {
     const resolved = resolveTabId(id);
     _setActiveTab(resolved);
@@ -1306,104 +1337,35 @@ function CommandCenterDashboardInner() {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('data360.command-center.activeTab', resolved);
       const url = new URL(window.location.href);
-      url.searchParams.set('tab', resolved);
+      url.searchParams.set('section', resolved);
+      url.searchParams.delete('tab'); // legacy one-pager param, superseded
       window.history.replaceState({}, '', url.toString());
     }
+    panelScrollRef.current?.scrollTo({ top: 0 });
   }, [trackTabSwitch]);
-  // Resolve the persisted / `?tab=` tab AFTER mount (not in the initializer) so
-  // hydration is deterministic. Sets state directly — bypasses setActiveTab's
-  // localStorage/URL/track side effects so no spurious tab-switch is recorded.
+  // Resolve the persisted / `?section=` (legacy `?tab=`) value AFTER mount
+  // (not in the initializer) so hydration is deterministic. Sets state
+  // directly — bypasses setActiveTab's localStorage/URL/track side effects so
+  // no spurious tab-switch is recorded.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const fromUrl = new URL(window.location.href).searchParams.get('tab');
+    const params = new URL(window.location.href).searchParams;
+    const fromUrl = params.get('section') ?? params.get('tab');
     const fromStorage = window.localStorage.getItem('data360.command-center.activeTab');
     const resolved = resolveTabId(fromUrl ?? fromStorage ?? 'overview');
-    if (resolved !== 'overview') {
-      _setActiveTab(resolved);
-      // One-pager: a deep link lands ON the section, not on a hidden tab.
-      window.setTimeout(() => {
-        suppressSpyUntil.current = Date.now() + 900;
-        document.getElementById(`cc-sec-${resolved}`)?.scrollIntoView({ block: 'start' });
-      }, 200);
-    }
+    if (resolved !== 'overview') _setActiveTab(resolved);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [isTabTransitioning, startTabTransition] = useTransition();
+  const [, startTabTransition] = useTransition();
   // Docked actions right-bar (the module's single centralized action surface).
   const [panelOpen, setPanelOpen] = useState(false);
-  // Drill-down: switch tabs from a KPI card without a full navigation.
-  // ── One-pager scroll machinery ────────────────────────────────────
-  // The 9 former tabs render STACKED; the nav bar and cockpit jump-scroll.
-  // `activeTab` is now "the section in view" — set by the scrollspy — so the
-  // existing per-tab fetch effects keep working untouched (they key on it).
-  const activeTabRef = useRef(activeTab);
-  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
-  // A programmatic smooth-scroll sweeps past intermediate sections; without a
-  // suppression window the spy would "select" each of them in turn.
-  const suppressSpyUntil = useRef(0);
-  const scrollToSection = useCallback((id: string) => {
-    const target = resolveTabId(id);
-    // Jumping to a far section makes the lazy sections ABOVE it mount and
-    // grow (skeleton 288px → real height), pushing the target back out of
-    // view. Re-anchor twice while layout settles, and keep the spy quiet for
-    // the whole window so it doesn't "select" the sections sliding past.
-    suppressSpyUntil.current = Date.now() + 2600;
-    const el = () => document.getElementById(`cc-sec-${target}`);
-    el()?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    window.setTimeout(() => el()?.scrollIntoView({ block: 'start' }), 1000);
-    window.setTimeout(() => el()?.scrollIntoView({ block: 'start' }), 2000);
-  }, []);
-  // Spy updates state + URL/storage but NOT trackTabSwitch — scrolling past a
-  // section is not a navigation intent, and would flood analytics.
-  const spySetActive = useCallback((id: string) => {
-    _setActiveTab(id);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('data360.command-center.activeTab', id);
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', id);
-      window.history.replaceState({}, '', url.toString());
-    }
-  }, []);
-  // Sections mount their (heavy) bodies only when approaching the viewport —
-  // data-first: the fetch fires at approach time, the skeleton renders until
-  // the data lands, and off-screen sections cost nothing at page load.
-  const [mountedSections, setMountedSections] = useState<Set<string>>(() => new Set(['overview']));
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') return;
-    const mountObs = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          const id = (entry.target as HTMLElement).dataset.ccSection;
-          if (id) setMountedSections((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
-        });
-      },
-      { rootMargin: '600px 0px 600px 0px' },
-    );
-    const spyObs = new IntersectionObserver(
-      (entries) => {
-        if (Date.now() < suppressSpyUntil.current) return;
-        const visible = entries.filter((e) => e.isIntersecting);
-        if (!visible.length) return;
-        const top = visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-        const id = (top.target as HTMLElement).dataset.ccSection;
-        if (id && id !== activeTabRef.current) spySetActive(id);
-      },
-      // Active = the section crossing the upper-middle band of the viewport.
-      { rootMargin: '-30% 0px -55% 0px' },
-    );
-    document.querySelectorAll<HTMLElement>('[data-cc-section]').forEach((el) => {
-      mountObs.observe(el);
-      spyObs.observe(el);
-    });
-    return () => { mountObs.disconnect(); spyObs.disconnect(); };
-  }, [spySetActive]);
+  // Tabbed navigation (2026-07-10 redesign): the main column renders ONLY the
+  // active section inside a viewport-fit frame — no page scroll, no scrollspy.
   const goToTab = useCallback(
     (id: string) => {
       startTabTransition(() => setActiveTab(id));
-      window.requestAnimationFrame(() => scrollToSection(id));
     },
-    [setActiveTab, scrollToSection],
+    [setActiveTab],
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1512,17 +1474,6 @@ function CommandCenterDashboardInner() {
   // by SSE cache-invalidation events from the backend + the manual refresh
   // button in the header.
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  // Whether the user has scrolled past the page top — used to drop a subtle
-  // shadow under the sticky tab+filter cluster so it visually detaches from
-  // content rather than floating ambiguously.
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 4);
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
 
   const [tabLoading, setTabLoading] = useState<Record<string, boolean>>({
     overview: true,
@@ -1918,26 +1869,6 @@ function CommandCenterDashboardInner() {
     }
   }, []);
 
-  // One-pager: when a section's body mounts (viewport approach), fire its
-  // orchestrated fetch immediately — data-first, the skeleton renders while
-  // the request is in flight. The [activeTab, filters] effect below stays the
-  // refresh path; its tabDataCache guard prevents double-fetching.
-  const approachFetchFired = useRef<Set<string>>(new Set(['overview']));
-  useEffect(() => {
-    mountedSections.forEach((id) => {
-      if (approachFetchFired.current.has(id)) return;
-      approachFetchFired.current.add(id);
-      switch (id) {
-        case 'projects': fetchProjects(); break;
-        case 'security': fetchSecurityAdv(); break;
-        case 'finops': fetchCost(); break;
-        case 'platform-activity': fetchPlatformActivity(); break;
-        // dwh-plan / snowflake-objects / modules / organization are
-        // self-contained components that fetch on their own mount.
-      }
-    });
-  }, [mountedSections, fetchProjects, fetchSecurityAdv, fetchCost, fetchPlatformActivity]);
-
   // Re-fetch active tab when filters or activeTab change (skip if cached for
   // THIS filter combination within TTL). The cache key must include filter
   // values — otherwise changing a filter wouldn't trigger a refetch and the
@@ -2103,413 +2034,339 @@ function CommandCenterDashboardInner() {
   // `loading && !summary && !kpis`), so no separate full-page skeleton is needed.
 
   // ── Render ───────────────────────────────────────────────────────────────
+  //
+  // Tabbed redesign (2026-07-10, "no one-page lifetime scroll"): the main
+  // column renders ONLY the active section inside a viewport-fit frame whose
+  // inner area is the single scrolling surface. The SectionRail on the right
+  // edge is the navigation (one entry per section + per-axis highlight chips);
+  // it collapses to a horizontal strip on small screens.
+
+  const activeTabDef = tabs.find((t) => t.id === activeTab) ?? tabs[0];
+  const ActiveIcon = activeTabDef.icon;
+  const sectionRefresh: Record<string, (() => void) | undefined> = {
+    overview: fetchOverview,
+    finops: fetchCost,
+    projects: fetchProjects,
+    security: fetchSecurityAdv,
+    'platform-activity': fetchPlatformActivity,
+  };
+  const onSectionRefresh = sectionRefresh[activeTabDef.id];
+
+  // Rail axis chips → the docked cockpit axis that owns that dimension.
+  const DIMENSION_TO_AXIS: Record<KpiDimension, string> = {
+    dq: 'quality',
+    gov: 'governance',
+    cost: 'cost',
+    perf: 'perf',
+  };
+
+  // ONLY the active section's body is computed + rendered. All 9 sections'
+  // content is preserved verbatim from the one-pager — just re-disposed
+  // behind tabs (KPI row first, then charts, then tables within each).
+  const activeBody = (() => {
+    switch (activeTabDef.id) {
+      case 'overview':
+        return (
+          <OverviewTab
+            summary={summary}
+            moduleHealth={moduleHealth}
+            activityFeed={activityFeed}
+            loading={tabLoading.overview}
+            onRetry={fetchOverview}
+            globalDays={filters.days}
+            onNavigateTab={goToTab}
+          />
+        );
+      case 'dwh-plan':
+        /* Self-contained component (own file, out of this redesign's scope):
+           wrapped as the tab's main zone with INTERNAL scroll only. */
+        return (
+          <Suspense fallback={<LoadingSection />}>
+            <div className="h-full min-h-0 overflow-y-auto">
+              <DwhActionPlanTab />
+            </div>
+          </Suspense>
+        );
+      case 'snowflake-objects':
+        /* Refactored Data Catalog Explorer (UI-first, sample data on the
+           not-yet-wired fields): 8 sub-tabs, KPI grid, AI Discovery,
+           rich object explorer + detail panel with Data360 migration
+           classification. Real ACCOUNT_USAGE on the data sub-tabs. */
+        return (
+          <div className="h-full min-h-0 overflow-y-auto">
+            <SnowflakeObjectsTab />
+          </div>
+        );
+      case 'finops':
+        return tabError.finops && !tabLoading.finops ? (
+          <TabErrorState message={tabError.finops} onRetry={fetchCost} />
+        ) : (
+          <CostTab
+            data={costData}
+            loading={tabLoading.finops}
+            days={filters.days}
+            onNavigateTab={goToTab}
+          />
+        );
+      case 'modules':
+        /* Self-contained component (own file): main zone, internal scroll. */
+        return (
+          <Suspense fallback={<LoadingSection />}>
+            <div className="h-full min-h-0 overflow-y-auto">
+              <ModulesTab />
+            </div>
+          </Suspense>
+        );
+      case 'platform-activity':
+        return (
+          <PlatformActivityTab
+            platformData={platformData}
+            activityFeed={activityFeed}
+            summary={summary}
+            loading={tabLoading['platform-activity']}
+            onNavigateTab={goToTab}
+          />
+        );
+      case 'projects':
+        return tabError.projects && !tabLoading.projects ? (
+          <TabErrorState message={tabError.projects} onRetry={fetchProjects} />
+        ) : (
+          <ProjectsTab
+            data={projectsData}
+            loading={tabLoading.projects}
+            onRefresh={fetchProjects}
+          />
+        );
+      case 'security':
+        /* Merged Security dashboard: posture/audit grid (SecurityAdvTab) +
+           the Access Requests inbox (moved here from the page footer — its
+           pending count is the badge on the rail's Security entry) and the
+           Security Map, both behind in-grid More drawers so the posture grid
+           keeps the height. No popups, no page scroll. */
+        return (
+          <div className="flex h-full min-h-0 flex-col gap-3">
+            <div className="min-h-0 flex-1">
+              {tabError.security && !tabLoading['security'] ? (
+                <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
+              ) : (
+                <SecurityAdvTab
+                  data={securityData}
+                  loading={tabLoading['security']}
+                  onNavigateTab={goToTab}
+                />
+              )}
+            </div>
+            <div className="grid shrink-0 grid-cols-1 gap-3 md:grid-cols-2">
+              <MoreDrawer label="Access requests" className="md:col-span-1">
+                <AccessRequestsCard />
+              </MoreDrawer>
+              <MoreDrawer label="Security map" className="md:col-span-1">
+                <SecurityMap days={filters.days} />
+              </MoreDrawer>
+            </div>
+          </div>
+        );
+      case 'organization':
+        /* Merged Organization section: org summary + ORGADMIN-gated org
+           accounts + Snowflake accounts honest-empty states, stacked. Each
+           child owns its own ORGADMIN gating + honest empty messaging. */
+        return (
+          <Suspense fallback={<LoadingSection />}>
+            {/* 2×2 dashboard grid — each quadrant is a self-contained
+                component with INTERNAL scroll (they own their fetches and
+                ORGADMIN gating). Below xl the grid stacks and the tab's zone
+                scrolls internally; the page never scrolls. */}
+            <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto xl:grid-cols-2 xl:grid-rows-2 xl:overflow-hidden">
+              <div className="min-h-0 xl:overflow-y-auto">
+                {/* Self-contained: owns its own date-range + role/module/account
+                    filters; does NOT consume the parent global filter bar. */}
+                <OrgSummaryTab />
+              </div>
+              <div className="min-h-0 xl:overflow-y-auto">
+                <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Org accounts
+                </h3>
+                <OrgAccountsTab onNavigateTab={goToTab} />
+              </div>
+              <div className="min-h-0 xl:overflow-y-auto">
+                <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Connected Accounts
+                </h3>
+                <SnowflakeAccountsTab onNavigateTab={goToTab} />
+              </div>
+              <div className="min-h-0 xl:overflow-y-auto">
+                <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Accounts &amp; audit
+                </h3>
+                <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
+              </div>
+            </div>
+          </Suspense>
+        );
+      default:
+        return null;
+    }
+  })();
 
   return (
-    <div className="@container">
-      {/* Flex row: content column + the docked Actions right-bar sibling. */}
-      <div className="flex items-start gap-4">
-        <div className="min-w-0 flex-1">
-      {/* ── Header ────────────────────────────────────────────────── */}
+    <div className="@container flex h-full min-h-0 flex-col">
+      {/* ── Header (compact — everything below must fit one viewport) ── */}
       <motion.div
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, ease: 'easeOut' }}
-        className="mb-6 flex items-center justify-between"
+        className="mb-3 flex shrink-0 items-center justify-between"
       >
         <div>
           <Title as="h1" className="bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900 bg-clip-text text-xl font-bold tracking-tight text-transparent dark:from-white dark:via-slate-200 dark:to-white md:text-2xl">
             Command Center
           </Title>
-          <Text className="mt-1 text-gray-500 dark:text-gray-400">
+          <Text className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
             Your Data360 platform at a glance
           </Text>
         </div>
         <div className="flex items-center gap-3">
-        {/* Account-level Command Center has no single project to score, so the
-            per-project ADN badge self-hides (projectId=null → renders nothing).
-            The slot is kept for placement parity; no fabricated account ADN. */}
-        <div className="hidden lg:block">
-          <AdnHeaderBadge projectId={null} />
-        </div>
-        <motion.button
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={() => {
-            trackFeatureClick('actions_panel', { open: !panelOpen });
-            setPanelOpen((o) => !o);
-          }}
-          aria-expanded={panelOpen}
-          aria-label="Toggle actions panel"
-          className={cn(
-            'group relative flex items-center gap-2 overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-sm transition-all hover:shadow-md',
-            panelOpen
-              ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
-              : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-600',
+          {lastUpdated && (
+            <span className="hidden text-[11px] text-slate-400 dark:text-slate-500 sm:block">
+              Updated {relativeTime(lastUpdated.toISOString())}
+            </span>
           )}
-        >
-          {/* Subtle gradient shimmer on hover */}
-          <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-blue-500/10 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-          <PanelRight className="h-4 w-4" />
-          Actions
-        </motion.button>
+          {/* Account-level Command Center has no single project to score, so the
+              per-project ADN badge self-hides (projectId=null → renders nothing).
+              The slot is kept for placement parity; no fabricated account ADN. */}
+          <div className="hidden lg:block">
+            <AdnHeaderBadge projectId={null} />
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => {
+              trackFeatureClick('actions_panel', { open: !panelOpen });
+              setPanelOpen((o) => !o);
+            }}
+            aria-expanded={panelOpen}
+            aria-label="Toggle actions panel"
+            className={cn(
+              'group relative flex items-center gap-2 overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-sm transition-all hover:shadow-md',
+              panelOpen
+                ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-600',
+            )}
+          >
+            {/* Subtle gradient shimmer on hover */}
+            <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-blue-500/10 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+            <PanelRight className="h-4 w-4" />
+            Actions
+          </motion.button>
         </div>
       </motion.div>
 
-      {/* ── Unified KPI strip (shared primitive) ─────────────────────
-          Honest "—" until each figure is known (never fake zeros); every
-          KPI deep-links into its owning cockpit axis on the right edge. */}
-      <KpiStrip
-        items={cockpit.kpiItems}
-        className="mb-6 rounded-xl border border-slate-200 shadow-sm dark:border-slate-800"
-      />
-
-      {/* ── Error Banner ──────────────────────────────────────────── */}
-      {error && (
-        <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
-          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
-          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-        </div>
-      )}
-
-      {/* Cache-warming banner — the backend IS reachable but the account's
-          analytics service-cache isn't connected yet (503 CACHE_NOT_READY).
-          This is transient + recoverable, so it reads as "warming up", not
-          "unreachable". Takes precedence over the offline banner. */}
-      {cacheWarming && !error && (
-        <div className="mb-6 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/50 dark:bg-blue-950/50">
-          <RefreshCw className="mt-0.5 h-5 w-5 flex-shrink-0 animate-spin text-blue-500" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
-              Live analytics are warming up
-            </p>
-            <p className="mt-0.5 text-xs text-blue-700 dark:text-blue-300">
-              The backend is reachable; your account&apos;s data cache is being provisioned. KPIs and charts will appear once it&apos;s ready — this usually clears on its own.
-            </p>
-          </div>
-          <button
-            onClick={handleRefresh}
-            className="flex-shrink-0 rounded-md border border-blue-300 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/50"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* Backend-offline banner — fires when every overview call returned null
-          (server down, network blocked, JWT rejected). Gives the user a clear
-          single message + retry instead of a wall of empty cards. */}
-      {backendUnreachable && !error && (
-        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/50">
-          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-500" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-              Backend unreachable
-            </p>
-            <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
-              Data360 API didn't respond. Charts and KPIs are empty until the connection is restored.
-            </p>
-          </div>
-          <button
-            onClick={handleRefresh}
-            className="flex-shrink-0 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-
-      {/* ── Sticky Tab + Filter Cluster ──────────────────────────────
-          Tabs and filter bar stick to the top of the viewport as the user
-          scrolls long tab content, so navigation + filter state stay one
-          click away. Backdrop blur softens the boundary against the
-          background so cards still feel grounded. A subtle shadow fades in
-          once the user has actually scrolled — visual cue that the bar is
-          floating over content. */}
-      <div
-        className={cn(
-          'sticky top-0 z-30 -mx-4 mb-6 px-4 pt-3 backdrop-blur transition-shadow duration-200',
-          'bg-white/85 supports-[backdrop-filter]:bg-white/70 dark:bg-gray-950/85 dark:supports-[backdrop-filter]:bg-gray-950/70',
-          scrolled && 'shadow-[0_4px_12px_-6px_rgba(0,0,0,0.12)] dark:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.6)]'
-        )}
-      >
-
-      {/* ── Tabs with sliding gradient indicator ─────────────────────
-          `layoutId="cc-tab-indicator"` makes the underline glide smoothly
-          between tabs using framer-motion's shared-layout transitions. */}
-      <LayoutGroup id="command-center-tabs">
-        <div className="border-b border-gray-200 dark:border-gray-700">
-          <div
-            className="no-scrollbar -mb-px flex snap-x snap-mandatory space-x-1 overflow-x-auto scroll-smooth"
-            role="tablist"
-            aria-label="Account overview tabs"
-          >
-            {tabs.map((tab, idx) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
-                // WAI-ARIA tabs pattern: Left/Right move focus + select; Home/End jump to edges.
-                let nextIdx: number | null = null;
-                if (e.key === 'ArrowRight') nextIdx = (idx + 1) % tabs.length;
-                else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + tabs.length) % tabs.length;
-                else if (e.key === 'Home') nextIdx = 0;
-                else if (e.key === 'End') nextIdx = tabs.length - 1;
-                if (nextIdx === null) return;
-                e.preventDefault();
-                const nextTab = tabs[nextIdx];
-                startTabTransition(() => setActiveTab(nextTab.id));
-                scrollToSection(nextTab.id);
-                window.requestAnimationFrame(() => {
-                  const el = document.getElementById(`tab-${nextTab.id}`);
-                  el?.focus();
-                  el?.scrollIntoView({
-                    behavior: 'smooth',
-                    block: 'nearest',
-                    inline: 'nearest',
-                  });
-                });
-              };
-              return (
-                <button
-                  key={tab.id}
-                  role="tab"
-                  aria-selected={isActive}
-                  aria-controls={`cc-sec-${tab.id}`}
-                  id={`tab-${tab.id}`}
-                  tabIndex={isActive ? 0 : -1}
-                  onKeyDown={onTabKeyDown}
-                  onClick={(e) => {
-                    startTabTransition(() => setActiveTab(tab.id));
-                    scrollToSection(tab.id);
-                    e.currentTarget.scrollIntoView({
-                      behavior: 'smooth',
-                      block: 'nearest',
-                      inline: 'nearest',
-                    });
-                  }}
-                  className={cn(
-                    'group relative flex shrink-0 snap-start items-center gap-2 whitespace-nowrap rounded-t-md px-4 py-3 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900',
-                    isActive
-                      ? 'text-primary'
-                      : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200',
-                  )}
-                >
-                  <Icon
-                    className={cn(
-                      'h-4 w-4 transition-transform',
-                      isActive
-                        ? 'scale-110'
-                        : 'text-gray-400 group-hover:scale-105 group-hover:text-gray-600 dark:group-hover:text-gray-300',
-                    )}
-                  />
-                  {tab.label}
-                  {isActive && (
-                    <motion.span
-                      layoutId="cc-tab-indicator"
-                      className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-500"
-                      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </LayoutGroup>
-
-      {/* Cross-tab filter bar removed — each tab now detects its own filters
-          (date + distinct categorical fields) from its displayed data via
-          AuditTable, the way the BI dashboard detects filters from queries.
-          `filters.days` stays at its default window for the data fetches. */}
-
-      </div>
-      {/* /sticky cluster ───────────────────────────────────────────── */}
-
-      {/* ── One-pager: every former tab is a stacked, scrollable section.
-          The nav bar + cockpit jump-scroll; the scrollspy keeps them in sync.
-          Bodies mount when the section approaches the viewport (skeleton
-          first, data lands behind it) — charts are never hidden behind a
-          tab click again. */}
-      <div className="space-y-14">
-        {tabs.map((tab) => {
-          const SectionIcon = tab.icon;
-          const sectionRefresh: Record<string, (() => void) | undefined> = {
-            overview: fetchOverview,
-            finops: fetchCost,
-            projects: fetchProjects,
-            security: fetchSecurityAdv,
-            'platform-activity': fetchPlatformActivity,
-          };
-          const onSectionRefresh = sectionRefresh[tab.id];
-          const body = (() => {
-            switch (tab.id) {
-              case 'overview':
-                return (
-                  <OverviewTab
-                    summary={summary}
-                    moduleHealth={moduleHealth}
-                    activityFeed={activityFeed}
-                    loading={tabLoading.overview}
-                    onRetry={fetchOverview}
-                    globalDays={filters.days}
-                    onNavigateTab={goToTab}
-                  />
-                );
-              case 'dwh-plan':
-                return (
-                  <Suspense fallback={<LoadingSection />}>
-                    <DwhActionPlanTab />
-                  </Suspense>
-                );
-              case 'snowflake-objects':
-                /* Refactored Data Catalog Explorer (UI-first, sample data on the
-                   not-yet-wired fields): 8 sub-tabs, KPI grid, AI Discovery,
-                   rich object explorer + detail panel with Data360 migration
-                   classification. Real ACCOUNT_USAGE on the data sub-tabs. */
-                return <SnowflakeObjectsTab />;
-              case 'finops':
-                return tabError.finops && !tabLoading.finops ? (
-                  <TabErrorState message={tabError.finops} onRetry={fetchCost} />
-                ) : (
-                  <CostTab
-                    data={costData}
-                    loading={tabLoading.finops}
-                    days={filters.days}
-                    onNavigateTab={goToTab}
-                  />
-                );
-              case 'modules':
-                return (
-                  <Suspense fallback={<LoadingSection />}>
-                    <ModulesTab />
-                  </Suspense>
-                );
-              case 'platform-activity':
-                return (
-                  <PlatformActivityTab
-                    platformData={platformData}
-                    activityFeed={activityFeed}
-                    summary={summary}
-                    loading={tabLoading['platform-activity']}
-                    onNavigateTab={goToTab}
-                  />
-                );
-              case 'projects':
-                return tabError.projects && !tabLoading.projects ? (
-                  <TabErrorState message={tabError.projects} onRetry={fetchProjects} />
-                ) : (
-                  <ProjectsTab
-                    data={projectsData}
-                    loading={tabLoading.projects}
-                    onRefresh={fetchProjects}
-                  />
-                );
-              case 'security':
-                /* Merged Security section: posture/audit (SecurityAdvTab) stacked
-                   with the Security Map graph. Two clearly-headed parts, no popup. */
-                return (
-                  <div className="space-y-8">
-                    <section>
-                      <h3 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                        Security posture &amp; audit
-                      </h3>
-                      {tabError.security && !tabLoading['security'] ? (
-                        <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
-                      ) : (
-                        <SecurityAdvTab
-                          data={securityData}
-                          loading={tabLoading['security']}
-                          onNavigateTab={goToTab}
-                        />
-                      )}
-                    </section>
-                    <section>
-                      <h3 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                        Security map
-                      </h3>
-                      <SecurityMap days={filters.days} />
-                    </section>
-                  </div>
-                );
-              case 'organization':
-                /* Merged Organization section: org summary + ORGADMIN-gated org
-                   accounts + Snowflake accounts honest-empty states, stacked. Each
-                   child owns its own ORGADMIN gating + honest empty messaging. */
-                return (
-                  <Suspense fallback={<LoadingSection />}>
-                    <div className="space-y-8">
-                      <section>
-                        {/* Self-contained: owns its own date-range + role/module/account
-                            filters; does NOT consume the parent global filter bar. */}
-                        <OrgSummaryTab />
-                      </section>
-                      <section>
-                        <h3 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                          Org accounts
-                        </h3>
-                        <OrgAccountsTab onNavigateTab={goToTab} />
-                      </section>
-                      <section>
-                        <h3 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                          Connected Accounts
-                        </h3>
-                        <SnowflakeAccountsTab onNavigateTab={goToTab} />
-                      </section>
-                      <section>
-                        <h3 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                          Accounts &amp; audit
-                        </h3>
-                        <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
-                      </section>
-                    </div>
-                  </Suspense>
-                );
-              default:
-                return null;
-            }
-          })();
-          return (
-            <section
-              key={tab.id}
-              id={`cc-sec-${tab.id}`}
-              data-cc-section={tab.id}
-              aria-labelledby={`cc-sec-h-${tab.id}`}
-              className="scroll-mt-44"
+      {/* ── Main row: viewport-fit frame + docked panels + SectionRail.
+          On small screens the rail collapses to a horizontal strip ABOVE
+          the frame (order-first / md:order-last). ── */}
+      <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 md:flex-row md:gap-4">
+        {/* ── Main column: ONLY the active section, in the frame ── */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/30">
+          {/* Frame header: active section identity + its refresh. */}
+          <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
+            <ActiveIcon className="h-4 w-4 text-slate-400" aria-hidden />
+            <h2
+              id={`cc-sec-h-${activeTabDef.id}`}
+              className="text-sm font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300"
             >
-              <div className="mb-4 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
-                <SectionIcon className="h-4 w-4 text-slate-400" aria-hidden />
-                <h2
-                  id={`cc-sec-h-${tab.id}`}
-                  className="text-sm font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300"
-                >
-                  {tab.label}
-                </h2>
-                {onSectionRefresh && (
-                  <button
-                    type="button"
-                    onClick={onSectionRefresh}
-                    title={`Refresh ${tab.label}`}
-                    aria-label={`Refresh ${tab.label}`}
-                    className="ml-auto rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-                  >
-                    <RefreshCw className={cn('h-3.5 w-3.5', tabLoading[tab.id] && 'animate-spin')} />
-                  </button>
-                )}
+              {activeTabDef.label}
+            </h2>
+            {onSectionRefresh && (
+              <button
+                type="button"
+                onClick={onSectionRefresh}
+                title={`Refresh ${activeTabDef.label}`}
+                aria-label={`Refresh ${activeTabDef.label}`}
+                className="ml-auto rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', tabLoading[activeTabDef.id] && 'animate-spin')} />
+              </button>
+            )}
+          </div>
+
+          {/* Inner scroll — the ONLY scrolling surface for section content
+              (the page itself never scrolls). */}
+          <div
+            ref={panelScrollRef}
+            id={`cc-panel-${activeTabDef.id}`}
+            role="tabpanel"
+            aria-labelledby={`cc-rail-tab-${activeTabDef.id}`}
+            className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+          >
+            {/* ── Error Banner ──────────────────────────────────────────── */}
+            {error && (
+              <div className="mb-4 flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
+                <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+                <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
               </div>
-              {mountedSections.has(tab.id) ? (
-                body
-              ) : (
-                /* Approach skeleton — keeps scroll geometry stable until the
-                   observer mounts the real body (data-first, never blank). */
-                <div
-                  className="h-72 animate-pulse rounded-2xl border border-slate-200/60 bg-slate-100/80 dark:border-slate-800/60 dark:bg-slate-800/40"
-                  aria-hidden
-                />
-              )}
-            </section>
-          );
-        })}
-      </div>
+            )}
+
+            {/* Cache-warming banner — the backend IS reachable but the account's
+                analytics service-cache isn't connected yet (503 CACHE_NOT_READY).
+                This is transient + recoverable, so it reads as "warming up", not
+                "unreachable". Takes precedence over the offline banner. */}
+            {cacheWarming && !error && (
+              <div className="mb-4 flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900/50 dark:bg-blue-950/50">
+                <RefreshCw className="mt-0.5 h-5 w-5 flex-shrink-0 animate-spin text-blue-500" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                    Live analytics are warming up
+                  </p>
+                  <p className="mt-0.5 text-xs text-blue-700 dark:text-blue-300">
+                    The backend is reachable; your account&apos;s data cache is being provisioned. KPIs and charts will appear once it&apos;s ready — this usually clears on its own.
+                  </p>
+                </div>
+                <button
+                  onClick={handleRefresh}
+                  className="flex-shrink-0 rounded-md border border-blue-300 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/50"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* Backend-offline banner — fires when every overview call returned null
+                (server down, network blocked, JWT rejected). Gives the user a clear
+                single message + retry instead of a wall of empty cards. */}
+            {backendUnreachable && !error && (
+              <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/50">
+                <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-500" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                    Backend unreachable
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
+                    Data360 API didn't respond. Charts and KPIs are empty until the connection is restored.
+                  </p>
+                </div>
+                <button
+                  onClick={handleRefresh}
+                  className="flex-shrink-0 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* KPI row FIRST — the unified KPI strip opens the Overview tab.
+                Honest "—" until each figure is known (never fake zeros); every
+                KPI opens its owning cockpit axis, docked on the right edge. */}
+            {activeTabDef.id === 'overview' && (
+              <KpiStrip
+                items={cockpit.kpiItems}
+                className="mb-4 rounded-xl border border-slate-200 shadow-sm dark:border-slate-800"
+              />
+            )}
+
+            <div className="min-h-0 flex-1">{activeBody}</div>
+          </div>
         </div>
+
         {/* ── Docked Actions right-bar (module action surface) ───────── */}
         {panelOpen && (
           <CommandCenterActionsPanel
@@ -2519,25 +2376,36 @@ function CommandCenterDashboardInner() {
             onClose={() => setPanelOpen(false)}
           />
         )}
-        {/* ── Unified Axis Cockpit (rightmost column, shared primitive):
-            overview / cost / perf / quality / AI / governance / history.
-            Always-visible mini-rail with severity dots; panels are docked
-            (zero popups) and each axis fetches lazily on first open. */}
-        <div className="sticky top-4 hidden shrink-0 self-start overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 md:block">
-          <AxisCockpit
-            axes={cockpit.axes}
-            open={cockpit.open}
-            activeAxis={cockpit.activeAxis}
-            onOpenAxis={cockpit.openAxis}
-            onClose={cockpit.close}
-            className="max-h-[calc(100vh-2rem)]"
-          />
-        </div>
+
+        {/* ── Docked Axis Cockpit panel — opened from KPI-strip tiles and the
+            rail's axis chips; nothing renders while closed (the SectionRail
+            is the resting right edge). Zero popups, everything docked. ── */}
+        {cockpit.open && (
+          <div className="hidden min-h-0 shrink-0 self-stretch overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 md:block">
+            <AxisCockpit
+              axes={cockpit.axes}
+              open={cockpit.open}
+              activeAxis={cockpit.activeAxis}
+              onOpenAxis={cockpit.openAxis}
+              onClose={cockpit.close}
+              className="h-full"
+            />
+          </div>
+        )}
+
+        {/* ── SectionRail: overview by axis + the section navigation ── */}
+        <SectionRail
+          sections={tabs}
+          activeId={activeTabDef.id}
+          onSelect={goToTab}
+          days={filters.days}
+          onOpenDimension={(dim) => cockpit.openAxis(DIMENSION_TO_AXIS[dim])}
+          className="order-first md:order-last"
+        />
       </div>
     </div>
   );
 }
-
 // ── Tasks Quick Widget (used in Overview tab) ──
 
 function TasksQuickWidget() {
@@ -3312,7 +3180,7 @@ const OverviewTab = memo(function OverviewTab({
   const failsafeBytes = safeNum(kpis?.failsafe_bytes, 0);
 
   return (
-    <div className="space-y-6">
+    <TabGrid>
       {/* Backend served an empty envelope — the Snowflake metadata tables or
           ACCOUNT_USAGE views aren't readable for this account. Show one
           clear notice instead of leaving the user puzzled at all-zero cards. */}
@@ -3359,184 +3227,9 @@ const OverviewTab = memo(function OverviewTab({
         <ProvisionKpisBanner onProvisioned={() => void refreshKpis()} />
       )}
 
-      {/* Hero strip — Snowflake account identity. The visual anchor of the
-          page: gradient background, larger account name, badges grouped on
-          the left, range picker + refresh on the right. */}
-      <div className="overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 via-white to-indigo-50/50 dark:border-blue-900/40 dark:from-blue-950/40 dark:via-gray-900 dark:to-indigo-950/30">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 dark:bg-blue-400/10">
-              <Database className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-base font-semibold leading-tight text-gray-900 dark:text-white">
-                  {kpis?.account_name ?? '—'}
-                </span>
-                {kpis?.edition && (
-                  <span className="rounded-md bg-blue-600/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-400/15 dark:text-blue-300">
-                    {kpis.edition}
-                  </span>
-                )}
-                {kpis?.region && (
-                  <span className="rounded-md bg-slate-200/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-700/50 dark:text-slate-300">
-                    {kpis.region}
-                  </span>
-                )}
-              </div>
-              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-600 dark:text-slate-400">
-                {kpis?.account_locator && (
-                  <span>{kpis.account_locator}</span>
-                )}
-                {kpis?.current_role && (
-                  <span>
-                    role <span className="font-medium text-slate-700 dark:text-slate-300">{kpis.current_role}</span>
-                  </span>
-                )}
-                <span>
-                  subscription <span className="font-medium text-slate-700 dark:text-slate-300">{subscriptionEndLabel}</span>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            {(cacheAgeLabel || kpisError) && (
-              <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                {cacheAgeLabel && <span>{cacheAgeLabel}</span>}
-                {kpisError && (
-                  <span
-                    className="font-medium text-amber-600 dark:text-amber-400"
-                    title={kpisError.message || 'overview-kpis cache unavailable'}
-                  >
-                    · live mode
-                  </span>
-                )}
-              </div>
-            )}
-            {/* Window indicator — read-only badge that mirrors the global
-                Time Range filter above. The redundant per-tab range picker
-                was removed because (a) it duplicated the global filter
-                without syncing, which made the page feel broken, and
-                (b) the only endpoint it controlled was overview-kpis,
-                whose backend cache is sometimes missing. Now there is
-                ONE source of truth: the Time Range bar at the top. */}
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              <Calendar className="h-3 w-3 text-slate-400" />
-              <span className="tabular-nums">{range}</span>
-              <span className="text-slate-400">window</span>
-            </span>
-            <motion.button
-              whileHover={!refreshing ? { scale: 1.03 } : undefined}
-              whileTap={!refreshing ? { scale: 0.97 } : undefined}
-              onClick={() => void refreshKpis()}
-              disabled={refreshing}
-              className="group flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 hover:shadow-md disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-700"
-            >
-              <RefreshCw
-                className={cn(
-                  'h-3.5 w-3.5 transition-transform duration-500',
-                  refreshing ? 'animate-spin' : 'group-hover:rotate-180',
-                )}
-              />
-              Refresh cache
-            </motion.button>
-          </div>
-        </div>
-      </div>
-
-      {/* Subscription-expiry banner — only when a real end date is within 30d. */}
-      {subscriptionDaysLeft != null && subscriptionDaysLeft < 30 ? (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
-          <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
-            <Calendar className="h-4 w-4 flex-shrink-0" />
-            <span>
-              {subscriptionDaysLeft >= 0
-                ? `Subscription expires in ${subscriptionDaysLeft} day${subscriptionDaysLeft === 1 ? '' : 's'}.`
-                : `Subscription expired ${Math.abs(subscriptionDaysLeft)} day${Math.abs(subscriptionDaysLeft) === 1 ? '' : 's'} ago.`}
-            </span>
-          </div>
-          <ActionChip
-            label="Review accounts"
-            tone="amber"
-            onClick={() => onNavigateTab?.('organization')}
-          />
-        </div>
-      ) : null}
-
-      {/* Tab-level actionable CTAs — drill into cost, enforce MFA, enable
-          modules. Each is gated on a real signal (no fake prompts). */}
-      <div className="flex flex-wrap items-center gap-2">
-        <ActionChip
-          label="View cost drivers"
-          tone="amber"
-          icon={DollarSign}
-          onClick={() => onNavigateTab?.('finops')}
-        />
-        {mfaCoverage != null && mfaCoverage < 80 ? (
-          <ActionChip
-            label="Require MFA"
-            tone="red"
-            icon={Lock}
-            href="/governance/users"
-          />
-        ) : null}
-        {provisioned &&
-        kpis?.modules_total != null &&
-        (kpis.modules_active ?? 0) < kpis.modules_total ? (
-          <ActionChip
-            label="Enable modules"
-            tone="blue"
-            icon={Layers}
-            onClick={() => onNavigateTab?.('modules')}
-          />
-        ) : null}
-      </div>
-
-      {/* ── Executive overview: real cross-tab Data360 × Snowflake summary
-             (live endpoints; replaces the cards gated on the dead KPI cache) ── */}
-      <ExecutiveOverview days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
-
-      {/* ── What changed this week? — cost-spike anomalies (z-score) from the
-             last 7 days. Separate signal from the recommendations panels below;
-             degrades silently to null when the endpoint is role-gated. ── */}
-      <WhatChangedCard />
-
-      {/* ── AI recommendations: Snowflake-feature insights · ready module
-             actions · top cross-tab problems. Compacted into ONE collapsible,
-             bounded-height panel (scrollable summary) so the Overview stays
-             skimmable instead of a long stacked wall of lists. Data is real;
-             only the display is tightened. ── */}
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
-        <button
-          type="button"
-          onClick={() => setAiRecosOpen((o) => !o)}
-          aria-expanded={aiRecosOpen}
-          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40"
-        >
-          <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            <Sparkles className="h-3.5 w-3.5" />
-            AI recommendations
-          </span>
-          {aiRecosOpen ? (
-            <ChevronUp className="h-4 w-4 text-slate-400" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-slate-400" />
-          )}
-        </button>
-        {aiRecosOpen && (
-          <div className="max-h-[28rem] space-y-4 overflow-y-auto border-t border-slate-100 px-4 py-4 dark:border-slate-800">
-            <SnowflakeInsightsAdvisor />
-            <AiAdvisor days={globalDays ?? 30} />
-            <TopProblemsPanel
-              days={globalDays ?? 30}
-              limit={4}
-              onNavigateTab={onNavigateTab}
-            />
-          </div>
-        )}
-      </section>
-
+      {/* ── KPI tiles first (dashboard order) — dense, reflow, internal
+          scroll only when the viewport is short. ── */}
+      <KpiZone>
       {/* ── KPI section: 6 primary metrics ─────────────────────────── */}
       <section>
         <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -3702,6 +3395,200 @@ const OverviewTab = memo(function OverviewTab({
       </div>
       </section>
 
+      </KpiZone>
+
+      {/* Tab-level actionable CTAs — drill into cost, enforce MFA, enable
+          modules. Each is gated on a real signal (no fake prompts). */}
+      <div className="flex flex-wrap items-center gap-2">
+        <ActionChip
+          label="View cost drivers"
+          tone="amber"
+          icon={DollarSign}
+          onClick={() => onNavigateTab?.('finops')}
+        />
+        {mfaCoverage != null && mfaCoverage < 80 ? (
+          <ActionChip
+            label="Require MFA"
+            tone="red"
+            icon={Lock}
+            href="/governance/users"
+          />
+        ) : null}
+        {provisioned &&
+        kpis?.modules_total != null &&
+        (kpis.modules_active ?? 0) < kpis.modules_total ? (
+          <ActionChip
+            label="Enable modules"
+            tone="blue"
+            icon={Layers}
+            onClick={() => onNavigateTab?.('modules')}
+          />
+        ) : null}
+      </div>
+
+      {/* ── Dashboard board: charts/insight cells + the main table zone.
+          Internal scroll only — the page never scrolls. ── */}
+      <Board>
+        <GridCell>
+      {/* Hero strip — Snowflake account identity. The visual anchor of the
+          page: gradient background, larger account name, badges grouped on
+          the left, range picker + refresh on the right. */}
+      <div className="overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 via-white to-indigo-50/50 dark:border-blue-900/40 dark:from-blue-950/40 dark:via-gray-900 dark:to-indigo-950/30">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 dark:bg-blue-400/10">
+              <Database className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-base font-semibold leading-tight text-gray-900 dark:text-white">
+                  {kpis?.account_name ?? '—'}
+                </span>
+                {kpis?.edition && (
+                  <span className="rounded-md bg-blue-600/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-400/15 dark:text-blue-300">
+                    {kpis.edition}
+                  </span>
+                )}
+                {kpis?.region && (
+                  <span className="rounded-md bg-slate-200/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-700/50 dark:text-slate-300">
+                    {kpis.region}
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-600 dark:text-slate-400">
+                {kpis?.account_locator && (
+                  <span>{kpis.account_locator}</span>
+                )}
+                {kpis?.current_role && (
+                  <span>
+                    role <span className="font-medium text-slate-700 dark:text-slate-300">{kpis.current_role}</span>
+                  </span>
+                )}
+                <span>
+                  subscription <span className="font-medium text-slate-700 dark:text-slate-300">{subscriptionEndLabel}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {(cacheAgeLabel || kpisError) && (
+              <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                {cacheAgeLabel && <span>{cacheAgeLabel}</span>}
+                {kpisError && (
+                  <span
+                    className="font-medium text-amber-600 dark:text-amber-400"
+                    title={kpisError.message || 'overview-kpis cache unavailable'}
+                  >
+                    · live mode
+                  </span>
+                )}
+              </div>
+            )}
+            {/* Window indicator — read-only badge that mirrors the global
+                Time Range filter above. The redundant per-tab range picker
+                was removed because (a) it duplicated the global filter
+                without syncing, which made the page feel broken, and
+                (b) the only endpoint it controlled was overview-kpis,
+                whose backend cache is sometimes missing. Now there is
+                ONE source of truth: the Time Range bar at the top. */}
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              <Calendar className="h-3 w-3 text-slate-400" />
+              <span className="tabular-nums">{range}</span>
+              <span className="text-slate-400">window</span>
+            </span>
+            <motion.button
+              whileHover={!refreshing ? { scale: 1.03 } : undefined}
+              whileTap={!refreshing ? { scale: 0.97 } : undefined}
+              onClick={() => void refreshKpis()}
+              disabled={refreshing}
+              className="group flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 hover:shadow-md disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-700"
+            >
+              <RefreshCw
+                className={cn(
+                  'h-3.5 w-3.5 transition-transform duration-500',
+                  refreshing ? 'animate-spin' : 'group-hover:rotate-180',
+                )}
+              />
+              Refresh cache
+            </motion.button>
+          </div>
+        </div>
+      </div>
+
+        </GridCell>
+        <GridCell>
+      {/* Subscription-expiry banner — only when a real end date is within 30d. */}
+      {subscriptionDaysLeft != null && subscriptionDaysLeft < 30 ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
+          <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+            <Calendar className="h-4 w-4 flex-shrink-0" />
+            <span>
+              {subscriptionDaysLeft >= 0
+                ? `Subscription expires in ${subscriptionDaysLeft} day${subscriptionDaysLeft === 1 ? '' : 's'}.`
+                : `Subscription expired ${Math.abs(subscriptionDaysLeft)} day${Math.abs(subscriptionDaysLeft) === 1 ? '' : 's'} ago.`}
+            </span>
+          </div>
+          <ActionChip
+            label="Review accounts"
+            tone="amber"
+            onClick={() => onNavigateTab?.('organization')}
+          />
+        </div>
+      ) : null}
+
+        </GridCell>
+        <GridCell>
+      {/* ── Executive overview: real cross-tab Data360 × Snowflake summary
+             (live endpoints; replaces the cards gated on the dead KPI cache) ── */}
+      <ExecutiveOverview days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
+
+        </GridCell>
+        <GridCell className="xl:col-span-6">
+      {/* ── What changed this week? — cost-spike anomalies (z-score) from the
+             last 7 days. Separate signal from the recommendations panels below;
+             degrades silently to null when the endpoint is role-gated. ── */}
+      <WhatChangedCard />
+
+        </GridCell>
+        <GridCell className="xl:col-span-6">
+      {/* ── AI recommendations: Snowflake-feature insights · ready module
+             actions · top cross-tab problems. Compacted into ONE collapsible,
+             bounded-height panel (scrollable summary) so the Overview stays
+             skimmable instead of a long stacked wall of lists. Data is real;
+             only the display is tightened. ── */}
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
+        <button
+          type="button"
+          onClick={() => setAiRecosOpen((o) => !o)}
+          aria-expanded={aiRecosOpen}
+          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40"
+        >
+          <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <Sparkles className="h-3.5 w-3.5" />
+            AI recommendations
+          </span>
+          {aiRecosOpen ? (
+            <ChevronUp className="h-4 w-4 text-slate-400" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-slate-400" />
+          )}
+        </button>
+        {aiRecosOpen && (
+          <div className="max-h-[28rem] space-y-4 overflow-y-auto border-t border-slate-100 px-4 py-4 dark:border-slate-800">
+            <SnowflakeInsightsAdvisor />
+            <AiAdvisor days={globalDays ?? 30} />
+            <TopProblemsPanel
+              days={globalDays ?? 30}
+              limit={4}
+              onNavigateTab={onNavigateTab}
+            />
+          </div>
+        )}
+      </section>
+
+        </GridCell>
+        <GridCell className="xl:col-span-6">
       {/* Storage breakdown (database/total vs stage vs failsafe) — from the
           cached KPI payload; shows "—" until OVERVIEW_KPIS is provisioned. */}
       <SectionCard title="Storage Breakdown">
@@ -3735,6 +3622,8 @@ const OverviewTab = memo(function OverviewTab({
         )}
       </SectionCard>
 
+        </GridCell>
+        <GridCell className="xl:col-span-6">
       {/* Module Health Grid */}
       {moduleHealth && Array.isArray(moduleHealth.modules) && moduleHealth.modules.length > 0 && (
         <SectionCard title="Module Health">
@@ -3824,6 +3713,10 @@ const OverviewTab = memo(function OverviewTab({
         </SectionCard>
       )}
 
+        </GridCell>
+        {/* The workspace/account composite is the one block that cannot fit
+            the grid at small sizes — folded behind an in-grid More drawer. */}
+        <MoreDrawer label="Workspace & account composite">
       {/* ── Workspace Overview composite + Snowflake Account Overview rail ── */}
       {(() => {
         const projectsByType =
@@ -4117,9 +4010,13 @@ const OverviewTab = memo(function OverviewTab({
         );
       })()}
 
+        </MoreDrawer>
+        <GridCell className="xl:col-span-6">
       {/* Snowflake Tasks Quick View */}
       <TasksQuickWidget />
 
+        </GridCell>
+        <GridCell>
       {/* Recent Activity — radar widget removed (obsKpis was dead state) */}
       <div className="grid grid-cols-1 gap-6">
         <SectionCard title="Recent Activity">
@@ -4156,7 +4053,9 @@ const OverviewTab = memo(function OverviewTab({
           })()}
         </SectionCard>
       </div>
-    </div>
+        </GridCell>
+      </Board>
+    </TabGrid>
   );
 });
 
@@ -4396,8 +4295,8 @@ const ProjectsTab = memo(function ProjectsTab({
     // Docked review inspector: projects content on the left, the deployment
     // review panel mounts as a flex SIBLING on the right (no overlay) so both
     // stay visible + interactive — mirrors the policy-grants docked pattern.
-    <div className="flex items-start gap-4">
-      <div className="min-w-0 flex-1 space-y-6">
+    <div className="flex h-full min-h-0 items-stretch gap-4">
+      <TabGrid className="min-w-0 flex-1">
       {/* Deployment-health CTA — points at the real cause (failures vs pending). */}
       {failedDeployments > 0 ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
@@ -4438,6 +4337,8 @@ const ProjectsTab = memo(function ProjectsTab({
         </div>
       ) : null}
 
+      {/* KPI tiles first (dashboard order). */}
+      <KpiZone>
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <KpiCard
@@ -4500,6 +4401,10 @@ const ProjectsTab = memo(function ProjectsTab({
         />
       </div>
 
+      </KpiZone>
+
+      <Board>
+        <GridCell>
       {/* Charts */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Projects by Type */}
@@ -4611,6 +4516,8 @@ const ProjectsTab = memo(function ProjectsTab({
         </SectionCard>
       </div>
 
+        </GridCell>
+        <GridCell>
       {/* Project status mix + deployment duration/step detail — all from
           fields the projects-overview endpoint already returns. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -4702,6 +4609,8 @@ const ProjectsTab = memo(function ProjectsTab({
         </SectionCard>
       </div>
 
+        </GridCell>
+        <GridCell>
       {/* Recent Deployments Audit Table */}
       <div id="cc-recent-deployments">
       <AuditTable
@@ -4883,6 +4792,8 @@ const ProjectsTab = memo(function ProjectsTab({
       />
       </div>
 
+        </GridCell>
+        <GridCell>
       {/* Pending Approvals + Members */}
       <div
         id="cc-pending-approvals"
@@ -5066,6 +4977,8 @@ const ProjectsTab = memo(function ProjectsTab({
         </SectionCard>
       </div>
 
+        </GridCell>
+      </Board>
       {/* Reject Deployment — inline non-blocking confirm (no scrim) */}
       {rejectModal && (
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center p-4 sm:justify-end">
@@ -5175,7 +5088,7 @@ const ProjectsTab = memo(function ProjectsTab({
         </div>
       )}
 
-      </div>
+      </TabGrid>
 
       {/* Approval Detail — docked review inspector (flex sibling, not an overlay) */}
       {detailModal && (
@@ -5309,7 +5222,8 @@ const CostTab = memo(function CostTab({
     : [];
 
   return (
-    <>
+    <TabGrid>
+      <KpiZone>
       {/* KPI Cards — 6 cards per Screens/Account-overview/03-finops spec */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <KpiCard
@@ -5392,6 +5306,8 @@ const CostTab = memo(function CostTab({
         />
       </div>
 
+      </KpiZone>
+
       {/* Cost-spike CTA — when spend rose materially vs the prior period, link to
           the observability cost dashboard to drill into the drivers. */}
       {(data?.credit_trend_pct ?? 0) > 20 && (
@@ -5411,6 +5327,8 @@ const CostTab = memo(function CostTab({
         </div>
       )}
 
+      <Board>
+        <GridCell className="xl:col-span-6">
       {/* 30d cost projection for the top spending warehouse (cost-simulation).
           Degrades quietly when the backend route isn't deployed yet. */}
       {topWarehouses[0]?.name && (
@@ -5421,6 +5339,8 @@ const CostTab = memo(function CostTab({
         />
       )}
 
+        </GridCell>
+        <GridCell className="xl:col-span-6">
       {/* AI flow: discussion → proposed action → execute → capitalize as an event.
           Rule-based (no LLM). Only renders on a material spend increase. One real
           mutation (refresh the KPI cache) plus a business-flow-automation hand-off
@@ -5461,6 +5381,8 @@ const CostTab = memo(function CostTab({
         />
       )}
 
+        </GridCell>
+        <GridCell className="xl:col-span-6">
       {/* Daily Credit Trend */}
       <SectionCard title={`Daily Credit Trend (${periodDays}d)`}>
         <div className="h-64">
@@ -5483,6 +5405,15 @@ const CostTab = memo(function CostTab({
         </div>
       </SectionCard>
 
+        </GridCell>
+        <GridCell className="xl:col-span-6">
+      {/* P0 surfacing — FinOps/governance KPIs the backend already computes but
+          the UI never showed (cost-by-warehouse/service, clustering, pipe,
+          MV refresh, tasks, role hierarchy). Self-contained, fetches on mount. */}
+      <ServerlessFinOpsCards days={30} />
+
+        </GridCell>
+        <GridCell>
       {/* Iter 4 — Compute vs Storage stacked area + Optimization Recommendations rail */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
         <SectionCard
@@ -5577,11 +5508,8 @@ const CostTab = memo(function CostTab({
         </SectionCard>
       </div>
 
-      {/* P0 surfacing — FinOps/governance KPIs the backend already computes but
-          the UI never showed (cost-by-warehouse/service, clustering, pipe,
-          MV refresh, tasks, role hierarchy). Self-contained, fetches on mount. */}
-      <ServerlessFinOpsCards days={30} />
-
+        </GridCell>
+        <GridCell>
       {/* Category Pie + Top Warehouses */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <SectionCard title="Cost by Category">
@@ -5638,6 +5566,8 @@ const CostTab = memo(function CostTab({
         </SectionCard>
       </div>
 
+        </GridCell>
+        <GridCell>
       {/* Storage + Balance */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <SectionCard title="Storage Breakdown">
@@ -5709,6 +5639,8 @@ const CostTab = memo(function CostTab({
         </SectionCard>
       </div>
 
+        </GridCell>
+        <GridCell>
       {/* Iter 4 — Budgets & Resource Monitors + Cost Anomalies */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <SectionCard title="Budgets & Resource Monitors">
@@ -5809,7 +5741,9 @@ const CostTab = memo(function CostTab({
           )}
         </SectionCard>
       </div>
-    </>
+        </GridCell>
+      </Board>
+    </TabGrid>
   );
 });
 
@@ -5921,7 +5855,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
   };
 
   return (
-    <>
+    <TabGrid>
+      <KpiZone>
       {/* KPI Cards — 6 base + 2 Iter-5 cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-8">
         <KpiCard
@@ -5981,6 +5916,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         />
       </div>
 
+      </KpiZone>
+
       {/* Actionable security CTAs — deterministic chips (rendered immediately
           from already-loaded data) cover network-policy / privileged / audit;
           MFA is owned by the chip, so we exclude MFA from the data-driven
@@ -6030,6 +5967,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         exclude={(r) => /mfa/i.test(r.title)}
       />
 
+      <Board>
+        <GridCell className="xl:col-span-6">
       {/* Login Trend Chart */}
       <SectionCard title={`Login Activity (${data.period_days ?? 7}d)`}>
         {hasLoginActivity ? (
@@ -6073,6 +6012,61 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         )}
       </SectionCard>
 
+        </GridCell>
+        <GridCell className="xl:col-span-6">
+      <SectionCard title="Policy Coverage">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {[
+            {
+              label: 'MFA Coverage',
+              value: mfaPct,
+              available: mfaComputed,
+              color: 'bg-green-500',
+            },
+            {
+              label: 'Network Policy',
+              value: networkPolicyPct,
+              available: hasNetworkPolicyPct,
+              color: 'bg-blue-500',
+            },
+            {
+              label: 'Password Policy',
+              value: passwordPolicyPct,
+              available: hasPasswordPolicyPct,
+              color: 'bg-violet-500',
+            },
+          ].map((p) => (
+            <div key={p.label}>
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-xs text-gray-700 dark:text-gray-300">
+                  {p.label}
+                </span>
+                {/* Honest: "—" when the backend hasn't computed this coverage,
+                    never a fabricated 0%. */}
+                <span className="text-xs font-medium text-gray-900 dark:text-white">
+                  {p.available ? `${p.value}%` : '—'}
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700">
+                {p.available ? (
+                  <div
+                    className={cn('h-2 rounded-full transition-all', p.color)}
+                    style={{ width: `${Math.min(100, Math.max(0, p.value))}%` }}
+                  />
+                ) : null}
+              </div>
+              {!p.available ? (
+                <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
+                  not yet computed
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+        </GridCell>
+        <GridCell>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Client Type Distribution */}
         <SectionCard title="Login by Client Type">
@@ -6156,6 +6150,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         </SectionCard>
       </div>
 
+        </GridCell>
+        <GridCell>
       {/* Iter 5 — Identity & Access Health + Top Risks + Policy Coverage */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <SectionCard title="Identity & Access Health" className="lg:col-span-2">
@@ -6240,57 +6236,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         </SectionCard>
       </div>
 
-      <SectionCard title="Policy Coverage">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {[
-            {
-              label: 'MFA Coverage',
-              value: mfaPct,
-              available: mfaComputed,
-              color: 'bg-green-500',
-            },
-            {
-              label: 'Network Policy',
-              value: networkPolicyPct,
-              available: hasNetworkPolicyPct,
-              color: 'bg-blue-500',
-            },
-            {
-              label: 'Password Policy',
-              value: passwordPolicyPct,
-              available: hasPasswordPolicyPct,
-              color: 'bg-violet-500',
-            },
-          ].map((p) => (
-            <div key={p.label}>
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-xs text-gray-700 dark:text-gray-300">
-                  {p.label}
-                </span>
-                {/* Honest: "—" when the backend hasn't computed this coverage,
-                    never a fabricated 0%. */}
-                <span className="text-xs font-medium text-gray-900 dark:text-white">
-                  {p.available ? `${p.value}%` : '—'}
-                </span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700">
-                {p.available ? (
-                  <div
-                    className={cn('h-2 rounded-full transition-all', p.color)}
-                    style={{ width: `${Math.min(100, Math.max(0, p.value))}%` }}
-                  />
-                ) : null}
-              </div>
-              {!p.available ? (
-                <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
-                  not yet computed
-                </p>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </SectionCard>
-
+        </GridCell>
+        <GridCell>
       {/* Failed Logins Audit Table */}
       {failedLogins.length > 0 && (
         <SmartAuditTable
@@ -6308,6 +6255,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         />
       )}
 
+        </GridCell>
+        <GridCell>
       {/* Access audit — full query + login history (scroll target for the
           "View access audit" CTA above). */}
       <div id="cc-access-audit" className="space-y-6">
@@ -6317,7 +6266,9 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         {/* Full Login History Audit (from ACCOUNT_USAGE) */}
         <LoginHistoryTable days={data.period_days || 7} />
       </div>
-    </>
+        </GridCell>
+      </Board>
+    </TabGrid>
   );
 });
 
@@ -7678,13 +7629,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
   const notifications = apiNotifications.slice(0, 5);
 
   return (
-    <>
-      {/* COCO's narrative digest of the same EVENT_STORE the KPIs below count —
-          one smart card, self-loading (GET /platform-activity/insight). First
-          child in BOTH branches so it never remounts (or refetches) when the
-          lane's own loading state flips. */}
-      <ActivityDigestCard />
-
+    <TabGrid>
+      <KpiZone>
       {/* KPI Cards — 6 base + 3 Iter-5 cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-9">
         <KpiCard
@@ -7749,6 +7695,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         />
       </div>
 
+      </KpiZone>
+
       {/* Actionable platform recommendations (perf dimension — cache hit,
           query intelligence, warehouse sizing). Renders nothing when none. */}
       <RecoCtaList
@@ -7758,6 +7706,16 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         title="Recommended platform actions"
       />
 
+      <Board>
+        <GridCell>
+      {/* COCO's narrative digest of the same EVENT_STORE the KPIs below count —
+          one smart card, self-loading (GET /platform-activity/insight). First
+          child in BOTH branches so it never remounts (or refetches) when the
+          lane's own loading state flips. */}
+      <ActivityDigestCard />
+
+        </GridCell>
+        <GridCell className="xl:col-span-6">
       {/* User Sessions Trend */}
       <SectionCard
         title={`User Sessions (${platformData?.period_days ?? 30}d)`}
@@ -7813,6 +7771,18 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         )}
       </SectionCard>
 
+        </GridCell>
+        <GridCell className="xl:col-span-6">
+      {/* Full Activity Feed as Audit Table */}
+      <SmartAuditTable
+        title="Activity Feed"
+        subtitle="ACTIVITY_FEED"
+        pageSize={10}
+        rows={activityRows as SmartRow[]}
+      />
+
+        </GridCell>
+        <GridCell>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Module Usage Distribution */}
         <SectionCard title="Module Usage">
@@ -7895,6 +7865,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         </SectionCard>
       </div>
 
+        </GridCell>
+        <GridCell>
       {/* Iter 5 — Heatmap + Top Users + Client Types */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <SectionCard title="User Activity Heatmap" className="lg:col-span-2">
@@ -7984,6 +7956,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         </SectionCard>
       </div>
 
+        </GridCell>
+        <GridCell>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <SectionCard title="Activity by Client Type">
           {clientTypesPie.length > 0 ? (
@@ -8039,14 +8013,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         </SectionCard>
       </div>
 
-      {/* Full Activity Feed as Audit Table */}
-      <SmartAuditTable
-        title="Activity Feed"
-        subtitle="ACTIVITY_FEED"
-        pageSize={10}
-        rows={activityRows as SmartRow[]}
-      />
-
+        </GridCell>
+        <GridCell>
       {/* Recent Platform Audit */}
       {platformData?.recent_audit && platformData.recent_audit.length > 0 && (
         <SmartAuditTable
@@ -8056,7 +8024,9 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
           rows={platformData.recent_audit as unknown as SmartRow[]}
         />
       )}
-    </>
+        </GridCell>
+      </Board>
+    </TabGrid>
   );
 });
 
