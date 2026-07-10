@@ -6803,8 +6803,23 @@ const DataOperationsTab = memo(function DataOperationsTab({
     );
   }
 
-  const loadingSummary = (data as any).loading_summary || {};
-  const automationSummary = (data as any).automation_summary || {};
+  // The component predates the endpoint: it was written against
+  // loading_summary/automation_summary, but the REAL response carries ONE
+  // `summary` with prefixed names (live-verified). Map here — the '—' tiles
+  // on Usage & Performance were this exact mismatch.
+  const _s = (data as any).summary || {};
+  const loadingSummary = (data as any).loading_summary || {
+    total_files: _s.total_files_loaded ?? null,
+    total_rows: _s.total_rows_loaded ?? null,
+    total_bytes: _s.total_bytes_loaded ?? null,
+    success_rate: _s.load_success_rate ?? null,
+  };
+  const automationSummary = (data as any).automation_summary || {
+    total_runs: _s.total_task_runs ?? null,
+    active_tasks: _s.active_tasks ?? null,
+    failures: _s.task_failure_count ?? null,
+    dynamic_tables: _s.dynamic_tables ?? null,
+  };
   const dailyVolume = Array.isArray((data as any).daily_volume)
     ? (data as any).daily_volume
     : [];
