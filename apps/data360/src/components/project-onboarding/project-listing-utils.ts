@@ -211,8 +211,41 @@ export function getBuildModeChip(tags: string[] | null | undefined): BuildModeCh
   return null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Identity type chip (product / technical)
+// ─────────────────────────────────────────────────────────────────────────
+
+export type IdentityTypeKind = 'product' | 'technical';
+
+export interface IdentityTypeChip {
+  kind: IdentityTypeKind;
+  label: string;
+  /** True when the user tagged the project explicitly (`type:product` /
+   *  `type:technical`); false when derived from `project_type`. */
+  explicit: boolean;
+}
+
+/**
+ * Derive the identity type chip. An explicit `type:product` / `type:technical`
+ * tag always wins; otherwise (when `projectType` is given) fall back to the
+ * module: explore-design models a consumable data product, workflow builds a
+ * technical pipeline. No tag AND no projectType → null (render nothing).
+ */
+export function getIdentityTypeChip(
+  tags: string[] | null | undefined,
+  projectType?: string,
+): IdentityTypeChip | null {
+  const t = tags ?? [];
+  if (t.includes('type:product')) return { kind: 'product', label: 'Product', explicit: true };
+  if (t.includes('type:technical')) return { kind: 'technical', label: 'Technical', explicit: true };
+  if (!projectType) return null;
+  return projectType === 'workflow'
+    ? { kind: 'technical', label: 'Technical', explicit: false }
+    : { kind: 'product', label: 'Data product', explicit: false };
+}
+
 /** Tags that carry UI meaning elsewhere — hidden from the generic tag display. */
-const RESERVED_TAG_PREFIXES = ['build:', 'compliance:'];
+const RESERVED_TAG_PREFIXES = ['build:', 'compliance:', 'type:'];
 const RESERVED_TAGS = new Set(['ai-draft']);
 
 /** Tags worth showing as plain chips (excludes build-mode / reserved tags). */
@@ -222,5 +255,15 @@ export function getDisplayTags(tags: string[] | null | undefined): string[] {
     (t) =>
       !RESERVED_TAGS.has(t) &&
       !RESERVED_TAG_PREFIXES.some((p) => t.startsWith(p)),
+  );
+}
+
+/** The reserved (machine-meaning) tags — the complement of getDisplayTags.
+ *  Inline tag editors must carry these through verbatim on save so editing the
+ *  free-form tags never strips build-mode / identity / compliance markers. */
+export function getReservedTags(tags: string[] | null | undefined): string[] {
+  if (!tags) return [];
+  return tags.filter(
+    (t) => RESERVED_TAGS.has(t) || RESERVED_TAG_PREFIXES.some((p) => t.startsWith(p)),
   );
 }

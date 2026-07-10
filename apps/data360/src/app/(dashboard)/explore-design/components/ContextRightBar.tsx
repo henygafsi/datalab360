@@ -417,8 +417,8 @@ export default function ContextRightBar({
       // NOTE: id stays 'deploy' (frozen union / page width logic); only the
       // user-facing label is the axis name 'Release'.
       id: 'deploy', icon: Rocket, label: 'Release',
-      description: 'Review, validate and deploy the pending changes.',
-      help: 'The release axis: a guided pipeline over the changes queued in this project — review the DDL/SQL, run pre-checks and a dry-run, analyse downstream impact, then execute the deploy and post-verify. Project/release-scoped, not per-table.',
+      description: 'What is live in production, plus review, validate and deploy of pending changes.',
+      help: 'The release axis. It opens on the DEPLOYED TRUTH — the objects this project shipped to the warehouse (with live row counts where Snowflake exposes them cheaply), the dynamic tables / streams of the target schema, and the schedule state — followed by the guided pipeline over queued changes: review the DDL/SQL, run pre-checks and a dry-run, analyse downstream impact, then execute the deploy and post-verify. Project/release-scoped, not per-table.',
       render: () => deployOverride ?? (selectedTable ? (
         <DeployPanel
           projectId={projectId}

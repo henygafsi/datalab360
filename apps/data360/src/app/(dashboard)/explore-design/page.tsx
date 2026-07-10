@@ -70,6 +70,8 @@ import type { RightBarTab, FocusedAction, RailSeverity } from './components/Cont
 import ModelKpiStrip, { type ModelKpis } from './components/ModelKpiStrip';
 import DeployStateButton, { deriveDeployState, type DeployState } from './components/DeployStateButton';
 import ReleasePanel from './components/release/ReleasePanel';
+import DeployedProduction from './components/release/DeployedProduction';
+import ProjectIdentityChips from './components/ProjectIdentityChips';
 import AiChangeAnalyst from './components/AiChangeAnalyst';
 import { useReleaseState } from './components/release/useReleaseState';
 import type { AxisSignal, ReleaseStatus } from './components/release/types';
@@ -3942,6 +3944,13 @@ export default function ExploreDesignPage() {
     <ErrorBoundary>
       {selectedProjectId ? (
         <div className="space-y-4">
+          {/* Deployed truth FIRST (user directive): once a model is deployed the
+              Release axis must show what is LIVE — execution record, deployed
+              objects w/ live row counts where cheap, DE objects of the target
+              schema, schedule state — not just the pipeline. Skeletons until
+              data lands; honest "Never deployed" empty for fresh projects. */}
+          <DeployedProduction projectId={selectedProjectId} />
+
           {/* Primary Release experience — the 7-step in-panel flow (Changes →
               Readiness → Impact → Approval → Deploy → Verify → Recovery). It
               reads freely and gates its own mutations per step; the whole-tab
@@ -4062,6 +4071,15 @@ export default function ExploreDesignPage() {
               autoSelectProjectId={autoProjectId}
               onCreateRequested={() => setShowProjectWizard(true)}
             />
+            {/* Project identity — icon + product/technical chip + free tags
+                editable inline (no popup). Self-fetches its project row. */}
+            {selectedProjectId && (
+              <ProjectIdentityChips
+                projectId={selectedProjectId}
+                readOnly={isReadOnly}
+                className="max-w-[360px]"
+              />
+            )}
             {selectedProjectId && (
               <button
                 type="button"
