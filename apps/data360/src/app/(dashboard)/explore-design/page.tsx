@@ -52,7 +52,7 @@ import { toServiceError } from '@/app/services/_errors';
 import { isUnavailable } from '@/lib/http-status';
 import { fmtNum } from '@/app/shared/ui/format';
 import { safeLocale } from '@/lib/format-number';
-import { createSchemaClone } from '@/app/services/explore-design';
+import { createSchemaClone, getERDLayout } from '@/app/services/explore-design';
 // TODO verify endpoint: reuses the org-accounts warehouse usage rollup (the only
 // existing contract that lists warehouse names) to populate DE create modals.
 import { getWarehouses } from '@/app/services/org-accounts/hooks';
@@ -1964,6 +1964,75 @@ export default function ExploreDesignPage() {
 
   // Load DWH template tables from hardcoded DDL — only when DWH template chosen
   const [defaultModelingTablesLoaded, setDefaultModelingTablesLoaded] = useState(false);
+
+  // Rehydrate the saved model. PUT /erd persisted tables + relationships, but
+  // nothing ever called GET /erd — so every project reopened with an empty canvas
+  // and the work looked lost ("no real modeling"). Load it once per project, and
+  // only ADD: never clobber tables the user has already put on the canvas.
+  const [erdRehydratedFor, setErdRehydratedFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedProjectId || erdRehydratedFor === selectedProjectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const layout: any = await getERDLayout(selectedProjectId);
+        if (cancelled) return;
+        const saved = Array.isArray(layout?.tables) ? layout.tables : [];
+        if (saved.length === 0) return;
+
+        const savedTables = saved
+          .filter((t: any) => t?.id && t?.table)
+          .map((t: any) => ({
+            id: String(t.id),
+            name: String(t.table),
+            database: String(t.database ?? ''),
+            schema: String(t.schema ?? ''),
+            rowCount: null,
+          }));
+
+        setTables((prev) => {
+          const seen = new Set(prev.map((t: any) => t.id));
+          return [...prev, ...savedTables.filter((t: any) => !seen.has(t.id))];
+        });
+        setModelingTableIds((prev) => {
+          const merged = new Set(prev);
+          savedTables.forEach((t: any) => merged.add(t.id));
+          return merged;
+        });
+
+        // The API speaks source_/target_; the canvas draws child_/parent_.
+        // Without this translation the tables appeared but no edges did.
+        const savedRels = (Array.isArray(layout?.relationships) ? layout.relationships : [])
+          .filter((r: any) => r?.source_table && r?.target_table)
+          .map((r: any) => {
+            const [, srcSchema = '', srcTable = ''] = String(r.source_table).split('.');
+            const [, tgtSchema = '', tgtTable = ''] = String(r.target_table).split('.');
+            return {
+              constraint_name: String(r.relationship_id ?? `${srcTable}_${r.source_column}_fk`),
+              child_schema: srcSchema,
+              child_table: srcTable,
+              child_column: String(r.source_column ?? ''),
+              parent_schema: tgtSchema,
+              parent_table: tgtTable,
+              parent_column: String(r.target_column ?? ''),
+            };
+          });
+        if (savedRels.length > 0) {
+          setDefaultRelationships((prev) => {
+            const seen = new Set(prev.map((r: any) =>
+              `${r.child_table}.${r.child_column}->${r.parent_table}.${r.parent_column}`));
+            return [...prev, ...savedRels.filter((r: any) =>
+              !seen.has(`${r.child_table}.${r.child_column}->${r.parent_table}.${r.parent_column}`))];
+          });
+        }
+      } catch {
+        /* an unsaved or unreadable ERD must not block the page */
+      } finally {
+        if (!cancelled) setErdRehydratedFor(selectedProjectId);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedProjectId, erdRehydratedFor]);
   // Loading/error UI for the default DWH (target) model load in Modeling view
   const [isLoadingModelingTables, setIsLoadingModelingTables] = useState(false);
   // Guards the "no DWH target → open picker" prompt so it fires once per project (no modal loop).
@@ -2688,6 +2757,7 @@ export default function ExploreDesignPage() {
       setTargetTableIds(new Set());
       setDefaultRelationships([]);
       setDefaultModelingTablesLoaded(false);
+      setErdRehydratedFor(null);
       setModelingChoice(null);
       setDwhTargetDatabase(null);
       setDwhTargetSchema(null);
