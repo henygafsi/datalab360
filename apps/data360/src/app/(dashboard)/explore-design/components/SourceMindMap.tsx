@@ -258,6 +258,8 @@ interface LayoutCtx {
   tables: TableItem[];
   schemas: string[];
   databases: string[];
+  /** DB the `schemas` prop belongs to — the fallback must never cross databases. */
+  selectedDatabase: string;
   tags: Record<string, string>;
   kpisByFqn: Record<string, NodeKpis>;
   loadingFqns: Set<string>;
@@ -273,7 +275,7 @@ interface LayoutCtx {
 function buildLayout(ctx: LayoutCtx): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
-  const { focus, tables, schemas, databases, tags } = ctx;
+  const { focus, tables, schemas, databases, selectedDatabase, tags } = ctx;
 
   // Resolve which DBs to render at the root of this focus.
   const dbsToShow =
@@ -287,7 +289,13 @@ function buildLayout(ctx: LayoutCtx): { nodes: Node[]; edges: Edge[] } {
     const dbId = `db-${db}`;
     const dbTables = tables.filter((t) => t.database === db);
     let dbSchemas = [...new Set(dbTables.map((t) => t.schema))];
-    if (dbSchemas.length === 0 && schemas.length > 0) dbSchemas = [...schemas];
+    // `schemas` describes ONLY `selectedDatabase`. Applying it to any other db
+    // node grafted that db's schemas onto a foreign parent (e.g. DRAFT_SOURCE's
+    // AZRZARAZRE shown under CP_DATA360) and, since no table matched, every one
+    // rendered "0 tables". Fall back only for the database it describes.
+    if (dbSchemas.length === 0 && schemas.length > 0 && db === selectedDatabase) {
+      dbSchemas = [...schemas];
+    }
     // When focused on a schema, only that schema is in scope.
     if (focus.level === 'schema' && focus.schema) {
       dbSchemas = dbSchemas.filter((s) => s === focus.schema);
@@ -613,13 +621,13 @@ function SourceMindMapInner({
   // --- layout ------------------------------------------------------------
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
     () => buildLayout({
-      focus, tables, schemas, databases, tags,
+      focus, tables, schemas, databases, selectedDatabase, tags,
       kpisByFqn, loadingFqns, refreshingFqns,
       onDrillDb: drillDb, onDrillSchema: drillSchema,
       onEditDbTag: editDbTag, onEditSchemaTag: editSchemaTag,
       onSelectTable, onDryRun: handleDryRun,
     }),
-    [focus, tables, schemas, databases, tags, kpisByFqn, loadingFqns,
+    [focus, tables, schemas, databases, selectedDatabase, tags, kpisByFqn, loadingFqns,
       refreshingFqns, drillDb, drillSchema, editDbTag, editSchemaTag,
       onSelectTable, handleDryRun],
   );
