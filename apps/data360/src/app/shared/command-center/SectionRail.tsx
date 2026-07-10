@@ -208,7 +208,7 @@ export default function SectionRail({
       className={cn(
         // Horizontal strip on small screens, vertical w-64 rail on md+.
         'no-scrollbar flex shrink-0 flex-row gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm dark:border-slate-800 dark:bg-slate-900',
-        'md:w-64 md:flex-col md:gap-1 md:overflow-y-auto md:overflow-x-hidden md:p-2',
+        'md:w-72 md:flex-col md:gap-1 md:overflow-y-auto md:overflow-x-hidden md:p-2 xl:w-80',
         className,
       )}
     >

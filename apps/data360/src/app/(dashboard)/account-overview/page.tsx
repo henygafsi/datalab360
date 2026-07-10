@@ -4,8 +4,6 @@ import { useState, useEffect, useRef, Component, type ReactNode } from 'react';
 import { PiWarningCircleBold } from 'react-icons/pi';
 import CommandCenterDashboard from '@/app/shared/command-center';
 import OnboardingTour from '@/app/shared/onboarding-tour';
-import ProblemsInsightStrip from './components/ProblemsInsightStrip';
-import Breadcrumb from '@/components/ui/Breadcrumb';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -142,15 +140,10 @@ export default function AccountOverviewPage() {
 
   return (
     <AccountOverviewErrorBoundary onError={(msg) => setError(msg)}>
-      <div className="px-4 pt-3">
-        <Breadcrumb items={[{ label: 'Account Overview', href: '/account-overview' }]} />
-      </div>
-      {/* What is failing right now, and why — the single compact strip above
-          the tab content. On short viewports the strip caps its height and
-          scrolls internally so the dashboard frame keeps its share. */}
-      <div className="px-4 pb-3 [@media(max-height:900px)]:max-h-36 [@media(max-height:900px)]:overflow-y-auto [@media(max-height:820px)]:max-h-28">
-        <ProblemsInsightStrip />
-      </div>
+      {/* USER DIRECTIVE 2026-07-11 (screenshot #45): NO page header at all —
+          breadcrumb + Problems strip deleted; their numbers already live in
+          the rail's account-health pulse (failed queries/logins chips) and
+          the Security tab. The freed ~350px goes to the tab content. */}
       {/* Tabbed Command Center (2026-07-10): per-section tabs in a
           viewport-fit frame — only the frame's inner area scrolls, the page
           itself never does. */}

@@ -2218,14 +2218,9 @@ function CommandCenterDashboardInner() {
         transition={{ duration: 0.3, ease: 'easeOut' }}
         className="mb-3 flex shrink-0 items-center justify-between"
       >
-        <div>
-          <Title as="h1" className="bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900 bg-clip-text text-xl font-bold tracking-tight text-transparent dark:from-white dark:via-slate-200 dark:to-white md:text-2xl">
-            Command Center
-          </Title>
-          <Text className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-            Your Data360 platform at a glance
-          </Text>
-        </div>
+        {/* Header text deleted (user: 'delete all header — eliminate scroll').
+            The row keeps only the live controls, right-aligned and slim. */}
+        <div />
         <div className="flex items-center gap-3">
           {lastUpdated && (
             <span className="hidden text-[11px] text-slate-400 dark:text-slate-500 sm:block">
