@@ -7,6 +7,7 @@ import { Inbox, Loader2, AlertTriangle, RefreshCw, CheckCircle2, XCircle } from 
 import toast from 'react-hot-toast';
 import CommandCenterDashboard from '@/app/shared/command-center';
 import OnboardingTour from '@/app/shared/onboarding-tour';
+import ProblemsInsightStrip from './components/ProblemsInsightStrip';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
 import { useAuth } from '@/hooks/useAuth';
@@ -345,6 +346,10 @@ export default function AccountOverviewPage() {
     <AccountOverviewErrorBoundary onError={(msg) => setError(msg)}>
       <div className="px-4 pt-3">
         <Breadcrumb items={[{ label: 'Account Overview', href: '/account-overview' }]} />
+      </div>
+      {/* What is failing right now, and why — above the fold, before the tabs. */}
+      <div className="px-4 pb-3">
+        <ProblemsInsightStrip />
       </div>
       <CommandCenterDashboard />
       {/* Cross-tab "Cost & Metering" + "Explore related" footer removed — it was
