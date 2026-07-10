@@ -1,8 +1,10 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * Account Overview — TABBED redesign (2026-07-10, "no one-page lifetime
- * scroll"). The 9 former stacked sections are now tabs: the main column
+ * Account Overview — TABBED redesign (2026-07 audit taxonomy). The 9 tabs
+ * follow the Snowflake account-audit dimensions (Account · Usage &
+ * Performance · FinOps · Data Objects & Models · Data Quality · Security &
+ * Governance · Platform Activity · Projects · Organization): the main column
  * renders ONLY the active section inside a viewport-fit frame whose inner
  * area is the single scrolling surface, and the right rail (SectionRail) is
  * the navigation — one entry per section with per-axis highlight chips
@@ -13,10 +15,12 @@ import { test, expect, type Page } from '@playwright/test';
  *   2. every section tab is clickable and renders its content (or an honest
  *      empty/degraded state — never a blank),
  *   3. rail highlight chips render (value or honest "—"),
- *   4. zero "Something went wrong", zero pageerrors.
+ *   4. legacy ?section= ids (overview / snowflake-objects / dwh-plan /
+ *      modules …) still deep-link via the alias map,
+ *   5. zero "Something went wrong", zero pageerrors.
  *
  * Run with:  npx playwright test e2e/account-overview-onepager.spec.ts \
- *              --output=e2e/.tmp-ao-redesign
+ *              --output=e2e/.tmp-tax
  * (NEVER the default output dir — it would wipe e2e/results.)
  */
 
@@ -24,14 +28,14 @@ const PASS = process.env.D360_PASS ?? '';
 test.setTimeout(15 * 60_000);
 
 const SECTIONS: Array<{ id: string; label: string }> = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'dwh-plan', label: 'DWH Action Plan' },
-  { id: 'snowflake-objects', label: 'Data Objects' },
+  { id: 'account', label: 'Account' },
+  { id: 'usage-performance', label: 'Usage & Performance' },
   { id: 'finops', label: 'FinOps' },
-  { id: 'modules', label: 'Modules' },
+  { id: 'data-objects', label: 'Data Objects & Models' },
+  { id: 'data-quality', label: 'Data Quality' },
+  { id: 'security', label: 'Security & Governance' },
   { id: 'platform-activity', label: 'Platform Activity' },
   { id: 'projects', label: 'Projects' },
-  { id: 'security', label: 'Security' },
   { id: 'organization', label: 'Organization' },
 ];
 
@@ -78,12 +82,12 @@ test('account-overview: tabbed sections, zero page scroll, rail highlights', asy
     })
     .toBeLessThanOrEqual(8);
 
-  // ── Rail highlight chips render for the Overview entry (value or honest
+  // ── Rail highlight chips render for the Account entry (value or honest
   //    "—" — skeletons must resolve to one of them). ──
-  const overviewChips = page.getByTestId('cc-rail-chips-overview');
-  await expect(overviewChips).toBeVisible({ timeout: 30_000 });
+  const accountChips = page.getByTestId('cc-rail-chips-account');
+  await expect(accountChips).toBeVisible({ timeout: 30_000 });
   await expect
-    .poll(async () => (await overviewChips.innerText()).trim(), { timeout: 60_000 })
+    .poll(async () => (await accountChips.innerText()).trim(), { timeout: 60_000 })
     .toMatch(/DQ|GOV|COST|PERF/);
 
   // ── Every section tab is clickable, syncs ?section=, renders content. ──
@@ -121,7 +125,7 @@ test('account-overview: tabbed sections, zero page scroll, rail highlights', asy
     // Let charts/tables paint before the evidence shot.
     await page.waitForTimeout(1_500);
     await page.screenshot({
-      path: `e2e/results/redesign-ao-${s.id}.png`,
+      path: `e2e/results/tax-${s.id}.png`,
       fullPage: false,
     });
   }
@@ -153,6 +157,24 @@ test('account-overview: tabbed sections, zero page scroll, rail highlights', asy
     'aria-selected',
     'true',
   );
+
+  // ── Legacy alias deep-links: OLD ids must resolve to the new taxonomy. ──
+  for (const [legacy, canonical, label] of [
+    ['overview', 'account', 'Account'],
+    ['snowflake-objects', 'data-objects', 'Data Objects & Models'],
+    ['dwh-plan', 'account', 'Account'],
+    ['modules', 'platform-activity', 'Platform Activity'],
+  ] as const) {
+    await page.goto(`/account-overview?section=${legacy}`);
+    await page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+    await expect(
+      page.locator(`#cc-panel-${canonical}`),
+      `legacy ?section=${legacy} must land on ${canonical}`,
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.getByRole('tab', { name: label, exact: true }),
+    ).toHaveAttribute('aria-selected', 'true');
+  }
 
   expect(pageErrors, `page errors: ${pageErrors.join(' | ')}`).toHaveLength(0);
 });

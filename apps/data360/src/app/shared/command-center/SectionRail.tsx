@@ -60,11 +60,14 @@ export interface SectionRailProps {
 // figure wherever it appears — the rail is an "overview by axis".
 
 const SECTION_AXES: Record<string, KpiDimension[]> = {
-  overview: ['dq', 'gov', 'cost', 'perf'],
-  'dwh-plan': ['cost', 'perf'],
-  'snowflake-objects': ['dq'],
+  // 2026-07 audit taxonomy (Account · Usage & Performance · FinOps · Data
+  // Objects & Models · Data Quality · Security & Governance · Platform
+  // Activity · Projects · Organization).
+  account: ['dq', 'gov', 'cost', 'perf'],
+  'usage-performance': ['perf', 'cost'],
   finops: ['cost'],
-  modules: ['dq', 'perf'],
+  'data-objects': ['dq'],
+  'data-quality': ['dq'],
   'platform-activity': ['perf'],
   projects: ['dq', 'gov'],
   security: ['gov'],

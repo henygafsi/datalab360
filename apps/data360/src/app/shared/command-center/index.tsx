@@ -97,6 +97,7 @@ import {
   getInfrastructure,
   getPipelines,
   getCostBreakdown,
+  getTaskHistory,
   installOverviewKpis,
   type OverviewRange,
 } from '@/app/services/command-center';
@@ -122,7 +123,14 @@ import {
 import {
   approveDeployment,
   rejectDeployment,
+  listProjects,
 } from '@/app/services/api/projectsApi';
+import { listSemanticModels } from '@/app/services/cortex/semantic-models';
+import {
+  getAccessInsights,
+  AccessInsightsUnavailableError,
+  type AccessInsights,
+} from '@/app/services/administration/access-insights';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import AIActionFlow, { type Suggestion as AISuggestion } from '@/app/shared/insights/AIActionFlow';
@@ -142,7 +150,12 @@ import { useCommandCenterCockpit } from './CommandCenterCockpit';
 import SectionRail from './SectionRail';
 import AccessRequestsCard from './AccessRequestsCard';
 import { TabGrid, KpiZone, Board, Cell as GridCell, MoreDrawer } from './TabGridKit';
-import type { KpiDimension } from '@/app/services/command-center/score-cards';
+import {
+  getKpiDimensionDetail,
+  ScoreCardsUnavailableError,
+  type KpiDimension,
+  type KpiDimensionResponse,
+} from '@/app/services/command-center/score-cards';
 
 // Lazy-loaded new tabs
 const ModulesTab = lazy(() => import('./modules-tab'));
@@ -216,54 +229,65 @@ interface TabItem {
 }
 
 /**
- * Tab spec (9 tabs) — see Screens/Account-overview/_features.md for full
- * UX specification per tab.
+ * Tab spec (9 tabs) — the Snowflake ACCOUNT AUDIT taxonomy (2026-07):
+ * each tab audits one dimension of the connected account
+ * (see FINAL-TAB-DISPLAY-SPEC.md).
  *
- * Renames vs the previous 7-tab version (preserved as aliases below):
- *   snowflake-explorer → snowflake-objects
- *   security-adv       → security
- *   cost               → finops
- *   overview           → overview (label "Overview", was "Dashboard")
- *   projects           → projects (label "Projects", was "Projects & AI")
- *
- * Two NEW tabs:
- *   org-accounts        — wires existing /org-accounts/dashboard/* + /accounts
- *   snowflake-accounts  — wires existing /org-accounts/accounts/{id}/*
+ * Renames/regroups vs the previous 9-tab set (all preserved as aliases below,
+ * nothing deleted — content is folded, not dropped):
+ *   overview           → account            (label "Account"; + DWH action plan drawer)
+ *   dwh-plan           → account            (folded as an in-grid drawer)
+ *   [dead code]        → usage-performance  (Performance + Data Operations content, now LIVE)
+ *   snowflake-objects  → data-objects       (label "Data Objects & Models"; + models KPI row
+ *                                            + access-insights cells)
+ *   [new]              → data-quality       (kpis/dq auditable detail — 9 KPIs + DMF table)
+ *   security           → security           (label "Security & Governance"; + Governance &
+ *                                            grants drawer — the formerly-dead GovernanceGrantsTab)
+ *   modules            → platform-activity  (folded as an in-grid drawer)
+ *   finops / projects / organization unchanged (FinOps gains the dead ComputeTab pieces).
  */
 const tabs: TabItem[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'dwh-plan', label: 'DWH Action Plan', icon: Wrench },
-  { id: 'snowflake-objects', label: 'Data Objects', icon: Database },
+  { id: 'account', label: 'Account', icon: LayoutDashboard },
+  { id: 'usage-performance', label: 'Usage & Performance', icon: Gauge },
   { id: 'finops', label: 'FinOps', icon: DollarSign },
-  { id: 'modules', label: 'Modules', icon: Box },
+  { id: 'data-objects', label: 'Data Objects & Models', icon: Database },
+  { id: 'data-quality', label: 'Data Quality', icon: CheckCircle },
+  { id: 'security', label: 'Security & Governance', icon: Lock },
   { id: 'platform-activity', label: 'Platform Activity', icon: Layers },
   { id: 'projects', label: 'Projects', icon: Rocket },
-  // Merged: Security posture/audit + the Security Map graph (was 'security-map').
-  { id: 'security', label: 'Security', icon: Lock },
   // Merged: Org Summary + ORGADMIN-gated Org Accounts + Snowflake Accounts.
   { id: 'organization', label: 'Organization', icon: GitBranch },
 ];
 
 /**
  * Backward-compat: old tab ids → new tab ids. Anything reading from
- * localStorage / URL with the old id is rewritten transparently.
+ * localStorage / URL (`?section=` / legacy `?tab=`) with an old id is
+ * rewritten transparently — deep links never break across renames.
  */
 const TAB_ALIAS: Record<string, string> = {
-  'snowflake-explorer': 'snowflake-objects',
+  // 2026-07 audit-taxonomy renames.
+  overview: 'account',
+  'dwh-plan': 'account',
+  'snowflake-objects': 'data-objects',
+  modules: 'platform-activity',
+  // Formerly-dead sections, now folded into the live taxonomy.
+  performance: 'usage-performance',
+  'data-ops': 'usage-performance',
+  compute: 'finops',
+  'governance-grants': 'security',
+  // Pre-2026-07 aliases (kept — chains resolve in one hop via the map values).
+  'snowflake-explorer': 'data-objects',
   'security-adv': 'security',
   cost: 'finops',
-  // Merged Security tab — Security Map folded into 'security'.
   'security-map': 'security',
-  // Merged Organization tab — org-summary + org-accounts + snowflake-accounts.
   'org-summary': 'organization',
   'org-accounts': 'organization',
   'snowflake-accounts': 'organization',
-  // 'overview', 'modules', 'projects', 'platform-activity' unchanged
 };
 
 /** Resolve any incoming tab id (legacy or current) to the canonical new id. */
 function resolveTabId(id: string | null | undefined): string {
-  if (!id) return 'overview';
+  if (!id) return 'account';
   return TAB_ALIAS[id] ?? id;
 }
 
@@ -671,6 +695,20 @@ function LoadingSection() {
 
 /** Inline error + Retry — shown when a tab fetch fails, so a failed request
  *  renders an actionable message instead of an infinite loading skeleton. */
+/** Pulse placeholders for a KPI tile row while its lane is still loading. */
+function KpiRowSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+      {Array.from({ length: count }).map((_, i) => (
+        <div
+          key={i}
+          className="h-20 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800"
+        />
+      ))}
+    </div>
+  );
+}
+
 function TabErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="m-4 flex flex-col items-center justify-center gap-3 rounded-xl border border-red-100 bg-red-50 p-8 text-center dark:border-red-900/50 dark:bg-red-950/40">
@@ -1327,7 +1365,7 @@ function CommandCenterDashboardInner() {
   // resolved in a post-mount effect below. Reading window/localStorage in the
   // lazy initializer diverged server vs client → a hydration mismatch + wrong-tab
   // flash on the primary navigation.
-  const [activeTab, _setActiveTab] = useState<string>('overview');
+  const [activeTab, _setActiveTab] = useState<string>('account');
   // The viewport-fit frame's inner scroll container — reset to top on switch
   // so a new section always starts at its KPI row, never mid-scroll.
   const panelScrollRef = useRef<HTMLDivElement | null>(null);
@@ -1353,8 +1391,8 @@ function CommandCenterDashboardInner() {
     const params = new URL(window.location.href).searchParams;
     const fromUrl = params.get('section') ?? params.get('tab');
     const fromStorage = window.localStorage.getItem('data360.command-center.activeTab');
-    const resolved = resolveTabId(fromUrl ?? fromStorage ?? 'overview');
-    if (resolved !== 'overview') _setActiveTab(resolved);
+    const resolved = resolveTabId(fromUrl ?? fromStorage ?? 'account');
+    if (resolved !== 'account') _setActiveTab(resolved);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [, startTabTransition] = useTransition();
@@ -1477,7 +1515,7 @@ function CommandCenterDashboardInner() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const [tabLoading, setTabLoading] = useState<Record<string, boolean>>({
-    overview: true,
+    account: true,
     projects: false,
     security: false,
     'governance-grants': false,
@@ -1496,7 +1534,7 @@ function CommandCenterDashboardInner() {
   // ── Fetchers ─────────────────────────────────────────────────────────────
 
   const fetchOverview = useCallback(async () => {
-    setTabLoading((p) => ({ ...p, overview: true }));
+    setTabLoading((p) => ({ ...p, account: true }));
     setError(null);
     try {
       const filterParams = {
@@ -1571,10 +1609,10 @@ function CommandCenterDashboardInner() {
       const dropSpinner = () => {
         if (firstHit) return;
         firstHit = true;
-        setTabLoading((p) => ({ ...p, overview: false }));
+        setTabLoading((p) => ({ ...p, account: false }));
         setIsLoading(false);
         setLastUpdated(new Date());
-        tabDataCache.current['overview'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
+        tabDataCache.current['account'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
       };
 
       const summaryP = withTimeout(getSummary(filterParams)).then((s) => {
@@ -1629,7 +1667,7 @@ function CommandCenterDashboardInner() {
       const msg = err instanceof Error ? err.message : 'Failed to load summary';
       setError(msg);
       toast.error(msg);
-      setTabLoading((p) => ({ ...p, overview: false }));
+      setTabLoading((p) => ({ ...p, account: false }));
       setIsLoading(false);
     }
   }, [filters]);
@@ -1714,7 +1752,9 @@ function CommandCenterDashboardInner() {
       }
       setDataOpsData(data);
       setLastUpdated(new Date());
-      tabDataCache.current['data-ops'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
+      // Stamps the MERGED tab's cache key ('usage-performance') — this lane is
+      // fetched together with fetchPerformance for the Usage & Performance tab.
+      tabDataCache.current['usage-performance'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
       toast.error('Failed to load data operations overview');
     } finally {
@@ -1733,7 +1773,8 @@ function CommandCenterDashboardInner() {
       }
       setPerformanceData(data);
       setLastUpdated(new Date());
-      tabDataCache.current['performance'] = {
+      // Stamps the MERGED tab's cache key — see fetchDataOps note.
+      tabDataCache.current['usage-performance'] = {
         data: true,
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
@@ -1886,23 +1927,34 @@ function CommandCenterDashboardInner() {
       return;
     }
     switch (activeTab) {
-      case 'overview':
+      case 'account':
         fetchOverview();
+        break;
+      case 'usage-performance':
+        // Two lanes feed this tab (query performance + data operations);
+        // both stamp the 'usage-performance' cache key when they land.
+        fetchPerformance();
+        fetchDataOps();
         break;
       case 'projects':
         fetchProjects();
         break;
       case 'security':
         fetchSecurityAdv();
+        // Governance & grants drawer (GRANTS_TO_ROLES etc.) shares the tab.
+        fetchGovGrants();
         break;
       case 'finops':
         fetchCost();
+        // Compute & infrastructure cells (warehouse credits/details) fold
+        // into FinOps — fetched alongside the cost breakdown.
+        fetchCompute();
         break;
       case 'platform-activity':
         fetchPlatformActivity();
         break;
-      // org-accounts + snowflake-accounts + snowflake-objects + modules
-      // own their fetch lifecycle inside their tab components.
+      // data-objects + data-quality + organization own their fetch lifecycle
+      // inside their tab components.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, filters]);
@@ -1932,17 +1984,23 @@ function CommandCenterDashboardInner() {
     setCacheWarming(false);
     // Re-fetch current active tab
     switch (activeTab) {
-      case 'overview':
+      case 'account':
         fetchOverview();
+        break;
+      case 'usage-performance':
+        fetchPerformance();
+        fetchDataOps();
         break;
       case 'projects':
         fetchProjects();
         break;
       case 'security':
         fetchSecurityAdv();
+        fetchGovGrants();
         break;
       case 'finops':
         fetchCost();
+        fetchCompute();
         break;
       case 'platform-activity':
         fetchPlatformActivity();
@@ -1977,7 +2035,7 @@ function CommandCenterDashboardInner() {
   useCacheInvalidation({
     onInvalidate: (keys) => {
       const TAB_KEYS: Record<string, string[]> = {
-        overview: [CACHE_KEYS.USER_ACTIVITY, CACHE_KEYS.DASHBOARD],
+        account: [CACHE_KEYS.USER_ACTIVITY, CACHE_KEYS.DASHBOARD],
         projects: [CACHE_KEYS.PROJECTS],
         security: [
           CACHE_KEYS.GRANTS,
@@ -1991,7 +2049,7 @@ function CommandCenterDashboardInner() {
       // Bust the client-side tab memo so the loader re-hits the backend.
       tabDataCache.current = {};
       switch (activeTab) {
-        case 'overview':
+        case 'account':
           fetchOverview();
           break;
         case 'projects':
@@ -2045,10 +2103,20 @@ function CommandCenterDashboardInner() {
   const activeTabDef = tabs.find((t) => t.id === activeTab) ?? tabs[0];
   const ActiveIcon = activeTabDef.icon;
   const sectionRefresh: Record<string, (() => void) | undefined> = {
-    overview: fetchOverview,
-    finops: fetchCost,
+    account: fetchOverview,
+    'usage-performance': () => {
+      fetchPerformance();
+      fetchDataOps();
+    },
+    finops: () => {
+      fetchCost();
+      fetchCompute();
+    },
     projects: fetchProjects,
-    security: fetchSecurityAdv,
+    security: () => {
+      fetchSecurityAdv();
+      fetchGovGrants();
+    },
     'platform-activity': fetchPlatformActivity,
   };
   const onSectionRefresh = sectionRefresh[activeTabDef.id];
@@ -2066,38 +2134,56 @@ function CommandCenterDashboardInner() {
   // behind tabs (KPI row first, then charts, then tables within each).
   const activeBody = (() => {
     switch (activeTabDef.id) {
-      case 'overview':
+      case 'account':
+        /* Account audit: the overview grid + the DWH action plan folded in as
+           an in-grid drawer (was its own 'dwh-plan' tab — content preserved). */
         return (
-          <OverviewTab
-            summary={summary}
-            moduleHealth={moduleHealth}
-            activityFeed={activityFeed}
-            loading={tabLoading.overview}
-            onRetry={fetchOverview}
-            globalDays={filters.days}
-            onNavigateTab={goToTab}
-          />
-        );
-      case 'dwh-plan':
-        /* Self-contained component (own file, out of this redesign's scope):
-           wrapped as the tab's main zone with INTERNAL scroll only. */
-        return (
-          <Suspense fallback={<LoadingSection />}>
-            <div className="h-full min-h-0 overflow-y-auto">
-              <DwhActionPlanTab />
+          <div className="flex h-full min-h-0 flex-col gap-3">
+            <div className="min-h-0 flex-1">
+              <OverviewTab
+                summary={summary}
+                moduleHealth={moduleHealth}
+                activityFeed={activityFeed}
+                loading={tabLoading.account}
+                onRetry={fetchOverview}
+                globalDays={filters.days}
+                onNavigateTab={goToTab}
+              />
             </div>
-          </Suspense>
-        );
-      case 'snowflake-objects':
-        /* Refactored Data Catalog Explorer (UI-first, sample data on the
-           not-yet-wired fields): 8 sub-tabs, KPI grid, AI Discovery,
-           rich object explorer + detail panel with Data360 migration
-           classification. Real ACCOUNT_USAGE on the data sub-tabs. */
-        return (
-          <div className="h-full min-h-0 overflow-y-auto">
-            <SnowflakeObjectsTab />
+            <div className="shrink-0">
+              <MoreDrawer label="DWH action plan">
+                <Suspense fallback={<LoadingSection />}>
+                  <DwhActionPlanTab />
+                </Suspense>
+              </MoreDrawer>
+            </div>
           </div>
         );
+      case 'usage-performance':
+        /* Usage & Performance: the formerly-dead PerformanceTab (query
+           latency trend, query types, compile-vs-execute, slowest queries)
+           + DataOperationsTab (loading volume, Snowpipe activity, task
+           execution trend, active tasks, dynamic tables, failed tasks),
+           re-disposed as ONE dashboard grid: merged KPI zone first, then
+           the board cells. */
+        return (
+          <UsagePerformanceTab
+            perf={performanceData}
+            perfLoading={tabLoading.performance}
+            ops={dataOpsData}
+            opsLoading={tabLoading['data-ops']}
+          />
+        );
+      case 'data-objects':
+        /* Data Objects & Models: models KPI row (E&D + semantic models) +
+           access-insights evidence cells (top accessed objects · hot tables
+           without DMF coverage) + the full Data Catalog Explorer. */
+        return <DataObjectsModelsTab />;
+      case 'data-quality':
+        /* Data Quality audit: the auditable kpis/dq detail (9 KPIs + the
+           SNOWFLAKE.LOCAL.DATA_QUALITY_MONITORING_RESULTS evidence table)
+           + open DQ recommendations. */
+        return <DataQualityTab days={filters.days} />;
       case 'finops':
         return tabError.finops && !tabLoading.finops ? (
           <TabErrorState message={tabError.finops} onRetry={fetchCost} />
@@ -2107,26 +2193,32 @@ function CommandCenterDashboardInner() {
             loading={tabLoading.finops}
             days={filters.days}
             onNavigateTab={goToTab}
+            infra={infra}
+            infraLoading={tabLoading.compute}
           />
-        );
-      case 'modules':
-        /* Self-contained component (own file): main zone, internal scroll. */
-        return (
-          <Suspense fallback={<LoadingSection />}>
-            <div className="h-full min-h-0 overflow-y-auto">
-              <ModulesTab />
-            </div>
-          </Suspense>
         );
       case 'platform-activity':
+        /* Platform Activity + the Modules adoption dashboard folded in as an
+           in-grid drawer (was its own 'modules' tab — content preserved). */
         return (
-          <PlatformActivityTab
-            platformData={platformData}
-            activityFeed={activityFeed}
-            summary={summary}
-            loading={tabLoading['platform-activity']}
-            onNavigateTab={goToTab}
-          />
+          <div className="flex h-full min-h-0 flex-col gap-3">
+            <div className="min-h-0 flex-1">
+              <PlatformActivityTab
+                platformData={platformData}
+                activityFeed={activityFeed}
+                summary={summary}
+                loading={tabLoading['platform-activity']}
+                onNavigateTab={goToTab}
+              />
+            </div>
+            <div className="shrink-0">
+              <MoreDrawer label="Modules adoption">
+                <Suspense fallback={<LoadingSection />}>
+                  <ModulesTab />
+                </Suspense>
+              </MoreDrawer>
+            </div>
+          </div>
         );
       case 'projects':
         return tabError.projects && !tabLoading.projects ? (
@@ -2139,11 +2231,13 @@ function CommandCenterDashboardInner() {
           />
         );
       case 'security':
-        /* Merged Security dashboard: posture/audit grid (SecurityAdvTab) +
-           the Access Requests inbox (moved here from the page footer — its
-           pending count is the badge on the rail's Security entry) and the
-           Security Map, both behind in-grid More drawers so the posture grid
-           keeps the height. No popups, no page scroll. */
+        /* Merged Security & Governance dashboard: posture/audit grid
+           (SecurityAdvTab) + three in-grid drawers so the posture grid keeps
+           the height — Access Requests inbox (its pending count is the badge
+           on the rail entry), the Security Map, and Governance & grants (the
+           formerly-dead GovernanceGrantsTab: grants-per-role top 15,
+           privilege distribution, recent grant changes — GRANTS_TO_ROLES).
+           No popups, no page scroll. */
         return (
           <div className="flex h-full min-h-0 flex-col gap-3">
             <div className="min-h-0 flex-1">
@@ -2157,7 +2251,13 @@ function CommandCenterDashboardInner() {
                 />
               )}
             </div>
-            <div className="grid shrink-0 grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="grid shrink-0 grid-cols-1 gap-3 md:grid-cols-3">
+              <MoreDrawer label="Governance & grants" className="md:col-span-1">
+                <GovernanceGrantsTab
+                  data={govGrantsData}
+                  loading={tabLoading['governance-grants']}
+                />
+              </MoreDrawer>
               <MoreDrawer label="Access requests" className="md:col-span-1">
                 <AccessRequestsCard />
               </MoreDrawer>
@@ -2352,7 +2452,7 @@ function CommandCenterDashboardInner() {
             {/* KPI row FIRST — the unified KPI strip opens the Overview tab.
                 Honest "—" until each figure is known (never fake zeros); every
                 KPI opens its owning cockpit axis, docked on the right edge. */}
-            {activeTabDef.id === 'overview' && (
+            {activeTabDef.id === 'account' && (
               <KpiStrip
                 items={cockpit.kpiItems}
                 className="mb-4 rounded-xl border border-slate-200 shadow-sm dark:border-slate-800"
@@ -5137,6 +5237,8 @@ const CostTab = memo(function CostTab({
   loading,
   days = 30,
   onNavigateTab,
+  infra = null,
+  infraLoading = false,
 }: {
   data: CostBreakdownResponse | null;
   loading: boolean;
@@ -5146,6 +5248,10 @@ const CostTab = memo(function CostTab({
   days?: number;
   /** Switch the parent dashboard to another tab (for same-page CTA targets). */
   onNavigateTab?: (id: string) => void;
+  /** Compute & infrastructure lane (warehouse credits/details, replication,
+   * tasks & pipes) — the formerly-dead ComputeTab folded into FinOps. */
+  infra?: InfrastructureResponse | null;
+  infraLoading?: boolean;
 }) {
   const periodDays = days ?? 30;
   const categoryPieData = useMemo(() => {
@@ -5308,6 +5414,9 @@ const CostTab = memo(function CostTab({
           color="green"
         />
       </div>
+
+      {/* Compute & infrastructure KPIs (folded from the dead ComputeTab). */}
+      <ComputeTab data={infra} loading={infraLoading} zone="kpis" />
 
       </KpiZone>
 
@@ -5752,6 +5861,10 @@ const CostTab = memo(function CostTab({
         </SectionCard>
       </div>
         </GridCell>
+
+        {/* Compute & infrastructure cells (folded from the dead ComputeTab):
+            warehouse credits, warehouse details, replication, tasks & pipes. */}
+        <ComputeTab data={infra} loading={infraLoading} zone="board" />
       </Board>
     </TabGrid>
   );
@@ -6673,11 +6786,22 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
 const DataOperationsTab = memo(function DataOperationsTab({
   data,
   loading,
+  zone,
 }: {
   data: DataOperationsOverviewResponse | null;
   loading: boolean;
+  /** 'kpis' → KPI tiles for the KpiZone · 'board' → chart/table grid cells. */
+  zone: 'kpis' | 'board';
 }) {
-  if (loading || !data) return <LoadingSection />;
+  if (loading || !data) {
+    return zone === 'kpis' ? (
+      <KpiRowSkeleton count={6} />
+    ) : (
+      <GridCell>
+        <LoadingSection />
+      </GridCell>
+    );
+  }
 
   const loadingSummary = (data as any).loading_summary || {};
   const automationSummary = (data as any).automation_summary || {};
@@ -6703,9 +6827,8 @@ const DataOperationsTab = memo(function DataOperationsTab({
     ? (data as any).recent_tasks
     : [];
 
-  return (
-    <>
-      {/* KPI Cards */}
+  if (zone === 'kpis') {
+    return (
       <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
         <KpiCard
           label="Files Loaded"
@@ -6752,16 +6875,15 @@ const DataOperationsTab = memo(function DataOperationsTab({
           color="cyan"
         />
       </div>
+    );
+  }
 
-      {/* Data Loading Section */}
-      <div className="mt-2">
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
-          <Upload className="h-4 w-4" /> Data Loading
-        </h3>
-      </div>
-
+  // zone === 'board' — data-loading + automation cells for the shared board.
+  return (
+    <>
       {/* Daily Volume Chart */}
       {dailyVolume.length > 0 && (
+        <GridCell className="xl:col-span-6">
         <SectionCard title="Daily Loading Volume">
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -6802,9 +6924,10 @@ const DataOperationsTab = memo(function DataOperationsTab({
             </ResponsiveContainer>
           </div>
         </SectionCard>
+        </GridCell>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <GridCell className="xl:col-span-6">
         {/* Pipe Activity */}
         <SectionCard title="Snowpipe Activity">
           {pipeActivity.length > 0 ? (
@@ -6836,7 +6959,9 @@ const DataOperationsTab = memo(function DataOperationsTab({
             </p>
           )}
         </SectionCard>
+      </GridCell>
 
+      <GridCell className="xl:col-span-6">
         {/* Loading Errors */}
         <SectionCard title="Recent Loading Errors">
           {loadingErrors.length > 0 ? (
@@ -6869,17 +6994,11 @@ const DataOperationsTab = memo(function DataOperationsTab({
             </div>
           )}
         </SectionCard>
-      </div>
-
-      {/* Automation Section */}
-      <div className="mt-4">
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
-          <Zap className="h-4 w-4" /> Automation & Tasks
-        </h3>
-      </div>
+      </GridCell>
 
       {/* Task Execution Trend */}
       {taskDaily.length > 0 && (
+        <GridCell className="xl:col-span-6">
         <SectionCard title="Task Execution Trend">
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -6917,9 +7036,10 @@ const DataOperationsTab = memo(function DataOperationsTab({
             </ResponsiveContainer>
           </div>
         </SectionCard>
+        </GridCell>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <GridCell className="xl:col-span-6">
         {/* Active Tasks */}
         <SectionCard title="Active Tasks">
           {activeTasks.length > 0 ? (
@@ -6960,7 +7080,9 @@ const DataOperationsTab = memo(function DataOperationsTab({
             </p>
           )}
         </SectionCard>
+      </GridCell>
 
+      <GridCell className="xl:col-span-6">
         {/* Dynamic Tables */}
         <SectionCard title="Dynamic Tables">
           {dynamicTables.length > 0 ? (
@@ -6995,10 +7117,11 @@ const DataOperationsTab = memo(function DataOperationsTab({
             </p>
           )}
         </SectionCard>
-      </div>
+      </GridCell>
 
       {/* Recent Failed Tasks Audit Table */}
       {recentTasks.filter((t: any) => t.state === 'FAILED').length > 0 && (
+        <GridCell>
         <AuditTable
           data={recentTasks.filter((t: any) => t.state === 'FAILED')}
           title="Recent Failed Tasks"
@@ -7036,6 +7159,7 @@ const DataOperationsTab = memo(function DataOperationsTab({
             },
           ]}
         />
+        </GridCell>
       )}
     </>
   );
@@ -7048,9 +7172,12 @@ const DataOperationsTab = memo(function DataOperationsTab({
 const PerformanceTab = memo(function PerformanceTab({
   data,
   loading,
+  zone,
 }: {
   data: PerformanceOverviewResponse | null;
   loading: boolean;
+  /** 'kpis' → KPI tiles for the KpiZone · 'board' → chart/table grid cells. */
+  zone: 'kpis' | 'board';
 }) {
   const { avgP50, avgP95, totalQueries } = useMemo(() => {
     const queryPerf = Array.isArray(data?.query_performance)
@@ -7073,7 +7200,15 @@ const PerformanceTab = memo(function PerformanceTab({
     };
   }, [data]);
 
-  if (loading || !data) return <LoadingSection />;
+  if (loading || !data) {
+    return zone === 'kpis' ? (
+      <KpiRowSkeleton count={5} />
+    ) : (
+      <GridCell>
+        <LoadingSection />
+      </GridCell>
+    );
+  }
 
   const queryPerf = Array.isArray(data.query_performance)
     ? data.query_performance
@@ -7081,9 +7216,8 @@ const PerformanceTab = memo(function PerformanceTab({
   const slowQueries = Array.isArray(data.slow_queries) ? data.slow_queries : [];
   const queryTypes = Array.isArray(data.query_types) ? data.query_types : [];
 
-  return (
-    <>
-      {/* KPI Cards */}
+  if (zone === 'kpis') {
+    return (
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <KpiCard
           label="Total Queries"
@@ -7116,8 +7250,14 @@ const PerformanceTab = memo(function PerformanceTab({
           color="violet"
         />
       </div>
+    );
+  }
 
+  // zone === 'board' — query-performance cells for the shared board.
+  return (
+    <>
       {/* Query Latency Trend */}
+      <GridCell className="xl:col-span-6">
       <SectionCard title={`Query Latency Trend (${data.period_days ?? 7}d)`}>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
@@ -7163,8 +7303,9 @@ const PerformanceTab = memo(function PerformanceTab({
           </ResponsiveContainer>
         </div>
       </SectionCard>
+      </GridCell>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <GridCell className="xl:col-span-6">
         {/* Query Type Distribution */}
         <SectionCard title="Query Type Distribution">
           <div className="h-64">
@@ -7189,7 +7330,9 @@ const PerformanceTab = memo(function PerformanceTab({
             </ResponsiveContainer>
           </div>
         </SectionCard>
+      </GridCell>
 
+      <GridCell className="xl:col-span-6">
         {/* Compilation vs Execution */}
         <SectionCard title="Compile vs Execute Time">
           <div className="h-64">
@@ -7225,10 +7368,11 @@ const PerformanceTab = memo(function PerformanceTab({
             </ResponsiveContainer>
           </div>
         </SectionCard>
-      </div>
+      </GridCell>
 
       {/* Slow Queries Audit Table */}
       {slowQueries.length > 0 && (
+        <GridCell>
         <AuditTable
           data={slowQueries}
           title="Slowest Queries"
@@ -7273,6 +7417,7 @@ const PerformanceTab = memo(function PerformanceTab({
             },
           ]}
         />
+        </GridCell>
       )}
     </>
   );
@@ -7285,9 +7430,12 @@ const PerformanceTab = memo(function PerformanceTab({
 const ComputeTab = memo(function ComputeTab({
   data,
   loading,
+  zone,
 }: {
   data: InfrastructureResponse | null;
   loading: boolean;
+  /** 'kpis' → KPI tiles for FinOps' KpiZone · 'board' → grid cells. */
+  zone: 'kpis' | 'board';
 }) {
   const { totalCredits, sorted, topWarehouse } = useMemo(() => {
     const warehouses = Array.isArray(data?.warehouses) ? data.warehouses : [];
@@ -7301,16 +7449,23 @@ const ComputeTab = memo(function ComputeTab({
     return { totalCredits: total, sorted: s, topWarehouse: s[0] || null };
   }, [data]);
 
-  if (loading || !data) return <LoadingSection />;
+  if (loading || !data) {
+    return zone === 'kpis' ? (
+      <KpiRowSkeleton count={4} />
+    ) : (
+      <GridCell>
+        <LoadingSection />
+      </GridCell>
+    );
+  }
 
   const warehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
   const replicationDbs = Array.isArray(data.replication?.databases)
     ? data.replication.databases
     : [];
 
-  return (
-    <>
-      {/* KPI Cards */}
+  if (zone === 'kpis') {
+    return (
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiCard
           label="Warehouses"
@@ -7337,9 +7492,15 @@ const ComputeTab = memo(function ComputeTab({
           color="green"
         />
       </div>
+    );
+  }
 
+  // zone === 'board' — compute & infrastructure cells folded into FinOps.
+  return (
+    <>
       {/* Warehouse Credits Bar Chart */}
       {sorted.length > 0 && (
+        <GridCell className="xl:col-span-6">
         <SectionCard title="Warehouse Credits">
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
@@ -7363,9 +7524,11 @@ const ComputeTab = memo(function ComputeTab({
             </ResponsiveContainer>
           </div>
         </SectionCard>
+        </GridCell>
       )}
 
       {/* Warehouse Details Audit Table */}
+      <GridCell className="xl:col-span-6">
       <AuditTable
         data={warehouses}
         title="Warehouse Details"
@@ -7405,9 +7568,10 @@ const ComputeTab = memo(function ComputeTab({
           },
         ]}
       />
+      </GridCell>
 
       {/* Replication + Tasks Summary */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <GridCell className="xl:col-span-6">
         <SectionCard title="Replication">
           {replicationDbs.length > 0 ? (
             <div className="max-h-64 space-y-2 overflow-y-auto">
@@ -7436,7 +7600,9 @@ const ComputeTab = memo(function ComputeTab({
             </p>
           )}
         </SectionCard>
+      </GridCell>
 
+      <GridCell className="xl:col-span-6">
         <SectionCard title="Tasks & Pipes">
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg bg-blue-50 p-4 text-center dark:bg-blue-900/20">
@@ -7471,8 +7637,527 @@ const ComputeTab = memo(function ComputeTab({
             </div>
           </div>
         </SectionCard>
-      </div>
+      </GridCell>
     </>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB: USAGE & PERFORMANCE (audit taxonomy 2026-07 — merges the formerly-dead
+// PerformanceTab + DataOperationsTab into ONE dashboard grid: merged KPI zone
+// first, then the chart/table cells. Nothing deleted — everything mounted.)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const UsagePerformanceTab = memo(function UsagePerformanceTab({
+  perf,
+  perfLoading,
+  ops,
+  opsLoading,
+}: {
+  perf: PerformanceOverviewResponse | null;
+  perfLoading: boolean;
+  ops: DataOperationsOverviewResponse | null;
+  opsLoading: boolean;
+}) {
+  return (
+    <TabGrid>
+      <KpiZone>
+        {/* Query performance KPIs (QUERY_HISTORY) then data-operations KPIs
+            (COPY_HISTORY / TASK_HISTORY) — each lane loads independently. */}
+        <PerformanceTab data={perf} loading={perfLoading} zone="kpis" />
+        <DataOperationsTab data={ops} loading={opsLoading} zone="kpis" />
+      </KpiZone>
+      <Board>
+        <PerformanceTab data={perf} loading={perfLoading} zone="board" />
+        <DataOperationsTab data={ops} loading={opsLoading} zone="board" />
+      </Board>
+    </TabGrid>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB: DATA OBJECTS & MODELS (audit taxonomy 2026-07 — the Data Catalog
+// Explorer + a models KPI row (E&D + semantic models) + the access-insights
+// evidence cells: top accessed objects · hot tables without DMF coverage)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
+  // Models KPI row — bound ONLY to services that already exist:
+  //   E&D models      → GET /projects?project_type=explore_design (listProjects)
+  //   Semantic models → GET semantic models list (listSemanticModels)
+  const [edModels, setEdModels] = useState<number | null>(null);
+  const [semanticModels, setSemanticModels] = useState<number | null>(null);
+  // Tasks failed (7d) — the count isn't in any existing payload, so it is
+  // derived client-side from the SAME TASK_HISTORY rows the tab's
+  // "Tasks & Pipelines" sub-table renders (sum of per-task `failed`).
+  // '—' when the rows aren't available — never a fake zero.
+  const [tasksFailed7d, setTasksFailed7d] = useState<number | null>(null);
+  const [insights, setInsights] = useState<AccessInsights | null>(null);
+  const [insightsStatus, setInsightsStatus] = useState<
+    'loading' | 'ready' | 'unavailable' | 'error'
+  >('loading');
+
+  useEffect(() => {
+    let alive = true;
+    listProjects({ project_type: 'explore_design' })
+      .then((r) => {
+        if (!alive) return;
+        const total =
+          typeof r?.total === 'number' ? r.total : r?.projects?.length;
+        setEdModels(typeof total === 'number' ? total : null);
+      })
+      .catch(() => {}); // degrade → '—'
+    listSemanticModels()
+      .then((models) => {
+        if (alive && Array.isArray(models)) setSemanticModels(models.length);
+      })
+      .catch(() => {}); // degrade → '—'
+    getTaskHistory(7)
+      .then((r) => {
+        if (!alive) return;
+        const rows = Array.isArray(r?.data) ? r.data : [];
+        // Empty rows are indistinguishable from a degraded source (the
+        // service swallows errors into []) → keep the honest '—'.
+        if (rows.length === 0) return;
+        setTasksFailed7d(
+          rows.reduce(
+            (sum, row) => sum + (Number((row as any).failed) || 0),
+            0,
+          ),
+        );
+      })
+      .catch(() => {});
+    getAccessInsights()
+      .then((ai) => {
+        if (!alive) return;
+        setInsights(ai);
+        setInsightsStatus('ready');
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setInsightsStatus(
+          e instanceof AccessInsightsUnavailableError ? 'unavailable' : 'error',
+        );
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const windowDays = insights?.window_days ?? 7;
+  const topObjects = insights?.top_objects ?? [];
+  const hotUnmonitored = insights?.hot_unmonitored ?? [];
+
+  const fqCell = (v: unknown) => {
+    const name = String(v ?? '');
+    const parts = name.split('.');
+    return (
+      <span
+        className="block max-w-[280px] truncate font-mono text-xs text-gray-900 dark:text-white"
+        title={name}
+      >
+        {parts.length === 3 ? (
+          <>
+            <span className="text-gray-400">{parts[0]}.{parts[1]}.</span>
+            {parts[2]}
+          </>
+        ) : (
+          name
+        )}
+      </span>
+    );
+  };
+
+  return (
+    <TabGrid>
+      <KpiZone>
+        {/* Models + operations KPI row (honest '—' until each source lands). */}
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <KpiCard
+            label="E&D Models"
+            value={edModels}
+            icon={Box}
+            color="blue"
+            help={{
+              title: 'E&D models',
+              definition:
+                'Explore & Design data-model projects owned by this account in Data360.',
+              source: 'Data360 projects (project_type=explore_design)',
+            }}
+          />
+          <KpiCard
+            label="Semantic Models"
+            value={semanticModels}
+            icon={Sparkles}
+            color="violet"
+            help={{
+              title: 'Semantic models',
+              definition:
+                'Cortex Analyst semantic models (YAML) available on this account.',
+              source: 'semantic-models stage listing',
+            }}
+          />
+          <KpiCard
+            label="Tasks Failed (7d)"
+            value={tasksFailed7d}
+            icon={AlertTriangle}
+            color="red"
+            help={{
+              title: 'Tasks failed (7d)',
+              definition:
+                'Sum of failed task executions over the last 7 days, derived from the same TASK_HISTORY rows shown in Tasks & Pipelines.',
+              source: 'ACCOUNT_USAGE.TASK_HISTORY',
+            }}
+          />
+          <KpiCard
+            label="Hot Tables w/o DMF"
+            value={insightsStatus === 'ready' ? hotUnmonitored.length : null}
+            icon={Eye}
+            color="amber"
+            help={{
+              title: 'Hot tables without DMF coverage',
+              definition:
+                'High-traffic tables (by read count) with no data-metric-function monitoring attached.',
+              source: 'ACCESS_HISTORY × DATA_QUALITY_MONITORING_RESULTS',
+            }}
+          />
+        </div>
+      </KpiZone>
+      <Board>
+        {/* Top accessed objects — Excel-grade evidence table. */}
+        <GridCell className="xl:col-span-7">
+          {insightsStatus === 'loading' ? (
+            <LoadingSection />
+          ) : insightsStatus === 'ready' && topObjects.length > 0 ? (
+            <AuditTable
+              data={topObjects}
+              title={`Top Accessed Objects (${windowDays}d)`}
+              pageSize={10}
+              emptyMessage="No access recorded in the window"
+              columns={[
+                {
+                  key: 'object',
+                  label: 'Object',
+                  sortable: true,
+                  filterable: true,
+                  render: fqCell,
+                },
+                {
+                  key: 'accesses',
+                  label: 'Accesses',
+                  sortable: true,
+                  align: 'right',
+                  render: (v: number) => (
+                    <span className="font-medium tabular-nums text-gray-900 dark:text-white">
+                      {Number(v).toLocaleString()}
+                    </span>
+                  ),
+                },
+                {
+                  key: 'users',
+                  label: 'Users',
+                  sortable: true,
+                  align: 'right',
+                },
+              ]}
+            />
+          ) : (
+            <SectionCard title={`Top Accessed Objects (${windowDays}d)`}>
+              <p className="py-6 text-center text-sm text-gray-400">
+                {insightsStatus === 'unavailable'
+                  ? 'Access insights are not provisioned on this backend yet.'
+                  : insightsStatus === 'error'
+                    ? 'Access insights could not be loaded — source degraded.'
+                    : 'No object accesses recorded in the window.'}
+              </p>
+            </SectionCard>
+          )}
+        </GridCell>
+
+        {/* Hot tables without DMF coverage — each row deep-links to the
+            Data Quality monitors page to attach coverage. */}
+        <GridCell className="xl:col-span-5">
+          <SectionCard title={`Hot Tables Without DMF Coverage (${windowDays}d)`}>
+            {insightsStatus === 'loading' ? (
+              <div className="h-40 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />
+            ) : insightsStatus !== 'ready' ? (
+              <p className="py-6 text-center text-sm text-gray-400">
+                {insightsStatus === 'unavailable'
+                  ? 'Access insights are not provisioned on this backend yet.'
+                  : 'Source degraded — coverage gaps unknown right now.'}
+              </p>
+            ) : hotUnmonitored.length === 0 ? (
+              <div className="py-6 text-center">
+                <CheckCircle className="mx-auto mb-2 h-8 w-8 text-green-500" />
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Every hot table already has DMF coverage.
+                </p>
+              </div>
+            ) : (
+              <div className="max-h-72 space-y-1.5 overflow-y-auto">
+                {hotUnmonitored.map((t, i) => (
+                  <Link
+                    key={`${t.object}-${i}`}
+                    href="/data-quality?tab=monitors"
+                    title={`${t.object} — attach a DMF monitor`}
+                    className="group flex items-center justify-between gap-2 rounded-lg bg-amber-50/60 px-3 py-2 transition-colors hover:bg-amber-100 dark:bg-amber-900/10 dark:hover:bg-amber-900/25"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-mono text-xs text-gray-900 dark:text-white">
+                        {t.object}
+                      </span>
+                      <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                        {Number(t.accesses).toLocaleString()} accesses ·{' '}
+                        {t.users} user{t.users === 1 ? '' : 's'} · no DMF
+                      </span>
+                    </span>
+                    <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-amber-500 opacity-0 transition-opacity group-hover:opacity-100" />
+                  </Link>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 text-[10px] text-gray-400">
+              Source: ACCESS_HISTORY × DMF results · rows open Data Quality →
+              Monitors
+            </p>
+          </SectionCard>
+        </GridCell>
+
+        {/* Full Data Catalog Explorer (the former 'Data Objects' tab —
+            sub-tabs, KPI grid, AI discovery, object detail; unchanged). */}
+        <GridCell>
+          <SnowflakeObjectsTab />
+        </GridCell>
+      </Board>
+    </TabGrid>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB: DATA QUALITY (audit taxonomy 2026-07 — the auditable kpis/dq detail:
+// 9 KPIs + the 145+ real DMF measurements table + open DQ recommendations)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** Icon + accent per dq KPI key (fallbacks keep unknown keys rendering). */
+const DQ_KPI_META: Record<string, { icon: React.ElementType; color: string }> = {
+  total_tables: { icon: Database, color: 'blue' },
+  total_rows: { icon: BarChart3, color: 'cyan' },
+  monitored_tables: { icon: Eye, color: 'violet' },
+  coverage_pct: { icon: ShieldCheck, color: 'green' },
+  dmf_measurements: { icon: Activity, color: 'emerald' },
+  distinct_metrics: { icon: Layers, color: 'amber' },
+  stale_tables_7d: { icon: Clock, color: 'red' },
+  fresh_pct: { icon: TrendingUp, color: 'green' },
+  empty_tables: { icon: MinusCircle, color: 'rose' },
+};
+
+const DataQualityTab = memo(function DataQualityTab({ days }: { days: number }) {
+  const [detail, setDetail] = useState<KpiDimensionResponse | null>(null);
+  const [status, setStatus] = useState<
+    'loading' | 'ready' | 'unavailable' | 'error'
+  >('loading');
+  const [recos, setRecos] = useState<CcRecommendation[] | null>(null);
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    setStatus('loading');
+    getKpiDimensionDetail('dq', days)
+      .then((d) => {
+        if (!alive) return;
+        setDetail(d);
+        setStatus('ready');
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setStatus(
+          e instanceof ScoreCardsUnavailableError ? 'unavailable' : 'error',
+        );
+      });
+    getCommandCenterRecommendationsForDimension('dq', days)
+      .then((r) => {
+        if (alive) setRecos(r?.recommendations ?? []);
+      })
+      .catch(() => {
+        if (alive) setRecos(null); // degrade → honest note, not an empty "all good"
+      });
+    return () => {
+      alive = false;
+    };
+  }, [days, reload]);
+
+  if (status === 'loading') {
+    return (
+      <TabGrid>
+        <KpiZone>
+          <KpiRowSkeleton count={6} />
+        </KpiZone>
+        <Board>
+          <GridCell>
+            <LoadingSection />
+          </GridCell>
+        </Board>
+      </TabGrid>
+    );
+  }
+
+  if (status !== 'ready' || !detail) {
+    return status === 'unavailable' ? (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-gray-400">
+          The data-quality KPI service isn&apos;t provisioned on this backend
+          yet — nothing to audit right now.
+        </p>
+      </div>
+    ) : (
+      <TabErrorState
+        message="Failed to load the data-quality audit"
+        onRetry={() => setReload((n) => n + 1)}
+      />
+    );
+  }
+
+  const kpis = Array.isArray(detail.kpis) ? detail.kpis : [];
+  const tableCols = detail.table?.columns ?? [];
+  const tableRows = (detail.table?.rows ?? []) as Array<Record<string, any>>;
+  const sources = detail.sources ?? [];
+
+  return (
+    <TabGrid>
+      <KpiZone>
+        {/* Every backend dq KPI, honest per-entry ('error' status → '—'). */}
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+          {kpis.map((k) => {
+            const meta = DQ_KPI_META[k.key] ?? {
+              icon: CheckCircle,
+              color: 'blue',
+            };
+            return (
+              <KpiCard
+                key={k.key}
+                label={k.label || k.key}
+                value={k.status === 'ok' ? k.value : null}
+                suffix={k.unit || undefined}
+                icon={meta.icon}
+                color={meta.color}
+                help={{
+                  title: k.label || k.key,
+                  definition: `Data-quality audit KPI (${k.key}) over the last ${detail.days ?? days} days.`,
+                  source: sources.join(' · ') || 'command-center kpis/dq',
+                }}
+              />
+            );
+          })}
+        </div>
+      </KpiZone>
+      <Board>
+        {/* DMF measurements — the auditable evidence table. */}
+        <GridCell className="xl:col-span-8">
+          {tableRows.length > 0 ? (
+            <>
+              <AuditTable
+                data={tableRows}
+                title={`DMF Measurements (${detail.days ?? days}d) — ${tableRows.length} rows`}
+                pageSize={12}
+                emptyMessage="No DMF measurements in the window"
+                columns={tableCols.map((c) => ({
+                  key: c,
+                  label: c
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, (ch) => ch.toUpperCase()),
+                  sortable: true,
+                  filterable: true,
+                  render:
+                    c === 'measured_at'
+                      ? (v: string) => <span title={String(v)}>{relativeTime(String(v))}</span>
+                      : (v: unknown) => safeCellValue(v),
+                }))}
+              />
+              <p className="mt-1 text-[10px] text-gray-400">
+                Source: {sources.join(' · ') || '—'}
+              </p>
+            </>
+          ) : (
+            <SectionCard title="DMF Measurements">
+              <p className="py-6 text-center text-sm text-gray-400">
+                No DMF measurements recorded in the window — attach data metric
+                functions to your hot tables to start auditing quality.
+              </p>
+            </SectionCard>
+          )}
+        </GridCell>
+
+        {/* Open DQ recommendations (same source as the rail's DQ chip). */}
+        <GridCell className="xl:col-span-4">
+          <SectionCard title="Open DQ Recommendations">
+            {recos === null ? (
+              <p className="py-6 text-center text-sm text-gray-400">
+                Recommendations source degraded — status unknown right now.
+              </p>
+            ) : recos.length === 0 ? (
+              <div className="py-6 text-center">
+                <CheckCircle className="mx-auto mb-2 h-8 w-8 text-green-500" />
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  No open data-quality recommendations.
+                </p>
+              </div>
+            ) : (
+              <ul className="max-h-80 space-y-2 overflow-y-auto">
+                {recos.map((r) => (
+                  <li
+                    key={r.id}
+                    className={cn(
+                      'rounded-lg p-3',
+                      r.severity === 'critical' || r.severity === 'high'
+                        ? 'bg-red-50 dark:bg-red-900/15'
+                        : 'bg-amber-50 dark:bg-amber-900/10',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-semibold text-gray-900 dark:text-white">
+                        {r.title}
+                      </p>
+                      <Badge
+                        size="sm"
+                        variant="flat"
+                        color={
+                          r.severity === 'critical' || r.severity === 'high'
+                            ? 'danger'
+                            : 'warning'
+                        }
+                      >
+                        {r.severity}
+                      </Badge>
+                    </div>
+                    {r.detail ? (
+                      <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                        {r.detail}
+                      </p>
+                    ) : null}
+                    {r.cta?.action === 'navigate' && r.cta.target ? (
+                      <Link
+                        href={r.cta.target}
+                        className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-primary hover:underline"
+                      >
+                        {r.cta.label} <ArrowUpRight className="h-3 w-3" />
+                      </Link>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-3 border-t border-gray-100 pt-2 dark:border-gray-800">
+              <Link
+                href="/data-quality?tab=monitors"
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+              >
+                Manage DMF monitors <ArrowUpRight className="h-3 w-3" />
+              </Link>
+            </div>
+          </SectionCard>
+        </GridCell>
+      </Board>
+    </TabGrid>
   );
 });
 
