@@ -210,6 +210,10 @@ export default function LatencyFreshnessPanel() {
   const freshnessRows = useMemo(() => {
     if (freshness.phase !== 'ready') return null;
     return Object.entries(freshness.data)
+      // The response envelope's execution_time_ms rode along as a "zone":
+      // its value (2 ms) parsed as epoch-1970 and rendered "572890d ago".
+      // A zone's value is an ISO timestamp or null — keep only those keys.
+      .filter(([zone, ts]) => zone !== 'execution_time_ms' && (ts === null || typeof ts === 'string'))
       .map(([zone, ts]) => {
         const ageMin = ts ? (now - parseUtc(ts).getTime()) / 60_000 : null;
         return { zone, ageMin: ageMin != null && Number.isFinite(ageMin) ? Math.max(0, ageMin) : null };
