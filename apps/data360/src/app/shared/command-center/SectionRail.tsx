@@ -29,6 +29,7 @@ import {
   type ScoreCard,
 } from '@/app/services/command-center/score-cards';
 import { getInbox, getMyRequests } from '@/app/services/access-requests';
+import AccountHealthBlock from './AccountHealthBlock';
 import { useAuth } from '@/hooks/useAuth';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -211,6 +212,9 @@ export default function SectionRail({
         className,
       )}
     >
+      {/* Wave 2: the shared "Snowflake account health" pulse — vertical rail
+          only (the small-screen horizontal strip has no room for it). */}
+      <AccountHealthBlock className="mb-1 hidden md:block" />
       <div
         role="tablist"
         aria-orientation="vertical"
