@@ -85,6 +85,55 @@ export async function listCatalogSchemaTables(
 }
 
 // ---------------------------------------------------------------------------
+// Schema freshness probe — GET /observability/probes/schema
+// ---------------------------------------------------------------------------
+
+/**
+ * One table of the freshness probe. Exact wire shape of
+ * refresh_probes.probe_schema_freshness (single INFORMATION_SCHEMA.TABLES
+ * scan, LAST_ALTERED DESC, top 100).
+ */
+export interface CatalogSchemaProbeEntry {
+  /** Fully qualified `db.schema.table`. */
+  table: string;
+  table_name: string;
+  /** ISO LAST_ALTERED — null when INFORMATION_SCHEMA has no timestamp. */
+  last_modified: string | null;
+  /** Age in seconds, computed server-side; null when last_modified is null. */
+  seconds_ago: number | null;
+  row_count: number;
+  bytes: number;
+  table_type: string | null;
+}
+
+export interface CatalogSchemaProbeResult {
+  /** false = the probe endpoint is absent on this environment (404/501). */
+  available: boolean;
+  tables: CatalogSchemaProbeEntry[];
+}
+
+/**
+ * Freshness of ALL tables in a schema — powers the cockpit Quality (freshest/
+ * stalest/empty rollup) and Cost (heaviest tables) axes. 404/501 degrade to
+ * `available: false`; any other error propagates so the caller can offer retry.
+ */
+export async function probeCatalogSchemaFreshness(
+  database: string,
+  schema: string,
+): Promise<CatalogSchemaProbeResult> {
+  try {
+    const { data } = await apiClient.get<{ tables?: CatalogSchemaProbeEntry[] }>(
+      API.observability.probesSchema(database, schema),
+    );
+    return { available: true, tables: data?.tables ?? [] };
+  } catch (err: unknown) {
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 404 || status === 501) return { available: false, tables: [] };
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Non-project table data preview
 // ---------------------------------------------------------------------------
 

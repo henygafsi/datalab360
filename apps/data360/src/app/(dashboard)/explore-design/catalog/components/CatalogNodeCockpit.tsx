@@ -13,6 +13,14 @@
  * labelled, described, honestly-gated action — never a bare button. The
  * "Enrich type" actions write a real TAG_ASSIGNED event through
  * POST /catalog/schemas/{db}/{schema}/classify.
+ *
+ * Axis feeders (all real, all degrade honestly):
+ *   • schema  Quality/Cost → GET /observability/probes/schema (freshness rollup
+ *     + heaviest tables); Gov/Perf/Modeling are table-scoped on the backend →
+ *     honest note pointing at Overview ▸ Tables.
+ *   • product all axes ← the ONE overview fetch (gold scores dq/gov/cost/perf/
+ *     modeling/ml_ready + trust); Modeling also pulls
+ *     GET /catalog/products/{id}/lineage (anchor + 1-hop upstream/downstream).
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -41,9 +49,12 @@ import {
 } from '@/app/services/catalog/graph';
 import {
   getCatalogProductAssets,
+  getCatalogProductLineage,
   getCatalogProductOverview,
   listCatalogSchemaTables,
   previewCatalogTable,
+  probeCatalogSchemaFreshness,
+  type CatalogSchemaProbeEntry,
   type CatalogSchemaTable,
   type CatalogTablePreview,
 } from '@/app/services/catalog';
@@ -68,6 +79,43 @@ function bytes(b?: number): string {
   let v = b;
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i += 1; }
   return `${v.toFixed(v >= 10 ? 0 : 1)} ${u[i]}`;
+}
+
+/** Human age from the probe's server-computed seconds_ago. */
+function agoLabel(seconds: number | null): string {
+  if (seconds == null) return 'age unknown';
+  if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))} min ago`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)} h ago`;
+  return `${Math.round(seconds / 86400)} d ago`;
+}
+
+/** Score bucket colors: <40 red, <70 amber, ≥70 emerald — same scale everywhere. */
+function scoreToneClass(v: number): string {
+  if (v < 40) return 'text-red-600 dark:text-red-400';
+  if (v < 70) return 'text-amber-600 dark:text-amber-400';
+  return 'text-emerald-600 dark:text-emerald-400';
+}
+
+/** Big-number score card (0–100). Honest "Not computed" when the score is null. */
+function ScoreCard({ label, value }: { label: string; value: unknown }) {
+  const num = typeof value === 'number' ? value : null;
+  return (
+    <div
+      className="rounded-lg border border-slate-100 px-3 py-2 dark:border-slate-800"
+      role="group"
+      aria-label={`${label} score`}
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      {num == null ? (
+        <p className="text-[11px] text-slate-400 dark:text-slate-500">Not computed</p>
+      ) : (
+        <p className={cn('text-2xl font-bold tabular-nums', scoreToneClass(num))}>
+          {Math.round(num)}
+          <span className="ml-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">/ 100</span>
+        </p>
+      )}
+    </div>
+  );
 }
 
 function Fact({ label, value }: { label: string; value: React.ReactNode }) {
@@ -495,27 +543,391 @@ async function fetchSection<T>(call: () => Promise<T>): Promise<SectionFetch<T>>
   }
 }
 
-function ProductOverviewSection({ productId }: { productId: string }) {
-  const [loading, setLoading] = useState(true);
-  const [overview, setOverview] = useState<SectionFetch<ProductOverviewData> | null>(null);
-  const [assets, setAssets] = useState<SectionFetch<{ assets?: ProductAssetEntry[] }> | null>(null);
+// ---------------------------------------------------------------------------
+// Schema axis bodies — real feeders. Quality + Cost read ONE freshness probe
+// (GET /observability/probes/schema, fetched once per node, shared by both
+// tabs); Governance/Perf/Modeling have no schema-scoped backend feeder yet →
+// honest note pointing at the real per-table path. Never a fake number.
+// ---------------------------------------------------------------------------
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const [ov, as] = await Promise.all([
-      fetchSection<ProductOverviewData>(() => getCatalogProductOverview(productId)),
-      fetchSection<{ assets?: ProductAssetEntry[] }>(() => getCatalogProductAssets(productId)),
-    ]);
-    setOverview(ov);
-    setAssets(as);
-    setLoading(false);
-  }, [productId]);
+type ProbeStatus = 'idle' | 'loading' | 'done' | 'unavailable' | 'error';
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+/** Backend feeders for these axes are table-scoped (catalog/tables/{...}/*). */
+const SCHEMA_AXIS_HINTS: Record<'gov' | 'perf' | 'modeling', string> = {
+  gov: 'Governance signals (masking, row-access, tag coverage) are computed per table on this environment — no schema rollup exists yet. Select a table row in Overview ▸ Tables to preview it, or open the table in Explore ▸ Design to inspect its governance.',
+  perf: 'Performance metrics (query latency, queueing, spill) are attributed per table and query — no schema rollup exists yet. Select a table row in Overview ▸ Tables to drill into a specific table.',
+  modeling: 'Modeling checks (keys, relations, star-schema conformity) run per table — no schema rollup exists yet. Select a table row in Overview ▸ Tables to inspect a specific table.',
+};
 
-  if (loading) {
+function SchemaDqAxis({
+  status,
+  tables,
+  onRetry,
+}: {
+  status: ProbeStatus;
+  tables: CatalogSchemaProbeEntry[];
+  onRetry: () => void;
+}) {
+  if (status === 'idle' || status === 'loading') return <SectionSkeleton rows={4} />;
+  if (status === 'unavailable') {
+    return (
+      <SectionNote>
+        The freshness probe (observability ▸ probes ▸ schema) is not available on this
+        environment — schema-level freshness cannot be computed yet.
+      </SectionNote>
+    );
+  }
+  if (status === 'error') {
+    return <SectionError message="Freshness probe failed." onRetry={onRetry} />;
+  }
+  if (tables.length === 0) {
+    return <SectionNote>The freshness probe found no tables in this schema.</SectionNote>;
+  }
+
+  const dated = tables.filter((t) => t.seconds_ago != null);
+  const freshest = dated.reduce<CatalogSchemaProbeEntry | null>(
+    (a, t) => (a == null || (t.seconds_ago as number) < (a.seconds_ago as number) ? t : a),
+    null,
+  );
+  const stalest = dated.reduce<CatalogSchemaProbeEntry | null>(
+    (a, t) => (a == null || (t.seconds_ago as number) > (a.seconds_ago as number) ? t : a),
+    null,
+  );
+  const emptyCount = tables.filter((t) => t.row_count === 0).length;
+
+  return (
+    <div className="space-y-1.5">
+      <dl className="rounded-lg border border-slate-100 px-2.5 py-1.5 dark:border-slate-800">
+        <Fact label="Tables probed" value={tables.length} />
+        <Fact
+          label="Empty tables"
+          value={
+            emptyCount > 0 ? (
+              <span className="text-amber-600 dark:text-amber-400">{emptyCount}</span>
+            ) : (
+              '0'
+            )
+          }
+        />
+        <Fact
+          label="Freshest"
+          value={
+            freshest ? (
+              <span title={`${freshest.table_name} — last altered ${freshest.last_modified ?? 'unknown'}`}>
+                {freshest.table_name} · {agoLabel(freshest.seconds_ago)}
+              </span>
+            ) : (
+              '—'
+            )
+          }
+        />
+        <Fact
+          label="Stalest"
+          value={
+            stalest ? (
+              <span title={`${stalest.table_name} — last altered ${stalest.last_modified ?? 'unknown'}`}>
+                {stalest.table_name} · {agoLabel(stalest.seconds_ago)}
+              </span>
+            ) : (
+              '—'
+            )
+          }
+        />
+      </dl>
+      <p className="text-[10px] leading-4 text-slate-400 dark:text-slate-500">
+        Live INFORMATION_SCHEMA freshness probe (LAST_ALTERED), top {tables.length} tables.
+        Rule breaches stay per-table — see Overview ▸ Tables.
+      </p>
+    </div>
+  );
+}
+
+function SchemaCostAxis({
+  node,
+  status,
+  tables,
+  onRetry,
+}: {
+  node: CatalogGraphNode;
+  status: ProbeStatus;
+  tables: CatalogSchemaProbeEntry[];
+  onRetry: () => void;
+}) {
+  const heaviest = tables
+    .filter((t) => t.bytes > 0)
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 5);
+
+  return (
+    <div className="space-y-1.5">
+      {/* Real inventory economics carried by the graph node itself. */}
+      <dl className="rounded-lg border border-slate-100 px-2.5 py-1.5 dark:border-slate-800">
+        <Fact label="Tables" value={node.kpis?.tables ?? 0} />
+        <Fact label="Rows" value={(node.kpis?.rows ?? 0).toLocaleString()} />
+        <Fact label="Storage" value={bytes(node.kpis?.bytes)} />
+      </dl>
+
+      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        Heaviest tables
+      </h4>
+      {(status === 'idle' || status === 'loading') && <SectionSkeleton rows={3} />}
+      {status === 'unavailable' && (
+        <SectionNote>
+          Per-table sizes need the observability schema probe — not available on this
+          environment.
+        </SectionNote>
+      )}
+      {status === 'error' && (
+        <SectionError message="Per-table size probe failed." onRetry={onRetry} />
+      )}
+      {status === 'done' && heaviest.length === 0 && (
+        <SectionNote>No table in this schema reports stored bytes yet.</SectionNote>
+      )}
+      {status === 'done' && heaviest.length > 0 && (
+        <ul
+          className="divide-y divide-slate-50 rounded-lg border border-slate-100 dark:divide-slate-800/60 dark:border-slate-800"
+          aria-label="Top 5 heaviest tables by stored bytes"
+        >
+          {heaviest.map((t) => (
+            <li key={t.table_name} className="flex items-center gap-1.5 px-2 py-1">
+              <Table2 className="h-3 w-3 shrink-0 text-slate-300 dark:text-slate-600" />
+              <span
+                className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-700 dark:text-slate-200"
+                title={t.table}
+              >
+                {t.table_name}
+              </span>
+              <span className="shrink-0 text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
+                {bytes(t.bytes)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-[10px] leading-4 text-slate-400 dark:text-slate-500">
+        Storage only — compute attribution per warehouse is table/query-scoped on this
+        environment.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Product axis bodies — all read the ONE overview fetch owned by the cockpit
+// (gold scores dq/gov/cost/perf/modeling/ml_ready + trust); Modeling adds real
+// lineage from GET /catalog/products/{id}/lineage, fetched once per node.
+// ---------------------------------------------------------------------------
+
+/** Wire shape of GET /catalog/products/{id}/lineage (products_facade.get_product_lineage). */
+interface ProductLineageData {
+  product_id?: string;
+  anchor?: string | null;
+  upstream?: string[];
+  downstream?: string[];
+}
+
+const PRODUCT_AXIS_SCORE: Record<'dq' | 'gov' | 'cost' | 'perf', { key: string; label: string }> = {
+  dq: { key: 'dq', label: 'Data quality' },
+  gov: { key: 'gov', label: 'Governance' },
+  cost: { key: 'cost', label: 'Cost' },
+  perf: { key: 'perf', label: 'Performance' },
+};
+
+/** Shared load/degrade shell for every product axis body. */
+function ProductAxisShell({
+  loading,
+  overview,
+  onRetry,
+  children,
+}: {
+  loading: boolean;
+  overview: SectionFetch<ProductOverviewData> | null;
+  onRetry: () => void;
+  children: (ov: ProductOverviewData) => React.ReactNode;
+}) {
+  if (loading || overview === null) return <SectionSkeleton rows={3} />;
+  if (overview.kind === 'unavailable') {
+    return (
+      <SectionNote>Product overview endpoint is not available on this environment.</SectionNote>
+    );
+  }
+  if (overview.kind === 'error') {
+    return <SectionError message="Product scores failed to load." onRetry={onRetry} />;
+  }
+  return <>{children(overview.data)}</>;
+}
+
+function ProductScoreAxis({
+  axis,
+  loading,
+  overview,
+  onRetry,
+}: {
+  axis: 'dq' | 'gov' | 'cost' | 'perf';
+  loading: boolean;
+  overview: SectionFetch<ProductOverviewData> | null;
+  onRetry: () => void;
+}) {
+  const spec = PRODUCT_AXIS_SCORE[axis];
+  return (
+    <ProductAxisShell loading={loading} overview={overview} onRetry={onRetry}>
+      {(ov) => {
+        const scores = ov.scores ?? {};
+        const value = scores[spec.key];
+        const computedAt = scores.computed_at;
+        return (
+          <div className="space-y-1.5">
+            <ScoreCard label={spec.label} value={value} />
+            {typeof value !== 'number' && (
+              <SectionNote>
+                No {spec.label.toLowerCase()} score computed for this product yet — run a
+                catalog refresh to score its anchor table.
+              </SectionNote>
+            )}
+            {axis === 'dq' && (
+              <dl className="rounded-lg border border-slate-100 px-2.5 py-1.5 dark:border-slate-800">
+                <Fact
+                  label="Trust score"
+                  value={
+                    typeof ov.trust_score === 'number' ? `${Math.round(ov.trust_score)} / 100` : '—'
+                  }
+                />
+                <Fact
+                  label="Quality threshold"
+                  value={ov.quality_threshold ? `${ov.quality_threshold} / 100` : '—'}
+                />
+                <Fact
+                  label="Freshness SLA"
+                  value={ov.sla_freshness_hours ? `${ov.sla_freshness_hours} h` : '—'}
+                />
+              </dl>
+            )}
+            {typeof computedAt === 'string' && (
+              <p className="text-[10px] leading-4 text-slate-400 dark:text-slate-500">
+                Gold KPI scored on the product anchor table —{' '}
+                {computedAt.slice(0, 16).replace('T', ' ')}.
+              </p>
+            )}
+          </div>
+        );
+      }}
+    </ProductAxisShell>
+  );
+}
+
+function LineageList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="space-y-0.5">
+      <h4 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        {title} · {items.length}
+      </h4>
+      {items.length === 0 ? (
+        <p className="text-[10px] text-slate-400 dark:text-slate-500">None recorded.</p>
+      ) : (
+        <ul className="divide-y divide-slate-50 rounded-lg border border-slate-100 dark:divide-slate-800/60 dark:border-slate-800">
+          {items.slice(0, 8).map((fqn) => (
+            <li key={fqn} className="flex items-center gap-1.5 px-2 py-1">
+              <Table2 className="h-3 w-3 shrink-0 text-slate-300 dark:text-slate-600" />
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-600 dark:text-slate-300"
+                title={fqn}
+              >
+                {fqn}
+              </span>
+            </li>
+          ))}
+          {items.length > 8 && (
+            <li className="px-2 py-1 text-[10px] text-slate-400 dark:text-slate-500">
+              + {items.length - 8} more
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ProductModelingAxis({
+  loading,
+  overview,
+  onRetryOverview,
+  lineage,
+  onRetryLineage,
+}: {
+  loading: boolean;
+  overview: SectionFetch<ProductOverviewData> | null;
+  onRetryOverview: () => void;
+  lineage: SectionFetch<ProductLineageData> | 'loading' | null;
+  onRetryLineage: () => void;
+}) {
+  const upstream = lineage !== 'loading' && lineage?.kind === 'ok' ? lineage.data.upstream ?? [] : [];
+  const downstream =
+    lineage !== 'loading' && lineage?.kind === 'ok' ? lineage.data.downstream ?? [] : [];
+
+  return (
+    <div className="space-y-1.5">
+      <ProductAxisShell loading={loading} overview={overview} onRetry={onRetryOverview}>
+        {(ov) => {
+          const scores = ov.scores ?? {};
+          const bothMissing =
+            typeof scores.modeling !== 'number' && typeof scores.ml_ready !== 'number';
+          return (
+            <>
+              <div className="grid grid-cols-2 gap-1.5">
+                <ScoreCard label="Modeling" value={scores.modeling} />
+                <ScoreCard label="ML-ready" value={scores.ml_ready} />
+              </div>
+              {bothMissing && (
+                <SectionNote>
+                  No modeling / ML-readiness score computed for this product yet — run a
+                  catalog refresh to score its anchor table.
+                </SectionNote>
+              )}
+            </>
+          );
+        }}
+      </ProductAxisShell>
+
+      <section className="space-y-1.5 border-t border-slate-100 pt-3 dark:border-slate-800">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+          Lineage
+        </h3>
+        {(lineage === null || lineage === 'loading') && <SectionSkeleton rows={3} />}
+        {lineage !== null && lineage !== 'loading' && lineage.kind === 'unavailable' && (
+          <SectionNote>
+            Product lineage endpoint is not available on this environment.
+          </SectionNote>
+        )}
+        {lineage !== null && lineage !== 'loading' && lineage.kind === 'error' && (
+          <SectionError message="Product lineage failed to load." onRetry={onRetryLineage} />
+        )}
+        {lineage !== null && lineage !== 'loading' && lineage.kind === 'ok' && (
+          upstream.length === 0 && downstream.length === 0 ? (
+            <SectionNote>No lineage recorded — run an explorer sync to harvest object dependencies.</SectionNote>
+          ) : (
+            <>
+              <LineageList title="Upstream" items={upstream} />
+              <LineageList title="Downstream" items={downstream} />
+            </>
+          )
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ProductOverviewSection({
+  loading,
+  overview,
+  assets,
+  onRetry,
+}: {
+  loading: boolean;
+  overview: SectionFetch<ProductOverviewData> | null;
+  assets: SectionFetch<{ assets?: ProductAssetEntry[] }> | null;
+  onRetry: () => void;
+}) {
+  if (loading || (overview === null && assets === null)) {
     return (
       <section className="space-y-1.5 border-t border-slate-100 pt-3 dark:border-slate-800">
         <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Product</h3>
@@ -550,7 +962,7 @@ function ProductOverviewSection({ productId }: { productId: string }) {
       <h3 className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Product</h3>
 
       {hasError && (
-        <SectionError message="Some product details failed to load." onRetry={() => void load()} />
+        <SectionError message="Some product details failed to load." onRetry={onRetry} />
       )}
 
       {ov && (
@@ -651,6 +1063,77 @@ export default function CatalogNodeCockpit({ node, onClose, onClassified }: Cata
     return [fqn.slice(0, dot), fqn.slice(dot + 1)] as const;
   }, [isSchema, node.id]);
 
+  const isProduct = node.kind === 'product';
+  const productId = isProduct ? node.id.replace(/^product:/, '') : null;
+
+  // Product overview + assets — fetched ONCE per node; the Overview section
+  // AND every axis tab read this state (no refetch on tab switch).
+  const [prodLoading, setProdLoading] = useState(false);
+  const [prodOverview, setProdOverview] = useState<SectionFetch<ProductOverviewData> | null>(null);
+  const [prodAssets, setProdAssets] =
+    useState<SectionFetch<{ assets?: ProductAssetEntry[] }> | null>(null);
+
+  const loadProduct = useCallback(async () => {
+    if (!productId) return;
+    setProdLoading(true);
+    const [ov, as] = await Promise.all([
+      fetchSection<ProductOverviewData>(() => getCatalogProductOverview(productId)),
+      fetchSection<{ assets?: ProductAssetEntry[] }>(() => getCatalogProductAssets(productId)),
+    ]);
+    setProdOverview(ov);
+    setProdAssets(as);
+    setProdLoading(false);
+  }, [productId]);
+
+  useEffect(() => {
+    setProdOverview(null);
+    setProdAssets(null);
+    if (productId) void loadProduct();
+  }, [productId, loadProduct]);
+
+  // Product lineage — fetched once per node, lazily on first Modeling open.
+  const [lineage, setLineage] = useState<SectionFetch<ProductLineageData> | 'loading' | null>(null);
+  const loadLineage = useCallback(async () => {
+    if (!productId) return;
+    setLineage('loading');
+    setLineage(await fetchSection<ProductLineageData>(() => getCatalogProductLineage(productId)));
+  }, [productId]);
+  useEffect(() => {
+    setLineage(null);
+  }, [productId]);
+  useEffect(() => {
+    if (productId && axis === 'modeling' && lineage === null) void loadLineage();
+  }, [productId, axis, lineage, loadLineage]);
+
+  // Schema freshness probe — fetched once per node, lazily on first Quality or
+  // Cost open; both axes share the same single INFORMATION_SCHEMA scan.
+  const [probeStatus, setProbeStatus] = useState<ProbeStatus>('idle');
+  const [probeTables, setProbeTables] = useState<CatalogSchemaProbeEntry[]>([]);
+  const loadProbe = useCallback(async () => {
+    if (!db || !schema) return;
+    setProbeStatus('loading');
+    try {
+      const res = await probeCatalogSchemaFreshness(db, schema);
+      if (!res.available) {
+        setProbeStatus('unavailable');
+        return;
+      }
+      setProbeTables(res.tables);
+      setProbeStatus('done');
+    } catch {
+      setProbeStatus('error');
+    }
+  }, [db, schema]);
+  useEffect(() => {
+    setProbeStatus('idle');
+    setProbeTables([]);
+  }, [db, schema]);
+  useEffect(() => {
+    if (isSchema && (axis === 'dq' || axis === 'cost') && probeStatus === 'idle') {
+      void loadProbe();
+    }
+  }, [isSchema, axis, probeStatus, loadProbe]);
+
   return (
     <aside className="flex h-full min-h-[560px] w-80 shrink-0 flex-col rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       {/* Identity header */}
@@ -735,6 +1218,36 @@ export default function CatalogNodeCockpit({ node, onClose, onClassified }: Cata
             )}
             {node.kind === 'database' && <Fact label="Scope" value="Database container" />}
           </dl>
+        ) : isProduct ? (
+          axis === 'modeling' ? (
+            <ProductModelingAxis
+              loading={prodLoading}
+              overview={prodOverview}
+              onRetryOverview={() => void loadProduct()}
+              lineage={lineage}
+              onRetryLineage={() => void loadLineage()}
+            />
+          ) : (
+            <ProductScoreAxis
+              axis={axis}
+              loading={prodLoading}
+              overview={prodOverview}
+              onRetry={() => void loadProduct()}
+            />
+          )
+        ) : isSchema ? (
+          axis === 'dq' ? (
+            <SchemaDqAxis status={probeStatus} tables={probeTables} onRetry={() => void loadProbe()} />
+          ) : axis === 'cost' ? (
+            <SchemaCostAxis
+              node={node}
+              status={probeStatus}
+              tables={probeTables}
+              onRetry={() => void loadProbe()}
+            />
+          ) : (
+            <SectionNote>{SCHEMA_AXIS_HINTS[axis]}</SectionNote>
+          )
         ) : (
           <AxisPending blurb={AXES.find((a) => a.id === axis)!.blurb} />
         )}
@@ -745,8 +1258,13 @@ export default function CatalogNodeCockpit({ node, onClose, onClassified }: Cata
         )}
 
         {/* Product level — higher-level card: owner, counts, gold scores, assets */}
-        {axis === 'overview' && node.kind === 'product' && (
-          <ProductOverviewSection productId={node.id.replace(/^product:/, '')} />
+        {axis === 'overview' && isProduct && (
+          <ProductOverviewSection
+            loading={prodLoading}
+            overview={prodOverview}
+            assets={prodAssets}
+            onRetry={() => void loadProduct()}
+          />
         )}
 
         {/* Contextual actions — rich, described, honestly gated */}

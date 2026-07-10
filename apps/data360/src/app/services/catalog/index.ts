@@ -692,9 +692,12 @@ export type { TableColumn } from '../mapping';
 export {
   listCatalogSchemaTables,
   previewCatalogTable,
+  probeCatalogSchemaFreshness,
 } from './inventory';
 export type {
   CatalogSchemaTable,
   CatalogSchemaTablesResult,
+  CatalogSchemaProbeEntry,
+  CatalogSchemaProbeResult,
   CatalogTablePreview,
 } from './inventory';

@@ -20,6 +20,9 @@ export interface CatalogGraphNode {
   created?: string | null;
   status?: string | null;
   anchor_fqn?: string | null;
+  /** Product nodes only: distinct tables feeding / fed by the anchor (real lineage, 0 allowed). */
+  upstream_tables?: number;
+  downstream_tables?: number;
   project_id?: string;
   project_type?: string | null;
   environments?: string[];
