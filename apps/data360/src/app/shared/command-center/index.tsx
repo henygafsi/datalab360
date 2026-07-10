@@ -16,7 +16,7 @@ import Link from 'next/link';
 import { Text, Title, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
-import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
+import { motion, LayoutGroup } from 'framer-motion';
 import {
   RefreshCw,
   LayoutDashboard,
@@ -1317,16 +1317,92 @@ function CommandCenterDashboardInner() {
     const fromUrl = new URL(window.location.href).searchParams.get('tab');
     const fromStorage = window.localStorage.getItem('data360.command-center.activeTab');
     const resolved = resolveTabId(fromUrl ?? fromStorage ?? 'overview');
-    if (resolved !== 'overview') _setActiveTab(resolved);
+    if (resolved !== 'overview') {
+      _setActiveTab(resolved);
+      // One-pager: a deep link lands ON the section, not on a hidden tab.
+      window.setTimeout(() => {
+        suppressSpyUntil.current = Date.now() + 900;
+        document.getElementById(`cc-sec-${resolved}`)?.scrollIntoView({ block: 'start' });
+      }, 200);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [isTabTransitioning, startTabTransition] = useTransition();
   // Docked actions right-bar (the module's single centralized action surface).
   const [panelOpen, setPanelOpen] = useState(false);
   // Drill-down: switch tabs from a KPI card without a full navigation.
+  // ── One-pager scroll machinery ────────────────────────────────────
+  // The 9 former tabs render STACKED; the nav bar and cockpit jump-scroll.
+  // `activeTab` is now "the section in view" — set by the scrollspy — so the
+  // existing per-tab fetch effects keep working untouched (they key on it).
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+  // A programmatic smooth-scroll sweeps past intermediate sections; without a
+  // suppression window the spy would "select" each of them in turn.
+  const suppressSpyUntil = useRef(0);
+  const scrollToSection = useCallback((id: string) => {
+    const target = resolveTabId(id);
+    // Jumping to a far section makes the lazy sections ABOVE it mount and
+    // grow (skeleton 288px → real height), pushing the target back out of
+    // view. Re-anchor twice while layout settles, and keep the spy quiet for
+    // the whole window so it doesn't "select" the sections sliding past.
+    suppressSpyUntil.current = Date.now() + 2600;
+    const el = () => document.getElementById(`cc-sec-${target}`);
+    el()?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => el()?.scrollIntoView({ block: 'start' }), 1000);
+    window.setTimeout(() => el()?.scrollIntoView({ block: 'start' }), 2000);
+  }, []);
+  // Spy updates state + URL/storage but NOT trackTabSwitch — scrolling past a
+  // section is not a navigation intent, and would flood analytics.
+  const spySetActive = useCallback((id: string) => {
+    _setActiveTab(id);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('data360.command-center.activeTab', id);
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', id);
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []);
+  // Sections mount their (heavy) bodies only when approaching the viewport —
+  // data-first: the fetch fires at approach time, the skeleton renders until
+  // the data lands, and off-screen sections cost nothing at page load.
+  const [mountedSections, setMountedSections] = useState<Set<string>>(() => new Set(['overview']));
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') return;
+    const mountObs = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const id = (entry.target as HTMLElement).dataset.ccSection;
+          if (id) setMountedSections((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+        });
+      },
+      { rootMargin: '600px 0px 600px 0px' },
+    );
+    const spyObs = new IntersectionObserver(
+      (entries) => {
+        if (Date.now() < suppressSpyUntil.current) return;
+        const visible = entries.filter((e) => e.isIntersecting);
+        if (!visible.length) return;
+        const top = visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        const id = (top.target as HTMLElement).dataset.ccSection;
+        if (id && id !== activeTabRef.current) spySetActive(id);
+      },
+      // Active = the section crossing the upper-middle band of the viewport.
+      { rootMargin: '-30% 0px -55% 0px' },
+    );
+    document.querySelectorAll<HTMLElement>('[data-cc-section]').forEach((el) => {
+      mountObs.observe(el);
+      spyObs.observe(el);
+    });
+    return () => { mountObs.disconnect(); spyObs.disconnect(); };
+  }, [spySetActive]);
   const goToTab = useCallback(
-    (id: string) => startTabTransition(() => setActiveTab(id)),
-    [setActiveTab],
+    (id: string) => {
+      startTabTransition(() => setActiveTab(id));
+      window.requestAnimationFrame(() => scrollToSection(id));
+    },
+    [setActiveTab, scrollToSection],
   );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1841,6 +1917,26 @@ function CommandCenterDashboardInner() {
     }
   }, []);
 
+  // One-pager: when a section's body mounts (viewport approach), fire its
+  // orchestrated fetch immediately — data-first, the skeleton renders while
+  // the request is in flight. The [activeTab, filters] effect below stays the
+  // refresh path; its tabDataCache guard prevents double-fetching.
+  const approachFetchFired = useRef<Set<string>>(new Set(['overview']));
+  useEffect(() => {
+    mountedSections.forEach((id) => {
+      if (approachFetchFired.current.has(id)) return;
+      approachFetchFired.current.add(id);
+      switch (id) {
+        case 'projects': fetchProjects(); break;
+        case 'security': fetchSecurityAdv(); break;
+        case 'finops': fetchCost(); break;
+        case 'platform-activity': fetchPlatformActivity(); break;
+        // dwh-plan / snowflake-objects / modules / organization are
+        // self-contained components that fetch on their own mount.
+      }
+    });
+  }, [mountedSections, fetchProjects, fetchSecurityAdv, fetchCost, fetchPlatformActivity]);
+
   // Re-fetch active tab when filters or activeTab change (skip if cached for
   // THIS filter combination within TTL). The cache key must include filter
   // values — otherwise changing a filter wouldn't trigger a refetch and the
@@ -2160,6 +2256,7 @@ function CommandCenterDashboardInner() {
                 e.preventDefault();
                 const nextTab = tabs[nextIdx];
                 startTabTransition(() => setActiveTab(nextTab.id));
+                scrollToSection(nextTab.id);
                 window.requestAnimationFrame(() => {
                   const el = document.getElementById(`tab-${nextTab.id}`);
                   el?.focus();
@@ -2175,12 +2272,13 @@ function CommandCenterDashboardInner() {
                   key={tab.id}
                   role="tab"
                   aria-selected={isActive}
-                  aria-controls={`tabpanel-${tab.id}`}
+                  aria-controls={`cc-sec-${tab.id}`}
                   id={`tab-${tab.id}`}
                   tabIndex={isActive ? 0 : -1}
                   onKeyDown={onTabKeyDown}
                   onClick={(e) => {
                     startTabTransition(() => setActiveTab(tab.id));
+                    scrollToSection(tab.id);
                     e.currentTarget.scrollIntoView({
                       behavior: 'smooth',
                       block: 'nearest',
@@ -2225,142 +2323,190 @@ function CommandCenterDashboardInner() {
       </div>
       {/* /sticky cluster ───────────────────────────────────────────── */}
 
-      {/* ── Tab Content with smooth crossfade ─────────────────────── */}
-      <div
-        className="space-y-6"
-        role="tabpanel"
-        id={`tabpanel-${activeTab}`}
-        aria-labelledby={`tab-${activeTab}`}
-      >
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.22, ease: 'easeOut' }}
-            className="space-y-6"
-          >
-            {activeTab === 'overview' && (
-              <OverviewTab
-                summary={summary}
-                moduleHealth={moduleHealth}
-                activityFeed={activityFeed}
-                loading={tabLoading.overview}
-                onRetry={fetchOverview}
-                globalDays={filters.days}
-                onNavigateTab={goToTab}
-              />
-            )}
-            {activeTab === 'dwh-plan' && (
-              <Suspense fallback={<LoadingSection />}>
-                <DwhActionPlanTab />
-              </Suspense>
-            )}
-            {activeTab === 'snowflake-objects' && (
-              /* Refactored Data Catalog Explorer (UI-first, sample data on the
-                 not-yet-wired fields): 8 sub-tabs, KPI grid, AI Discovery,
-                 rich object explorer + detail panel with Data360 migration
-                 classification. Real ACCOUNT_USAGE on the data sub-tabs. */
-              <SnowflakeObjectsTab />
-            )}
-            {activeTab === 'finops' && (
-              tabError.finops && !tabLoading.finops ? (
-                <TabErrorState message={tabError.finops} onRetry={fetchCost} />
-              ) : (
-                <CostTab
-                  data={costData}
-                  loading={tabLoading.finops}
-                  days={filters.days}
-                  onNavigateTab={goToTab}
-                />
-              )
-            )}
-            {activeTab === 'modules' && (
-              <Suspense fallback={<LoadingSection />}>
-                <ModulesTab />
-              </Suspense>
-            )}
-            {activeTab === 'platform-activity' && (
-              <PlatformActivityTab
-                platformData={platformData}
-                activityFeed={activityFeed}
-                summary={summary}
-                loading={tabLoading['platform-activity']}
-                onNavigateTab={goToTab}
-              />
-            )}
-            {activeTab === 'projects' && (
-              tabError.projects && !tabLoading.projects ? (
-                <TabErrorState message={tabError.projects} onRetry={fetchProjects} />
-              ) : (
-                <ProjectsTab
-                  data={projectsData}
-                  loading={tabLoading.projects}
-                  onRefresh={fetchProjects}
-                />
-              )
-            )}
-            {/* Merged Security tab: posture/audit (SecurityAdvTab) stacked with
-                the Security Map graph. Two clearly-headed sections, no popup. */}
-            {activeTab === 'security' && (
-              <div className="space-y-8">
-                <section>
-                  <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Security posture &amp; audit
-                  </h2>
-                  {tabError.security && !tabLoading['security'] ? (
-                    <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
-                  ) : (
-                    <SecurityAdvTab
-                      data={securityData}
-                      loading={tabLoading['security']}
-                      onNavigateTab={goToTab}
-                    />
-                  )}
-                </section>
-                <section>
-                  <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Security map
-                  </h2>
-                  <SecurityMap days={filters.days} />
-                </section>
+      {/* ── One-pager: every former tab is a stacked, scrollable section.
+          The nav bar + cockpit jump-scroll; the scrollspy keeps them in sync.
+          Bodies mount when the section approaches the viewport (skeleton
+          first, data lands behind it) — charts are never hidden behind a
+          tab click again. */}
+      <div className="space-y-14">
+        {tabs.map((tab) => {
+          const SectionIcon = tab.icon;
+          const sectionRefresh: Record<string, (() => void) | undefined> = {
+            overview: fetchOverview,
+            finops: fetchCost,
+            projects: fetchProjects,
+            security: fetchSecurityAdv,
+            'platform-activity': fetchPlatformActivity,
+          };
+          const onSectionRefresh = sectionRefresh[tab.id];
+          const body = (() => {
+            switch (tab.id) {
+              case 'overview':
+                return (
+                  <OverviewTab
+                    summary={summary}
+                    moduleHealth={moduleHealth}
+                    activityFeed={activityFeed}
+                    loading={tabLoading.overview}
+                    onRetry={fetchOverview}
+                    globalDays={filters.days}
+                    onNavigateTab={goToTab}
+                  />
+                );
+              case 'dwh-plan':
+                return (
+                  <Suspense fallback={<LoadingSection />}>
+                    <DwhActionPlanTab />
+                  </Suspense>
+                );
+              case 'snowflake-objects':
+                /* Refactored Data Catalog Explorer (UI-first, sample data on the
+                   not-yet-wired fields): 8 sub-tabs, KPI grid, AI Discovery,
+                   rich object explorer + detail panel with Data360 migration
+                   classification. Real ACCOUNT_USAGE on the data sub-tabs. */
+                return <SnowflakeObjectsTab />;
+              case 'finops':
+                return tabError.finops && !tabLoading.finops ? (
+                  <TabErrorState message={tabError.finops} onRetry={fetchCost} />
+                ) : (
+                  <CostTab
+                    data={costData}
+                    loading={tabLoading.finops}
+                    days={filters.days}
+                    onNavigateTab={goToTab}
+                  />
+                );
+              case 'modules':
+                return (
+                  <Suspense fallback={<LoadingSection />}>
+                    <ModulesTab />
+                  </Suspense>
+                );
+              case 'platform-activity':
+                return (
+                  <PlatformActivityTab
+                    platformData={platformData}
+                    activityFeed={activityFeed}
+                    summary={summary}
+                    loading={tabLoading['platform-activity']}
+                    onNavigateTab={goToTab}
+                  />
+                );
+              case 'projects':
+                return tabError.projects && !tabLoading.projects ? (
+                  <TabErrorState message={tabError.projects} onRetry={fetchProjects} />
+                ) : (
+                  <ProjectsTab
+                    data={projectsData}
+                    loading={tabLoading.projects}
+                    onRefresh={fetchProjects}
+                  />
+                );
+              case 'security':
+                /* Merged Security section: posture/audit (SecurityAdvTab) stacked
+                   with the Security Map graph. Two clearly-headed parts, no popup. */
+                return (
+                  <div className="space-y-8">
+                    <section>
+                      <h3 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Security posture &amp; audit
+                      </h3>
+                      {tabError.security && !tabLoading['security'] ? (
+                        <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
+                      ) : (
+                        <SecurityAdvTab
+                          data={securityData}
+                          loading={tabLoading['security']}
+                          onNavigateTab={goToTab}
+                        />
+                      )}
+                    </section>
+                    <section>
+                      <h3 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                        Security map
+                      </h3>
+                      <SecurityMap days={filters.days} />
+                    </section>
+                  </div>
+                );
+              case 'organization':
+                /* Merged Organization section: org summary + ORGADMIN-gated org
+                   accounts + Snowflake accounts honest-empty states, stacked. Each
+                   child owns its own ORGADMIN gating + honest empty messaging. */
+                return (
+                  <Suspense fallback={<LoadingSection />}>
+                    <div className="space-y-8">
+                      <section>
+                        {/* Self-contained: owns its own date-range + role/module/account
+                            filters; does NOT consume the parent global filter bar. */}
+                        <OrgSummaryTab />
+                      </section>
+                      <section>
+                        <h3 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                          Org accounts
+                        </h3>
+                        <OrgAccountsTab onNavigateTab={goToTab} />
+                      </section>
+                      <section>
+                        <h3 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                          Connected Accounts
+                        </h3>
+                        <SnowflakeAccountsTab onNavigateTab={goToTab} />
+                      </section>
+                      <section>
+                        <h3 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                          Accounts &amp; audit
+                        </h3>
+                        <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
+                      </section>
+                    </div>
+                  </Suspense>
+                );
+              default:
+                return null;
+            }
+          })();
+          return (
+            <section
+              key={tab.id}
+              id={`cc-sec-${tab.id}`}
+              data-cc-section={tab.id}
+              aria-labelledby={`cc-sec-h-${tab.id}`}
+              className="scroll-mt-44"
+            >
+              <div className="mb-4 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
+                <SectionIcon className="h-4 w-4 text-slate-400" aria-hidden />
+                <h2
+                  id={`cc-sec-h-${tab.id}`}
+                  className="text-sm font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300"
+                >
+                  {tab.label}
+                </h2>
+                {onSectionRefresh && (
+                  <button
+                    type="button"
+                    onClick={onSectionRefresh}
+                    title={`Refresh ${tab.label}`}
+                    aria-label={`Refresh ${tab.label}`}
+                    className="ml-auto rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                  >
+                    <RefreshCw className={cn('h-3.5 w-3.5', tabLoading[tab.id] && 'animate-spin')} />
+                  </button>
+                )}
               </div>
-            )}
-            {/* Merged Organization tab: org summary + ORGADMIN-gated org accounts
-                + Snowflake accounts honest-empty states, stacked. Each child owns
-                its own ORGADMIN gating + honest empty messaging. */}
-            {activeTab === 'organization' && (
-              <Suspense fallback={<LoadingSection />}>
-                <div className="space-y-8">
-                  <section>
-                    {/* Self-contained: owns its own date-range + role/module/account
-                        filters; does NOT consume the parent global filter bar. */}
-                    <OrgSummaryTab />
-                  </section>
-                  <section>
-                    <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Org accounts
-                    </h2>
-                    <OrgAccountsTab onNavigateTab={goToTab} />
-                  </section>
-                  <section>
-                    <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Connected Accounts
-                    </h2>
-                    <SnowflakeAccountsTab onNavigateTab={goToTab} />
-                  </section>
-                  <section>
-                    <h2 className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Accounts &amp; audit
-                    </h2>
-                    <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
-                  </section>
-                </div>
-              </Suspense>
-            )}
-          </motion.div>
-        </AnimatePresence>
+              {mountedSections.has(tab.id) ? (
+                body
+              ) : (
+                /* Approach skeleton — keeps scroll geometry stable until the
+                   observer mounts the real body (data-first, never blank). */
+                <div
+                  className="h-72 animate-pulse rounded-2xl border border-slate-200/60 bg-slate-100/80 dark:border-slate-800/60 dark:bg-slate-800/40"
+                  aria-hidden
+                />
+              )}
+            </section>
+          );
+        })}
       </div>
         </div>
         {/* ── Docked Actions right-bar (module action surface) ───────── */}
