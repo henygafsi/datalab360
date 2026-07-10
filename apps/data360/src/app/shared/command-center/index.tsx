@@ -158,6 +158,7 @@ import ServerlessFinOpsCards from './serverless-finops-cards';
 import TopProblemsPanel from './TopProblemsPanel';
 import WhatChangedCard from './WhatChangedCard';
 import ActivityDigestCard from './ActivityDigestCard';
+import { MaturityLadderStrip, WarehouseCtaGroup, SecurityCtaGroup } from './GrowCtas';
 import ExecutiveOverview from './ExecutiveOverview';
 import AiAdvisor from './AiAdvisor';
 import SnowflakeInsightsAdvisor from './SnowflakeInsightsAdvisor';
@@ -3518,6 +3519,13 @@ const OverviewTab = memo(function OverviewTab({
 
         </GridCell>
         <GridCell>
+      {/* Grow strip — maturity ladder (FINAL-TAB-DISPLAY-SPEC · Tab 1 "Grow").
+          Position computed from REAL gating facts only; unavailable sources
+          render '?' with the reason, never a guess. */}
+      <MaturityLadderStrip summary={summary} summaryLoading={loading} />
+
+        </GridCell>
+        <GridCell>
       {/* Subscription-expiry banner — only when a real end date is within 30d. */}
       {subscriptionDaysLeft != null && subscriptionDaysLeft < 30 ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
@@ -5328,6 +5336,13 @@ const CostTab = memo(function CostTab({
       )}
 
       <Board>
+        <GridCell>
+      {/* CTA group — warehouse lifecycle best-practice actions bound to the
+          /api/administration/warehouses live SHOW (FINAL-TAB-DISPLAY-SPEC ·
+          Tab 2 "CTAs"). Honest RBAC/deploy gating; failures surface inline. */}
+      <WarehouseCtaGroup />
+
+        </GridCell>
         <GridCell className="xl:col-span-6">
       {/* 30d cost projection for the top spending warehouse (cost-simulation).
           Degrades quietly when the backend route isn't deployed yet. */}
@@ -5968,6 +5983,13 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
       />
 
       <Board>
+        <GridCell>
+      {/* CTA group — security best-practice deep-links (FINAL-TAB-DISPLAY-SPEC ·
+          Tab 5 "CTAs"): orphan-grants review + "Require MFA for N users" with N
+          bound to this tab's already-loaded mfa_coverage KPI. */}
+      <SecurityCtaGroup data={data} />
+
+        </GridCell>
         <GridCell className="xl:col-span-6">
       {/* Login Trend Chart */}
       <SectionCard title={`Login Activity (${data.period_days ?? 7}d)`}>
