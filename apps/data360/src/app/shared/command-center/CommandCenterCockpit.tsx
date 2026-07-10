@@ -1113,20 +1113,28 @@ export function useCommandCenterCockpit({
     },
     {
       label: 'Module health',
-      value:
-        healthScore != null
+      // healthScore is summary.quality.health_score — the DATA-QUALITY score,
+      // not module health. Using it as this tile's value produced
+      // "Module health 24% · all modules healthy" (live-caught contradiction).
+      // Value = the real module count; the DQ score rides the subtitle,
+      // labeled as what it is.
+      value: moduleCounts
+        ? `${moduleCounts.healthy}/${moduleCounts.total}`
+        : healthScore != null
           ? `${Math.round(healthScore)}%`
-          : moduleCounts
-            ? `${moduleCounts.healthy}/${moduleCounts.total}`
-            : undefined,
+          : undefined,
       dot: qualitySeverity,
       sub: moduleCounts
         ? moduleCounts.critical > 0
           ? `${moduleCounts.critical} critical`
           : moduleCounts.degraded > 0
             ? `${moduleCounts.degraded} degraded`
-            : 'all modules healthy'
-        : undefined,
+            : healthScore != null
+              ? `all healthy · DQ ${Math.round(healthScore)}%`
+              : 'all modules healthy'
+        : healthScore != null
+          ? `DQ score ${Math.round(healthScore)}%`
+          : undefined,
       onClick: () => openAxis('quality'),
       title: 'Quality & module health — open the Quality axis',
     },

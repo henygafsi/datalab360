@@ -59,6 +59,10 @@ function Skeleton() {
 export default function ProblemsInsightStrip() {
   const [data, setData] = useState<ErrorsOverviewResponse | null>(null);
   const [insight, setInsight] = useState<ErrorsInsightResponse | null>(null);
+  // The Cortex briefing can run ~10 lines (~450px) and pushed the active
+  // tab's KPI zone below the fold (live-caught on the FinOps tab). Collapsed
+  // to 2 lines by default; the reader opts into the full briefing.
+  const [briefingOpen, setBriefingOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -149,9 +153,25 @@ export default function ProblemsInsightStrip() {
           </span>
         </div>
         {insight?.narrative ? (
-          <p className="whitespace-pre-line text-[11.5px] leading-5 text-slate-700 dark:text-slate-200">
-            {insight.narrative}
-          </p>
+          <div>
+            <p
+              className={
+                'whitespace-pre-line text-[11.5px] leading-5 text-slate-700 dark:text-slate-200' +
+                (briefingOpen ? '' : ' line-clamp-2')
+              }
+            >
+              {insight.narrative}
+            </p>
+            {insight.narrative.length > 160 && (
+              <button
+                type="button"
+                onClick={() => setBriefingOpen((v) => !v)}
+                className="mt-1 text-[10.5px] font-medium text-violet-600 hover:text-violet-700 dark:text-violet-400"
+              >
+                {briefingOpen ? 'Collapse briefing' : 'Read full briefing'}
+              </button>
+            )}
+          </div>
         ) : insight ? (
           <p className="text-[11px] text-slate-500 dark:text-slate-400">
             Summary unavailable{insight.degraded_reason ? ` (${insight.degraded_reason.slice(0, 80)})` : ''} — the
