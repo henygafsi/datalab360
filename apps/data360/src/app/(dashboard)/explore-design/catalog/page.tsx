@@ -5,12 +5,13 @@
  * sub-page (redesign spec §6, mockup 12-catalog). A clean grid of catalog
  * objects with SOURCE/PRODUCT badges, project + tag chips, quality/trust
  * mini-signals, facet filters and a DOCKED detail drawer. No mindmap, no
- * popups. Tab state syncs to ?tab= (per-tab URLs, no Suspense panels).
+ * popups. Tab state is LOCAL (instant switch, no navigation) and mirrors to
+ * ?tab= via history.replaceState for shareable per-tab URLs.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { routes } from '@/config/routes';
@@ -34,6 +35,8 @@ const TABS: Array<{ id: CatalogTab; label: string }> = [
   { id: 'all', label: 'All' },
 ];
 
+const PAGE_SIZES = [12, 24, 48] as const;
+
 function parseTab(raw: string | null): CatalogTab {
   return raw === 'sources' || raw === 'products' || raw === 'all' ? raw : 'all';
 }
@@ -43,17 +46,20 @@ function fmtAvg(v: number | null | undefined): string {
 }
 
 export default function ExploreDesignCatalogPage() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { trackFeatureClick } = useTrackEvent();
 
-  const tab = parseTab(searchParams.get('tab'));
+  // ?tab= is parsed ONCE on mount (back-compat with per-tab deep links);
+  // subsequent switches are pure state + history.replaceState — no Next.js
+  // navigation, no remount, instant switch.
+  const [tab, setTabState] = useState<CatalogTab>(() => parseTab(searchParams.get('tab')));
   const setTab = useCallback(
     (next: CatalogTab) => {
-      router.replace(`${routes.exploreDesign.catalog}?tab=${next}`, { scroll: false });
+      setTabState(next);
+      window.history.replaceState(null, '', `?tab=${next}`);
       trackFeatureClick('ed_catalog_tab', { module: 'explore_design', tab: next });
     },
-    [router, trackFeatureClick],
+    [trackFeatureClick],
   );
 
   const {
@@ -95,6 +101,23 @@ export default function ExploreDesignCatalogPage() {
 
   // ── Center view: floating graph canvas (default) or classic grid ──────────
   const [view, setView] = useState<'canvas' | 'grid'>('canvas');
+
+  // ── Master pagination (grid view) ──────────────────────────────────────────
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[1]);
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    // Any change to the working set restarts at page 1.
+    setPage(1);
+  }, [tab, query, projectFilter, tagFilter]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const paged = useMemo(
+    () => filtered.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filtered, safePage, pageSize],
+  );
+  const showPagination = filtered.length > PAGE_SIZES[0];
+  const rangeStart = filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safePage * pageSize, filtered.length);
 
   // ── Docked detail drawer ───────────────────────────────────────────────────
   const [selected, setSelected] = useState<CatalogItem | null>(null);
@@ -319,22 +342,79 @@ export default function ExploreDesignCatalogPage() {
               }
             />
           ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {filtered.map((item) => (
-                <CatalogCard
-                  key={item.id}
-                  item={item}
-                  selected={selected?.id === item.id}
-                  onSelect={(i) => {
-                    setSelected((prev) => (prev?.id === i.id ? null : i));
-                    trackFeatureClick('ed_catalog_object_selected', {
-                      module: 'explore_design',
-                      kind: i.kind,
-                    });
-                  }}
-                />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {paged.map((item) => (
+                  <CatalogCard
+                    key={item.id}
+                    item={item}
+                    selected={selected?.id === item.id}
+                    onSelect={(i) => {
+                      setSelected((prev) => (prev?.id === i.id ? null : i));
+                      trackFeatureClick('ed_catalog_object_selected', {
+                        module: 'explore_design',
+                        kind: i.kind,
+                      });
+                    }}
+                  />
+                ))}
+              </div>
+
+              {showPagination && (
+                <nav
+                  aria-label="Catalog pagination"
+                  className="mt-4 flex flex-wrap items-center justify-center gap-3 text-xs"
+                >
+                  <label className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    Per page
+                    <select
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setPage(1);
+                      }}
+                      aria-label="Objects per page"
+                      className={inputClass}
+                    >
+                      {PAGE_SIZES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPage(safePage - 1)}
+                      disabled={safePage <= 1}
+                      aria-label="Previous page"
+                      className="rounded-md border border-slate-200 px-2.5 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      Prev
+                    </button>
+                    <span
+                      aria-current="page"
+                      className="px-2 text-[11px] text-slate-500 dark:text-slate-400"
+                    >
+                      Page {safePage} / {pageCount}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPage(safePage + 1)}
+                      disabled={safePage >= pageCount}
+                      aria-label="Next page"
+                      className="rounded-md border border-slate-200 px-2.5 py-1 font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      Next
+                    </button>
+                  </div>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                    Showing {rangeStart}–{rangeEnd} of {filtered.length}
+                  </span>
+                </nav>
+              )}
+            </>
           )}
         </div>
 

@@ -684,3 +684,17 @@ export async function getObjectOpenInSnowflake(
 
 export { getDatabases, getSchemas, getTables, getTableColumns } from '../mapping';
 export type { TableColumn } from '../mapping';
+
+// ---------------------------------------------------------------------------
+// Re-exports — schema table inventory + non-project preview (catalog cockpit)
+// ---------------------------------------------------------------------------
+
+export {
+  listCatalogSchemaTables,
+  previewCatalogTable,
+} from './inventory';
+export type {
+  CatalogSchemaTable,
+  CatalogSchemaTablesResult,
+  CatalogTablePreview,
+} from './inventory';
