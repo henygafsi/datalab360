@@ -142,3 +142,13 @@ export type {
 // Agentic proposals + governed coco execution (POST /cortex/agent/propose, /coco/run-sql)
 export { proposeAgentActions, cocoRunSql } from './agent';
 export type { ProposedAction, ProposedActionKind, AgentProposeResult, CocoRunResult } from './agent';
+
+// COCO Drafts — JSON proposal drafts tested on real data (POST /cortex/coco/draft)
+export { cocoDraft } from './draft';
+export type {
+  DraftModule,
+  DraftTestStep,
+  DraftTested,
+  CocoDraftRequest,
+  CocoDraftResult,
+} from './draft';

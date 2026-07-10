@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageCircle, X, Send, Plus, Users, Search, ArrowLeft, Paperclip, Sparkles, FolderOpen, Layers, Loader2 } from 'lucide-react';
+import { MessageCircle, X, Send, Plus, Users, Search, ArrowLeft, Paperclip, Sparkles, FolderOpen, Layers, Loader2, FileJson } from 'lucide-react';
 import { Button, Badge } from 'rizzui';
 import { useAuth } from '@/hooks/useAuth';
 import { usePathname } from 'next/navigation';
@@ -10,6 +10,7 @@ import AiBuildConversation, {
   OPEN_AI_BUILD_EVENT,
   isAiBuildConversationTitle,
 } from './AiBuildConversation';
+import CocoDraftsPanel from './CocoDraftsPanel';
 
 interface Conversation {
   conversation_id: string;
@@ -80,6 +81,9 @@ export default function ChatSidebar() {
   // panel renders AiBuildConversation instead of the regular list/thread.
   const [showAiBuild, setShowAiBuild] = useState(false);
   const [aiBuildConv, setAiBuildConv] = useState<{ conversation_id: string; title: string } | null>(null);
+  // Drafts mode — COCO returns JSON proposal drafts tested on real data
+  // (POST /cortex/coco/draft); rendered inside the same docked panel.
+  const [showDrafts, setShowDrafts] = useState(false);
   const [attachFile, setAttachFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -457,7 +461,10 @@ export default function ChatSidebar() {
       {/* Chat panel */}
       {isOpen && (
         <div className="fixed bottom-24 right-6 z-50 flex h-[560px] w-[400px] flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-900">
-          {showAiBuild ? (
+          {showDrafts ? (
+            /* Drafts mode — JSON proposals tested on real data, same docked panel */
+            <CocoDraftsPanel onBack={() => setShowDrafts(false)} />
+          ) : showAiBuild ? (
             /* Chat-first AI build flow — same docked panel, no popup */
             <AiBuildConversation
               initialConversation={aiBuildConv}
@@ -496,6 +503,15 @@ export default function ChatSidebar() {
                     className="flex items-center gap-1 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-2 py-1 text-[10px] font-semibold text-white hover:from-violet-700 hover:to-indigo-700"
                   >
                     <Sparkles className="h-3 w-3" /> Build with AI
+                  </button>
+                  <button
+                    aria-label="Drafts"
+                    data-testid="coco-drafts-open"
+                    title="Describe an intent — COCO drafts a SQL / Chart / ETL proposal and tests it on real data"
+                    onClick={() => { setShowNewChat(false); setShowDrafts(true); }}
+                    className="flex items-center gap-1 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 px-2 py-1 text-[10px] font-semibold text-white hover:from-emerald-700 hover:to-teal-700"
+                  >
+                    <FileJson className="h-3 w-3" /> Drafts
                   </button>
                   <button aria-label="New conversation" onClick={() => setShowNewChat(true)} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
                     <Plus className="h-4 w-4" />
