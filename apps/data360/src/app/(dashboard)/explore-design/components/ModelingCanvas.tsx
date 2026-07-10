@@ -736,6 +736,19 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         continue;
       }
 
+      // The name-only fallback above can resolve BOTH ends to the same node
+      // when the event references a same-named table in a schema that is not
+      // on the canvas (stale history). If the event named two different
+      // tables but we landed on one node, the match is wrong — skip instead
+      // of painting a self-loop. (A genuine self-referencing FK still passes:
+      // its event names the same schema.table on both ends.)
+      if (
+        sourceNode.id === targetNode.id &&
+        `${srcSchema}.${srcTable}` !== `${tgtSchema}.${tgtTable}`
+      ) {
+        continue;
+      }
+
       // Deduplicate by source→target pair
       const pairKey = `${sourceNode.id}->${targetNode.id}`;
       if (seenPairs.has(pairKey)) continue;
@@ -959,6 +972,16 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         targetTable = tables.find(t => t.table === firstMapping.targetTable);
       }
 
+
+      // The name-only fallbacks can resolve BOTH ends to the same node when a
+      // stale mapping references a same-named table in a schema that is not on
+      // the canvas. An ETL mapping edge from a node to itself is never real —
+      // drop it instead of painting a self-loop (this exact path drew the
+      // phantom "COD_MAGASIN → COD_MAGASIN" self-edges).
+      if (sourceTable && targetTable && sourceTable.id === targetTable.id) {
+        console.warn('[ModelingCanvas] Skipping self-mapping produced by name-only table match:', key);
+        return;
+      }
 
       if (sourceTable && targetTable) {
         // Collect all source columns that map to this target column

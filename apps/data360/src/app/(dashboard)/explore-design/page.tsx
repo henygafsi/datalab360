@@ -1283,6 +1283,11 @@ export default function ExploreDesignPage() {
 
   // Modeling table selection - tracks which tables are included in the modeling view
   const [modelingTableIds, setModelingTableIds] = useState<Set<string>>(new Set());
+  // Live mirror for effects that must not re-run when canvas membership changes
+  // (the catalog table loader below). Reading the ref inside a functional
+  // setState always sees the current membership, without adding it as a dep.
+  const modelingTableIdsRef = useRef(modelingTableIds);
+  modelingTableIdsRef.current = modelingTableIds;
 
   // Target table IDs - tracks which tables are DWH/target tables (default tables from DATA360.RETAIL_DWH)
   // These are the tables that user-added source tables must map TO
@@ -1984,14 +1989,20 @@ export default function ExploreDesignPage() {
         const saved = Array.isArray(layout?.tables) ? layout.tables : [];
         if (saved.length === 0) return;
 
-        const savedTables = saved
+        const savedTables: TableItem[] = saved
           .filter((t: any) => t?.id && t?.table)
-          .map((t: any) => ({
+          .map((t: any): TableItem => ({
+            // Real TableItem shape — the canvas node reads `table` for its title
+            // and the catalog loader dedups on `id`. (The old `{name, rowCount}`
+            // shape wasn't a TableItem at all; it only went unnoticed because
+            // these entries used to be clobbered before they could render.)
             id: String(t.id),
-            name: String(t.table),
             database: String(t.database ?? ''),
             schema: String(t.schema ?? ''),
-            rowCount: null,
+            table: String(t.table),
+            columnCount: 0,
+            hasPrimaryKey: false,
+            status: 'configured',
           }));
 
         setTables((prev) => {
@@ -2250,8 +2261,9 @@ export default function ExploreDesignPage() {
   // Load tables when schemas are selected
   useEffect(() => {
     if (selectedSchemas.size === 0) {
-      // Keep default DWH tables (targetTableIds), only remove user-selected schema tables
-      setTables(prev => prev.filter(t => targetTableIds.has(t.id)));
+      // Keep default DWH tables (targetTableIds) AND tables on the modeling
+      // canvas (the GET /erd rehydrated model) — only remove browse-catalog tables
+      setTables(prev => prev.filter(t => targetTableIds.has(t.id) || modelingTableIdsRef.current.has(t.id)));
       return;
     }
 
@@ -2303,16 +2315,21 @@ export default function ExploreDesignPage() {
           }
         });
 
-        // Merge with existing tables: keep target/DWH tables, add new schema tables
+        // Merge with existing tables: keep target/DWH tables AND modeling-canvas
+        // tables, add new schema tables. P1 root cause: this replacement used to
+        // preserve ONLY targetTableIds, silently evicting the GET /erd rehydrated
+        // model tables whenever the event-derived schema selection didn't include
+        // the model's schema — the saved model then painted zero nodes and its
+        // relationships failed the both-ends-exist check.
         setTables(prev => {
-          // Keep existing target/DWH tables (default tables)
-          const existingTargetTables = prev.filter(t => targetTableIds.has(t.id));
+          // Keep existing target/DWH tables + tables on the modeling canvas
+          const keptTables = prev.filter(t => targetTableIds.has(t.id) || modelingTableIdsRef.current.has(t.id));
           // Get IDs of tables we're adding
           const newTableIds = new Set(newTables.map(t => t.id));
-          // Filter out any existing target tables that are also in newTables (avoid duplicates)
-          const uniqueTargetTables = existingTargetTables.filter(t => !newTableIds.has(t.id));
-          // Combine: existing DWH tables + new schema tables
-          return [...uniqueTargetTables, ...newTables];
+          // Filter out any kept tables that are also in newTables (avoid duplicates)
+          const uniqueKeptTables = keptTables.filter(t => !newTableIds.has(t.id));
+          // Combine: kept tables + new schema tables
+          return [...uniqueKeptTables, ...newTables];
         });
         // Expand using DB.SCHEMA keys to match VirtualizedTableList grouping
         const expandKeys = new Set<string>();
@@ -2780,6 +2797,16 @@ export default function ExploreDesignPage() {
       // listContributors await window — the real error handling happens in the
       // try/catch below where the promise is actually awaited.
       projectEventsPromise.catch(() => {});
+      // Probe the saved ERD snapshot in parallel. When a project HAS a saved
+      // model (GET /erd returns tables), that snapshot — not the event
+      // history — is the source of truth for the canvas: listEvents returns a
+      // recency WINDOW of an append-only spine, so replaying it can resurrect
+      // tables/FKs from long-abandoned experiments that the current model no
+      // longer contains. The event-replay reconstruction below stays as the
+      // fallback for projects that predate ERD persistence.
+      const erdHasSavedModelPromise = getERDLayout(projectId)
+        .then((l) => Array.isArray(l?.tables) && l.tables.length > 0)
+        .catch(() => false);
 
       // Determine user's role for this project
       try {
@@ -3030,6 +3057,18 @@ export default function ExploreDesignPage() {
               }
             });
 
+            // Snapshot-authoritative gate: when the project has a saved ERD
+            // model, tables INFERRED from COLUMN_MAPPING events and FKs replayed
+            // from the event window must not (re)populate the canvas — the
+            // rehydration effect paints the real model, and the stale inference
+            // is exactly what used to resurrect dead-schema tables and draw
+            // phantom/self edges next to it. TABLE_CREATED restoration is left
+            // untouched: user-created tables must survive a reopen either way.
+            const erdHasSavedModel = await erdHasSavedModelPromise;
+            if (erdHasSavedModel) {
+              mappingTableIds.clear();
+            }
+
             // Replay ADD_COLUMN events into restoredColumnsMap
             addColumnEvents.forEach((event: any) => {
               const tableId = `${event.target.database}.${event.target.schema}.${event.target.table}`;
@@ -3070,8 +3109,10 @@ export default function ExploreDesignPage() {
               console.log('🔄 [Restore] Rebuilt tables from TABLE_CREATED:', restoredTables.map(t => t.id));
             }
 
-            // Apply restored FK relationships
-            if (restoredFkRelationships.length > 0) {
+            // Apply restored FK relationships (event-window replay — only when
+            // no saved ERD model exists; the snapshot already carries the real
+            // relationships and stale replayed FKs would stack phantom edges)
+            if (!erdHasSavedModel && restoredFkRelationships.length > 0) {
               setDefaultRelationships(prev => [...prev, ...restoredFkRelationships]);
               console.log('🔄 [Restore] Rebuilt FK relationships:', restoredFkRelationships.length);
             }
