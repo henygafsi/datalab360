@@ -1007,7 +1007,9 @@ export default function ExploreDesignPage() {
     error: gateProjectsErrorObj,
     refetch: refetchGateProjects,
   } = useCacheAwareQuery(
-    () => listProjects({ project_type: 'explore_design', mine_only: false }),
+    // Granted-only (owner/contributor) — matches the selector default; the
+    // "mine filter broken for admins" workaround was disproven live 2026-07-10.
+    () => listProjects({ project_type: 'explore_design', mine_only: true }),
     { cacheKeys: [CACHE_KEYS.PROJECTS], initialData: null },
   );
   const gateProjects = useMemo(

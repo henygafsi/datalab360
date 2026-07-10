@@ -203,7 +203,9 @@ export default function ProjectSelector({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Mine-only filter — persisted per module so it survives reloads.
-  const [mineOnly, setMineOnly] = useState(false);
+  // Initial `true` matches getMineOnlyPref's granted-only default so the
+  // first fetch isn't a wasted all-projects query.
+  const [mineOnly, setMineOnly] = useState(true);
   useEffect(() => {
     setMineOnly(getMineOnlyPref(MODULE_KEY));
   }, []);

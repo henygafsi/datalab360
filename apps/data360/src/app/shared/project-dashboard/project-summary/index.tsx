@@ -22,10 +22,10 @@ import { defaultColumns, type ProjectSummaryMeta } from './column';
 type LoadState = 'loading' | 'error' | 'ready';
 
 /**
- * Project Summary — the real account-wide project list from
- * GET /projects/unified (mine_only=false → includes seeded samples owned by
- * other identities). Replaces the old fabricated table (Android app dev, Rachel
- * Green, Jul-2024 due dates, made-up progress rings).
+ * Project Summary — the caller's real project list from
+ * GET /projects/unified (mine_only=true → owner/contributor-granted only;
+ * user direction 2026-07-10). Replaces the old fabricated table (Android app
+ * dev, Rachel Green, Jul-2024 due dates, made-up progress rings).
  *
  * Selecting a project (the name button) sets the shared active project via
  * useProjectContext, which RecentActivities reads to show that project's real
@@ -39,7 +39,7 @@ export default function ProjectSummary({ className }: { className?: string }) {
   useEffect(() => {
     let ignore = false;
     setState('loading');
-    getUnifiedProjects({ mine_only: false, limit: 100, offset: 0 })
+    getUnifiedProjects({ mine_only: true, limit: 100, offset: 0 })
       .then((res) => {
         if (ignore) return;
         // Hide soft-deleted projects; everything else is shown as-is.

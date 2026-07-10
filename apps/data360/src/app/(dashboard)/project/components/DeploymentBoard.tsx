@@ -277,7 +277,9 @@ export default function DeploymentBoard({ className }: { className?: string }) {
     setRicher({});
     setRefiningIds(new Set());
     setWindowSize(BATCH);
-    getUnifiedProjects({ mine_only: false, limit: 100, offset: 0 })
+    // Granted-only: the board shows the caller's owned/contributed projects
+    // (user direction 2026-07-10) — not every project on the account.
+    getUnifiedProjects({ mine_only: true, limit: 100, offset: 0 })
       .then((res) => {
         if (ignore) return;
         const live = (res?.projects ?? []).filter((p) => p.status !== 'deleted');

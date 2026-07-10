@@ -959,9 +959,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   // Load workflows on mount
   const loadWorkflowsFn = useCallback(
-    // mine_only=false: same reason as ProjectSelector — backend's "mine" filter
-    // is contributor-based and returns 0 for accountadmins on projects they made.
-    () => listProjects({ project_type: 'workflow', mine_only: false }),
+    // mine_only=true (granted-only): the old "returns 0 for accountadmins"
+    // claim was disproven live 2026-07-10 (owner/contributor filter works —
+    // HAHA sees 52/52, a viewer persona exactly its granted 6). Lists show
+    // what the caller owns or was granted, not the whole account.
+    () => listProjects({ project_type: 'workflow', mine_only: true }),
     [accessToken]
   );
 

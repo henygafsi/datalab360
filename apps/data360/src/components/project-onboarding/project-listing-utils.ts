@@ -73,13 +73,20 @@ export function recordProjectUsed(projectId: string): void {
 // Mine-only preference (per module so explore vs workflow don't collide)
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Read the persisted "My projects" toggle for a module. Defaults to `false` (All). */
+/** Read the persisted "My projects" toggle for a module.
+ *
+ * Defaults to `true` (granted-only): the project lists must show what the
+ * caller owns or was granted (PROJECT_CONTRIBUTORS), not the whole account —
+ * user direction 2026-07-10. The old `false` default dated from a claim that
+ * the backend "mine" filter returned 0 for accountadmins; disproven live
+ * (HAHA · mine_only=true ⇒ 52/52; viewer persona ⇒ exactly its 6 granted).
+ * An explicit user choice ('0' = All) is always respected. */
 export function getMineOnlyPref(module: string): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined') return true;
   try {
-    return window.localStorage.getItem(MINE_ONLY_KEY_PREFIX + module) === '1';
+    return window.localStorage.getItem(MINE_ONLY_KEY_PREFIX + module) !== '0';
   } catch {
-    return false;
+    return true;
   }
 }
 
