@@ -2,6 +2,11 @@
 
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import { toMessage } from '@/lib/error-messages';
+import {
+  getAccessInsights,
+  AccessInsightsUnavailableError,
+  type AccessInsightObject,
+} from '@/app/services/administration/access-insights';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAtomValue } from 'jotai';
@@ -20,7 +25,7 @@ import {
   Info, Play, Download, Plus, Link2, CalendarClock, Loader2, Sparkles,
   ListChecks, Trash2, ScanSearch, SlidersHorizontal,
   Gauge, TrendingUp, Eye,
-} from 'lucide-react';
+ Flame } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as RechartsTooltip, ResponsiveContainer, Cell,
@@ -2070,6 +2075,43 @@ export default function DataQualityPage() {
   // Requires a project in scope. When lastProjectId is null (common on this page
   // today — no DQ project selector), we surface an honest notice rather than
   // fabricating a call with a guess-id.
+  // ── Hot tables without DMF coverage (ACCESS_HISTORY ranking) ──
+  // The honest 'attach DMF next' list: most-accessed BUSINESS tables with zero
+  // coverage, from /api/administration/access-insights. Lazy on the Monitors
+  // tab; hidden entirely when the endpoint is absent.
+  const [hotUnmonitored, setHotUnmonitored] = useState<AccessInsightObject[] | null>(null);
+  const [hotUnavailable, setHotUnavailable] = useState(false);
+  useEffect(() => {
+    if (activeTab !== 'dmf' || hotUnmonitored !== null || hotUnavailable) return;
+    let cancelled = false;
+    getAccessInsights()
+      .then((ai) => { if (!cancelled) setHotUnmonitored(ai.hot_unmonitored ?? []); })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof AccessInsightsUnavailableError) setHotUnavailable(true);
+        else setHotUnmonitored([]);
+      });
+    return () => { cancelled = true; };
+  }, [activeTab, hotUnmonitored, hotUnavailable]);
+
+  // Suggest checks for an EXPLICIT hot-table FQN (no row selection needed).
+  const handleSuggestForFqn = useCallback(async (fqn: string) => {
+    trackFeatureClick('dq_hot_table_suggest', { module: 'data_quality' });
+    setDmfSuggestError(null);
+    setDmfSuggestions(null);
+    setShowDmfSuggestions(true);
+    setDmfSuggestTable(fqn);
+    setDmfSuggestLoading(true);
+    try {
+      const result = await suggestDmfsForTable(fqn);
+      setDmfSuggestions(result.suggestions ?? []);
+    } catch (err) {
+      setDmfSuggestError(toServiceError(err, 'Failed to fetch DMF suggestions').message);
+    } finally {
+      setDmfSuggestLoading(false);
+    }
+  }, [trackFeatureClick]);
+
   const handleSuggestDmfs = useCallback(async () => {
     trackFeatureClick('suggest_dmfs_ai', { hasTable: !!selectedRow, hasProject: !!lastProjectId });
     setDmfSuggestError(null);
@@ -3630,6 +3672,33 @@ export default function DataQualityPage() {
                 </Button>
               </div>
             </div>
+
+            {/* ── Hot tables without DMF coverage — the attach-next ranking ── */}
+            {!hotUnavailable && hotUnmonitored !== null && hotUnmonitored.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-violet-200 dark:border-violet-700/50">
+                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-violet-700 dark:text-violet-300">
+                  <Flame className="h-3.5 w-3.5" />
+                  Hot tables without coverage
+                  <span className="font-normal text-violet-500/80">most accessed 7d (ACCESS_HISTORY) · no DMF measurements</span>
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {hotUnmonitored.slice(0, 5).map((h) => (
+                    <button
+                      key={h.object}
+                      type="button"
+                      onClick={() => handleSuggestForFqn(h.object)}
+                      disabled={dmfSuggestLoading}
+                      title={`${h.accesses.toLocaleString()} accesses by ${h.users} user(s) in 7d — suggest checks for this table`}
+                      className="flex items-center gap-1.5 rounded-md border border-violet-300 bg-white px-2 py-1 text-[11px] font-medium text-violet-800 transition-colors hover:bg-violet-100 disabled:opacity-50 dark:border-violet-600 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-900/40"
+                    >
+                      <span className="max-w-[260px] truncate">{h.object}</span>
+                      <span className="rounded bg-violet-100 px-1 tabular-nums text-violet-700 dark:bg-violet-900/50 dark:text-violet-300">{h.accesses.toLocaleString()}×</span>
+                      <Sparkles className="h-3 w-3" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* ── AI suggestions panel — rendered inside the action bar ── */}
             {showDmfSuggestions && (
