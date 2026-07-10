@@ -24,6 +24,10 @@ export interface ClientAccount {
   is_org_admin: boolean;
   is_events_account: boolean;
   is_active: boolean;
+  /** Cockpit signals (2026-07-10): platform-trace activity per account. */
+  traced_requests?: number;
+  last_seen_platform?: string | null;
+  has_traffic?: boolean;
 }
 
 // =============================================================================
