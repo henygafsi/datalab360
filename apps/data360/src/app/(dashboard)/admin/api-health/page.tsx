@@ -1623,7 +1623,7 @@ function ApiHealthPageContent() {
               : f === 'slow' ? '#c2410c'
               : f === 'expected' ? '#64748b'
               : f === 'success' ? '#16a34a'
-              : f === 'issues' ? '#2563eb'
+              : f === 'issues' ? '#b45309'
               : '#2563eb';
             const tint =
               f === 'defect' ? '#fdf4ff'
@@ -1631,6 +1631,7 @@ function ApiHealthPageContent() {
               : f === 'slow' ? '#fff7ed'
               : f === 'expected' ? '#f1f5f9'
               : f === 'success' ? '#f0fdf4'
+              : f === 'issues' ? '#fffbeb'
               : '#eff6ff';
             return (
               <button key={f} onClick={() => setFilter(f)} style={{

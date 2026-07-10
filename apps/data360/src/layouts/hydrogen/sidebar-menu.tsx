@@ -221,7 +221,7 @@ export function SidebarMenu() {
                               : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'
                           )}
                         >
-                          {dropdownItem.icon && dropdownItem.icon}
+                          {dropdownItem.icon}
                         {dropdownItem.name}
                       </Link>
                     );

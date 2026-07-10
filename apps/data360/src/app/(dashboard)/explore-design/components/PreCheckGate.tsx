@@ -60,7 +60,9 @@ function checkFkTypeCompatibility(events: DesignEvent[]): PreCheck {
     name: 'FK Type Compatibility',
     description: 'Validates that all foreign key references point to existing tables with compatible types',
     icon: Link2,
-    status: errors.length > 0 ? 'failed' : fkEvents.length > 0 ? 'passed' : 'passed',
+    status: errors.length > 0 ? 'failed' : 'passed',
+    // No FKs declared = nothing validated — say so instead of a silent green
+    details: fkEvents.length === 0 ? 'No foreign keys declared — nothing to validate' : undefined,
     errors,
   };
 }
