@@ -153,6 +153,7 @@ import CommandCenterActionsPanel from './ActionsPanel';
 import ServerlessFinOpsCards from './serverless-finops-cards';
 import TopProblemsPanel from './TopProblemsPanel';
 import WhatChangedCard from './WhatChangedCard';
+import ActivityDigestCard from './ActivityDigestCard';
 import ExecutiveOverview from './ExecutiveOverview';
 import AiAdvisor from './AiAdvisor';
 import SnowflakeInsightsAdvisor from './SnowflakeInsightsAdvisor';
@@ -7570,7 +7571,17 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
     }));
   }, [activityFeed]);
 
-  if (loading || (!platformData && !activityFeed)) return <LoadingSection />;
+  // The COCO digest is self-loading (own endpoint, own skeleton) — keep it
+  // rendered while the lane's orchestrated fetch is still in flight so the
+  // narrative lands data-first, independent of the heavier lane payload.
+  if (loading || (!platformData && !activityFeed)) {
+    return (
+      <>
+        <ActivityDigestCard />
+        <LoadingSection />
+      </>
+    );
+  }
 
   const safeEventActivity = Array.isArray(platformData?.event_activity)
     ? platformData.event_activity
@@ -7668,6 +7679,12 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
 
   return (
     <>
+      {/* COCO's narrative digest of the same EVENT_STORE the KPIs below count —
+          one smart card, self-loading (GET /platform-activity/insight). First
+          child in BOTH branches so it never remounts (or refetches) when the
+          lane's own loading state flips. */}
+      <ActivityDigestCard />
+
       {/* KPI Cards — 6 base + 3 Iter-5 cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-9">
         <KpiCard
