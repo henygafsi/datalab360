@@ -14,7 +14,7 @@ import {
   Settings, ChevronRight, ChevronDown, Filter, Upload,
   Layers, Grid3X3, LayoutGrid, CheckSquare, Square, AlertTriangle,
   Clock, History, Lock, Eye, Play, Save, X, Plus, Minus, Trash2,
-  FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight,
+  FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeft,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
   WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer,
   BookTemplate, Activity, AlertCircle, MoreVertical, FolderOpen,
@@ -411,6 +411,8 @@ const CompactSourceSelector: React.FC<{
   onSchemaAction: (schema: string, action: string) => void;
   isLoadingDatabases: boolean;
   isLoadingSchemas: boolean;
+  /** Data-first: table fetch in flight → the count badge skeletons instead of a fake "0 tables". */
+  isLoadingTables?: boolean;
   stats: { total: number; configured: number; pending: number };
   projectId: string | null;
 }> = ({
@@ -423,6 +425,7 @@ const CompactSourceSelector: React.FC<{
   onSchemaAction,
   isLoadingDatabases,
   isLoadingSchemas,
+  isLoadingTables = false,
   stats,
   projectId,
 }) => {
@@ -506,10 +509,12 @@ const CompactSourceSelector: React.FC<{
             <div className="flex items-center gap-2">
               <Layers className="h-3.5 w-3.5 text-slate-400" />
               <span className="truncate">
+                {/* Count only — the selected schema NAMES live in the action
+                    chips beside this button (≤3). Repeating the single schema
+                    name in both the button and its chip read as a duplicate
+                    (UX audit 2026-07-11). */}
                 {selectedSchemas.size > 0
-                  ? selectedSchemas.size === 1
-                    ? Array.from(selectedSchemas.keys())[0]
-                    : `${selectedSchemas.size} schemas`
+                  ? `${selectedSchemas.size} ${selectedSchemas.size === 1 ? 'schema' : 'schemas'} selected`
                   : 'Select schemas'}
               </span>
             </div>
@@ -586,9 +591,15 @@ const CompactSourceSelector: React.FC<{
 
       {/* Stats badges */}
       <div className="flex items-center gap-2 ml-auto text-xs">
-        <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 text-[10px] px-1.5">
-          {stats.total} tables
-        </Badge>
+        {isLoadingTables && stats.total === 0 ? (
+          // Skeleton while the table fetch is in flight — "0 tables" here
+          // would be a fabricated value (data-first rule).
+          <span className="h-4 w-14 animate-pulse rounded-full bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
+        ) : (
+          <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 text-[10px] px-1.5">
+            {stats.total} tables
+          </Badge>
+        )}
         {stats.configured > 0 && (
           <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[10px] px-1.5">
             {stats.configured} ok
@@ -956,6 +967,35 @@ function ModelOverview({ tableCount, relationCount, targetDwh, projectId }: {
   );
 }
 
+// Dev-only probe for the e2e boundary test (e2e/ed-ux.spec.ts): when the page
+// is opened with ?__force_chunk_error=1 it throws a synthetic ChunkLoadError
+// exactly once per browser session, so the test can verify the ErrorBoundary's
+// automatic transient-error retry without depending on a real HMR/chunk race.
+// The throw is ARMED from an effect (post-hydration) on purpose: an error
+// thrown during hydration is silently retried by React's client-render
+// fallback and never reaches the boundary's componentDidCatch — a real lost
+// chunk also fails on a post-hydration render (lazy import), so this matches.
+// Renders nothing (and never throws) in production builds or without the flag.
+function ChunkErrorProbe({ enabled }: { enabled: boolean }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (
+      enabled &&
+      process.env.NODE_ENV !== 'production' &&
+      !window.sessionStorage.getItem('d360-chunk-probe-thrown')
+    ) {
+      setArmed(true);
+    }
+  }, [enabled]);
+  if (armed) {
+    window.sessionStorage.setItem('d360-chunk-probe-thrown', '1');
+    const err = new Error('Loading chunk d360-probe failed. (simulated transient chunk error)');
+    err.name = 'ChunkLoadError';
+    throw err;
+  }
+  return null;
+}
+
 // Main Page Component
 export default function ExploreDesignPage() {
   const router = useRouter();
@@ -994,6 +1034,8 @@ export default function ExploreDesignPage() {
   // Data-Quality deep-link: ?intent=model&from=data-quality&table=X
   // Pre-selects the matching source table once the catalog is loaded.
   const urlTable = searchParams.get('table');
+  // e2e-only escape hatch (see ChunkErrorProbe above) — inert in production.
+  const forceChunkError = searchParams.get('__force_chunk_error') === '1';
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
   // Slide-1 redesign: inline wizard replaces the legacy project-creation popup.
@@ -1814,8 +1856,11 @@ export default function ExploreDesignPage() {
     // No clean project-level model-health / cost($/mo) / DQ% source today →
     // honest "—" rather than inventing them (spec: never fake).
     modelHealth: undefined,
-    tables: { count: kpiTableCount },
-    relations: { count: kpiRelationCount },
+    // Data-first: while the catalog fetch is in flight a bare 0 would be a
+    // fabricated value (the model may well have tables) → "—" until data
+    // lands; a real post-load 0 still renders as 0.
+    tables: { count: isLoadingTables && kpiTableCount === 0 ? undefined : kpiTableCount },
+    relations: { count: isLoadingTables && kpiTableCount === 0 ? undefined : kpiRelationCount },
     // Columns lazy-load per table; a 0 sum on a populated model means "not loaded
     // yet", so show "—" rather than a misleading 0.
     columns: { count: kpiColumnTotal > 0 ? kpiColumnTotal : undefined },
@@ -1829,7 +1874,7 @@ export default function ExploreDesignPage() {
           ? 'On track'
           : undefined,
     },
-  }), [kpiTableCount, kpiRelationCount, kpiColumnTotal, piiLevel, deployBlockers, displayablePendingEvents.length]);
+  }), [kpiTableCount, kpiRelationCount, kpiColumnTotal, piiLevel, deployBlockers, displayablePendingEvents.length, isLoadingTables]);
 
   // Server release-state (GET /explore-design/{id}/release-state): the full
   // 12-state machine + per-axis signals, SSE-refreshed. Degrades to null/derived
@@ -2828,7 +2873,9 @@ export default function ExploreDesignPage() {
       // Show loading toast while restoring project context. Stable id so a
       // re-entrant restore (URL effect + auto-select can both fire) REPLACES
       // the toast instead of stacking a duplicate "Restoring project context…".
-      const loadingToast = toast.loading(`Restoring project context...`, { id: 'restore-project-ctx' });
+      // bottom-right: the default top-center slot sits ON the global search
+      // bar for seconds on every project open (UX audit 2026-07-11).
+      const loadingToast = toast.loading(`Restoring project context...`, { id: 'restore-project-ctx', position: 'bottom-right' });
 
       // Load events for the new project from backend
       try {
@@ -3207,17 +3254,14 @@ export default function ExploreDesignPage() {
               setModelingChoice(inferredChoice);
             }
 
-            // Count total schemas across all databases
-            const totalSchemas = Array.from(schemasByDatabase.values()).reduce((sum, s) => sum + s.size, 0);
-
             toast.dismiss(loadingToast);
-            const eventInfo = backendEvents.length > 0 ? ` (${backendEvents.length} events)` : '';
-            const dbInfo = schemasByDatabase.size > 1 ? ` across ${schemasByDatabase.size} databases` : '';
-            toast.success(`Loaded "${projectName}"${eventInfo} - ${totalSchemas} schema(s)${dbInfo}`);
+            // No success toast for a routine project load — the header project
+            // selector + populated panels ARE the feedback. The old top-center
+            // "Loaded N events…" toast covered the global search bar on every
+            // project open (UX audit 2026-07-11). Errors below still toast.
           } catch (schemaError) {
             console.error('Failed to load schemas for restored database:', schemaError);
             toast.dismiss(loadingToast);
-            toast.success(`Loaded ${backendEvents.length} events for "${projectName}"`);
           }
         } else {
           toast.dismiss(loadingToast);
@@ -3226,9 +3270,9 @@ export default function ExploreDesignPage() {
             const defaultDb = databases[0];
             setSelectedDatabase(defaultDb);
           }
-          if (backendEvents.length > 0) {
-            toast.success(`Loaded ${backendEvents.length} events for "${projectName}"`);
-          } else {
+          if (backendEvents.length === 0) {
+            // Actionable guidance (not a routine-success toast): a project with
+            // no saved work needs the user to pick a database next.
             toast.success(`Project "${projectName}" selected — choose a database to start`);
           }
         }
@@ -3237,7 +3281,9 @@ export default function ExploreDesignPage() {
         toast.dismiss(loadingToast);
         // Initialize with empty events if load fails
         await loadProjectEvents({ projectId, events: [] });
-        toast.error(`Project "${projectName}" selected`);
+        // Honest error copy — the old message ("Project selected") read as a
+        // success inside a red error toast.
+        toast.error(`Couldn't load saved work for "${projectName}" — starting empty`);
       }
     } catch (error: any) {
       console.error('Error in handleProjectSelect:', error);
@@ -4035,6 +4081,7 @@ export default function ExploreDesignPage() {
 
   return (
     <ErrorBoundary>
+    <ChunkErrorProbe enabled={forceChunkError} />
     <div className={cn(
       "flex flex-col -mx-6 -mt-6 -mb-12 md:-mx-8 lg:-mx-10 lg:-mb-16 xl:-mx-12 2xl:-mx-16",
       isFullscreen ? "h-screen" : "h-[calc(100dvh-64px)]"
@@ -4493,6 +4540,7 @@ export default function ExploreDesignPage() {
           onSchemaAction={handleSchemaAction}
           isLoadingDatabases={isLoadingDatabases}
           isLoadingSchemas={isLoadingSchemas}
+          isLoadingTables={isLoadingTables}
           stats={stats}
           projectId={selectedProjectId}
         />
@@ -4545,9 +4593,14 @@ export default function ExploreDesignPage() {
                   <span className="font-semibold text-base text-slate-800 dark:text-slate-200">
                     Source Tables
                   </span>
-                  <Badge className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] px-1.5 py-0 font-medium">
-                    {catalogTables.length}
-                  </Badge>
+                  {isLoadingTables && catalogTables.length === 0 ? (
+                    // Data-first: no fake "0" while the fetch is in flight.
+                    <span className="h-4 w-6 animate-pulse rounded-full bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
+                  ) : (
+                    <Badge className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] px-1.5 py-0 font-medium">
+                      {catalogTables.length}
+                    </Badge>
+                  )}
                   {selectedTables.size > 0 && (
                     <Badge className="bg-blue-500 text-white text-[10px] px-1.5 py-0 font-medium">
                       {selectedTables.size} selected
@@ -4806,6 +4859,31 @@ export default function ExploreDesignPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Right side of the toolbar — the Create button used to sit
+                    alone on a full-width empty bar (orphan-button dead zone,
+                    UX audit 2026-07-11). Fill it with honest context: the
+                    selected table's path + a way BACK to the source map (there
+                    was no visible return affordance), or a one-line hint. */}
+                {selectedTable ? (
+                  <>
+                    <span className="ml-auto hidden truncate text-[11px] text-slate-400 md:inline" title={`${selectedTable.database}.${selectedTable.schema}.${selectedTable.table}`}>
+                      {selectedTable.database}.{selectedTable.schema}.{selectedTable.table}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTable(null)}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 md:ml-2 ml-auto"
+                    >
+                      <ArrowLeft className="h-3 w-3" />
+                      Back to map
+                    </button>
+                  </>
+                ) : (
+                  <span className="ml-auto hidden text-[11px] text-slate-400 sm:inline">
+                    Click a table in the list — or a node on the map — to inspect it
+                  </span>
+                )}
               </div>
 
               {/* Center + Right Bar row */}
@@ -5452,7 +5530,9 @@ export default function ExploreDesignPage() {
 
                   if (sourceParts.length !== 3 || targetParts.length !== 3) {
                     console.error('[onRelationCreate] Invalid table IDs:', { source, target });
-                    toast.success('Mapping created locally');
+                    // Honest failure — this path cannot persist the mapping, so
+                    // never claim success ("Mapping created locally" was a lie).
+                    toast.error('Mapping not saved — unrecognized table reference');
                     return;
                   }
 
