@@ -92,3 +92,4 @@ temp/
 .claude/worktrees/
 reports/
 e2e/axis-validation-artifacts/
+e2e/.artifacts/

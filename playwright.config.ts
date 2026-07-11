@@ -22,5 +22,10 @@ export default defineConfig({
       use: { browserName: 'chromium' },
     },
   ],
-  outputDir: './e2e/results',
+  // Playwright WIPES outputDir at run start. It used to be e2e/results —
+  // the same directory every spec writes its evidence screenshots to, so any
+  // no---output run (the all-pages audit, typically) deleted the whole
+  // gallery (live-caught twice on 2026-07-10/11). Artifacts now live in
+  // their own throwaway dir; e2e/results is for screenshots only.
+  outputDir: './e2e/.artifacts',
 });
