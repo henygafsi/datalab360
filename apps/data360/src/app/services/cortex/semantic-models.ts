@@ -305,6 +305,43 @@ export function validateSemanticModelYaml(yamlContent: string): { valid: boolean
 }
 
 /**
+ * Deep health check for a STORED model — the monitor rule set.
+ *
+ * Beyond basic yaml validity: Cortex Analyst REJECTS a model whose
+ * relationship right-table declares no primary_key ("Table X used in join
+ * relationship Y has no primary key") — the exact failure that silently broke
+ * the account's largest stored model for weeks (live-caught 2026-07-11).
+ * Text-level parse (no yaml lib in the bundle): for every
+ * `right_table: <name>`, the `- name: <name>` table block must contain a
+ * `primary_key:` before the next table block.
+ */
+export function checkSemanticModelHealth(yamlContent: string): {
+  status: 'ready' | 'broken';
+  problems: string[];
+} {
+  const base = validateSemanticModelYaml(yamlContent);
+  if (!base.valid) return { status: 'broken', problems: [base.error ?? 'invalid YAML'] };
+
+  const problems: string[] = [];
+  const rightTables = new Set(
+    Array.from(yamlContent.matchAll(/right_table:\s*([A-Za-z0-9_]+)/g)).map((m) => m[1]),
+  );
+  for (const t of rightTables) {
+    // The table's block: from its `- name: <t>` line to the next `- name:` at
+    // the same list level (or end of file).
+    const blockMatch = yamlContent.match(
+      new RegExp(`-\s+name:\s*${t}\b([\s\S]*?)(?=\n-\s+name:|$)`),
+    );
+    if (!blockMatch) {
+      problems.push(`relationship references table '${t}' that has no table block`);
+    } else if (!/primary_key:/.test(blockMatch[1])) {
+      problems.push(`'${t}' is a relationship right-table with NO primary_key — Analyst will reject this model`);
+    }
+  }
+  return { status: problems.length ? 'broken' : 'ready', problems };
+}
+
+/**
  * Generate a sample semantic model YAML template
  * @param tableName - Optional table name to include in template
  * @returns Sample YAML content

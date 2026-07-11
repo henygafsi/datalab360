@@ -25,7 +25,9 @@ import {
   PiFileCode,
   PiDownload,
   PiMagicWand,
+  PiShieldCheck,
 } from 'react-icons/pi';
+import { toMessage } from '@/lib/error-messages';
 import {
   listSemanticModels,
   getSemanticModelContent,
@@ -37,6 +39,7 @@ import {
   formatFileSize,
   formatDate,
   validateSemanticModelYaml,
+  checkSemanticModelHealth,
   type SemanticModel,
   type SemanticModelContent,
 } from '@/app/services/cortex/semantic-models';
@@ -129,6 +132,26 @@ function SemanticModelsContent() {
     { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS], initialData: [] }
   );
   const modelsError = modelsErrorObj?.message ?? null;
+
+  // ── Monitor: per-model Analyst-readiness (yaml validity + the
+  // relationship-PK rule that silently broke retail_dwh_e2e for weeks) ──
+  const [modelHealth, setModelHealth] = useState<Record<string, { status: 'ready' | 'broken'; problems: string[] }>>({});
+  const [healthChecking, setHealthChecking] = useState(false);
+  const handleCheckAllModels = useCallback(async () => {
+    if (!models || models.length === 0) return;
+    setHealthChecking(true);
+    const next: Record<string, { status: 'ready' | 'broken'; problems: string[] }> = {};
+    for (const m of models) {
+      try {
+        const content = await getSemanticModelContent(m.name.replace('.yaml', ''));
+        next[m.name] = checkSemanticModelHealth(content.content ?? '');
+      } catch (err) {
+        next[m.name] = { status: 'broken', problems: [toMessage(err, 'could not read model')] };
+      }
+    }
+    setModelHealth(next);
+    setHealthChecking(false);
+  }, [models]);
 
   // Load databases when modal opens
   useEffect(() => {
@@ -787,6 +810,16 @@ tables:
               Refresh
             </Button>
             <Button
+              variant="outline"
+              onClick={handleCheckAllModels}
+              disabled={healthChecking || !models || models.length === 0}
+              title="Read every stored model and verify Analyst-readiness (yaml validity + primary keys on relationship tables)"
+              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
+            >
+              {healthChecking ? <HiOutlineArrowPath className="w-4 h-4 mr-2 animate-spin" /> : <PiShieldCheck className="w-4 h-4 mr-2" />}
+              {healthChecking ? 'Checking…' : 'Check all models'}
+            </Button>
+            <Button
               onClick={handleOpenCreate}
               disabled={!canCreateModel}
               title={!canCreateModel ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined}
@@ -872,12 +905,27 @@ tables:
                         >
                           {model.name.replace('.yaml', '')}
                         </h3>
-                        <Badge
-                          variant="flat"
-                          className="bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs"
-                        >
-                          YAML Model
-                        </Badge>
+                        <div className="flex items-center gap-1.5">
+                          <Badge
+                            variant="flat"
+                            className="bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs"
+                          >
+                            YAML Model
+                          </Badge>
+                          {modelHealth[model.name] && (
+                            <Badge
+                              variant="flat"
+                              title={modelHealth[model.name].problems.join(' · ') || 'Analyst-ready'}
+                              className={
+                                modelHealth[model.name].status === 'ready'
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 text-xs'
+                                  : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300 text-xs'
+                              }
+                            >
+                              {modelHealth[model.name].status === 'ready' ? 'Analyst-ready' : 'Broken'}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <button
