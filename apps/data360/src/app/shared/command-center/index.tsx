@@ -2479,6 +2479,7 @@ function CommandCenterDashboardInner() {
         {cockpit.open && (
           <div className="hidden min-h-0 shrink-0 self-stretch overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 md:block">
             <AxisCockpit
+              railMode="header"
               axes={cockpit.axes}
               open={cockpit.open}
               activeAxis={cockpit.activeAxis}

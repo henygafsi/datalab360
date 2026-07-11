@@ -31,6 +31,7 @@ import {
   Lock,
   RefreshCw,
   Sparkles,
+  UploadCloud,
 } from 'lucide-react';
 
 import { getApiErrorMessage } from '@/lib/api-client';
@@ -365,6 +366,38 @@ function CostAxisBody({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function IngestionAxisBody() {
+  // Self-contained (fetches on first mount) — the 8th standardized axis.
+  // Binds the SAME data-operations overview the Usage & Performance tab uses.
+  const [state, setState] = useState<{ status: 'loading' | 'ready' | 'error'; summary?: Record<string, unknown> }>({ status: 'loading' });
+  const load = useCallback(() => {
+    setState({ status: 'loading' });
+    import('@/app/services/org-accounts/hooks')
+      .then((m) => m.getDataOperationsOverview({ days: 30 }))
+      .then((d: any) => setState({ status: 'ready', summary: d?.summary ?? {} }))
+      .catch(() => setState({ status: 'error' }));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (state.status === 'loading') return <AxisSkeleton />;
+  if (state.status === 'error') return <AxisError onRetry={load} />;
+  const g = (k: string) => num((state.summary as any)?.[k]);
+  return (
+    <div>
+      <SectionLabel>Loading (30d)</SectionLabel>
+      <StatRow label="Files loaded" value={fmtNum(g('total_files_loaded'))} />
+      <StatRow label="Rows loaded" value={fmtNum(g('total_rows_loaded'))} />
+      <StatRow label="Load success" value={g('load_success_rate') != null ? `${g('load_success_rate')}%` : '—'} />
+      <StatRow label="Load errors" value={fmtNum(g('load_error_count'))} />
+      <SectionLabel>Automation</SectionLabel>
+      <StatRow label="Task runs" value={fmtNum(g('total_task_runs'))} />
+      <StatRow label="Task failures" value={fmtNum(g('task_failure_count'))} />
+      <StatRow label="Active tasks" value={fmtNum(g('active_tasks'))} />
+      <StatRow label="Pipes" value={fmtNum(g('pipe_count'))} />
+      <StatRow label="Dynamic tables" value={fmtNum(g('dynamic_tables'))} />
     </div>
   );
 }
@@ -1013,6 +1046,14 @@ export function useCommandCenterCockpit({
         onClick: () => onNavigateTab('modules'),
         tone: 'neutral',
       },
+    },
+    {
+      id: 'ingestion',
+      label: 'Ingestion',
+      railLabel: 'Ingest',
+      icon: UploadCloud,
+      severity: 'idle',
+      render: () => <IngestionAxisBody />,
     },
     {
       id: 'ai',

@@ -78,19 +78,28 @@ function ViewportFitFrame({ children }: { children: ReactNode }) {
     const measure = () => {
       const node = ref.current;
       if (!node) return;
-      // Self-correcting: whatever the frame currently renders at, absorb the
-      // page's actual scroll excess (or spare room) into the frame height.
-      // This converges regardless of WHERE the extra pixels come from
-      // (footer, paddings, body-vs-html scrollHeight discrepancies…).
+      // FILL, not just fit: the old excess-absorption could only SHRINK the
+      // frame (scrollHeight is never below the viewport), so after the header
+      // deletion the stale 460px fallback left ~350px of dead space under the
+      // content (user screenshot #47: 'on scroll dans 2cm'). Measure the real
+      // budget instead: from the frame's own top down to the footer's top
+      // (fallback: viewport bottom minus the footer's typical band), then
+      // still absorb any genuine page-scroll excess.
       const doc = Math.max(
         document.documentElement.scrollHeight,
         document.body.scrollHeight,
       );
-      const excess = doc - window.innerHeight;
+      // Bidirectional convergence on the frame's CURRENT height:
+      //  - page scrolls → shrink by exactly the excess;
+      //  - footer sits above the fold → grow by exactly that spare.
+      // Both signals move 1:1 with the frame height (normal flow), so this
+      // converges in one or two observer ticks without oscillating.
+      const excess = Math.max(0, doc - window.innerHeight);
+      const footer = document.querySelector('footer');
+      const footerBottom = footer ? footer.getBoundingClientRect().bottom : window.innerHeight;
+      const spare = excess === 0 ? Math.max(0, window.innerHeight - footerBottom) : 0;
       const current = node.getBoundingClientRect().height;
-      // Floor low enough that 1280×800 (frame ≈ 260px after fixed chrome)
-      // still converges to zero page scroll; boards scroll internally.
-      const next = Math.max(240, Math.round(current - excess));
+      const next = Math.max(240, Math.round(current - excess + spare));
       // Change-guard: avoid resize-observer feedback loops on 1px jitter.
       setHeight((prev) => (prev != null && Math.abs(prev - next) <= 1 ? prev : next));
     };
@@ -116,8 +125,8 @@ function ViewportFitFrame({ children }: { children: ReactNode }) {
   return (
     <div
       ref={ref}
-      style={{ height: height != null ? `${height}px` : 'calc(100dvh - 460px)' }}
-      className="min-h-[240px] px-4 pb-1"
+      style={{ height: height != null ? `${height}px` : 'calc(100dvh - 200px)' }}
+      className="min-h-[240px] px-1.5 pb-1"
     >
       {children}
     </div>
