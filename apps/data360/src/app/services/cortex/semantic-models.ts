@@ -330,7 +330,7 @@ export function checkSemanticModelHealth(yamlContent: string): {
     // The table's block: from its `- name: <t>` line to the next `- name:` at
     // the same list level (or end of file).
     const blockMatch = yamlContent.match(
-      new RegExp(`-\s+name:\s*${t}\b([\s\S]*?)(?=\n-\s+name:|$)`),
+      new RegExp(`-\\s+name:\\s*${t}\\b([\\s\\S]*?)(?=\\n-\\s+name:|$)`),
     );
     if (!blockMatch) {
       problems.push(`relationship references table '${t}' that has no table block`);

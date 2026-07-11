@@ -142,12 +142,20 @@ function SemanticModelsContent() {
     setHealthChecking(true);
     const next: Record<string, { status: 'ready' | 'broken'; problems: string[] }> = {};
     for (const m of models) {
-      try {
-        const content = await getSemanticModelContent(m.name.replace('.yaml', ''));
-        next[m.name] = checkSemanticModelHealth(content.content ?? '');
-      } catch (err) {
-        next[m.name] = { status: 'broken', problems: [toMessage(err, 'could not read model')] };
+      // One retry on read failure: a transient fetch hiccup during the rapid
+      // check-all loop produced a false 'Broken' on first live run — an
+      // unreadable model is still reported, but only after two attempts.
+      let verdict: { status: 'ready' | 'broken'; problems: string[] } | null = null;
+      for (let attempt = 0; attempt < 2 && !verdict; attempt++) {
+        try {
+          const content = await getSemanticModelContent(m.name.replace('.yaml', ''));
+          verdict = checkSemanticModelHealth(content.content ?? '');
+        } catch (err) {
+          if (attempt === 1) verdict = { status: 'broken', problems: [toMessage(err, 'could not read model')] };
+          else await new Promise((r) => setTimeout(r, 800));
+        }
       }
+      next[m.name] = verdict!;
     }
     setModelHealth(next);
     setHealthChecking(false);
