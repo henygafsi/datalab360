@@ -167,6 +167,8 @@ const DwhActionPlanTab = lazy(() => import('./dwh-action-plan-tab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
 import { useSession } from 'next-auth/react';
 import ServerlessFinOpsCards from './serverless-finops-cards';
+import StorageSplitCard from './StorageSplitCard';
+import WarehouseEfficiencyCard from './WarehouseEfficiencyCard';
 import TopProblemsPanel from './TopProblemsPanel';
 import WhatChangedCard from './WhatChangedCard';
 import ActivityDigestCard from './ActivityDigestCard';
@@ -5492,6 +5494,12 @@ const CostTab = memo(function CostTab({
       <ServerlessFinOpsCards days={30} />
 
         </GridCell>
+        <GridCell className="xl:col-span-6">
+      {/* Storage-split axis — active vs time-travel/failsafe/stage with history
+          + per-axis refresh (FINAL-TAB-DISPLAY-SPEC storage-split KPI). */}
+      <StorageSplitCard days={30} />
+
+        </GridCell>
         <GridCell>
       {/* Iter 4 — Compute vs Storage stacked area + Optimization Recommendations rail */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
@@ -7631,6 +7639,11 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
       </KpiZone>
       <Board>
         <PerformanceTab data={perf} loading={perfLoading} zone="board" />
+        {/* Compute-efficiency axis — surfaces the warehouse-efficiency endpoint
+            (queue/spill/misconfig flags) that previously had NO UI consumer. */}
+        <GridCell>
+          <WarehouseEfficiencyCard days={30} />
+        </GridCell>
         <DataOperationsTab data={ops} loading={opsLoading} zone="board" />
       </Board>
     </TabGrid>
