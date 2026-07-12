@@ -34,6 +34,7 @@ import {
   type OrgIntelResponse,
   type OrgDetailResponse,
   type OrgDetailTab,
+  type OrgAccountRow,
 } from '@/app/services/command-center';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -94,6 +95,8 @@ export default function OrganizationCockpit() {
   const [refreshing, setRefreshing] = useState(false);
   const [days, setDays] = useState(30);
   const [openTab, setOpenTab] = useState<OrgDetailTab | null>(null);
+  // Dynamic right bar: the selected account (click a portfolio row).
+  const [selAccount, setSelAccount] = useState<OrgAccountRow | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -240,7 +243,15 @@ export default function OrganizationCockpit() {
                 {data.account_portfolio.map((a) => {
                   const h = num(a.health);
                   return (
-                    <tr key={String(a.account)} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                    <tr
+                      key={String(a.account)}
+                      onClick={() => setSelAccount(a)}
+                      className={cn(
+                        'cursor-pointer border-b border-slate-100 last:border-0 hover:bg-blue-50/60 dark:border-slate-800 dark:hover:bg-blue-950/20',
+                        selAccount?.account === a.account && 'bg-blue-50 dark:bg-blue-950/30',
+                      )}
+                      title="Open account investigation"
+                    >
                       <td className="py-1.5 pr-2 font-mono text-[11px] text-slate-700 dark:text-slate-300">{a.account}</td>
                       <td className="py-1.5 pr-2 text-slate-500">{a.region}</td>
                       <td className="py-1.5 pr-2 text-slate-500">{a.edition}</td>
@@ -340,6 +351,133 @@ export default function OrganizationCockpit() {
 
       {/* ── Expandable deep-dive panel ── */}
       {openTab && <OrgDeepDive tab={openTab} days={days} onClose={() => setOpenTab(null)} />}
+
+      {/* ── Dynamic right bar: selected-account investigation ── */}
+      {selAccount && (
+        <AccountRightBar
+          account={selAccount}
+          currency={data.org_context?.currency ?? 'USD'}
+          actions={data.allowed_actions?.account ?? []}
+          onClose={() => setSelAccount(null)}
+          onOpenTab={(t) => { setSelAccount(null); setOpenTab(t); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Dynamic right bar for a selected account ─────────────────────────────────
+function AccountRightBar({
+  account, currency, actions, onClose, onOpenTab,
+}: {
+  account: OrgAccountRow;
+  currency: string;
+  actions: string[];
+  onClose: () => void;
+  onOpenTab: (tab: OrgDetailTab) => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const h = num(account.health);
+  const facts: Array<[string, string]> = [
+    ['Locator', String(account.locator ?? '—')],
+    ['Region', String(account.region ?? '—')],
+    ['Cloud', String(account.cloud ?? '—')],
+    ['Edition', String(account.edition ?? '—')],
+    ['Lifecycle', String(account.lifecycle ?? '—')],
+    ['ORGADMIN', account.orgadmin ? 'yes' : 'no'],
+    ['Reader account', account.reader ? 'yes' : 'no'],
+    ['SVC health', String(account.svc_health ?? '—')],
+  ];
+  const ACTION_LABEL: Record<string, string> = {
+    connect_svc: 'Connect service account',
+    rotate_svc: 'Rotate service-account key',
+    review_lifecycle: 'Review account lifecycle',
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={`Account ${account.account}`}>
+      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-[1px]" onClick={onClose} />
+      <aside className="relative flex h-full w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <header className="flex items-start justify-between gap-2 border-b border-slate-200 p-4 dark:border-slate-700">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className={cn('h-2.5 w-2.5 rounded-full', healthColor(h))} />
+              <h3 className="truncate font-mono text-sm font-semibold text-slate-900 dark:text-white">{account.account}</h3>
+              {account.d360_connected
+                ? <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">D360 connected</span>
+                : <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800">not connected</span>}
+            </div>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Health {h != null ? `${h}/100` : '—'} · {account.region}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="flex-shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {/* Cost / usage summary */}
+          <div className="grid grid-cols-3 gap-2 border-b border-slate-200 p-4 dark:border-slate-700">
+            {[
+              ['Cost', account.cost != null ? `${fmt(account.cost)} ${account.cost_currency ?? currency}` : '—'],
+              ['Active users', account.active_users != null ? fmt(account.active_users) : '—'],
+              ['Failed logins', account.login_failed != null ? fmt(account.login_failed) : '—'],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">{k}</div>
+                <div className="mt-0.5 text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">{v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Identity facts */}
+          <div className="border-b border-slate-200 p-4 dark:border-slate-700">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Identity</p>
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+              {facts.map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-2">
+                  <dt className="text-slate-400">{k}</dt>
+                  <dd className="truncate font-medium text-slate-700 dark:text-slate-300" title={v}>{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          {/* Drill-downs into the deep-dive tables */}
+          <div className="border-b border-slate-200 p-4 dark:border-slate-700">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Investigate</p>
+            <div className="flex flex-wrap gap-2">
+              {([['cost', 'Cost & capacity'], ['adoption', 'Adoption'], ['security', 'Security']] as [OrgDetailTab, string][]).map(([t, label]) => (
+                <button key={t} type="button" onClick={() => onOpenTab(t)}
+                  className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:border-blue-400 hover:text-blue-600 dark:border-slate-700 dark:text-slate-300">
+                  {label} audit →
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Backend-authorized actions (allowed_actions.account) */}
+          {actions.length > 0 && (
+            <div className="p-4">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Actions</p>
+              <div className="flex flex-col gap-2">
+                {actions.map((a) => (
+                  <button key={a} type="button"
+                    className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:border-blue-400 hover:bg-blue-50/50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-950/20">
+                    {ACTION_LABEL[a] ?? a.replace(/_/g, ' ')}
+                    <span className="text-slate-400">→</span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] text-slate-400">Actions are backend-authorized for your role.</p>
+            </div>
+          )}
+        </div>
+      </aside>
     </div>
   );
 }
