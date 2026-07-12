@@ -1532,6 +1532,35 @@ function CommandCenterDashboardInner() {
   // skeleton (CostTab/SecurityAdvTab fall to <LoadingSection/> on `!data`).
   const [tabError, setTabError] = useState<Record<string, string | null>>({});
 
+  // Bounded auto-retry for cold-start-shaped failures. A single failed fetch
+  // used to brick the whole tab into TabErrorState until a MANUAL retry —
+  // live-reproduced (night-3): backend restarting → connection refused →
+  // FinOps stuck on "Erreur serveur" while the backend was healthy 15s later.
+  // Retryable = the backend/cache is coming up (network refusal, 5xx from the
+  // gateway, CACHE_NOT_READY). Bare 500 included: the Next rewrite proxy
+  // (/api-proxy) masks an unreachable upstream as 500 "Internal Server Error"
+  // (verified live). At most TWO retries per tab per mount, 10s apart — spans
+  // a realistic ~15-20s backend boot; a persistent failure lands in the normal
+  // error state (this is not a poll loop).
+  const coldRetryCount = useRef<Record<string, number>>({});
+  const scheduleColdRetry = useCallback((tab: string, retry: () => void, err: unknown): boolean => {
+    const ax = err as {
+      code?: string;
+      response?: { status?: number; data?: { detail?: { error_code?: string } } };
+    };
+    const status = ax?.response?.status;
+    const retryable =
+      ax?.code === 'ERR_NETWORK' ||
+      ax?.code === 'ECONNABORTED' ||
+      status === 500 || status === 502 || status === 503 || status === 504 ||
+      ax?.response?.data?.detail?.error_code === 'CACHE_NOT_READY';
+    const used = coldRetryCount.current[tab] ?? 0;
+    if (!retryable || used >= 2) return false;
+    coldRetryCount.current[tab] = used + 1;
+    window.setTimeout(retry, 10000);
+    return true;
+  }, []);
+
   // ── Fetchers ─────────────────────────────────────────────────────────────
 
   const fetchOverview = useCallback(async () => {
@@ -1675,6 +1704,7 @@ function CommandCenterDashboardInner() {
   }, [filters]);
 
   const fetchProjects = useCallback(async () => {
+    let retryPending = false;
     setTabLoading((p) => ({ ...p, projects: true }));
     setTabError((p) => ({ ...p, projects: null }));
     try {
@@ -1688,15 +1718,20 @@ function CommandCenterDashboardInner() {
       setLastUpdated(new Date());
       tabDataCache.current['projects'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
-      const msg = getApiErrorMessage(err) || 'Failed to load projects data';
-      toast.error(msg);
-      setTabError((p) => ({ ...p, projects: msg }));
+      retryPending = scheduleColdRetry('projects', () => void fetchProjects(), err);
+      if (!retryPending) {
+        const msg = getApiErrorMessage(err) || 'Failed to load projects data';
+        toast.error(msg);
+        setTabError((p) => ({ ...p, projects: msg }));
+      }
     } finally {
-      setTabLoading((p) => ({ ...p, projects: false }));
+      // Keep the skeleton up while the one-shot cold retry is in flight.
+      if (!retryPending) setTabLoading((p) => ({ ...p, projects: false }));
     }
-  }, [filters]);
+  }, [filters, scheduleColdRetry]);
 
   const fetchSecurityAdv = useCallback(async () => {
+    let retryPending = false;
     setTabLoading((p) => ({ ...p, security: true }));
     setTabError((p) => ({ ...p, security: null }));
     try {
@@ -1714,13 +1749,16 @@ function CommandCenterDashboardInner() {
         filtersKey: buildFiltersKey(filters),
       };
     } catch (err) {
-      const msg = getApiErrorMessage(err) || 'Failed to load security data';
-      toast.error(msg);
-      setTabError((p) => ({ ...p, security: msg }));
+      retryPending = scheduleColdRetry('security', () => void fetchSecurityAdv(), err);
+      if (!retryPending) {
+        const msg = getApiErrorMessage(err) || 'Failed to load security data';
+        toast.error(msg);
+        setTabError((p) => ({ ...p, security: msg }));
+      }
     } finally {
-      setTabLoading((p) => ({ ...p, security: false }));
+      if (!retryPending) setTabLoading((p) => ({ ...p, security: false }));
     }
-  }, [filters]);
+  }, [filters, scheduleColdRetry]);
 
   const fetchGovGrants = useCallback(async () => {
     setTabLoading((p) => ({ ...p, 'governance-grants': true }));
@@ -1789,6 +1827,7 @@ function CommandCenterDashboardInner() {
   }, [filters]);
 
   const fetchCost = useCallback(async () => {
+    let retryPending = false;
     setTabLoading((p) => ({ ...p, finops: true }));
     setTabError((p) => ({ ...p, finops: null }));
     try {
@@ -1824,13 +1863,16 @@ function CommandCenterDashboardInner() {
       setLastUpdated(new Date());
       tabDataCache.current['finops'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
-      const msg = getApiErrorMessage(err) || 'Failed to load cost data';
-      toast.error(msg);
-      setTabError((p) => ({ ...p, finops: msg }));
+      retryPending = scheduleColdRetry('finops', () => void fetchCost(), err);
+      if (!retryPending) {
+        const msg = getApiErrorMessage(err) || 'Failed to load cost data';
+        toast.error(msg);
+        setTabError((p) => ({ ...p, finops: msg }));
+      }
     } finally {
-      setTabLoading((p) => ({ ...p, finops: false }));
+      if (!retryPending) setTabLoading((p) => ({ ...p, finops: false }));
     }
-  }, [filters]);
+  }, [filters, scheduleColdRetry]);
 
   const fetchCompute = useCallback(async () => {
     setTabLoading((p) => ({ ...p, compute: true }));
