@@ -2726,6 +2726,34 @@ export async function listMaskingConfigs(projectId: string):
   return data;
 }
 
+// ── Action catalog — the standard JSON registry of every E&D UI action ──────
+// (backend action_catalog.py, seeded to EVENT_STORE.EXPLORE_ACTION_CATALOG,
+// served from the TABLE; verified stamps come from POST /actions/verify).
+
+export interface ExploreAction {
+  action_id: string;
+  area: string;
+  label: string;
+  why: string;
+  method: string;
+  path: string;
+  params: Array<{ name: string; in: string; required?: boolean; enum?: string[]; note?: string }>;
+  rbac: string;
+  probe: string;
+  seed_version: number;
+  verified_at: string | null;
+  verified_status: string | null;
+}
+
+/** The registry of every E&D action (label/why/contract/gating/verified). */
+export async function getExploreActions(): Promise<{
+  seed_version: number; fingerprint: string; count: number;
+  areas: Record<string, ExploreAction[]>; actions: ExploreAction[];
+}> {
+  const { data } = await apiClient.get(`${ED}/actions`);
+  return data;
+}
+
 /** Apply pending declarations as real Snowflake policies. POST …/masking-configs/apply */
 export async function applyMaskingConfigs(projectId: string):
   Promise<{ project_id: string; pending: number; applied: number; failed: number;

@@ -589,7 +589,10 @@ export default function ContextRightBar({
       id: 'help', icon: HelpCircle, label: 'Help',
       description: 'What this table is and recommended next steps.',
       help: 'A guided summary for this table — what it is, recommended next modelling steps, and a governance readiness checklist. Every other tab also has its own "?" for axis-specific help.',
-      render: () => selectedTable ? <HelpPanel table={selectedTable} /> : empty,
+      // With a table: the table-scoped guide. Without one: the ACTION CATALOG —
+      // the registry of everything this module can do (label + why + verified),
+      // served from EVENT_STORE.EXPLORE_ACTION_CATALOG, never a hardcoded list.
+      render: () => selectedTable ? <HelpPanel table={selectedTable} /> : <ActionCatalogPanel />,
     },
   ];
 
@@ -2033,6 +2036,77 @@ export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
 // ---------------------------------------------------------------------------
 // E. Help Panel
 // ---------------------------------------------------------------------------
+
+function ActionCatalogPanel() {
+  // Registry-driven "what can I do here": GET /explore-design/actions serves
+  // the seeded action table (42 actions, 7 areas) with per-action `why` and
+  // the live-verified stamp from POST /actions/verify. Data-first: skeleton
+  // while loading, honest error state, never a hardcoded list.
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [areas, setAreas] = useState<Record<string, import('@/app/services/explore-design').ExploreAction[]>>({});
+  const [meta, setMeta] = useState<{ count: number; verified: number }>({ count: 0, verified: 0 });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getExploreActions } = await import('@/app/services/explore-design');
+        const d = await getExploreActions();
+        if (cancelled) return;
+        setAreas(d.areas || {});
+        setMeta({
+          count: d.count,
+          verified: (d.actions || []).filter(a => a.verified_at &&
+            (String(a.verified_status ?? '').startsWith('2') || String(a.verified_status ?? '').includes('honest'))).length,
+        });
+        setState('ready');
+      } catch {
+        if (!cancelled) setState('error');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (state === 'loading') {
+    return (
+      <div className="p-4 space-y-2">
+        {[0, 1, 2, 3].map(i => <div key={i} className="h-8 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />)}
+      </div>
+    );
+  }
+  if (state === 'error') {
+    return <div className="p-4 text-[11px] text-slate-500">Action catalog unavailable right now — the module still works; this panel just can't list its actions.</div>;
+  }
+  return (
+    <div className="p-4 space-y-3">
+      <div className="text-[11px] text-slate-500">
+        <span className="font-semibold text-slate-700 dark:text-slate-300">{meta.count} actions</span>
+        {' '}in this module · {meta.verified} contract-verified live
+      </div>
+      {Object.entries(areas).map(([area, list]) => (
+        <details key={area} className="rounded-xl border border-slate-200 dark:border-slate-700" open={area === 'catalog'}>
+          <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold capitalize text-slate-800 dark:text-slate-200">
+            {area} <span className="font-normal text-slate-400">({list.length})</span>
+          </summary>
+          <div className="px-3 pb-2 space-y-2">
+            {list.map(a => (
+              <div key={a.action_id} className="text-[11px] leading-snug">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-slate-700 dark:text-slate-300">{a.label}</span>
+                  {a.verified_at && (String(a.verified_status ?? '').startsWith('2') || String(a.verified_status ?? '').includes('honest')) && (
+                    <CheckCircle className="h-3 w-3 text-green-500 shrink-0" aria-label="contract verified live" />
+                  )}
+                </div>
+                <p className="text-slate-500">{a.why}</p>
+              </div>
+            ))}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
 
 function HelpPanel({ table }: { table: TableItem }) {
   // No-fake-0: only `hasPrimaryKey` is a real signal passed to this panel. The PK
