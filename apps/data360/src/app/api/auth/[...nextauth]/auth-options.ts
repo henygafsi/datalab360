@@ -43,7 +43,7 @@ export const authOptions: NextAuthOptions = {
         error: tokenExpired ? 'TokenExpired' : undefined,
       };
     },
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user, trigger, session }) {
       // Handle initial sign-in
       if (user) {
         token.account_name = (user as any).account_name;
@@ -55,10 +55,25 @@ export const authOptions: NextAuthOptions = {
         token.token_issued_at = Date.now();
       }
 
-      // Handle session update trigger (for token refresh)
-      if (trigger === 'update' && token.access_token) {
-        // Token refresh logic can be added here if backend supports it
-        token.token_issued_at = Date.now();
+      // Session update trigger — used by the role switcher: the backend mints
+      // a FRESH bearer (role + recomputed module items) on POST /user/profile/role
+      // and the client pushes it here via useSession().update({...}). The new
+      // token is what keys the backend's role-scoped caches, so it MUST replace
+      // the login-time one.
+      if (trigger === 'update') {
+        const s = session as
+          | { access_token?: string; role?: string; items?: unknown[] }
+          | undefined;
+        if (s?.access_token) {
+          token.access_token = s.access_token;
+          token.token_issued_at = Date.now();
+        }
+        if (s?.role) token.role = s.role;
+        if (s?.items) token.items = s.items;
+        if (!s?.access_token && token.access_token) {
+          // Legacy refresh path (no payload): just re-stamp issuance.
+          token.token_issued_at = Date.now();
+        }
       }
 
       return token;

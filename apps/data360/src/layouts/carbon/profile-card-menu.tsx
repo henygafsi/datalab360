@@ -11,6 +11,7 @@ import {
   HiOutlineCog6Tooth,
   HiOutlineShieldCheck
 } from 'react-icons/hi2';
+import RoleSwitcher from '@/layouts/carbon/role-switcher';
 
 type ProfileCardMenuProps = {
   className?: string;
@@ -80,6 +81,9 @@ function DropdownMenu({
           )}
         </div>
       </div>
+      {/* Active-role switcher — same user, different Snowflake/Data360 role;
+          data + modules refresh under the new role's policies. */}
+      <RoleSwitcher />
       <div className="px-3 py-3">
         {menuItems.map((item) => (
           <Link
