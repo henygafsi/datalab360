@@ -2242,27 +2242,29 @@ function CommandCenterDashboardInner() {
            No popups, no page scroll. */
         return (
           <div className="flex h-full min-h-0 flex-col gap-3">
-            {/* Refactored governance cockpit — compact KPI strip + segmented
-                Overview/Audit/Timeline + contextual right bar, consuming the
-                /account-overview/governance/intelligence aggregator. Mounted
-                ABOVE the legacy SecurityAdvTab (additive/non-breaking; a
-                follow-up removes the now-duplicated legacy sections). */}
-            <div className="shrink-0">
+            {/* The Governance cockpit is now the SOLE default surface — compact
+                KPI strip + segmented Overview/Audit/Timeline + contextual right
+                bar, consuming /account-overview/governance/intelligence. It
+                fills the frame (one screen, no page scroll). The legacy
+                SecurityAdvTab charts/tables and the grants/access/map surfaces
+                move BEHIND collapsed drawers below (hidable/displayable, one
+                scroll each) — killing the old 5-screen stack (user 2026-07-12). */}
+            <div className="min-h-0 flex-1">
               <GovernanceCockpit filters={filters} />
             </div>
-            <div className="min-h-0 flex-1">
-              {tabError.security && !tabLoading['security'] ? (
-                <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
-              ) : (
-                <SecurityAdvTab
-                  data={securityData}
-                  loading={tabLoading['security']}
-                  onNavigateTab={goToTab}
-                />
-              )}
-            </div>
-            <div className="grid shrink-0 grid-cols-1 gap-3 md:grid-cols-3">
-              <MoreDrawer label="Governance & grants" className="md:col-span-1">
+            <div className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-4">
+              <MoreDrawer label="Detailed security audit" className="col-span-2 md:col-span-1">
+                {tabError.security && !tabLoading['security'] ? (
+                  <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
+                ) : (
+                  <SecurityAdvTab
+                    data={securityData}
+                    loading={tabLoading['security']}
+                    onNavigateTab={goToTab}
+                  />
+                )}
+              </MoreDrawer>
+              <MoreDrawer label="Governance & grants" className="col-span-2 md:col-span-1">
                 <GovernanceGrantsTab
                   data={govGrantsData}
                   loading={tabLoading['governance-grants']}

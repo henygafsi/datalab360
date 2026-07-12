@@ -21,6 +21,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 import cn from '@core/utils/class-names';
 import {
   getScoreCards,
@@ -188,6 +189,24 @@ export default function SectionRail({
 
   const pendingAccess = usePendingAccessCount();
 
+  // Collapsible rail (user 2026-07-12: "the right bar is not hidable"). Collapsed
+  // → a narrow icon-only strip: the account-health block + score chips + labels
+  // hide, section nav stays. The sibling main content is flex-1 so it reclaims
+  // the width automatically. Persisted so the choice sticks across navigation.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try {
+      setCollapsed(localStorage.getItem('cc-rail-collapsed') === '1');
+    } catch { /* SSR / no storage */ }
+  }, []);
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      try { localStorage.setItem('cc-rail-collapsed', next ? '1' : '0'); } catch { /* noop */ }
+      return next;
+    });
+  };
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, idx: number) => {
     // WAI-ARIA tabs pattern: arrows move + select; Home/End jump to edges.
     let next: number | null = null;
@@ -209,15 +228,30 @@ export default function SectionRail({
     <nav
       aria-label="Account overview sections"
       className={cn(
-        // Horizontal strip on small screens, vertical w-64 rail on md+.
+        // Horizontal strip on small screens, vertical rail on md+. Collapsed →
+        // a narrow icon-only column that yields its width to the main content.
         'no-scrollbar flex shrink-0 flex-row gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm dark:border-slate-800 dark:bg-slate-900',
-        'md:w-72 md:flex-col md:gap-1 md:overflow-y-auto md:overflow-x-hidden md:p-2 xl:w-80',
+        'md:flex-col md:gap-1 md:overflow-y-auto md:overflow-x-hidden md:p-2',
+        collapsed ? 'md:w-14 md:items-center' : 'md:w-72 xl:w-80',
         className,
       )}
     >
+      {/* Collapse toggle — hides the rail to a slim icon strip so the audit
+          workspace gets the full width (vertical rail only). */}
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        aria-label={collapsed ? 'Expand account rail' : 'Collapse account rail'}
+        aria-expanded={!collapsed}
+        className="mb-1 hidden items-center justify-center rounded-lg border border-transparent p-1.5 text-slate-400 hover:bg-slate-50 hover:text-slate-600 md:flex dark:hover:bg-slate-800/60"
+      >
+        {collapsed
+          ? <PanelRightOpen className="h-4 w-4" aria-hidden />
+          : <PanelRightClose className="h-4 w-4 ml-auto" aria-hidden />}
+      </button>
       {/* Wave 2: the shared "Snowflake account health" pulse — vertical rail
-          only (the small-screen horizontal strip has no room for it). */}
-      <AccountHealthBlock className="mb-1 hidden md:block" />
+          only, and hidden when collapsed (it duplicates the main content). */}
+      {!collapsed && <AccountHealthBlock className="mb-1 hidden md:block" />}
       <div
         role="tablist"
         aria-orientation="vertical"
@@ -262,17 +296,19 @@ export default function SectionRail({
                   )}
                   aria-hidden
                 />
-                <span
-                  className={cn(
-                    'truncate text-xs font-semibold',
-                    isActive
-                      ? 'text-indigo-700 dark:text-indigo-300'
-                      : 'text-slate-600 dark:text-slate-300',
-                  )}
-                >
-                  {s.label}
-                </span>
-                {showPendingBadge && (
+                {!collapsed && (
+                  <span
+                    className={cn(
+                      'truncate text-xs font-semibold',
+                      isActive
+                        ? 'text-indigo-700 dark:text-indigo-300'
+                        : 'text-slate-600 dark:text-slate-300',
+                    )}
+                  >
+                    {s.label}
+                  </span>
+                )}
+                {showPendingBadge && !collapsed && (
                   <span
                     title={`${pendingAccess} pending access request${pendingAccess === 1 ? '' : 's'}`}
                     className="ml-auto rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
@@ -282,8 +318,8 @@ export default function SectionRail({
                 )}
               </span>
               {/* Per-axis highlight chips — hidden on the small horizontal
-                  strip to keep it one thin row. */}
-              {axes.length > 0 && (
+                  strip and when the rail is collapsed to an icon strip. */}
+              {!collapsed && axes.length > 0 && (
                 <span
                   className="hidden flex-wrap gap-1 md:flex"
                   data-testid={`cc-rail-chips-${s.id}`}
