@@ -77,6 +77,93 @@ const COLORS = [
   '#EC4899',
 ];
 
+// ── ORG ACCOUNTS KPI deep-dive registry ──────────────────────────────────────
+// One entry per clickable KPI card: what it means, where the number comes from,
+// and how fresh that source is. The drawer pairs this with the REAL rows behind
+// the number so a click answers "what is this / why / where" without scrolling.
+type OrgKpiId =
+  | 'accounts'
+  | 'active_inactive'
+  | 'editions'
+  | 'credits'
+  | 'storage'
+  | 'reader_shares'
+  | 'replication'
+  | 'failover'
+  | 'managed';
+
+interface OrgKpiMeta {
+  title: string;
+  definition: string;
+  source: string;
+  /** Honest latency note — ORGANIZATION_USAGE views lag up to 24h (Snowflake docs). */
+  freshness: string;
+}
+
+const ORG_KPI_META: Record<OrgKpiId, OrgKpiMeta> = {
+  accounts: {
+    title: 'Accounts in organization',
+    definition: 'Total client accounts under this Snowflake organization (any lifecycle state).',
+    source: 'SNOWFLAKE.ORGANIZATION_USAGE.ACCOUNTS',
+    freshness: 'Org metadata — latency up to 24h; not live.',
+  },
+  active_inactive: {
+    title: 'Active / Inactive accounts',
+    definition: 'Accounts with vs without query activity in the selected window.',
+    source: 'ORGANIZATION_USAGE.ACCOUNTS × QUERY_HISTORY',
+    freshness: 'Activity derived from QUERY_HISTORY (≈45-min latency).',
+  },
+  editions: {
+    title: 'Editions in use',
+    definition: 'Distinct Snowflake editions across the organization’s accounts, with account counts.',
+    source: 'ORGANIZATION_USAGE.ACCOUNTS.edition',
+    freshness: 'Org metadata — latency up to 24h.',
+  },
+  credits: {
+    title: 'Organization credits (30d)',
+    definition: 'Total credits consumed across all accounts in the window.',
+    source: 'ORGANIZATION_USAGE.USAGE_IN_CURRENCY_DAILY',
+    freshness: 'Daily usage — up to 24h latency; bounded by the date range.',
+  },
+  storage: {
+    title: 'Organization storage',
+    definition: 'Total storage (active + time-travel + fail-safe) across accounts.',
+    source: 'ORGANIZATION_USAGE.STORAGE_DAILY_HISTORY',
+    freshness: 'Daily storage — up to 24h latency.',
+  },
+  reader_shares: {
+    title: 'Reader accounts / Shares',
+    definition: 'Managed reader accounts and outbound shares — the data-sharing footprint.',
+    source: 'SHOW MANAGED ACCOUNTS · SHOW SHARES',
+    freshness: 'Live SHOW commands (current).',
+  },
+  replication: {
+    title: 'Replication groups',
+    definition: 'Replication groups and their cross-region transfer credits.',
+    source: 'ORGANIZATION_USAGE.REPLICATION_GROUP_USAGE_HISTORY',
+    freshness: 'Up to 24h latency; bounded by the date range.',
+  },
+  failover: {
+    title: 'Failover groups',
+    definition: 'Failover groups configured for business-continuity across accounts.',
+    source: 'SHOW FAILOVER GROUPS',
+    freshness: 'Live SHOW command (current).',
+  },
+  managed: {
+    title: 'Managed accounts',
+    definition: 'Accounts this organization administers (reader + full managed accounts).',
+    source: 'SHOW MANAGED ACCOUNTS',
+    freshness: 'Live SHOW command (current).',
+  },
+};
+
+interface OrgKpiDrawerData {
+  id: OrgKpiId;
+  meta: OrgKpiMeta;
+  columns: string[];
+  rows: Row[];
+}
+
 interface OrgAccountsState {
   overview: DashboardOverviewResponse | null;
   accounts: AccountsListResponse | null;
@@ -434,6 +521,49 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
     [state.shareList],
   );
 
+  // ── Per-KPI deep-dive drawer ─────────────────────────────────────────────
+  // Each ORG ACCOUNTS KPI is clickable; clicking opens a right-side drawer with
+  // the KPI's definition, its Snowflake/Data360 source, an honest freshness note
+  // (ORGANIZATION_USAGE lags up to 24h — spec §1), and the REAL rows behind the
+  // number (reusing the row sets already built above — no new fetch, no scroll).
+  const [openKpi, setOpenKpi] = useState<OrgKpiId | null>(null);
+  const kpiDrawer = useMemo<OrgKpiDrawerData | null>(() => {
+    if (!openKpi) return null;
+    const meta = ORG_KPI_META[openKpi];
+    const ev: { columns: string[]; rows: Row[] } = (() => {
+      switch (openKpi) {
+        case 'accounts':
+        case 'managed':
+          return { columns: ['account', 'locator', 'region', 'cloud', 'edition', 'status'], rows: accountRows };
+        case 'active_inactive':
+          return {
+            columns: ['account', 'region', 'edition', 'status'],
+            rows: accountRows.map((r) => ({ account: r.account, region: r.region, edition: r.edition, status: r.status })),
+          };
+        case 'editions':
+          return { columns: ['edition', 'count'], rows: editionMix.map((e) => ({ edition: e.edition, count: e.count })) };
+        case 'credits':
+          return { columns: ['date', 'credits'], rows: creditTrend.map((c) => ({ date: c.date, credits: Math.round(c.credits) })) };
+        case 'storage':
+          return { columns: ['date', 'gb'], rows: storageTrend.map((s: any) => ({ date: s.date, gb: s.gb ?? s.bytes ?? 0 })) };
+        case 'reader_shares':
+          return {
+            columns: ['name', 'kind', 'region_or_db'],
+            rows: [
+              ...readerRows.map((r) => ({ name: r.name, kind: 'reader account', region_or_db: r.region })),
+              ...shareRows.map((s) => ({ name: s.name, kind: `share (${s.kind})`, region_or_db: s.database })),
+            ],
+          };
+        case 'replication':
+        case 'failover':
+          return { columns: ['account', 'credits', 'bytes_transferred'], rows: replicationRows };
+        default:
+          return { columns: [], rows: [] };
+      }
+    })();
+    return { id: openKpi, meta, columns: ev.columns, rows: ev.rows };
+  }, [openKpi, accountRows, editionMix, creditTrend, storageTrend, readerRows, shareRows, replicationRows]);
+
   // Friendly, non-error empty state for the common case: this account is not a
   // Snowflake Organization account, so there is simply nothing org-level to
   // show. This is NOT an error — render an info panel, not a red banner.
@@ -547,18 +677,21 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
           label="Accounts in org"
           value={isOrgAdmin ? fmtNumber(totalAccounts) : '—'}
           loading={state.loading}
+          onClick={isOrgAdmin ? () => setOpenKpi('accounts') : undefined}
         />
         <KpiCard
           icon={ShieldCheck}
           label="Active / Inactive"
           value={isOrgAdmin ? `${activeAccounts} / ${inactiveAccounts}` : '—'}
           loading={state.loading}
+          onClick={isOrgAdmin ? () => setOpenKpi('active_inactive') : undefined}
         />
         <KpiCard
           icon={Cloud}
           label="Editions in use"
           value={editionMix.map((e) => e.edition).join(' · ') || '—'}
           loading={state.loading}
+          onClick={editionMix.length ? () => setOpenKpi('editions') : undefined}
         />
         <KpiCard
           icon={CreditCard}
@@ -566,38 +699,50 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
           value={fmtNumber(orgCredits != null ? Math.round(orgCredits) : null)}
           loading={state.loading}
           trendPct={o?.credits_trend_pct}
+          onClick={creditTrend.length ? () => setOpenKpi('credits') : undefined}
         />
         <KpiCard
           icon={HardDrive}
           label={acctScope ? 'Account storage' : 'Org storage'}
           value={fmtBytes(orgStorageBytes)}
           loading={state.loading}
+          onClick={storageTrend.length ? () => setOpenKpi('storage') : undefined}
         />
         <KpiCard
           icon={Database}
           label="Reader / Shares"
           value={isOrgAdmin ? `${state.readers} / ${state.shares}` : '—'}
           loading={state.loading}
+          onClick={isOrgAdmin ? () => setOpenKpi('reader_shares') : undefined}
         />
         <KpiCard
           icon={GitBranch}
           label="Replication Groups"
           value={replicationGroupsCount > 0 ? fmtNumber(replicationGroupsCount) : '—'}
           loading={state.loading}
+          onClick={replicationRows.length ? () => setOpenKpi('replication') : undefined}
         />
         <KpiCard
           icon={Zap}
           label="Failover Groups"
           value={failoverGroupsCount > 0 ? fmtNumber(failoverGroupsCount) : '—'}
           loading={state.loading}
+          onClick={replicationRows.length ? () => setOpenKpi('failover') : undefined}
         />
         <KpiCard
           icon={Layers}
           label="Managed Accounts"
           value={isOrgAdmin ? fmtNumber(managedAccountsCount) : '—'}
           loading={state.loading}
+          onClick={isOrgAdmin ? () => setOpenKpi('managed') : undefined}
         />
       </div>
+
+      {/* Per-KPI deep-dive drawer (dynamic right bar). Opens on KPI click; shows
+          definition, source, freshness, and the REAL rows behind the number. */}
+      {kpiDrawer && (
+        <OrgKpiDrawer data={kpiDrawer} onClose={() => setOpenKpi(null)} />
+      )}
 
       {/* Error banner */}
       {state.error && (
@@ -935,6 +1080,105 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
   );
 }
 
+// ── Per-KPI deep-dive drawer (the dynamic right bar) ─────────────────────────
+function OrgKpiDrawer({
+  data,
+  onClose,
+}: {
+  data: OrgKpiDrawerData;
+  onClose: () => void;
+}) {
+  // Escape closes; lock nothing else (the page keeps working behind the scrim).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const { meta, columns, rows } = data;
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={meta.title}>
+      {/* Scrim */}
+      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-[1px]" onClick={onClose} />
+      {/* Panel */}
+      <aside className="relative flex h-full w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <header className="flex items-start justify-between gap-2 border-b border-slate-200 p-4 dark:border-slate-700">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{meta.title}</h3>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{meta.definition}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex-shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+          >
+            ✕
+          </button>
+        </header>
+
+        {/* Source + freshness (spec §1: never label ORGANIZATION_USAGE as live) */}
+        <div className="grid grid-cols-1 gap-2 border-b border-slate-200 p-4 text-xs dark:border-slate-700">
+          <div className="flex items-start gap-2">
+            <Database className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+            <div className="min-w-0">
+              <span className="text-slate-400">Source</span>
+              <p className="break-words font-mono text-[11px] text-slate-700 dark:text-slate-300">{meta.source}</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <RefreshCw className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+            <div className="min-w-0">
+              <span className="text-slate-400">Freshness</span>
+              <p className="text-[11px] text-slate-700 dark:text-slate-300">{meta.freshness}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Evidence — the REAL rows behind the number */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Evidence · {rows.length} {rows.length === 1 ? 'row' : 'rows'}
+          </p>
+          {rows.length === 0 ? (
+            <p className="text-xs text-slate-400">
+              No rows available for this metric at the current scope / freshness.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-400 dark:border-slate-700 dark:bg-slate-800/50">
+                    {columns.map((c) => (
+                      <th key={c} className="px-2 py-1.5 font-medium">{c.replace(/_/g, ' ')}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.slice(0, 200).map((r, i) => (
+                    <tr key={i} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                      {columns.map((c) => (
+                        <td key={c} className="max-w-[160px] truncate px-2 py-1.5 text-slate-600 dark:text-slate-300" title={String(r[c] ?? '')}>
+                          {String(r[c] ?? '—')}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rows.length > 200 && (
+                <p className="px-2 py-1.5 text-[10px] text-slate-400">Showing first 200 of {rows.length}.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 // ----- small UI helpers -----
 
 function NeedsOrgAdminNote({ label }: { label: string }) {
@@ -964,6 +1208,7 @@ function KpiCard({
   value,
   loading,
   trendPct,
+  onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
@@ -973,9 +1218,31 @@ function KpiCard({
   loading: boolean;
   // Optional month-over-month delta (already a percentage, e.g. 12.3 = +12.3%).
   trendPct?: number | null;
+  // When set, the card becomes a button that opens its deep-dive drawer.
+  onClick?: () => void;
 }) {
+  const interactive = typeof onClick === 'function';
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+    <div
+      {...(interactive
+        ? {
+            role: 'button' as const,
+            tabIndex: 0,
+            onClick,
+            onKeyDown: (e: React.KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.();
+              }
+            },
+          }
+        : {})}
+      className={`rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900${
+        interactive
+          ? ' cursor-pointer transition hover:border-blue-400 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:border-blue-500'
+          : ''
+      }`}
+    >
       <div className="flex items-start justify-between gap-1 text-xs text-slate-500">
         {/* Wrap the label on word boundaries (never clip); tooltip carries it too. */}
         <span className="min-w-0 leading-tight" title={label}>
