@@ -178,6 +178,7 @@ import AiAdvisor from './AiAdvisor';
 import SnowflakeInsightsAdvisor from './SnowflakeInsightsAdvisor';
 import SecurityMap from './SecurityMap';
 import GovernanceCockpit from './GovernanceCockpit';
+import GovernanceOnePager from './GovernanceOnePager';
 import ObjectStorageAudit from './ObjectStorageAudit';
 import SnowflakeObjectsTab from './SnowflakeObjectsTab';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
@@ -2287,41 +2288,53 @@ function CommandCenterDashboardInner() {
            No popups, no page scroll. */
         return (
           <div className="flex h-full min-h-0 flex-col gap-3">
-            {/* The Governance cockpit is now the SOLE default surface — compact
-                KPI strip + segmented Overview/Audit/Timeline + contextual right
-                bar, consuming /account-overview/governance/intelligence. It
-                fills the frame (one screen, no page scroll). The legacy
-                SecurityAdvTab charts/tables and the grants/access/map surfaces
-                move BEHIND collapsed drawers below (hidable/displayable, one
-                scroll each) — killing the old 5-screen stack (user 2026-07-12). */}
+            {/* Governance ONE-PAGER (2026-07-13 refactor): compact executive
+                cockpit — header (score · health · freshness) · KPI strip ·
+                findings audit (server-paginated) + score breakdown + events ·
+                expandable bottom deep-dive (timeline / recommendations) ·
+                contextual right bar — powered by the single role-scoped
+                /account-overview/governance/intelligence aggregate. Mirrors the
+                Organization one-pager. The previous GovernanceCockpit and the
+                legacy SecurityAdvTab / grants / access / map surfaces move
+                BEHIND a collapsed disclosure so no evidence disappears. */}
             <div className="min-h-0 flex-1">
-              <GovernanceCockpit filters={filters} />
+              <GovernanceOnePager />
             </div>
-            <div className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-4">
-              <MoreDrawer label="Detailed security audit" className="col-span-2 md:col-span-1">
-                {tabError.security && !tabLoading['security'] ? (
-                  <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
-                ) : (
-                  <SecurityAdvTab
-                    data={securityData}
-                    loading={tabLoading['security']}
-                    onNavigateTab={goToTab}
-                  />
-                )}
-              </MoreDrawer>
-              <MoreDrawer label="Governance & grants" className="col-span-2 md:col-span-1">
-                <GovernanceGrantsTab
-                  data={govGrantsData}
-                  loading={tabLoading['governance-grants']}
-                />
-              </MoreDrawer>
-              <MoreDrawer label="Access requests" className="md:col-span-1">
-                <AccessRequestsCard />
-              </MoreDrawer>
-              <MoreDrawer label="Security map" className="md:col-span-1">
-                <SecurityMap days={filters.days} />
-              </MoreDrawer>
-            </div>
+            <details className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-700">
+              <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+                Detailed panels (governance cockpit · security audit · grants · access · map)
+              </summary>
+              <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+                <div className="mb-3 min-h-0 xl:h-[640px] xl:overflow-y-auto">
+                  <GovernanceCockpit filters={filters} />
+                </div>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <MoreDrawer label="Detailed security audit" className="col-span-2 md:col-span-1">
+                    {tabError.security && !tabLoading['security'] ? (
+                      <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
+                    ) : (
+                      <SecurityAdvTab
+                        data={securityData}
+                        loading={tabLoading['security']}
+                        onNavigateTab={goToTab}
+                      />
+                    )}
+                  </MoreDrawer>
+                  <MoreDrawer label="Governance & grants" className="col-span-2 md:col-span-1">
+                    <GovernanceGrantsTab
+                      data={govGrantsData}
+                      loading={tabLoading['governance-grants']}
+                    />
+                  </MoreDrawer>
+                  <MoreDrawer label="Access requests" className="md:col-span-1">
+                    <AccessRequestsCard />
+                  </MoreDrawer>
+                  <MoreDrawer label="Security map" className="md:col-span-1">
+                    <SecurityMap days={filters.days} />
+                  </MoreDrawer>
+                </div>
+              </div>
+            </details>
           </div>
         );
       case 'organization':
