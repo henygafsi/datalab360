@@ -162,6 +162,7 @@ const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
 const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
 const SnowflakeAccountsAuditSection = lazy(() => import('./SnowflakeAccountsAuditSection'));
 const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
+const OrganizationCockpit = lazy(() => import('./OrganizationCockpit'));
 const DwhActionPlanTab = lazy(() => import('./dwh-action-plan-tab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
 import { useSession } from 'next-auth/react';
@@ -2324,39 +2325,36 @@ function CommandCenterDashboardInner() {
           </div>
         );
       case 'organization':
-        /* Merged Organization section: org summary + ORGADMIN-gated org
-           accounts + Snowflake accounts honest-empty states, stacked. Each
-           child owns its own ORGADMIN gating + honest empty messaging. */
+        /* Organization ONE-PAGER (2026-07-12 refactor): a compact executive
+           cockpit — header · KPI strip · portfolio+health · events · expandable
+           bottom deep-dive (audit tables + charts) — powered by the single
+           role-scoped /account-overview/organization/intelligence aggregate and
+           its L2 detail endpoints. Replaces the old long-scroll 2×2 grid, which
+           now lives behind a collapsed disclosure so no evidence disappears. */
         return (
           <Suspense fallback={<LoadingSection />}>
-            {/* 2×2 dashboard grid — each quadrant is a self-contained
-                component with INTERNAL scroll (they own their fetches and
-                ORGADMIN gating). Below xl the grid stacks and the tab's zone
-                scrolls internally; the page never scrolls. */}
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              <div className="min-h-0 xl:overflow-y-auto">
-                {/* Self-contained: owns its own date-range + role/module/account
-                    filters; does NOT consume the parent global filter bar. */}
-                <OrgSummaryTab />
-              </div>
-              <div className="min-h-0 xl:overflow-y-auto">
-                <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Org accounts
-                </h3>
-                <OrgAccountsTab onNavigateTab={goToTab} />
-              </div>
-              <div className="min-h-0 xl:overflow-y-auto">
-                <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Connected Accounts
-                </h3>
-                <SnowflakeAccountsTab onNavigateTab={goToTab} />
-              </div>
-              <div className="min-h-0 xl:overflow-y-auto">
-                <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Accounts &amp; audit
-                </h3>
-                <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
-              </div>
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <OrganizationCockpit />
+              <details className="rounded-xl border border-slate-200 dark:border-slate-700">
+                <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+                  Detailed panels (org summary · accounts · connected-account audit)
+                </summary>
+                <div className="grid grid-cols-1 gap-3 border-t border-slate-200 p-3 dark:border-slate-700 xl:grid-cols-2">
+                  <div className="min-h-0 xl:overflow-y-auto"><OrgSummaryTab /></div>
+                  <div className="min-h-0 xl:overflow-y-auto">
+                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Org accounts</h3>
+                    <OrgAccountsTab onNavigateTab={goToTab} />
+                  </div>
+                  <div className="min-h-0 xl:overflow-y-auto">
+                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connected Accounts</h3>
+                    <SnowflakeAccountsTab onNavigateTab={goToTab} />
+                  </div>
+                  <div className="min-h-0 xl:overflow-y-auto">
+                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Accounts &amp; audit</h3>
+                    <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
+                  </div>
+                </div>
+              </details>
             </div>
           </Suspense>
         );
