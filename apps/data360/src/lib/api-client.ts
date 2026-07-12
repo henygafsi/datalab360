@@ -1,7 +1,6 @@
 /**
  * Secure API client: adds auth headers, handles 401/403. Data journey: UI/service → apiClient → backend.
  */
-// ////dependency//// lib → config.database.config, lib.auth (session/token)
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { API_CONFIG } from '@/config/database.config';
 import {
@@ -66,7 +65,7 @@ async function getCachedSession(): Promise<SnowflakeSession | null> {
 // Create axios instance with base configuration
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_CONFIG.BASE_URL,
-  timeout: 600000, // 2 minutes – Snowflake queries (policies, mappings, etc.) can be slow; backend owns SDK
+  timeout: 900000, // 15 min — matches the backend's 15-min statement guard; cold ACCOUNT_USAGE scans on org accounts legitimately run for minutes (org-account audit 2026-07-12). The backend owns the real cancel; the client must not cut a live query short.
   headers: {
     'Content-Type': 'application/json',
   },
@@ -447,7 +446,20 @@ export function getApiErrorMessage(error: unknown): string {
       if (typeof data.message === 'string') return data.message;
     }
     if (status === 401) return 'Session expirée. Veuillez vous reconnecter.';
-    if (status === 503) return 'Service temporairement indisponible. Utilisez un seul worker ou reconnectez-vous.';
+    if (status === 503) {
+      // CACHE_NOT_READY / svc_connect_failed is a WARMING state, not a failure —
+      // the analytics service-cache is still connecting for this account. Surface
+      // it as "preparing" so tabs render a loading state, never an error toast
+      // (org-account audit 2026-07-12: it read as a hard "Erreur serveur").
+      const d503 = (data ?? {}) as { error_code?: string; errorCode?: string; reason?: string;
+        detail?: { error_code?: string; reason?: string } };
+      const code = d503.error_code || d503.errorCode || d503.detail?.error_code || '';
+      const reason = d503.reason || d503.detail?.reason || '';
+      if (/CACHE_NOT_READY/i.test(String(code)) || /svc_connect_failed|warming/i.test(String(reason))) {
+        return 'Préparation des données du compte en cours… (cache analytique en cours de connexion)';
+      }
+      return 'Service temporairement indisponible. Utilisez un seul worker ou reconnectez-vous.';
+    }
     if (status === 403) return 'Accès refusé.';
     if (status === 404) return 'Ressource introuvable.';
     if (status === 501) {
@@ -470,7 +482,7 @@ export function getApiErrorMessage(error: unknown): string {
 export async function createServerApiClient(headers?: Record<string, string>): Promise<AxiosInstance> {
   const serverClient = axios.create({
     baseURL: API_CONFIG.BASE_URL,
-    timeout: 300000,
+    timeout: 900000,  // 15 min — matches the backend statement guard (see apiClient above)
     headers: {
       'Content-Type': 'application/json',
       ...headers,

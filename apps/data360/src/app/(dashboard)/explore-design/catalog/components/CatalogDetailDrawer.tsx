@@ -21,9 +21,53 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-2 py-1">
       <dt className="shrink-0 text-[11px] text-slate-400 dark:text-slate-500">{label}</dt>
-      <dd className="min-w-0 text-right text-[11px] text-slate-700 dark:text-slate-200">
+      <dd className="min-w-0 break-all text-right text-[11px] text-slate-700 dark:text-slate-200">
         {value ?? '—'}
       </dd>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h4 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        {title}
+      </h4>
+      {children}
+    </section>
+  );
+}
+
+function fmtScore(v: number | null | undefined): string {
+  return v === null || v === undefined ? '—' : String(Math.round(v));
+}
+
+function scoreClass(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '';
+  if (v >= 70) return 'font-semibold text-emerald-600 dark:text-emerald-400';
+  if (v >= 40) return 'font-semibold text-amber-600 dark:text-amber-400';
+  return 'font-semibold text-red-600 dark:text-red-400';
+}
+
+function ScoreValue({ value }: { value: number | null | undefined }) {
+  return <span className={scoreClass(value)}>{fmtScore(value)}</span>;
+}
+
+function TagChips({ tags }: { tags: string[] }) {
+  if (tags.length === 0) {
+    return <span className="text-[11px] text-slate-400 dark:text-slate-500">—</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {tags.map((t) => (
+        <span
+          key={t}
+          className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500 dark:bg-slate-700/70 dark:text-slate-300"
+        >
+          {t}
+        </span>
+      ))}
     </div>
   );
 }
@@ -98,23 +142,38 @@ export default function CatalogDetailDrawer({
       <div className="flex-1 overflow-auto p-3">
         {item.kind === 'product' && p ? (
           <div className="space-y-3">
-            <dl className="divide-y divide-slate-100 dark:divide-slate-700/60">
-              <Row label="Domain" value={p.domain || '—'} />
-              <Row label="Owner" value={p.owner || '—'} />
-              <Row label="Status" value={p.status || '—'} />
-              <Row label="Sources" value={p.source_count ?? '—'} />
-              <Row label="Models" value={p.model_count ?? '—'} />
-              <Row label="KPIs" value={p.kpi_count ?? '—'} />
-              <Row label="Dashboards" value={p.dashboard_count ?? '—'} />
-              <Row
-                label="Quality score"
-                value={p.quality_score !== null ? Math.round(p.quality_score) : '—'}
-              />
-              <Row
-                label="Trust score"
-                value={p.trust_score !== null ? Math.round(p.trust_score) : '—'}
-              />
-            </dl>
+            <Section title="Identity">
+              <dl className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                <Row label="Name" value={p.name || '—'} />
+                <Row label="Product ID" value={p.product_id || '—'} />
+                <Row label="Domain" value={p.domain || '—'} />
+                <Row label="Status" value={p.status || '—'} />
+                <Row label="Owner" value={p.owner || '—'} />
+              </dl>
+            </Section>
+
+            <Section title="Scores">
+              <dl className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                <Row label="Quality" value={<ScoreValue value={p.quality_score} />} />
+                <Row label="Trust" value={<ScoreValue value={p.trust_score} />} />
+                <Row label="Governance" value={<ScoreValue value={p.governance_score} />} />
+                <Row label="FinOps" value={<ScoreValue value={p.finops_score} />} />
+                <Row label="ROI" value={<ScoreValue value={p.roi_score} />} />
+              </dl>
+            </Section>
+
+            <Section title="Inventory">
+              <dl className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                <Row label="Sources" value={p.source_count ?? '—'} />
+                <Row label="Models" value={p.model_count ?? '—'} />
+                <Row label="KPIs" value={p.kpi_count ?? '—'} />
+                <Row label="Dashboards" value={p.dashboard_count ?? '—'} />
+              </dl>
+            </Section>
+
+            <Section title="Tags">
+              <TagChips tags={item.tags} />
+            </Section>
 
             {loading ? (
               <div className="space-y-2" aria-hidden="true">
@@ -156,24 +215,25 @@ export default function CatalogDetailDrawer({
           </div>
         ) : (
           <div className="space-y-3">
-            <dl className="divide-y divide-slate-100 dark:divide-slate-700/60">
-              <Row label="Type" value={s?.type || '—'} />
-              <Row label="Database" value={s?.database || '—'} />
-              <Row label="Schemas" value={s?.schema_count ?? '—'} />
-              <Row label="Tables" value={s?.table_count ?? '—'} />
-            </dl>
-            {item.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {item.tags.map((t) => (
-                  <span
-                    key={t}
-                    className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] text-slate-500 dark:bg-slate-700/70 dark:text-slate-300"
-                  >
-                    {t}
-                  </span>
-                ))}
-              </div>
-            )}
+            <Section title="Identity">
+              <dl className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                <Row label="Name" value={s?.name || item.name || '—'} />
+                <Row label="Type" value={s?.type || '—'} />
+                <Row label="Database" value={s?.database || '—'} />
+              </dl>
+            </Section>
+
+            <Section title="Inventory">
+              <dl className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                <Row label="Schemas" value={s?.schema_count ?? '—'} />
+                <Row label="Tables" value={s?.table_count ?? '—'} />
+              </dl>
+            </Section>
+
+            <Section title="Tags">
+              <TagChips tags={item.tags} />
+            </Section>
+
             <p className="text-[11px] text-slate-400 dark:text-slate-500">
               Source-type tags are stored locally for now — a shared tag write is
               not available yet on this environment.

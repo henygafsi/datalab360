@@ -100,9 +100,7 @@ export function CarbonSidebar({ className }: { className?: string }) {
             aria-label="Site Logo"
             className={cn(
               'group relative flex items-center',
-              sidebarCollapsed
-                ? 'w-full justify-center'
-                : 'w-full justify-center'
+              'w-full justify-center'
             )}
           >
             <div className="relative">

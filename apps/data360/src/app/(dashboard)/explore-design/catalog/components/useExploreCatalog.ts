@@ -51,7 +51,7 @@ export interface CatalogItem {
   tableCount: number | null;
   /** Original records for the detail drawer. */
   product?: CatalogProduct;
-  source?: { name: string; type: string; database?: string; schema_count?: number; table_count?: number };
+  source?: { name: string; type: string; database?: string; owner?: string | null; schema_count?: number; table_count?: number };
 }
 
 export interface ExploreCatalogData {
@@ -116,18 +116,32 @@ export function useExploreCatalog(): ExploreCatalogData {
     if (sourcesRes.status === 'fulfilled') {
       setSourcesUnavailable(false);
       for (const s of sourcesRes.value.sources ?? []) {
-        const localTag = s.database ? readTag(tagKey(s.database)) : readTag(tagKey(s.name));
+        // Normalize BOTH source payload shapes: legacy {name,type,database} and
+        // live {label,source_type,source_id} (blank names + colliding
+        // 'source:undefined' ids came from reading only the legacy keys).
+        const name = s.name || s.label || s.source_id || '';
+        const type = s.type || s.source_type || 'source';
+        const database =
+          s.database || (s.source_type === 'snowflake_database' ? s.label : undefined);
+        const localTag = database ? readTag(tagKey(database)) : readTag(tagKey(name));
         next.push({
-          id: `source:${s.name}`,
+          id: `source:${s.source_id || name}`,
           kind: 'source',
-          name: s.name,
-          projectLabel: s.database || null,
-          tags: [s.type, localTag].filter(Boolean) as string[],
+          name,
+          projectLabel: database || null,
+          tags: [type, localTag].filter(Boolean) as string[],
           qualityScore: null,
           trustScore: null,
           schemaCount: s.schema_count ?? null,
           tableCount: s.table_count ?? null,
-          source: s,
+          source: {
+            name,
+            type,
+            database,
+            owner: s.owner ?? null,
+            schema_count: s.schema_count,
+            table_count: s.table_count,
+          },
         });
       }
     } else if (isUnavailable(sourcesRes.reason)) {

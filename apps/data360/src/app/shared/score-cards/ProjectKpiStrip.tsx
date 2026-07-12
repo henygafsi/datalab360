@@ -26,7 +26,6 @@
  * Slot-ready: another agent owns the shared right-panel; this is a standalone
  * component to be dropped in later as that panel's `kpiStrip`.
  */
-// ////dependency//// shared.score-cards.ProjectKpiStrip → shared.score-cards.useProjectRollup
 import Link from 'next/link';
 import {
   Activity,

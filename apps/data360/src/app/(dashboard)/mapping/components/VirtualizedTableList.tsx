@@ -216,12 +216,14 @@ const TableRow: React.FC<{
       )}
       onClick={handleRowClick}
     >
-      <button type="button" aria-label="Toggle row selection" className="pt-0.5 cursor-pointer" onClick={handleCheckboxClick}>
+      {/* Radix Checkbox already renders a <button role="checkbox"> — wrapping it
+          in another <button> is invalid HTML and a hydration-error source. */}
+      <span className="pt-0.5 cursor-pointer" onClick={handleCheckboxClick}>
         <Checkbox
           checked={isSelected}
           onCheckedChange={handleCheckboxChange}
         />
-      </button>
+      </span>
 
       <div className="flex-1 min-w-0">
         {/* Table name - full width, no truncation fighting */}
@@ -346,9 +348,7 @@ const SchemaHeader: React.FC<{
       onClick={onToggle}
     >
       <Checkbox
-        checked={allSelected}
-        // @ts-ignore - indeterminate is valid but not in types
-        indeterminate={someSelected}
+        checked={allSelected ? true : someSelected ? 'indeterminate' : false}
         onCheckedChange={(checked) => {
           onSelectAll(checked as boolean);
         }}

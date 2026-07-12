@@ -20,7 +20,6 @@
  * Inline-only markup (spans), so it can sit inside a header `<p>` next to the
  * project title. Reusable from workflow, explore-design and bi-dashboard.
  */
-// ////dependency//// shared.project-badges → services (score-cards, workflowApi)
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {

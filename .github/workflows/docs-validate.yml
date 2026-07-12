@@ -1,0 +1,28 @@
+name: docs-validate
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - "docs/**"
+      - "scripts/ci/validate_wiki.py"
+      - ".github/workflows/docs-validate.yml"
+  pull_request:
+    branches: [dev, prod, main]
+    paths:
+      - "docs/**"
+      - "scripts/ci/validate_wiki.py"
+      - ".github/workflows/docs-validate.yml"
+
+concurrency:
+  group: docs-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Obsidian vault (frontmatter tags + wikilinks)
+        run: python3 scripts/ci/validate_wiki.py

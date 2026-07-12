@@ -122,3 +122,11 @@ SKIP_ENV_VALIDATION=1                          # optional, skips t3-env validati
 - **Branch**: feature work goes to `feat/backlog-v1` (pre-approved push target); never push directly to `main`/`dev` without explicit approval
 - **Commits**: conventional commit format (`feat(module):`, `fix(module):`, `chore:`)
 - Event tracking: use `useTrackEvent` for page views, tab switches, and feature clicks — fire-and-forget to `POST /api/data360/track`
+
+## Documentation — the vault is the source of truth
+
+All documentation lives in `docs/` — an Obsidian vault section (open the parent `data360_pro/` folder in Obsidian for the full cross-repo graph, backend notes included). Start at `docs/Frontend-Home.md`.
+
+- **Rule: every feature PR updates the matching note in the same commit** — routes/components in the relevant `docs/FE-*.md`, architecture changes in `docs/Frontend-Architecture.md`.
+- Notes carry YAML frontmatter tags (taxonomy in backend `docs/Tags.md`); CI blocks on `scripts/ci/validate_wiki.py` via `.github/workflows/docs-validate.yml`.
+- Do not create ad-hoc `.md` audit reports in `docs/`, `e2e/`, or `reports/` — durable knowledge goes in the vault notes.

@@ -67,6 +67,14 @@ export interface AxisCockpitProps {
   widthClassName?: string;
   /** Optional live feed (AI change analyst) pinned under the active axis body. */
   footer?: React.ReactNode;
+  /**
+   * 'side' (default): the always-visible vertical mini-rail next to the panel.
+   * 'header': NO side strip — the axes render as a horizontal menu row inside
+   * the panel header (for pages that already have their own right rail, e.g.
+   * account-overview's SectionRail: two right bars read as clutter — user
+   * screenshot #46).
+   */
+  railMode?: 'side' | 'header';
   className?: string;
 }
 
@@ -86,6 +94,7 @@ export default function AxisCockpit({
   onClose,
   widthClassName = 'w-[392px]',
   footer,
+  railMode = 'side',
   className = '',
 }: AxisCockpitProps) {
   const active = axes.find((a) => a.id === activeAxis) ?? null;
@@ -98,6 +107,32 @@ export default function AxisCockpit({
           aria-label={`${active.label} panel`}
           className={`${widthClassName} flex min-h-0 flex-col border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900`}
         >
+          {railMode === 'header' && (
+            <nav
+              aria-label="Module axes"
+              role="tablist"
+              className="flex items-center gap-1 overflow-x-auto border-b border-slate-200 px-2 py-1.5 dark:border-slate-800"
+            >
+              {axes.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={a.id === activeAxis}
+                  onClick={() => onOpenAxis(a.id)}
+                  title={a.label}
+                  className={`flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                    a.id === activeAxis
+                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
+                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <a.icon className="h-3.5 w-3.5" aria-hidden />
+                  {a.railLabel ?? a.label}
+                </button>
+              ))}
+            </nav>
+          )}
           <header className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
             <active.icon className="h-4 w-4 text-slate-500 dark:text-slate-400" aria-hidden />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{active.label}</h3>
@@ -134,7 +169,9 @@ export default function AxisCockpit({
         </section>
       )}
 
-      {/* Mini-rail — always visible */}
+      {/* Mini-rail — always visible in 'side' mode; suppressed in 'header'
+          mode (the axes live in the panel header instead). */}
+      {railMode === 'header' ? null : (
       <nav
         aria-label="Module axes"
         className="flex w-[52px] flex-col items-center gap-1 border-l border-slate-200 bg-white py-3 dark:border-slate-800 dark:bg-slate-900"
@@ -168,6 +205,7 @@ export default function AxisCockpit({
           );
         })}
       </nav>
+      )}
     </div>
   );
 }

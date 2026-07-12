@@ -156,14 +156,7 @@ import {
   approveScheduledDeployment, rejectScheduledDeployment,
   cancelScheduledDeployment, rescheduleDeployment,
   executeScheduledDeploymentNow, getScheduledDeploymentLogs,
-  createWorkflow as edCreateWorkflow, getWorkflowDAG,
-  executeWorkflow as edExecuteWorkflow, getTaskLogs as edGetTaskLogs,
-  cancelWorkflow as edCancelWorkflow, retryTask as edRetryTask,
-  getPolicies as edGetPolicies,
-  applyMaskingPolicy as edApplyMasking, removeMaskingPolicy as edRemoveMasking,
-  applyRLSPolicy as edApplyRLS,
-  detectSensitiveColumnsInTables, bulkApplyTags,
-  createMaskingPolicy as edCreateMasking, createRLSPolicy as edCreateRLS,
+  createWorkflow as edCreateWorkflow,
   getERDLayout, saveERDLayout, autoLayoutERD,
   createRelationship, deleteRelationship,
   getColumnLineage, getImpactAnalysis,
@@ -176,7 +169,7 @@ import {
   createDesignDeployment, executeDesignDeployment,
   immediateDesignDeploy, scheduleDesignDeployment,
   listScheduledDesignDeployments, executeScheduledDesignDeployment,
-  rollbackDesignDeployment, deployWithVersion, rollbackVersionDeployment,
+  rollbackDesignDeployment,
   dryRunDDL, batchAddDDLActions, preCheckDeployment, verifyDeployment,
   checkTypeCompatibility, analyzeImpact as edAnalyzeImpact,
   runQualityCheck, previewIngestionSQL, dryRunIngestion,
@@ -622,8 +615,6 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'getScheduledDeployments', fn: () => getScheduledDeployments(SEED.exploreProjectId) },
       { name: 'getScheduledDeploymentDetails', fn: () => getScheduledDeploymentDetails(FAKE_ID, FAKE_ID) },
       { name: 'getScheduledDeploymentLogs', fn: () => getScheduledDeploymentLogs(FAKE_ID, FAKE_ID) },
-      { name: 'getWorkflowDAG', fn: () => getWorkflowDAG(FAKE_ID) },
-      { name: 'getPolicies', fn: () => edGetPolicies() },
       { name: 'getERDLayout', fn: () => getERDLayout(SEED.exploreProjectId) },
       { name: 'getColumnLineage', fn: () => getColumnLineage(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE, 'ID') },
       { name: 'getImpactAnalysis', fn: () => getImpactAnalysis(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE) },
@@ -688,9 +679,6 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'rescheduleDeployment', fn: () => rescheduleDeployment(FAKE_ID, FAKE_ID, '2030-01-01T00:00:00Z') },
       { name: 'executeScheduledDeploymentNow', fn: () => executeScheduledDeploymentNow(FAKE_ID, FAKE_ID) },
       { name: 'createWorkflow (ED)', fn: () => edCreateWorkflow(FAKE_ID, { name: FAKE_ID, steps: [] } as any) },
-      { name: 'executeWorkflow (ED)', fn: () => edExecuteWorkflow(FAKE_ID) },
-      { name: 'cancelWorkflow', fn: () => edCancelWorkflow(FAKE_ID) },
-      { name: 'retryTask', fn: () => edRetryTask(FAKE_ID, FAKE_ID) },
       { name: 'addPrimaryKey', fn: () => addPrimaryKey({ database: FAKE_DB, schema: FAKE_SCHEMA, table: FAKE_TABLE, columns: ['ID'] } as any) },
       { name: 'renameTable', fn: () => renameTable(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE, 'NEW_NAME') },
       { name: 'renameColumn', fn: () => renameColumn(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE, 'OLD_COL', 'NEW_COL') },
@@ -738,7 +726,6 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'getMaterializationStrategy', fn: () => getMaterializationStrategy(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE) },
       { name: 'getIngestionRecommendation', fn: () => getIngestionRecommendation(FAKE_ID, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE) },
       { name: 'scoreDeploymentRisk', fn: () => scoreDeploymentRisk(FAKE_ID, { pending_events: [] }) },
-      { name: 'detectSensitiveColumnsInTables', fn: () => detectSensitiveColumnsInTables(FAKE_ID, [{ database: FAKE_DB, schema: FAKE_SCHEMA, table: FAKE_TABLE }] as any) },
     ],
   },
 
@@ -954,17 +941,13 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'getExploreProject', fn: () => exploreDesignApi.getExploreProject(SEED.exploreProjectId) },
       { name: 'getExploreState', fn: () => exploreDesignApi.getExploreState(SEED.exploreProjectId) },
       { name: 'getExploreEvents', fn: () => exploreDesignApi.getExploreEvents(SEED.exploreProjectId) },
-      { name: 'listTemplates', fn: () => exploreDesignApi.listTemplates(SEED.exploreProjectId) },
       { name: 'listDDLActions', fn: () => exploreDesignApi.listDDLActions(SEED.exploreProjectId) },
-      { name: 'listMappings', fn: () => exploreDesignApi.listMappings(SEED.exploreProjectId) },
       { name: 'listModels', fn: () => exploreDesignApi.listModels(SEED.exploreProjectId) },
       { name: 'listDeployments', fn: () => exploreDesignApi.listDeployments(SEED.exploreProjectId) },
       { name: 'listExploreVersions', fn: () => exploreDesignApi.listExploreVersions(SEED.exploreProjectId) },
       { name: 'listSchedules', fn: () => exploreDesignApi.listSchedules(SEED.exploreProjectId) },
       { name: 'listIngestionRuns', fn: () => exploreDesignApi.listIngestionRuns(SEED.exploreProjectId) },
       { name: 'checkConflicts', fn: () => exploreDesignApi.checkConflicts(SEED.exploreProjectId) },
-      { name: 'getAuditTrail', fn: () => exploreDesignApi.getAuditTrail(SEED.exploreProjectId) },
-      { name: 'listEventTemplates', fn: () => exploreDesignApi.listEventTemplates(SEED.exploreProjectId) },
       { name: 'listWatermarks', fn: () => exploreDesignApi.listWatermarks(SEED.exploreProjectId) },
       { name: 'aiClassifyColumns', fn: () => exploreDesignApi.aiClassifyColumns(SEED.exploreProjectId, FAKE_DB, FAKE_SCHEMA, FAKE_TABLE) },
       { name: 'aiSchemaHealth', fn: () => exploreDesignApi.aiSchemaHealth(SEED.exploreProjectId) },
@@ -1623,7 +1606,7 @@ function ApiHealthPageContent() {
               : f === 'slow' ? '#c2410c'
               : f === 'expected' ? '#64748b'
               : f === 'success' ? '#16a34a'
-              : f === 'issues' ? '#2563eb'
+              : f === 'issues' ? '#b45309'
               : '#2563eb';
             const tint =
               f === 'defect' ? '#fdf4ff'
@@ -1631,6 +1614,7 @@ function ApiHealthPageContent() {
               : f === 'slow' ? '#fff7ed'
               : f === 'expected' ? '#f1f5f9'
               : f === 'success' ? '#f0fdf4'
+              : f === 'issues' ? '#fffbeb'
               : '#eff6ff';
             return (
               <button key={f} onClick={() => setFilter(f)} style={{

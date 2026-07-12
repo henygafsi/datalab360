@@ -84,7 +84,6 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) {
                 toast.success(`✅ Utilisateur ${row.name} supprimé avec succès${grantsInfo}`);
                 await refetch();
               } catch (error: any) {
-                // console.error('Error deleting user:', error);
                 const errorMessage = toServiceError(error, 'Operation failed').message;
                 toast.error(`❌ Erreur lors de la suppression de l'utilisateur: ${errorMessage}`);
                 await refetch();
@@ -108,13 +107,11 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) {
                   toast.success(`✅ ${successCount} utilisateur(s) supprimé(s) avec succès`);
                 } else if (successCount > 0 && failedCount > 0) {
                   toast.success(`⚠️ ${successCount} utilisateur(s) supprimé(s), ${failedCount} échec(s)`);
-                  // console.warn('Failed deletions:', result.failed);
                 } else {
                   toast.error(`❌ Échec de la suppression de tous les utilisateurs`);
                 }
                 await refetch();
               } catch (error: any) {
-                // console.error('Error deleting multiple users:', error);
                 const errorMessage = toServiceError(error, 'Operation failed').message;
                 toast.error(`❌ Erreur lors de la suppression multiple: ${errorMessage}`);
                 await refetch();
@@ -141,7 +138,6 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) {
                 }
                 await refetch();
               } catch (error: any) {
-                // console.error('Error toggling user status:', error);
                 const errorMessage = toServiceError(error, 'Operation failed').message;
                 toast.error(`❌ Erreur lors de l'opération: ${errorMessage}`);
                 await refetch();

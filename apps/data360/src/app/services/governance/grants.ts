@@ -26,9 +26,7 @@ export const getRoles = async (): Promise<RoleGrantData[]> => {
  * Update grants for a specific role
  */
 export async function updateGrants(role_name: string, modules: string[]) {
-  // console.log('[API] Updating grants:', { role_name, modules });
   const response = await apiClient.put('/gouvernance/update-grants', { role_name, modules });
-  // console.log('[API] Update grants response:', response.data);
   // Module grants gate sidebar/feature access — bust the cached action allow-set
   // so the editor's own controls re-resolve against the new grants (no stale UI).
   invalidateMyPermissions();

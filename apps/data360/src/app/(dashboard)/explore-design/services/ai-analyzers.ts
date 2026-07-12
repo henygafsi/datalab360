@@ -80,9 +80,6 @@ const PII_PATTERNS: Array<{ pattern: RegExp; classification: string; suggestion:
   { pattern: /(?:ip_address|ip_addr|user_agent|device_id)/i, classification: 'PII - Digital', suggestion: 'Apply hashing or truncation' },
 ];
 
-// Future use: dimension/measure classification for column_classification feature
-// const DIMENSION_PATTERNS = [...]
-// const MEASURE_PATTERNS = [...]
 
 export function analyzeColumns(events: DesignEvent[]): Omit<AiSuggestion, 'id' | 'dismissed' | 'timestamp'>[] {
   const suggestions: Omit<AiSuggestion, 'id' | 'dismissed' | 'timestamp'>[] = [];

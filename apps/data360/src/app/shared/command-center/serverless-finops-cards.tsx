@@ -157,9 +157,9 @@ function MiniTable({ rows, maxCols = 6 }: { rows: Row[]; maxCols?: number }) {
 function PanelCard({ title, subtitle, loading, rows }: { title: string; subtitle: string; loading: boolean; rows: Row[] }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
-      <div className="mb-1 flex items-baseline justify-between">
-        <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">{title}</p>
-        <span className="text-[10px] uppercase tracking-wide text-gray-400">{subtitle}</span>
+      <div className="mb-1 min-w-0">
+        <p className="truncate text-xs font-semibold text-gray-800 dark:text-gray-200">{title}</p>
+        <span className="block truncate text-[10px] uppercase tracking-wide text-gray-400">{subtitle}</span>
       </div>
       {loading ? <div className="h-24 animate-pulse rounded bg-gray-100 dark:bg-gray-800" /> : <MiniTable rows={rows} />}
     </div>
@@ -188,22 +188,25 @@ export default function ServerlessFinOpsCards({ days = 30 }: { days?: number }) 
   // Detail tables (6 independent endpoints; one failure never blocks the others).
   useEffect(() => {
     let active = true;
+    // #70: NO barrier — each panel lands as its (slow, per-object
+    // ACCOUNT_USAGE) call resolves instead of six skeletons waiting on the
+    // slowest. detailLoading now only gates panels with no data yet.
+    setDetail({});
     setDetailLoading(true);
-    Promise.all(
-      DETAIL_PANELS.map((p) =>
-        p
-          .loader(days)
-          .then((r) => [p.key, (r?.data ?? []) as Row[]] as const)
-          .catch(() => [p.key, [] as Row[]] as const)
-      )
-    )
-      .then((entries) => {
-        if (!active) return;
-        const next: Record<string, Row[]> = {};
-        for (const [k, v] of entries) next[k] = v;
-        setDetail(next);
-      })
-      .finally(() => active && setDetailLoading(false));
+    let pending = DETAIL_PANELS.length;
+    DETAIL_PANELS.forEach((p) => {
+      p.loader(days)
+        .then((r) => {
+          if (active) setDetail((prev) => ({ ...prev, [p.key]: (r?.data ?? []) as Row[] }));
+        })
+        .catch(() => {
+          if (active) setDetail((prev) => ({ ...prev, [p.key]: [] as Row[] }));
+        })
+        .finally(() => {
+          pending -= 1;
+          if (active && pending === 0) setDetailLoading(false);
+        });
+    });
     return () => {
       active = false;
     };
@@ -240,7 +243,7 @@ export default function ServerlessFinOpsCards({ days = 30 }: { days?: number }) 
         </div>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {DETAIL_PANELS.map((p) =>
-            detailLoading ? (
+            detail[p.key] === undefined ? (
               <div
                 key={p.key}
                 className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
@@ -254,6 +257,7 @@ export default function ServerlessFinOpsCards({ days = 30 }: { days?: number }) 
                 title={p.title}
                 subtitle={p.subtitle}
                 rows={detail[p.key] ?? []}
+                pageSize={25}
               />
             )
           )}

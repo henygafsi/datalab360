@@ -9,17 +9,68 @@ interface Props {
 
 interface State {
   hasError: boolean;
+  /** True while the boundary is auto-recovering from a transient chunk error. */
+  autoRetrying: boolean;
 }
 
-class ErrorBoundary extends Component<Props, State> {
-  state: State = { hasError: false };
+// Transient-class errors: a failed chunk fetch / dynamic import. Typical causes
+// are an HMR window in dev or a deploy swapping hashed chunks under a live tab.
+// One automatic reload fixes these — the user should never have to click Retry.
+const TRANSIENT_ERROR_RE =
+  /ChunkLoadError|Loading chunk .* failed|Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed/i;
 
-  static getDerivedStateFromError(): State {
+export function isTransientChunkError(error: unknown): boolean {
+  if (!error) return false;
+  const name = (error as { name?: string }).name ?? '';
+  const message = (error as { message?: string }).message ?? String(error);
+  return name === 'ChunkLoadError' || TRANSIENT_ERROR_RE.test(message);
+}
+
+// sessionStorage guard so the automatic retry happens exactly ONCE per window
+// (a reload that hits the same error again must surface the boundary, not loop).
+const AUTO_RETRY_KEY = 'd360-eb-auto-retry-at';
+const AUTO_RETRY_COOLDOWN_MS = 60_000;
+
+class ErrorBoundary extends Component<Props, State> {
+  state: State = { hasError: false, autoRetrying: false };
+
+  static getDerivedStateFromError(): Partial<State> {
     return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    if (typeof window === 'undefined' || !isTransientChunkError(error)) return;
+    let lastRetryAt = 0;
+    try {
+      lastRetryAt = Number(window.sessionStorage.getItem(AUTO_RETRY_KEY) ?? 0);
+    } catch {
+      return; // storage unavailable → fall through to the manual boundary
+    }
+    if (Date.now() - lastRetryAt < AUTO_RETRY_COOLDOWN_MS) return; // already auto-retried — show the boundary
+    try {
+      window.sessionStorage.setItem(AUTO_RETRY_KEY, String(Date.now()));
+    } catch {
+      return;
+    }
+    this.setState({ autoRetrying: true });
+    window.location.reload();
   }
 
   render() {
     if (this.state.hasError) {
+      if (this.state.autoRetrying) {
+        // A reload is in flight — show a quiet recovering state, not the error card.
+        return (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex min-h-[400px] flex-col items-center justify-center gap-3"
+          >
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" aria-hidden="true" />
+            <p className="text-sm text-gray-500 dark:text-gray-400">Recovering the page…</p>
+          </div>
+        );
+      }
       if (this.props.fallback) return this.props.fallback;
       return (
         <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 bg-white dark:bg-gray-900 rounded-xl border border-red-200 dark:border-red-800 m-4 p-8">

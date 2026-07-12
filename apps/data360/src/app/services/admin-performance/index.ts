@@ -27,6 +27,9 @@ export interface PerfKpis {
   error_rate: number | null;
   error_count: number | null;
   cache_hit_rate: number | null;
+  /** Process-truth counters from the cache layer itself (since boot) —
+      honest where the trace-derived rate is structurally sparse. */
+  cache_layer?: { hits: number; misses: number; hit_rate: number | null; scope: string } | null;
   deny_rate: number | null;
   distinct_users: number | null;
   distinct_paths: number | null;

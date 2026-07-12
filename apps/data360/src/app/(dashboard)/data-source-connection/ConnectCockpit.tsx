@@ -10,12 +10,16 @@
  *     consumes; the strip stays as the in-page detail + Test/Sync surface).
  *   - `<ConnectKpiStrip>`  — top KPI row under the page header. Honest by
  *     design: unknown values render "—", never fabricated zeros.
- *   - `<ConnectCockpit>`   — right-edge axis rail + docked panel. Axes:
- *       sources     stages/pipes/connectors + per-item health verdicts
- *       ingestion   7-day load roll-up + link to the strip's Test/Sync CTAs
- *       governance  stage grants (lazy GET /connect/stages/{name}/grants for
- *                   the first 3 stages, fetched on first axis open) + honest
- *                   PII empty (no PII scan is wired for stages)
+ *   - `<ConnectCockpit>`   — right-edge axis rail + docked panel. Actions are
+ *     rich CTAs (shared InsightActionButton + a why-this-action line derived
+ *     from real state), grouped by intent inside their owning axis:
+ *       sources     Connect: Add connection (RBAC-gated) + inventory/health
+ *       ingestion   Ingest: per-connector force-sync · Verify: per-connector
+ *                   reachability test (POST /connect/connectors/{id}/sync|test)
+ *                   + the 7-day load roll-up
+ *       governance  Govern: re-check stage grants (lazy GET
+ *                   /connect/stages/{name}/grants for the first 3 stages,
+ *                   fetched on first axis open) + honest PII empty
  *       cost        ingestion compute credits (7d) when reported — the only
  *                   wired cost signal in this module; otherwise honest empty
  *       history     recent stage/pipe activity derived from the health items'
@@ -32,9 +36,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAtomValue } from 'jotai';
 import toast from 'react-hot-toast';
-import { Activity, Coins, Database, History, ShieldCheck, Sparkles } from 'lucide-react';
+import {
+  Activity,
+  Coins,
+  Database,
+  History,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  SignalHigh,
+  Sparkles,
+} from 'lucide-react';
 import AxisCockpit, { type AxisDef, type AxisSeverity } from '@/app/shared/cockpit/AxisCockpit';
 import KpiStrip, { type KpiItem, type KpiDotTone } from '@/app/shared/cockpit/KpiStrip';
+import InsightActionButton, {
+  type InsightActionButtonProps,
+} from '@/app/shared/insights/InsightActionButton';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useCanPerform } from '@/hooks/useCanPerform';
@@ -42,6 +59,8 @@ import {
   getConnectorsHealth,
   getStageGrants,
   listConnectors,
+  syncConnector,
+  testConnector,
   type ConnectorHealthItem,
   type ConnectorInfo,
   type ConnectorsHealthSummary,
@@ -298,6 +317,21 @@ function FetchError({ message, onRetry }: { message: string; onRetry: () => void
   );
 }
 
+/**
+ * CockpitAction — an InsightActionButton with its "why this action" line.
+ * The why-text is always derived from REAL state (health roll-up, counts,
+ * last-load timestamps) so every CTA explains itself; gating stays honest
+ * via `capable` + `unavailableHint` (disabled chip with the true reason).
+ */
+function CockpitAction({ why, ...btn }: InsightActionButtonProps & { why: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5 dark:border-slate-700 dark:bg-slate-800/40">
+      <InsightActionButton size="md" {...btn} />
+      <p className="mt-1.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400">{why}</p>
+    </div>
+  );
+}
+
 const ITEM_DOT: Record<ConnectorHealthItem['status'], string> = {
   healthy: 'bg-emerald-500',
   degraded: 'bg-amber-500',
@@ -347,12 +381,21 @@ export default function ConnectCockpit({
 }) {
   const { health, connectors, loading, error, refresh } = data;
   const m = health?.metrics ?? null;
+  const last = latestActivity(health);
 
   // Reads follow the page's fail-open-while-loading policy; an explicit deny
   // renders an honest gated note instead of firing the grants calls.
   const viewPerm = useCanPerform('connect', 'view');
   const canView = viewPerm.allowed || viewPerm.loading;
   const viewDenied = !viewPerm.allowed && !viewPerm.loading;
+  const viewDeniedReason =
+    'You lack the "view" permission on connect. Ask an administrator to grant it.';
+  // Forcing a connector sync triggers ingestion → connect:ingest (same action
+  // the page gates its ingest CTAs on); re-testing is a non-mutating probe.
+  const ingestPerm = useCanPerform('connect', 'ingest');
+  const canIngest = ingestPerm.allowed || ingestPerm.loading;
+  const ingestDeniedReason =
+    'You lack the "ingest" permission on connect. Ask an administrator to grant it.';
 
   // Governance axis: lazy stage-grants fetch (first 3 stages, on first open).
   const stageNames = useMemo(
@@ -365,12 +408,9 @@ export default function ConnectCockpit({
   );
   const [grants, setGrants] = useState<Record<string, StageGrantState>>({});
   const grantsFetched = useRef(false);
-  useEffect(() => {
-    if (!(open && activeAxis === 'governance')) return;
-    if (grantsFetched.current || !canView || stageNames.length === 0) return;
-    grantsFetched.current = true;
-    stageNames.forEach((name) => {
-      void (async () => {
+  const loadGrants = useCallback(async () => {
+    await Promise.all(
+      stageNames.map(async (name) => {
         try {
           const res = await getStageGrants(name);
           const count =
@@ -386,9 +426,15 @@ export default function ConnectCockpit({
             [name]: { count: null, error: err instanceof Error ? err.message : 'Failed to load grants' },
           }));
         }
-      })();
-    });
-  }, [open, activeAxis, canView, stageNames]);
+      }),
+    );
+  }, [stageNames]);
+  useEffect(() => {
+    if (!(open && activeAxis === 'governance')) return;
+    if (grantsFetched.current || !canView || stageNames.length === 0) return;
+    grantsFetched.current = true;
+    void loadGrants();
+  }, [open, activeAxis, canView, stageNames, loadGrants]);
 
   // The Test/Sync CTAs live in the ConnectorHealthStrip (kept from the prior
   // wave) — the ingestion axis links/scrolls to it instead of duplicating them.
@@ -453,15 +499,27 @@ export default function ConnectCockpit({
       icon: Database,
       severity: sourcesSeverity,
       badge: health ? `${health.total_stages} stage${health.total_stages === 1 ? '' : 's'}` : undefined,
-      primaryCta: {
-        label: 'Add connection',
-        onClick: onAddConnection,
-        disabled: !canCreate,
-        title: !canCreate ? createDeniedReason : undefined,
-      },
       render: () => (
         <div>
           {error && <FetchError message={error} onRetry={refresh} />}
+          <SectionTitle>Connect</SectionTitle>
+          <CockpitAction
+            label="Add connection"
+            icon={Plus}
+            variant="primary"
+            capable={canCreate}
+            unavailableHint={createDeniedReason}
+            onAction={async () => onAddConnection()}
+            why={
+              !health
+                ? 'Source inventory has not answered yet — you can still start a new connection.'
+                : health.total_stages === 0
+                  ? 'No ingestion stages exist yet — connect your first data source to start loading.'
+                  : `${health.total_stages} stage${health.total_stages === 1 ? '' : 's'} and ${
+                      connectors === null ? '—' : connectors.length
+                    } registered connector${connectors !== null && connectors.length === 1 ? '' : 's'} already live — add another source.`
+            }
+          />
           {loading && !health ? (
             <LoadingRows />
           ) : health ? (
@@ -507,9 +565,83 @@ export default function ConnectCockpit({
       icon: Activity,
       severity: ingestionSeverity,
       badge: hasFailures ? 'failures' : undefined,
-      primaryCta: { label: 'Test / Sync', onClick: scrollToHealthStrip },
       render: () => (
         <div>
+          <SectionTitle>Ingest</SectionTitle>
+          {connectors === null ? (
+            <LoadingRows />
+          ) : connectors.length === 0 ? (
+            <EmptyNote
+              title="No registered connectors"
+              detail="Force-sync appears here once a connector (Postgres, MySQL, Databricks…) is registered."
+            />
+          ) : (
+            <div className="space-y-2">
+              {connectors.slice(0, 2).map((c) => (
+                <CockpitAction
+                  key={c.id}
+                  label={`Sync ${c.name}`}
+                  icon={RefreshCw}
+                  capable={canIngest}
+                  unavailableHint={ingestDeniedReason}
+                  successToast={`Sync started for ${c.name}`}
+                  pingBell
+                  onAction={() => syncConnector(c.id)}
+                  onDone={refresh}
+                  why={
+                    hasFailures
+                      ? `Failures reported in the last 7 days (${formatCount(m?.failed_loads_7d) ?? '0'} failed loads) — a forced sync re-runs the load now.`
+                      : last
+                        ? `Last load activity ${relativeTime(last.item.last_checked) ?? '—'} (${last.item.name}) — force a sync to pull fresher data.`
+                        : 'No load activity reported in the current health window — trigger the first sync.'
+                  }
+                />
+              ))}
+            </div>
+          )}
+          <SectionTitle>Verify</SectionTitle>
+          {connectors === null ? (
+            <LoadingRows />
+          ) : connectors.length === 0 ? (
+            <EmptyNote
+              title="Nothing to probe"
+              detail="Connection tests appear here once a connector is registered."
+            />
+          ) : (
+            <div className="space-y-2">
+              {connectors.slice(0, 2).map((c) => (
+                <CockpitAction
+                  key={c.id}
+                  label={`Test ${c.name}`}
+                  icon={SignalHigh}
+                  capable={canView}
+                  unavailableHint={viewDeniedReason}
+                  successToast={`${c.name} connection is reachable`}
+                  onAction={async () => {
+                    const res = await testConnector(c.id);
+                    if (res.ok === false) {
+                      throw new Error(res.message || `${c.name} connection test failed.`);
+                    }
+                    return res;
+                  }}
+                  why={
+                    health && health.overall !== 'healthy' && health.overall !== 'unknown'
+                      ? `Overall connector health is ${health.overall} — re-probe to confirm this source is reachable.`
+                      : 'Non-mutating reachability probe — verify credentials before the next scheduled load.'
+                  }
+                />
+              ))}
+            </div>
+          )}
+          {connectors !== null && connectors.length > 2 && (
+            <button
+              type="button"
+              onClick={scrollToHealthStrip}
+              className="mt-2 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+            >
+              +{connectors.length - 2} more connector{connectors.length - 2 === 1 ? '' : 's'} in the health strip
+            </button>
+          )}
           {loading && !m ? (
             <LoadingRows />
           ) : m ? (
@@ -542,9 +674,8 @@ export default function ConnectCockpit({
             />
           )}
           <p className="mt-4 text-xs text-slate-400 dark:text-slate-500">
-            Per-connector <span className="font-semibold">Test</span> and{' '}
-            <span className="font-semibold">Sync</span> actions live in the Connector Health strip on
-            the page — use the button above to jump to it.
+            The in-page Connector Health strip carries the full per-connector list; the roll-up
+            above comes from the same health feed.
           </p>
         </div>
       ),
@@ -557,6 +688,26 @@ export default function ConnectCockpit({
       severity: governanceSeverity,
       render: () => (
         <div>
+          <SectionTitle>Govern</SectionTitle>
+          <CockpitAction
+            label="Re-check stage grants"
+            icon={ShieldCheck}
+            capable={!viewDenied && stageNames.length > 0}
+            unavailableHint={
+              viewDenied
+                ? viewDeniedReason
+                : 'No ingestion stages yet — grants can be audited once a stage exists.'
+            }
+            successToast="Stage grant summaries refreshed"
+            onAction={loadGrants}
+            why={(() => {
+              const loaded = stageNames.filter((n) => grants[n] && !grants[n].error).length;
+              const total = stageNames.reduce((acc, n) => acc + (grants[n]?.count ?? 0), 0);
+              return loaded > 0
+                ? `${total} grant${total === 1 ? '' : 's'} across ${loaded} audited stage${loaded === 1 ? '' : 's'} — re-run the audit after any GRANT/REVOKE.`
+                : 'Pull the live GRANT list for the first stages so access is verified, not assumed.';
+            })()}
+          />
           <SectionTitle>Stage grants</SectionTitle>
           {viewDenied ? (
             <EmptyNote
@@ -674,22 +825,20 @@ export default function ConnectCockpit({
       railLabel: 'AI',
       icon: Sparkles,
       severity: 'idle',
-      primaryCta: { label: 'Open helper', onClick: onOpenAiHelper },
       render: () => (
         <div>
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            Paste a connection string, a config blob or a plain-language description — the assistant
-            identifies the matching connector and pre-fills its configuration form. It opens as a
-            docked panel, not a popup.
-          </p>
-          <button
-            type="button"
-            onClick={onOpenAiHelper}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-purple-500/40 transition-shadow hover:shadow-md hover:shadow-purple-500/60"
-          >
-            <Sparkles className="h-4 w-4" />
-            Open the AI connector helper
-          </button>
+          <SectionTitle>Connect</SectionTitle>
+          <CockpitAction
+            label="Open the AI connector helper"
+            icon={Sparkles}
+            variant="primary"
+            onAction={async () => onOpenAiHelper()}
+            why={
+              connectors !== null && connectors.length === 0
+                ? 'No connector is registered yet — paste a connection string and the assistant identifies the right connector and pre-fills its form.'
+                : 'Paste a connection string, a config blob or a plain-language description — the assistant matches the connector and pre-fills its configuration form (docked, not a popup).'
+            }
+          />
           <p className="mt-3 text-xs text-slate-400 dark:text-slate-500">
             Matching runs against the built-in connector catalog first; AI refinement is used only
             when it is reachable. Secrets you paste are never stored in the form for you.

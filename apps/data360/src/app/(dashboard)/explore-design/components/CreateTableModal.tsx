@@ -264,7 +264,6 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
 
       const res = await getCortexRecommend({ error_context: prompt });
       const text = res?.response || '';
-      // console.log('[AI] Cortex response for columns:', text);
 
       // Parse JSON — handle markdown code blocks or raw JSON
       const cleaned = text.replace(/```json?\s*/gi, '').replace(/```/g, '').trim();

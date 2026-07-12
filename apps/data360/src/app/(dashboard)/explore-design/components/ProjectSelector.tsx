@@ -28,6 +28,7 @@ import {
   formatProjectTimestamp,
   getBuildModeChip,
   getDisplayTags,
+  getIdentityTypeChip,
 } from '@/components/project-onboarding/project-listing-utils';
 
 interface Project {
@@ -141,6 +142,26 @@ function ProjectListingBackendGap() {
   );
 }
 
+/** Identity type chip — Product / Technical. Rows only render an EXPLICIT
+ *  `type:` tag (every row here is explore_design, so the derived fallback
+ *  would be identical noise on every line — the header chip carries that). */
+function IdentityTypeBadge({ tags }: { tags: string[] | null }) {
+  const chip = getIdentityTypeChip(tags);
+  if (!chip) return null;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
+        chip.kind === 'product'
+          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+          : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
+      )}
+    >
+      {chip.label}
+    </span>
+  );
+}
+
 /** Small build-mode chip — AI-built / Manual / Template, derived from tags[]. */
 function BuildModeBadge({ tags }: { tags: string[] | null }) {
   const chip = getBuildModeChip(tags);
@@ -203,7 +224,9 @@ export default function ProjectSelector({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Mine-only filter — persisted per module so it survives reloads.
-  const [mineOnly, setMineOnly] = useState(false);
+  // Initial `true` matches getMineOnlyPref's granted-only default so the
+  // first fetch isn't a wasted all-projects query.
+  const [mineOnly, setMineOnly] = useState(true);
   useEffect(() => {
     setMineOnly(getMineOnlyPref(MODULE_KEY));
   }, []);
@@ -891,6 +914,7 @@ export default function ProjectSelector({
                                   </motion.span>
                                 )}
                                 <BuildModeBadge tags={project.tags} />
+                                <IdentityTypeBadge tags={project.tags} />
                               </div>
                               {/* Line 1 — owner + last-used / created timestamp */}
                               <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">

@@ -31,6 +31,7 @@ import {
   Lock,
   RefreshCw,
   Sparkles,
+  UploadCloud,
 } from 'lucide-react';
 
 import { getApiErrorMessage } from '@/lib/api-client';
@@ -365,6 +366,38 @@ function CostAxisBody({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function IngestionAxisBody() {
+  // Self-contained (fetches on first mount) — the 8th standardized axis.
+  // Binds the SAME data-operations overview the Usage & Performance tab uses.
+  const [state, setState] = useState<{ status: 'loading' | 'ready' | 'error'; summary?: Record<string, unknown> }>({ status: 'loading' });
+  const load = useCallback(() => {
+    setState({ status: 'loading' });
+    import('@/app/services/org-accounts/hooks')
+      .then((m) => m.getDataOperationsOverview({ days: 30 }))
+      .then((d: any) => setState({ status: 'ready', summary: d?.summary ?? {} }))
+      .catch(() => setState({ status: 'error' }));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (state.status === 'loading') return <AxisSkeleton />;
+  if (state.status === 'error') return <AxisError onRetry={load} />;
+  const g = (k: string) => num((state.summary as any)?.[k]);
+  return (
+    <div>
+      <SectionLabel>Loading (30d)</SectionLabel>
+      <StatRow label="Files loaded" value={fmtNum(g('total_files_loaded'))} />
+      <StatRow label="Rows loaded" value={fmtNum(g('total_rows_loaded'))} />
+      <StatRow label="Load success" value={g('load_success_rate') != null ? `${g('load_success_rate')}%` : '—'} />
+      <StatRow label="Load errors" value={fmtNum(g('load_error_count'))} />
+      <SectionLabel>Automation</SectionLabel>
+      <StatRow label="Task runs" value={fmtNum(g('total_task_runs'))} />
+      <StatRow label="Task failures" value={fmtNum(g('task_failure_count'))} />
+      <StatRow label="Active tasks" value={fmtNum(g('active_tasks'))} />
+      <StatRow label="Pipes" value={fmtNum(g('pipe_count'))} />
+      <StatRow label="Dynamic tables" value={fmtNum(g('dynamic_tables'))} />
     </div>
   );
 }
@@ -746,6 +779,10 @@ export function useCommandCenterCockpit({
       setState: React.Dispatch<React.SetStateAction<AxisFetchState<T>>>,
       fn: () => Promise<T>,
       label: string,
+      /** Silent mode: degrade to "—" without a toast (eager strip pre-loads
+       *  fire on page load, where an error toast without a user action is
+       *  noise — the honest "—" on the tile is the signal). */
+      silent = false,
     ) => {
       if (inFlight.current.has(key)) return;
       inFlight.current.add(key);
@@ -755,7 +792,7 @@ export function useCommandCenterCockpit({
         setState({ status: 'ready', data });
       } catch (e) {
         setState((s) => ({ ...s, status: 'error' }));
-        toast.error(getApiErrorMessage(e) || `Couldn't load ${label}`);
+        if (!silent) toast.error(getApiErrorMessage(e) || `Couldn't load ${label}`);
       } finally {
         inFlight.current.delete(key);
       }
@@ -763,13 +800,17 @@ export function useCommandCenterCockpit({
     [],
   );
 
+  // NOTE: opts is optional and read defensively (`=== true`) so these stay
+  // safe to pass directly as onRetry/onClick handlers (a DOM event arg must
+  // not accidentally enable silent mode).
   const loadOverview = useCallback(
-    () =>
+    (opts?: { silent?: boolean }) =>
       runFetch(
         'overview',
         setOverviewState,
         () => getOverviewKpis(daysToRange(days)),
         'the overview KPIs',
+        opts?.silent === true,
       ),
     [days, runFetch],
   );
@@ -779,12 +820,13 @@ export function useCommandCenterCockpit({
     [days, runFetch],
   );
   const loadPerf = useCallback(
-    () =>
+    (opts?: { silent?: boolean }) =>
       runFetch(
         'perf',
         setPerfState,
         () => getWarehousePerformance({ days }),
         'warehouse performance',
+        opts?.silent === true,
       ),
     [days, runFetch],
   );
@@ -881,6 +923,18 @@ export function useCommandCenterCockpit({
     loadGov,
     loadHistory,
   ]);
+
+  // Eager pre-load for the TWO hero-strip tiles whose source no shell fetch
+  // covers: Query fail % (warehouse performance) and Open alerts (the cached
+  // overview-kpis payload). Without this they'd read "—" forever unless the
+  // user happened to open the owning axis. Silent: on failure the tile keeps
+  // its honest "—" — no page-load error toast. Re-fires after the days-change
+  // reset above (states go back to 'idle'); 'error' is sticky, so a failing
+  // backend is hit at most once per window.
+  useEffect(() => {
+    if (overviewState.status === 'idle') void loadOverview({ silent: true });
+    if (perfState.status === 'idle') void loadPerf({ silent: true });
+  }, [overviewState.status, perfState.status, loadOverview, loadPerf]);
 
   // Effective data: prefer what the shell already fetched.
   const costEff = costData ?? costState.data;
@@ -1015,6 +1069,14 @@ export function useCommandCenterCockpit({
       },
     },
     {
+      id: 'ingestion',
+      label: 'Ingestion',
+      railLabel: 'Ingest',
+      icon: UploadCloud,
+      severity: 'idle',
+      render: () => <IngestionAxisBody />,
+    },
+    {
       id: 'ai',
       label: 'AI recommendations',
       railLabel: 'AI',
@@ -1066,7 +1128,16 @@ export function useCommandCenterCockpit({
     },
   ];
 
-  // ── KPI strip (honest "—" via undefined; every KPI opens its owning axis) ──
+  // ── KPI strip — the ONE hero band of the Account tab (density mandate
+  //    2026-07: ≤8 tiles, a metric appears here ONCE, honest "—" via
+  //    undefined, every tile drills down into its owning axis or tab).
+  //    Everything else lives in the Overview tab's "All metrics" drawer.
+  //    Dropped from the old strip (dedup, content preserved elsewhere):
+  //      · "Users" (total) → folded into Active users' sub-line
+  //      · "p95 latency"   → folded into Query fail %'s sub-line
+  //      · "Open recos"    → the AI recommendations panel on the board
+  //                          (its count was "—" until the AI axis opened)
+  //      · "Security alerts" (= failed logins) → the Failed logins tile ──
 
   const totalUsers = num(summary?.platform?.total_users);
   const activeUsers7d = num(summary?.platform?.active_users_7d);
@@ -1074,19 +1145,29 @@ export function useCommandCenterCockpit({
     num(costEff?.total_credits) ??
     (days === 30 ? num(summary?.cost?.credits_30d) : null);
   const p95 = num(perfState.data?.query_performance?.p95_execution_ms);
-  const healthScore = num(summary?.quality?.health_score);
+  const perfTotal7d = num(perfState.data?.query_performance?.total_queries_7d);
+  // Real ratio only — no rate when the denominator is unknown or zero.
+  const queryFailPct =
+    perfTotal7d != null && perfTotal7d > 0 && perfFailed != null
+      ? (perfFailed / perfTotal7d) * 100
+      : null;
+  const storageTb = num(summary?.cost?.storage_tb);
+  const activeProjects = num(summary?.platform?.total_projects);
+  // Honest open-alerts: the synthetic unprovisioned payload carries fake 0s.
+  const openAlertsHonest =
+    overviewState.data?._provisioned !== false ? openAlerts : null;
 
   const kpiItems: KpiItem[] = [
     {
-      label: 'Users',
-      value: totalUsers != null ? fmtNum(totalUsers) : undefined,
-      dot: totalUsers != null ? 'ok' : 'idle',
-      sub: activeUsers7d != null ? `${fmtNum(activeUsers7d)} active (7d)` : undefined,
+      label: 'Active users',
+      value: activeUsers7d != null ? fmtNum(activeUsers7d) : undefined,
+      dot: activeUsers7d != null ? 'ok' : 'idle',
+      sub: totalUsers != null ? `of ${fmtNum(totalUsers)} total (7d)` : '7d',
       onClick: () => openAxis('overview'),
-      title: 'Platform users — open the Overview axis',
+      title: 'Active platform users (7d) — open the Overview axis',
     },
     {
-      label: `Cost (${days}d)`,
+      label: `Credits (${days}d)`,
       value: credits != null ? fmtNum(credits, 1) : undefined,
       dot: costSeverity,
       sub: 'credits',
@@ -1098,56 +1179,71 @@ export function useCommandCenterCockpit({
             }
           : undefined,
       onClick: () => openAxis('cost'),
-      title: 'Credit spend — open the Cost axis',
+      title: 'Credit spend — open the Cost axis (deep view: FinOps tab)',
     },
     {
-      label: 'p95 latency',
-      value: p95 != null ? fmtMs(p95) : undefined,
+      label: 'Query fail %',
+      value: queryFailPct != null ? `${queryFailPct.toFixed(1)}%` : undefined,
       dot: perfSeverity,
-      sub:
-        perfState.data != null
-          ? `${fmtNum(num(perfState.data.query_performance?.total_queries_7d))} queries (7d)`
-          : undefined,
+      sub: p95 != null ? `p95 ${fmtMs(p95)} (7d)` : '7d',
       onClick: () => openAxis('perf'),
-      title: 'Query p95 — open the Performance axis',
+      title: 'Failed / total queries (7d) — open the Performance axis',
     },
     {
-      label: 'Module health',
+      label: 'Failed logins',
+      value: failedLogins != null ? fmtNum(failedLogins) : undefined,
+      dot: govSeverity,
+      sub: '7d',
+      onClick: () => openAxis('governance'),
+      title: 'Failed logins (7d) — open the Governance axis',
+    },
+    {
+      label: 'Storage',
+      // Sub-TB accounts render in GB — `0 TB` for a 6 GB account reads as a
+      // fake zero, which the strip's honesty contract forbids.
       value:
-        healthScore != null
-          ? `${Math.round(healthScore)}%`
-          : moduleCounts
-            ? `${moduleCounts.healthy}/${moduleCounts.total}`
-            : undefined,
+        storageTb != null
+          ? storageTb >= 1
+            ? `${fmtNum(storageTb, storageTb < 10 ? 2 : 1)} TB`
+            : `${fmtNum(storageTb * 1024, storageTb * 1024 < 10 ? 2 : 0)} GB`
+          : undefined,
+      dot: storageTb != null ? 'ok' : 'idle',
+      sub: 'incl. time-travel & fail-safe',
+      onClick: () => onNavigateTab('finops'),
+      title: 'Total storage — open the FinOps tab',
+    },
+    {
+      label: 'Active projects',
+      value: activeProjects != null ? fmtNum(activeProjects) : undefined,
+      dot: activeProjects != null ? 'ok' : 'idle',
+      onClick: () => onNavigateTab('projects'),
+      title: 'Data360 projects — open the Projects tab',
+    },
+    {
+      label: 'Modules healthy',
+      // The real module count — NOT summary.quality.health_score, which is
+      // the DATA-QUALITY score (using it here once produced "Module health
+      // 24% · all modules healthy", a live-caught contradiction).
+      value: moduleCounts
+        ? `${moduleCounts.healthy}/${moduleCounts.total}`
+        : undefined,
       dot: qualitySeverity,
       sub: moduleCounts
         ? moduleCounts.critical > 0
           ? `${moduleCounts.critical} critical`
           : moduleCounts.degraded > 0
             ? `${moduleCounts.degraded} degraded`
-            : 'all modules healthy'
+            : 'all healthy'
         : undefined,
       onClick: () => openAxis('quality'),
-      title: 'Quality & module health — open the Quality axis',
+      title: 'Module health — open the Quality axis',
     },
     {
-      label: 'Open recos',
-      value: aiOpen != null ? fmtNum(aiOpen) : undefined,
-      dot: aiSeverity,
-      delta:
-        (aiCritical ?? 0) > 0
-          ? { text: `${fmtNum(aiCritical)} critical`, tone: 'warn' }
-          : undefined,
-      onClick: () => openAxis('ai'),
-      title: 'AI recommendations — open the AI axis',
-    },
-    {
-      label: 'Security alerts',
-      value: failedLogins != null ? fmtNum(failedLogins) : undefined,
-      dot: govSeverity,
-      sub: 'failed logins (7d)',
-      onClick: () => openAxis('governance'),
-      title: 'Security posture — open the Governance axis',
+      label: 'Open alerts',
+      value: openAlertsHonest != null ? fmtNum(openAlertsHonest) : undefined,
+      dot: overviewSeverity,
+      onClick: () => onNavigateTab('security'),
+      title: 'Open alerts — open the Security tab',
     },
   ];
 

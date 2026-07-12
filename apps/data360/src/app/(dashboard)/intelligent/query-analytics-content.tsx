@@ -31,6 +31,8 @@ import type { AnalyticsResult, AnalyticsSummary, RedundantGroup, RunAnalysisResp
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import FullscreenPanel, { FullscreenExpandButton } from '@/components/ui/FullscreenPanel';
+import { usePagedRows, TablePager } from '@/components/ui/TablePager';
 
 const SEVERITY_STYLES: Record<string, string> = {
   critical: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
@@ -55,6 +57,7 @@ export default function QueryAnalyticsContent() {
   const [hours, setHours] = useState(5);
   const [sortKey, setSortKey] = useState<string | null>('EXECUTION_TIME_MS');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [resultsFull, setResultsFull] = useState(false);
 
   // Gate the compute-heavy AI analysis run behind the cortex 'generate' action.
   const generatePerm = useCanPerform('cortex', 'generate');
@@ -101,6 +104,10 @@ export default function QueryAnalyticsContent() {
 
     return sorted;
   }, [results, sortKey, sortDir]);
+
+  // Standardized table: pageSize 25 (the fetch can return up to 100 rows —
+  // never dump them unpaginated).
+  const resultsPager = usePagedRows(sortedResults, 25);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -294,7 +301,13 @@ export default function QueryAnalyticsContent() {
         ))}
       </div>
 
-      {/* Results Table */}
+      {/* Results Table — expandable to a fullscreen deep-dive */}
+      <FullscreenPanel
+        title="Analysis Results"
+        subtitle={`${results.length} issues · Esc to close`}
+        open={resultsFull}
+        onOpenChange={setResultsFull}
+      >
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <h3 className="font-semibold text-gray-900 dark:text-white">
@@ -303,10 +316,18 @@ export default function QueryAnalyticsContent() {
               ({results.length} issues)
             </span>
           </h3>
-          <Button variant="outline" size="sm" onClick={loadData} className="gap-1">
-            <PiArrowsClockwise className="w-3.5 h-3.5" />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" onClick={loadData} className="gap-1">
+              <PiArrowsClockwise className="w-3.5 h-3.5" />
+              Refresh
+            </Button>
+            {!resultsFull && (
+              <FullscreenExpandButton
+                onClick={() => setResultsFull(true)}
+                label="Expand analysis results to fullscreen"
+              />
+            )}
+          </div>
         </div>
 
         {results.length === 0 ? (
@@ -362,7 +383,7 @@ export default function QueryAnalyticsContent() {
               </button>
             </div>
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
-              {sortedResults.map((r) => (
+              {resultsPager.visible.map((r) => (
               <div key={r.ANALYSIS_ID}>
                 <button
                   onClick={() => setExpandedRow(expandedRow === r.ANALYSIS_ID ? null : r.ANALYSIS_ID)}
@@ -460,9 +481,16 @@ export default function QueryAnalyticsContent() {
               </div>
               ))}
             </div>
+            <TablePager
+              page={resultsPager.page}
+              totalPages={resultsPager.totalPages}
+              total={resultsPager.total}
+              onPage={resultsPager.setPage}
+            />
           </>
         )}
       </div>
+      </FullscreenPanel>
 
       {/* Redundant Groups */}
       {redundantGroups.length > 0 && (
@@ -476,9 +504,9 @@ export default function QueryAnalyticsContent() {
               </span>
             </h3>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[420px]">
             <table className="w-full text-sm">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 dark:bg-gray-750">
                   <th className="px-4 py-2 text-left font-medium text-gray-500 dark:text-gray-400">Type</th>
                   <th className="px-4 py-2 text-left font-medium text-gray-500 dark:text-gray-400">User</th>

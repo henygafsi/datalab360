@@ -17,7 +17,6 @@
  * Backend prefix is `/command-center` (no `/api` — axios baseURL adds none),
  * matching command-center/index.ts and command-center/recommendations.ts.
  */
-// ////dependency//// services.command-center → lib.api-client (apiClient)
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 
@@ -37,7 +36,7 @@ interface KpiEntry {
 }
 
 /** Payload from `GET /command-center/kpis/{dimension}`. */
-interface KpiDimensionResponse {
+export interface KpiDimensionResponse {
   dimension: string;
   days: number;
   kpis: KpiEntry[];
@@ -217,6 +216,25 @@ async function fetchRecommendations(
     { params: days != null ? { days } : undefined },
   );
   return data;
+}
+
+/**
+ * Full auditable payload for ONE dimension (`GET /command-center/kpis/{dim}`):
+ * every KPI entry + the evidence table + sources. Used by the Account
+ * Overview's Data Quality tab (the score-card path above only keeps the
+ * headline). 404/501 → ScoreCardsUnavailableError so the tab can render a
+ * quiet "not provisioned" state instead of a dead Retry.
+ */
+export async function getKpiDimensionDetail(
+  dimension: KpiDimension,
+  days?: number,
+): Promise<KpiDimensionResponse> {
+  try {
+    return await fetchKpiDimension(dimension, days);
+  } catch (err) {
+    if (isUnavailable(err)) throw new ScoreCardsUnavailableError();
+    throw err;
+  }
 }
 
 // ── Card builders ───────────────────────────────────────────────────────────

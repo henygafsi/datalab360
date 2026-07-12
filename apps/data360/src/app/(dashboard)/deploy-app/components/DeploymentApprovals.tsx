@@ -172,6 +172,48 @@ export default function DeploymentApprovals() {
         </div>
       </div>
 
+      {/* KPI strip — derived from the SAME fetched rows (no extra endpoint),
+          so it can never disagree with the list below. Hidden until data
+          actually loads: no fake zeros. */}
+      {rows.length > 0 && (
+        <ul aria-label="Deployment counters" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(
+            [
+              {
+                label: 'Pending approval',
+                count: rows.filter((r) => r.status === 'PENDING_APPROVAL').length,
+                tint: 'text-amber-600 dark:text-amber-400',
+              },
+              {
+                label: 'In flight',
+                count: rows.filter((r) => r.status === 'PENDING' || r.status === 'RUNNING').length,
+                tint: 'text-blue-600 dark:text-blue-400',
+              },
+              {
+                label: 'Succeeded',
+                count: rows.filter((r) => r.status === 'SUCCEEDED').length,
+                tint: 'text-emerald-600 dark:text-emerald-400',
+              },
+              {
+                label: 'Failed / cancelled',
+                count: rows.filter((r) => r.status === 'FAILED' || r.status === 'CANCELLED').length,
+                tint: 'text-red-600 dark:text-red-400',
+              },
+            ] as const
+          ).map((kpi) => (
+            <li
+              key={kpi.label}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+            >
+              <p className={cn('text-lg font-semibold leading-6 tabular-nums', kpi.tint)}>{kpi.count}</p>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                {kpi.label}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+
       {loadState === 'running' && rows.length === 0 ? (
         <ul className="space-y-2" aria-hidden="true">
           {Array.from({ length: 3 }).map((_, i) => (

@@ -61,9 +61,14 @@ export default function BIDashboardProjectPage() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
+      {/* Viewport-fit shell ("no lifetime scroll" directive 2026-07-10): the
+          page never scrolls — the editor's canvas + right bar scroll internally
+          and the dashboard's own pages act as ?tab= synced tabs. */}
+      {/* 248px = app header (64) + layout main pt/pb (24+48) + layout footer
+          (~110) + border budget → the whole document fits 100dvh (no scroll). */}
+      <div className="flex h-[calc(100dvh-224px)] min-h-[540px] flex-col overflow-hidden bg-gray-50 dark:bg-gray-950">
         {/* Top bar */}
-        <div className="border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center gap-3">
+        <div className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center gap-3">
           <Link
             href="/bi-dashboard"
             className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
@@ -118,13 +123,13 @@ export default function BIDashboardProjectPage() {
             </div>
           </div>
         ) : isLoading ? (
-          <div className="grid flex-1 grid-cols-3 gap-4 p-6">
+          <div className="grid min-h-0 flex-1 grid-cols-3 gap-4 overflow-hidden p-6">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i} className="h-36 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
             ))}
           </div>
         ) : (
-          <div className="min-h-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-hidden">
             <DashboardEditor
               projectId={projectId}
               projectName={dashboard?.project_name ?? 'BI Dashboard'}

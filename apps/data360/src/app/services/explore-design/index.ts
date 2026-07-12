@@ -1,5 +1,4 @@
 /** Explore & Design API: metadata, events, deployments. Data journey: UI → service → /explore-design/guided/*. */
-// ////dependency//// service → lib.api-client (centralized auth+interceptors)
 import apiClient from '@/lib/api-client';
 import { toMessage } from '@/lib/error-messages';
 
@@ -125,18 +124,6 @@ export interface DeploymentResult {
   sql_executed?: string;
   execution_time_ms?: number;
   error?: string;
-}
-
-export interface SensitiveColumnDetection {
-  database: string;
-  schema: string;
-  table: string;
-  column: string;
-  confidence: number;
-  pattern_matched: string;
-  sample_match_rate?: number;
-  recommended_masking?: string;
-  recommended_tag?: string;
 }
 
 export interface RelationDetection {
@@ -1588,19 +1575,19 @@ export async function rollbackIngestionOperation(
  *   options: { rollback_on_error: true }
  * });
  */
-// TODO: backend endpoint not implemented — use deployWithVersion or the deployment pipeline instead
+// TODO: backend endpoint not implemented — use the deployment pipeline (createDeployment + executeDeploymentV1) instead
 export async function deploySchema(
   request: SchemaDeploymentRequest
 ): Promise<SchemaDeploymentResponse> {
-  // NOTE: there is no backend route for this stub — real callers use deployWithVersion
-  // (or the deployment pipeline). Guard against a missing/undefined sql_queries so the
+  // NOTE: there is no backend route for this stub — real callers use the
+  // deployment pipeline. Guard against a missing/undefined sql_queries so the
   // health probe doesn't crash with "Cannot read properties of undefined (reading 'length')".
   // DOCUMENTED DEAD STUB — there is no `/explore-design/deploy_schema` backend
-  // route. The real paths are deployWithVersion(...) and the deployment pipeline
+  // route. The real path is the deployment pipeline
   // (createDeployment + executeDeploymentV1). Throw an explicit not-implemented
   // error so this never appears to succeed; any UI surface must gate/label it.
   throw new Error(
-    '[deploySchema] not implemented — no /explore-design/deploy_schema route; use deployWithVersion or the deployment pipeline'
+    '[deploySchema] not implemented — no /explore-design/deploy_schema route; use the deployment pipeline (createDeployment + executeDeploymentV1)'
   );
 }
 
@@ -1814,6 +1801,8 @@ export async function createScheduleV1(
     warehouse?: string;
     version_id?: string;
     description?: string;
+    /** ISO datetime — backend CreateScheduleRequest.scheduled_date (one-shot). */
+    scheduled_date?: string;
   }
 ): Promise<any> {
   const { data } = await apiClient.post(`${V1_EXPLORE}/${projectId}/schedule`, body);
@@ -2403,79 +2392,6 @@ export interface ScheduledDeployment {
 }
 
 // ============================================
-// UNIFIED DEPLOYMENT API (Uses /explore-design/ endpoints)
-// ============================================
-
-/**
- * Record design events to the backend using POST /explore-design/add-event endpoint
- * This stores events persistently in the database and auto-creates project if needed
- *
- * Backend schema:
- * {
- *   "project_id": "string",
- *   "event_type": "TABLE_RENAMED | COLUMN_RENAMED | etc.",
- *   "event_details": { ... event-specific data ... },
- *   "module_type": "explore-design" | "mapping" | "workflow"
- * }
- */
-export async function recordDesignEvents(
-  projectId: string,
-  events: DesignEvent[],
-  moduleType: 'explore-design' | 'mapping' | 'workflow' = 'explore-design'
-): Promise<{
-  success: boolean;
-  recorded_count: number;
-  event_ids: string[];
-}> {
-  const recordedIds: string[] = [];
-
-  for (const event of events) {
-    try {
-      // Use POST /explore-design/add-event endpoint
-      // Backend expects: { project_id, event_type, event_details, module_type }
-      const eventPayload = {
-        project_id: projectId,
-        event_type: event.event_type,
-        event_details: {
-          // Target information
-          database: event.target?.database,
-          schema: event.target?.schema,
-          table: event.target?.table,
-          column: event.target?.column,
-          // Event payload (contains oldName, newName, policyName, etc.)
-          ...event.payload,
-          // Generated SQL for reference
-          sql: generateEventSQL(event),
-        },
-        module_type: moduleType,
-      };
-
-      const response = await apiClient.post(`${ED}/add-event`, eventPayload);
-
-      recordedIds.push(response.data?.event_id || response.data?.project_id || event.event_id);
-    } catch (error: any) {
-      // Enhanced error logging
-      console.error('[recordDesignEvents] Failed to record event:', {
-        event_id: event.event_id,
-        event_type: event.event_type,
-        url: `${ED}/add-event`,
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        errorMessage: error.message,
-        errorDetail: error.response?.data?.detail,
-        fullResponse: error.response?.data,
-      });
-    }
-  }
-
-  return {
-    success: recordedIds.length > 0,
-    recorded_count: recordedIds.length,
-    event_ids: recordedIds,
-  };
-}
-
-// ============================================
 // QUERY EXECUTION API
 // ============================================
 
@@ -2737,25 +2653,6 @@ export interface Workflow {
   completed_at?: string;
 }
 
-export interface WorkflowDAG {
-  workflow_id: string;
-  name: string;
-  status: WorkflowStatus;
-  progress: {
-    total_tasks: number;
-    completed: number;
-    running: number;
-    pending: number;
-    failed: number;
-  };
-  nodes: Array<WorkflowTask & { position: { x: number; y: number } }>;
-  edges: Array<{
-    source: string;
-    target: string;
-    type: 'dependency';
-  }>;
-}
-
 /**
  * Create a new workflow.
  *
@@ -2764,9 +2661,9 @@ export interface WorkflowDAG {
  * is {project_name, steps[], description?, tags?}, so this legacy {name, tasks}
  * shape is mapped on the way out. NOTE: the canonical, fully-typed workflow create
  * lives in services/api/workflowApi.ts (used by the live ETL builder); this helper
- * is retained only for the api-health harness. Sibling ED workflow helpers
- * (getWorkflowDAG etc.) still point at the non-existent /explore-design/workflow/*
- * and remain out of scope here.
+ * is retained only for the api-health harness. The sibling ED workflow helpers
+ * (getWorkflowDAG etc.) that hit the never-registered /explore-design/workflow/*
+ * routes were removed in the dead-endpoint cleanup.
  */
 export async function createWorkflow(
   projectId: string,
@@ -2790,325 +2687,86 @@ export async function createWorkflow(
   return response.data;
 }
 
-/**
- * Get workflow DAG
- * GET /explore-design/workflow/{workflow_id}/dag
- */
-export async function getWorkflowDAG(workflowId: string): Promise<WorkflowDAG> {
-  const response = await apiClient.get(`${ED}/workflow/${workflowId}/dag`);
-  return response.data;
-}
-
-/**
- * Execute workflow
- * POST /explore-design/workflow/{workflow_id}/execute
- */
-export async function executeWorkflow(
-  workflowId: string,
-  options?: {
-    execution_mode?: 'sequential' | 'parallel';
-    max_parallel_tasks?: number;
-    timeout_minutes?: number;
-  }
-): Promise<{
-  workflow_id: string;
-  status: WorkflowStatus;
-  execution_started: string;
-}> {
-  const response = await apiClient.post(
-    `${ED}/workflow/${workflowId}/execute`,
-    options || {},
-  );
-  return response.data;
-}
-
-/**
- * Get task logs
- * GET /explore-design/workflow/{workflow_id}/tasks/{task_id}/logs
- */
-export async function getTaskLogs(
-  workflowId: string,
-  taskId: string
-): Promise<{
-  task_id: string;
-  logs: Array<{
-    timestamp: string;
-    level: 'info' | 'warning' | 'error';
-    message: string;
-    sql_executed?: string;
-  }>;
-}> {
-  const response = await apiClient.get(
-    `${ED}/workflow/${workflowId}/tasks/${taskId}/logs`,
-  );
-  return response.data;
-}
-
-/**
- * Cancel workflow
- * POST /explore-design/workflow/{workflow_id}/cancel
- */
-export async function cancelWorkflow(
-  workflowId: string,
-  reason?: string
-): Promise<{ success: boolean; message: string }> {
-  const response = await apiClient.post(
-    `${ED}/workflow/${workflowId}/cancel`,
-    { reason },
-  );
-  return response.data;
-}
-
-/**
- * Retry failed task
- * POST /explore-design/workflow/{workflow_id}/tasks/{task_id}/retry
- */
-export async function retryTask(
-  workflowId: string,
-  taskId: string
-): Promise<{ success: boolean; new_status: TaskStatus }> {
-  const response = await apiClient.post(
-    `${ED}/workflow/${workflowId}/tasks/${taskId}/retry`,
-    {},
-  );
-  return response.data;
-}
-
 // ============================================
 // POLICY APIs
 // ============================================
 
-export type PolicyType = 'masking' | 'rls' | 'aggregation' | 'tag';
-export type MaskType =
-  | 'FULL_MASK'
-  | 'EMAIL_MASK'
-  | 'SSN_MASK'
-  | 'PHONE_MASK'
-  | 'CREDIT_CARD_MASK'
-  | 'PARTIAL_MASK'
-  | 'NULL_MASK'
-  | 'HASH_MASK'
-  | 'DATE_YEAR_MASK'
-  | 'CUSTOM';
+// ── Masking configs — the WORKING modeling→policies bridge ──────────────────
+// (backend explore_design/router.py; replaces the never-implemented — and now
+// removed — /explore-design/policies/* family). NB the declare body wants
+// `schema_name`, not `schema` — the one route in the module without the alias.
 
-export interface MaskingPolicy {
-  name: string;
-  description?: string;
-  mask_type: MaskType;
-  column_data_types: string[];
-  conditions?: Array<{
-    when: string;
-    then: 'MASKED_VALUE' | 'ORIGINAL_VALUE';
-    mask_type?: MaskType;
-  }>;
-  default_action: 'MASKED_VALUE' | 'ORIGINAL_VALUE' | 'NULL';
-  exemptions?: {
-    roles?: string[];
-    users?: string[];
-  };
+export interface MaskingConfig {
+  config_id: string;
+  database_name: string;
+  schema_name: string;
+  table_name: string;
+  column_name: string;
+  masking_policy: string;
+  masking_type: string;
+  created_by: string;
+  created_at: string;
+  applied_at: string | null;
+  applied_policy_fqn: string | null;
 }
 
-export interface RLSPolicy {
-  name: string;
-  description?: string;
-  target_table: string;
-  filter_column: string;
-  conditions: Array<{
-    role: string;
-    expression: string;
-  }>;
-  default_expression: string;
-  audit_queries?: boolean;
+/** Declare column masking from the model. POST /explore-design/{id}/masking-configs */
+export async function declareMaskingConfig(projectId: string, body: {
+  database: string; schema_name: string; table: string; column: string;
+  masking_type?: string; policy_name?: string; preserve_format?: boolean; pattern?: string;
+}): Promise<{ config_id: string; status: string }> {
+  const { data } = await apiClient.post(`${ED}/${projectId}/masking-configs`, body);
+  return data;
 }
 
-/**
- * Get available policies
- * GET /explore-design/policies
- */
-export async function getPolicies(filters?: {
-  type?: PolicyType;
-  database?: string;
-  schema?: string;
-}): Promise<{
-  policies: {
-    masking: Array<{ name: string; description: string; applied_to: number; data_types: string[] }>;
-    rls: Array<{ name: string; description: string; applied_to: number }>;
-    aggregation: Array<{ name: string; description: string; applied_to: number }>;
-    tags: Array<{ name: string; columns_tagged: number }>;
-  };
+/** List the project's masking declarations. GET /explore-design/{id}/masking-configs */
+export async function listMaskingConfigs(projectId: string):
+  Promise<{ project_id: string; configs: MaskingConfig[]; count: number }> {
+  const { data } = await apiClient.get(`${ED}/${projectId}/masking-configs`);
+  return data;
+}
+
+// ── Action catalog — the standard JSON registry of every E&D UI action ──────
+// (backend action_catalog.py, seeded to EVENT_STORE.EXPLORE_ACTION_CATALOG,
+// served from the TABLE; verified stamps come from POST /actions/verify).
+
+export interface ExploreAction {
+  action_id: string;
+  area: string;
+  label: string;
+  why: string;
+  method: string;
+  path: string;
+  params: Array<{ name: string; in: string; required?: boolean; enum?: string[]; note?: string }>;
+  rbac: string;
+  probe: string;
+  seed_version: number;
+  verified_at: string | null;
+  verified_status: string | null;
+}
+
+/** The registry of every E&D action (label/why/contract/gating/verified). */
+export async function getExploreActions(): Promise<{
+  seed_version: number; fingerprint: string; count: number;
+  areas: Record<string, ExploreAction[]>; actions: ExploreAction[];
 }> {
-  const params: Record<string, string> = {};
-  if (filters?.type) params.type = filters.type;
-  if (filters?.database) params.database = filters.database;
-  if (filters?.schema) params.schema = filters.schema;
-
-  const response = await apiClient.get(`${ED}/policies`, { params });
-  return response.data;
+  const { data } = await apiClient.get(`${ED}/actions`);
+  return data;
 }
 
-/**
- * Apply masking policy to column
- * POST /explore-design/policies/masking/apply
- */
-export async function applyMaskingPolicy(
-  projectId: string,
-  policyName: string,
-  target: {
-    database: string;
-    schema: string;
-    table: string;
-    column: string;
-  },
-  createEvent?: boolean
-): Promise<{ success: boolean; event_id?: string }> {
-  const response = await apiClient.post(
-    `${ED}/policies/masking/apply`,
-    {
-      project_id: projectId,
-      policy_name: policyName,
-      target,
-      create_event: createEvent ?? true,
-    },
-  );
-  return response.data;
+/** Apply pending declarations as real Snowflake policies. POST …/masking-configs/apply */
+export async function applyMaskingConfigs(projectId: string):
+  Promise<{ project_id: string; pending: number; applied: number; failed: number;
+            results: Array<{ config_id: string; target: string; status: string; policy?: string; error?: string }> }> {
+  const { data } = await apiClient.post(`${ED}/${projectId}/masking-configs/apply`, {});
+  return data;
 }
 
-/**
- * Remove masking policy from column
- * POST /explore-design/policies/masking/remove
- */
-export async function removeMaskingPolicy(
-  projectId: string,
-  target: {
-    database: string;
-    schema: string;
-    table: string;
-    column: string;
-  },
-  createEvent?: boolean
-): Promise<{ success: boolean; event_id?: string }> {
-  const response = await apiClient.post(
-    `${ED}/policies/masking/remove`,
-    {
-      project_id: projectId,
-      target,
-      create_event: createEvent ?? true,
-    },
-  );
-  return response.data;
-}
-
-/**
- * Apply RLS policy to table
- * POST /explore-design/policies/rls/apply
- */
-export async function applyRLSPolicy(
-  projectId: string,
-  policyName: string,
-  target: {
-    database: string;
-    schema: string;
-    table: string;
-  },
-  filterColumn: string,
-  createEvent?: boolean
-): Promise<{ success: boolean; event_id?: string }> {
-  const response = await apiClient.post(
-    `${ED}/policies/rls/apply`,
-    {
-      project_id: projectId,
-      policy_name: policyName,
-      target,
-      filter_column: filterColumn,
-      create_event: createEvent ?? true,
-    },
-  );
-  return response.data;
-}
-
-/**
- * Detect sensitive columns
- * POST /explore-design/policies/detect-sensitive
- */
-export async function detectSensitiveColumnsInTables(
-  tables: Array<{ database: string; schema: string; table: string }>,
-  options?: {
-    patterns?: string[];
-    sample_data?: boolean;
-    sample_size?: number;
-  }
-): Promise<{
-  detections: SensitiveColumnDetection[];
-  summary: {
-    tables_scanned: number;
-    columns_scanned: number;
-    sensitive_found: number;
-  };
-}> {
-  const response = await apiClient.post(
-    `${ED}/policies/detect-sensitive`,
-    {
-      tables,
-      patterns: options?.patterns ?? ['email', 'ssn', 'phone', 'address', 'credit_card', 'dob'],
-      sample_data: options?.sample_data ?? true,
-      sample_size: options?.sample_size ?? 100,
-    },
-  );
-  return response.data;
-}
-
-/**
- * Bulk apply tags
- * POST /explore-design/policies/tags/bulk-apply
- */
-export async function bulkApplyTags(
-  projectId: string,
-  applications: Array<{
-    database: string;
-    schema: string;
-    table: string;
-    column: string;
-    tags: string[];
-  }>,
-  createEvents?: boolean
-): Promise<{
-  success: boolean;
-  applied_count: number;
-  event_ids?: string[];
-}> {
-  const response = await apiClient.post(
-    `${ED}/policies/tags/bulk-apply`,
-    {
-      project_id: projectId,
-      applications,
-      create_events: createEvents ?? true,
-    },
-  );
-  return response.data;
-}
-
-/**
- * Create masking policy
- * POST /explore-design/policies/masking/create
- */
-export async function createMaskingPolicy(policy: MaskingPolicy): Promise<{
-  success: boolean;
-  policy_name: string;
-}> {
-  const response = await apiClient.post(`${ED}/policies/masking/create`, policy);
-  return response.data;
-}
-
-/**
- * Create RLS policy
- * POST /explore-design/policies/rls/create
- */
-export async function createRLSPolicy(policy: RLSPolicy): Promise<{
-  success: boolean;
-  policy_name: string;
-}> {
-  const response = await apiClient.post(`${ED}/policies/rls/create`, policy);
-  return response.data;
+/** Retract a declaration (detaches + drops the applied policy). DELETE …/masking-configs/{configId} */
+export async function deleteMaskingConfig(projectId: string, configId: string):
+  Promise<{ config_id: string; status: string; policy_dropped: boolean }> {
+  const { data } = await apiClient.delete(`${ED}/${projectId}/masking-configs/${configId}`);
+  return data;
 }
 
 // ============================================
@@ -3575,7 +3233,6 @@ export async function executeEventAction(event: LocalDesignEvent, projectId?: st
   const { type, target, payload } = event;
   const { database, schema, table, column } = target;
 
-  // console.log('🚀 Executing event action:', { type, target, payload });
 
   try {
     switch (type) {
@@ -3923,12 +3580,12 @@ export async function addDesignEvent(
   status: string;
   created_at: string;
 }> {
-  // Try the explore-design add-event endpoint, fall back to cross-module projects endpoint
+  // POST /projects/{projectId}/events — the sole live route (the old
+  // `${ED}/add-event` first attempt was a live-404 and has been removed).
   try {
     const response = await apiClient.post(
-      `${ED}/add-event`,
+      `/projects/${projectId}/events`,
       {
-        project_id: projectId,
         event_id: eventId,
         event_type: eventType,
         target,
@@ -3937,24 +3594,9 @@ export async function addDesignEvent(
       },
     );
     return response.data;
-  } catch {
-    // Fallback: POST /projects/{projectId}/events
-    try {
-      const response = await apiClient.post(
-        `/projects/${projectId}/events`,
-        {
-          event_id: eventId,
-          event_type: eventType,
-          target,
-          payload,
-          module_type: moduleType,
-        },
-      );
-      return response.data;
-    } catch (error: any) {
-      console.error('[addDesignEvent] Both endpoints failed:', error?.message);
-      return { success: false, event_id: eventId, project_id: projectId, status: 'failed', created_at: '' };
-    }
+  } catch (error: any) {
+    console.error('[addDesignEvent] Failed to record event:', error?.message);
+    return { success: false, event_id: eventId, project_id: projectId, status: 'failed', created_at: '' };
   }
 }
 
@@ -4318,129 +3960,6 @@ export async function rollbackDesignDeployment(
   return { success: false, message: 'Backend endpoint not implemented. Use projectsApi.rollbackProject instead.' };
 }
 
-
-// ============================================
-// VERSION-BASED DEPLOYMENT (Deploy to cp_data360.<version_schema>)
-// ============================================
-
-export interface DeploymentEventWithRollback {
-  event_id: string;
-  event_type: string;
-  sql: string;
-  rollback_sql?: string;
-  target: {
-    database: string;
-    schema: string;
-    table: string;
-    column?: string;
-  };
-  payload: Record<string, any>;
-}
-
-export interface DeployWithVersionRequest {
-  project_id: string;
-  version_name: string;
-  events: DeploymentEventWithRollback[];
-  rollback_on_error?: boolean;
-  created_by?: string;
-  dry_run?: boolean;
-}
-
-export interface DeployWithVersionResponse {
-  deployment_id: string;
-  status: 'success' | 'partial' | 'failed';
-  version_name: string;
-  target_database: string;
-  target_schema: string;
-  schema_created: boolean;
-  results: Array<{
-    event_id: string;
-    status: 'applied' | 'failed' | 'skipped' | 'validated' | 'validation_failed';
-    sql_executed?: string;
-    execution_time_ms?: number;
-    error?: string;
-  }>;
-  summary: {
-    applied: number;
-    failed: number;
-    skipped: number;
-  };
-  executed_at: string;
-  rollback_available: boolean;
-}
-
-/**
- * Deploy events to a version-specific schema
- *
- * This is the main deployment function that:
- * 1. Creates the target schema (cp_data360.<version_name>) if it doesn't exist
- * 2. Executes all event SQL statements in order
- * 3. Stores rollback SQL for potential future rollback
- * 4. Handles errors with optional rollback of applied changes
- *
- * @param request - Deployment request with version name and events
- * @returns Promise with deployment results
- */
-export async function deployWithVersion(
-  request: DeployWithVersionRequest
-): Promise<DeployWithVersionResponse> {
-  const response = await apiClient.post(
-    `${ED}/deploy/version`,
-    {
-      project_id: request.project_id,
-      version_name: request.version_name,
-      events: request.events.map(e => ({
-        event_id: e.event_id,
-        event_type: e.event_type,
-        sql: e.sql,
-        rollback_sql: e.rollback_sql,
-        target: {
-          database: e.target.database,
-          schema: e.target.schema,
-          table: e.target.table,
-          column: e.target.column,
-        },
-        payload: e.payload,
-      })),
-      rollback_on_error: request.rollback_on_error ?? true,
-      created_by: request.created_by,
-      dry_run: request.dry_run ?? false,
-    },
-  );
-  return response.data;
-}
-
-/**
- * Rollback a version deployment using stored rollback SQLs
- *
- * @param deploymentId - Deployment ID to rollback
- * @param reason - Reason for rollback
- * @returns Promise with rollback status
- */
-export async function rollbackVersionDeployment(
-  deploymentId: string,
-  reason: string
-): Promise<{
-  success: boolean;
-  rollback_deployment_id?: string;
-  message: string;
-  results?: Array<{
-    sql: string;
-    status: 'success' | 'failed';
-    error?: string;
-  }>;
-  target_database?: string;
-  target_schema?: string;
-}> {
-  const response = await apiClient.post(
-    `${ED}/deployments/${deploymentId}/rollback-version`,
-    {
-      deployment_id: deploymentId,
-      reason,
-    },
-  );
-  return response.data;
-}
 
 // ============================================================================
 // NEW API v1 — Re-export from services/api/

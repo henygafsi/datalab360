@@ -19,7 +19,8 @@ import {
   HiXCircle,
   HiOutlineArrowPath
 } from 'react-icons/hi2';
-import { Database, ArrowLeft, Sparkles } from 'lucide-react';
+import { Database, ArrowLeft, Plus, Sparkles, UploadCloud } from 'lucide-react';
+import InsightActionButton from '@/app/shared/insights/InsightActionButton';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { routes } from '@/config/routes';
 
@@ -906,7 +907,6 @@ export default function DataSourceConnectionPage() {
                   throw new Error("Notification integration not created, cannot fetch details.");
               }
               const response = await getIntegrationDetails(azureFormData.notification_integration_name);
-              // console.log('Notification Integration Details:', response);
               // Assuming response.details contains the fields
               setAzureConsentUrl(response?.azure_consent_url || null);
               setAzureMultiTenantAppName(response?.azure_multi_tenant_app_name || null);
@@ -2769,27 +2769,23 @@ export default function DataSourceConnectionPage() {
                       <p className="text-xs font-medium text-amber-700 dark:text-amber-300">No Oracle connection? Load sample data directly into the data platform:</p>
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">3 tables: CUSTOMERS (10), ORDERS (15), PRODUCTS (10) — Data360 sample dataset</p>
                   </div>
-                  <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full text-sm border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20"
-                      disabled={loading}
-                      onClick={async () => {
-                          setLoading(true);
-                          try {
-                              const result = await oracleSampleStage();
-                              toast.success(`Sample data loaded: ${result.total_rows} rows across ${result.tables?.length} tables → ${result.target_schema}`);
-                              setOracleTestResult({ ok: true, table_count: result.tables?.length, tables: result.tables?.map((t) => t.name) });
-                          } catch (err: any) {
-                              toast.error(err?.message || 'Sample stage load failed');
-                          } finally {
-                              setLoading(false);
-                          }
+                  {/* Rich CTA (InsightActionButton): honest ingest gating + inline
+                      error surfacing; self-disables if the sample route is absent. */}
+                  <InsightActionButton
+                      label="Load Sample CSVs to Snowflake Stage"
+                      icon={UploadCloud}
+                      size="md"
+                      variant="subtle"
+                      capable={canIngest && !loading}
+                      unavailableHint={!canIngest ? ingestDeniedReason : 'Another connection action is still running'}
+                      className="border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/20"
+                      onAction={() => oracleSampleStage()}
+                      onDone={(result) => {
+                          const r = result as Awaited<ReturnType<typeof oracleSampleStage>>;
+                          toast.success(`Sample data loaded: ${r.total_rows} rows across ${r.tables?.length} tables → ${r.target_schema}`);
+                          setOracleTestResult({ ok: true, table_count: r.tables?.length, tables: r.tables?.map((t) => t.name) });
                       }}
-                  >
-                      <HiOutlineCloudArrowUp className="h-4 w-4 mr-2" />
-                      Load Sample CSVs to Snowflake Stage
-                  </Button>
+                  />
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">Tables will be loaded to CP_DATA360.ORACLE_SAMPLE schema</p>
           </div>
@@ -2986,13 +2982,28 @@ export default function DataSourceConnectionPage() {
                                                 Click on a connection tab above to browse its stages and files
                                             </Text>
                                         </div>
-                                        <Button
-                                            onClick={() => setShowAddConnection(!showAddConnection)}
-                                            className="bg-blue-600 hover:bg-blue-700 text-white"
-                                        >
-                                            <HiOutlineCloudArrowUp className="h-4 w-4 mr-2" />
-                                            {showAddConnection ? 'Hide' : 'Add Connection'}
-                                        </Button>
+                                        {/* Rich CTA (InsightActionButton) + why-line from real state:
+                                            stage count and connector-health roll-up, honest create gating. */}
+                                        <div className="flex shrink-0 flex-col items-end gap-1">
+                                            <InsightActionButton
+                                                label={showAddConnection ? 'Hide connector picker' : 'Add connection'}
+                                                icon={Plus}
+                                                size="md"
+                                                variant="primary"
+                                                capable={showAddConnection ? true : canCreate}
+                                                unavailableHint={createDeniedReason}
+                                                onAction={async () => {
+                                                    setShowAddConnection(!showAddConnection);
+                                                    trackFeatureClick('toggle_add_connection');
+                                                }}
+                                            />
+                                            <p className="text-right text-[11px] text-slate-400 dark:text-slate-500">
+                                                {activeConnections.length} active stage{activeConnections.length === 1 ? '' : 's'}
+                                                {cockpitData.health
+                                                    ? ` · connector health: ${cockpitData.health.overall}`
+                                                    : ''}
+                                            </p>
+                                        </div>
                                     </div>
 
                                     {/* Connection Summary Grid */}

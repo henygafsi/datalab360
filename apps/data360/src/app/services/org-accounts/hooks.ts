@@ -1062,3 +1062,89 @@ export async function getAccountHealth(accountName: string): Promise<AccountHeal
   const { data } = await apiClient.get<AccountHealthScoreResponse>(`${BASE_URL}/health/${encodeURIComponent(accountName)}`);
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// Errors deep-dive + COCO narrative (GET /org-accounts/errors-overview[/insight])
+// ---------------------------------------------------------------------------
+
+export interface ErrorsOverviewResponse {
+  period_days: number;
+  scope: 'org' | 'account';
+  summary: {
+    accounts_with_errors: number;
+    total_failed_queries: number;
+    distinct_error_codes: number;
+    total_failed_logins: number;
+  };
+  top_errors: Array<{
+    error_code: string;
+    sample_message: string;
+    occurrences: number;
+    accounts_affected: number;
+    users_affected: number;
+    last_seen: string | null;
+  }>;
+  per_account: Array<{ account_name: string; failed_queries: number; fail_rate_pct: number }>;
+  login_failures: Array<{ account_name: string; failed_logins: number; users: number; ips: number }>;
+}
+
+export interface ErrorsInsightResponse {
+  period_days: number;
+  scope: 'org' | 'account';
+  /** null when Cortex is unavailable — never a fabricated summary. */
+  narrative: string | null;
+  model: string;
+  basis: Record<string, unknown>;
+  degraded_reason: string | null;
+}
+
+export async function getErrorsOverview(days = 7): Promise<ErrorsOverviewResponse> {
+  const { data } = await apiClient.get<ErrorsOverviewResponse>(
+    `${BASE_URL}/errors-overview`, { params: { days }, timeout: 120000 },
+  );
+  return data;
+}
+
+export async function getErrorsInsight(days = 7): Promise<ErrorsInsightResponse> {
+  // Cortex inference: allow a generous budget, the endpoint caches for 15 min.
+  const { data } = await apiClient.get<ErrorsInsightResponse>(
+    `${BASE_URL}/errors-overview/insight`, { params: { days }, timeout: 180000 },
+  );
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Platform-activity COCO digest (GET /org-accounts/platform-activity/insight)
+// ---------------------------------------------------------------------------
+
+/** One EVENT_STORE module rollup inside the digest's auditable basis. */
+export interface ActivityInsightModule {
+  module: string;
+  events: number;
+  failed: number;
+  users: number;
+}
+
+export interface ActivityInsightResponse {
+  period_hours: number;
+  /** null when Cortex is unavailable — never a fabricated digest. */
+  narrative: string | null;
+  model: string;
+  /** The exact rows COCO read — rendered as evidence next to the narrative. */
+  basis: {
+    window_hours: number;
+    modules: ActivityInsightModule[];
+    top_event_types: Array<{ type: string; count: number }>;
+    recent_failures: Array<{ type: string; user: string; at: string; detail: string }>;
+  };
+  degraded_reason: string | null;
+  execution_time_ms: number;
+}
+
+export async function getPlatformActivityInsight(): Promise<ActivityInsightResponse> {
+  // Cortex inference: a cold call can take ~20s; the endpoint caches for 15 min.
+  const { data } = await apiClient.get<ActivityInsightResponse>(
+    `${BASE_URL}/platform-activity/insight`, { timeout: 180000 },
+  );
+  return data;
+}

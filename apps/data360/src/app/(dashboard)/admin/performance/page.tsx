@@ -69,6 +69,15 @@ import DetailPanel from './components/DetailPanel';
 
 type Axis = 'endpoints' | 'users' | 'cache' | 'modules' | 'projects' | 'errors';
 
+/** Cockpit chip model — the flat name list hid which accounts matter. */
+type AccountCard = {
+  name: string;
+  active: boolean;
+  hasTraffic: boolean;
+  requests: number;
+  lastSeen: string | null;
+};
+
 const AXES: ChipOption<Axis>[] = [
   { id: 'endpoints', label: 'Endpoints', icon: BarChart3 },
   { id: 'users', label: 'Users', icon: Users },
@@ -102,8 +111,11 @@ function PerformancePageContent() {
   // Fire-and-forget tracing: auto page-view on mount + a TAB_SWITCH per axis change.
   const { trackTabSwitch } = useTrackEvent();
 
-  const [accounts, setAccounts] = useState<string[]>([]);
+  // Full account objects (cockpit signals: has_traffic/traced_requests/…) —
+  // the flat name list hid which of the 36 historical org accounts matter.
+  const [accounts, setAccounts] = useState<AccountCard[]>([]);
   const [account, setAccount] = useState<string | null>(null);
+  const [showStale, setShowStale] = useState(false);
   const [hours, setHours] = useState(24);
   const [axis, setAxis] = useState<Axis>('endpoints');
   const [cacheAxis, setCacheAxis] = useState<CacheAxis>('module');
@@ -139,19 +151,34 @@ function PerformancePageContent() {
     (async () => {
       try {
         const res = await getAccounts();
-        const names = (res.accounts ?? []).map((a) => a.account_name).filter(Boolean);
+        const rows: AccountCard[] = (res.accounts ?? [])
+          .filter((a) => a.account_name)
+          .map((a) => ({
+            name: a.account_name,
+            active: a.is_active !== false,
+            hasTraffic: Boolean(a.has_traffic),
+            requests: a.traced_requests ?? 0,
+            lastSeen: a.last_seen_platform ?? null,
+          }))
+          // Accounts that talk to the platform first, then active-quiet, then stale.
+          .sort((x, y) =>
+            Number(y.hasTraffic) - Number(x.hasTraffic) ||
+            Number(y.active) - Number(x.active) ||
+            y.requests - x.requests);
         if (cancelled) return;
-        if (names.length > 0) {
-          setAccounts(names);
-          setAccount((cur) => cur ?? names[0]);
+        if (rows.length > 0) {
+          setAccounts(rows);
+          setAccount((cur) => cur ?? rows[0].name);
           return;
         }
         throw new Error('empty');
       } catch {
         if (cancelled) return;
-        const fallback = sessionAccount ? [sessionAccount] : [];
+        const fallback: AccountCard[] = sessionAccount
+          ? [{ name: sessionAccount, active: true, hasTraffic: true, requests: 0, lastSeen: null }]
+          : [];
         setAccounts(fallback);
-        setAccount((cur) => cur ?? fallback[0] ?? null);
+        setAccount((cur) => cur ?? fallback[0]?.name ?? null);
       }
     })();
     return () => {
@@ -438,19 +465,47 @@ function PerformancePageContent() {
             <Gauge className="h-4 w-4 text-slate-400" />
             <h1 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Performance</h1>
           </div>
-          <select
-            value={account ?? ''}
-            onChange={(e) => setAccount(e.target.value || null)}
-            aria-label="Account"
-            className="rounded-md border border-slate-200 bg-white/70 px-2 py-1 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-          >
-            {accounts.length === 0 && <option value="">No accounts</option>}
-            {accounts.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
+          {/* Accounts cockpit chips (user directive: pre-visualize, don't list
+              36 historical accounts flat). Live accounts show their platform
+              traffic + last-seen; stale/deleted ones collapse behind a count. */}
+          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Account">
+            {accounts.filter((a) => a.hasTraffic || a.active || showStale).map((a) => (
+              <button
+                key={a.name}
+                type="button"
+                onClick={() => setAccount(a.name)}
+                title={a.hasTraffic
+                  ? `${a.requests.toLocaleString()} platform requests · last seen ${a.lastSeen ?? '—'}`
+                  : a.active ? 'active — no platform traffic yet' : 'deleted/stale account'}
+                className={cn(
+                  'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                  account === a.name
+                    ? 'border-indigo-400 bg-indigo-50 text-indigo-700 dark:border-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-300'
+                    : 'border-slate-200 bg-white/70 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300',
+                  !a.active && 'opacity-50',
+                )}
+              >
+                {a.name}
+                {a.hasTraffic && (
+                  <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 text-[10px] tabular-nums text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
+                    {a.requests >= 1000 ? `${Math.round(a.requests / 1000)}k` : a.requests}
+                  </span>
+                )}
+              </button>
             ))}
-          </select>
+            {accounts.some((a) => !a.hasTraffic && !a.active) && (
+              <button
+                type="button"
+                onClick={() => setShowStale((s) => !s)}
+                className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-[11px] text-slate-400 hover:text-slate-600 dark:border-slate-600 dark:hover:text-slate-300"
+              >
+                {showStale ? 'hide' : `+${accounts.filter((a) => !a.hasTraffic && !a.active).length} inactive`}
+              </button>
+            )}
+            {accounts.length === 0 && (
+              <span className="text-xs text-slate-400">No accounts</span>
+            )}
+          </div>
           <FilterChips
             options={HOURS_OPTIONS}
             value={String(hours)}
@@ -565,9 +620,20 @@ function PerformancePageContent() {
               <KpiCard
                 label="Cache hit rate"
                 icon={Database}
-                value={fmtPct(ov?.cache_hit_rate, 1)}
-                source={ov?.cache_hit_rate != null ? 'request-trail' : null}
-                help={{ definition: 'Share of requests served from cache vs. recomputed. Request-trail only.', goodRange: '> 80%' }}
+                value={fmtPct(ov?.cache_layer?.hit_rate ?? ov?.cache_hit_rate, 1)}
+                sub={
+                  ov?.cache_layer?.hit_rate != null
+                    ? `${fmtInt(ov.cache_layer.hits)} hits · ${fmtInt(ov.cache_layer.misses)} misses since boot`
+                    : undefined
+                }
+                source={
+                  ov?.cache_layer?.hit_rate != null
+                    ? 'cache-layer'
+                    : ov?.cache_hit_rate != null
+                      ? 'request-trail'
+                      : null
+                }
+                help={{ definition: 'Share of cacheable reads served from cache. Counted by the cache layer itself (since boot); falls back to the request trail.', goodRange: '> 80%' }}
               />
               <KpiCard
                 label="Requests / 5min"

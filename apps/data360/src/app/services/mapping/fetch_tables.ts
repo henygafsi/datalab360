@@ -46,6 +46,22 @@ export const getTableColumns = async (
   schemaName: string,
   tableName: string
 ): Promise<TableColumn[]> => {
+  // Single choke point for every caller (workflow blocks, ERD, mapping steps):
+  // 1) Seeded/imported blocks often store a fully-qualified "DB.SCHEMA.TABLE"
+  //    in the table field with database/schema left empty — split it here so
+  //    their metadata (columns/volumes) loads instead of silently missing.
+  // 2) Never issue the request with a missing part: the backend answers
+  //    422 MISSING_FIELD (measured: 43 of 93 calls in one session were this
+  //    spam). An incomplete identifier can never have columns — return [].
+  if ((!databaseName || !schemaName) && tableName && tableName.includes('.')) {
+    const parts = tableName.split('.');
+    if (parts.length === 3) {
+      [databaseName, schemaName, tableName] = parts;
+    }
+  }
+  if (!databaseName || !schemaName || !tableName) {
+    return [];
+  }
   try {
     // Canonical: no trailing slash to avoid duplicate calls (FastAPI redirects /foo/ -> /foo).
     const response = await apiClient.get<{ columns?: TableColumn[] } | TableColumn[]>(

@@ -17,7 +17,6 @@
  * The hook `useCortexModels()` is endpoint-aware: if `/cortex/models` 404s or
  * errors, it falls back to a curated list so the UI is never empty.
  */
-// ////dependency//// components.ui → lib.api-client (GET /cortex/models)
 
 import * as React from 'react';
 import apiClient from '@/lib/api-client';

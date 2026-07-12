@@ -3,28 +3,34 @@
 /**
  * DeployAppHome — landing route for /deploy-app.
  *
- * Layout:
- *   1. Hero w/ title + subtitle + primary "New app" CTA.
- *   2. Four big tile cards mirroring AppKindPicker — clicking opens the
- *      wizard at step 2 with the kind pre-selected.
- *   3. Recent drafts (last 5) read from `data360.deploy-app.drafts`.
- *   4. Superadmin shortcut chip linking to the running services view.
+ * Viewport-fit TABS (no page scroll — user directive 2026-07-10). All former
+ * stacked zones are preserved, grouped into two tabs whose bodies scroll
+ * internally:
+ *   - Build (default): hero CTA row + four kind tiles (wizard entry points)
+ *     + recent drafts (last 5, from `data360.deploy-app.drafts`).
+ *   - Deployments: the full <DeploymentApprovals> lifecycle surface
+ *     (KPI strip → deployment cards → request rail).
  *
- * Owns no API state — drafts live entirely in localStorage. The wizard is
- * the only place that produces/clears them.
+ * ?tab= is parsed once on mount (deep links keep working); switches are pure
+ * state + history.replaceState — no navigation, no remount. This component
+ * owns no API state — drafts live in localStorage; deployments live inside
+ * DeploymentApprovals.
  */
 import {
   ArrowRight,
   BarChart3,
   Container,
+  Hammer,
   Inbox,
   LayoutDashboard,
   Plug,
   Plus,
   Rocket,
   Server,
+  ShieldCheck,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
   LS_KEY_DRAFTS,
@@ -83,11 +89,29 @@ const TILES: KindTile[] = [
   },
 ];
 
+type HomeTab = 'build' | 'deployments';
+
+const HOME_TABS: { id: HomeTab; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'build', label: 'Build', Icon: Hammer },
+  { id: 'deployments', label: 'Deployments & approvals', Icon: ShieldCheck },
+];
+
+function parseTab(raw: string | null): HomeTab {
+  return raw === 'deployments' ? 'deployments' : 'build';
+}
+
 export default function DeployAppHome({
   onNewApp,
   onPickKind,
   onResumeDraft,
 }: Props) {
+  const searchParams = useSearchParams();
+  const [tab, setTabState] = useState<HomeTab>(() => parseTab(searchParams.get('tab')));
+  const setTab = useCallback((next: HomeTab) => {
+    setTabState(next);
+    window.history.replaceState(null, '', `?tab=${next}`);
+  }, []);
+
   const [drafts, setDrafts] = useState<WizardSnapshot[]>([]);
 
   useEffect(() => {
@@ -108,11 +132,11 @@ export default function DeployAppHome({
   }, []);
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-8 px-6 py-8">
-      {/* Hero ─────────────────────────────────────────────────────── */}
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-4 px-6 py-4">
+      {/* Hero (persistent across tabs) ─────────────────────────────── */}
       <section
         aria-label="Deploy App overview"
-        className="relative overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-cyan-50 via-white to-blue-50 p-6 dark:border-slate-700 dark:from-cyan-900/20 dark:via-slate-900 dark:to-blue-900/10"
+        className="relative shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-cyan-50 via-white to-blue-50 p-4 dark:border-slate-700 dark:from-cyan-900/20 dark:via-slate-900 dark:to-blue-900/10"
       >
         <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-start gap-4">
@@ -150,6 +174,40 @@ export default function DeployAppHome({
         </div>
       </section>
 
+      {/* Tab nav ───────────────────────────────────────────────────── */}
+      <div
+        role="tablist"
+        aria-label="Deploy App sections"
+        className="flex shrink-0 gap-1 rounded-lg border border-slate-200 p-0.5 self-start dark:border-slate-700"
+      >
+        {HOME_TABS.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              tab === id
+                ? 'bg-cyan-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200',
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab bodies — the ONLY scrolling regions on this page ───────── */}
+      <div
+        role="tabpanel"
+        aria-label="Build"
+        hidden={tab !== 'build'}
+        className={cn('min-h-0 flex-1 overflow-y-auto', tab !== 'build' && 'hidden')}
+      >
+        <div className="space-y-6 pb-2">
       {/* Kind tiles ────────────────────────────────────────────────── */}
       <section aria-label="App kinds">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -191,9 +249,6 @@ export default function DeployAppHome({
         </ul>
       </section>
 
-      {/* Deployments & approvals ───────────────────────────────────── */}
-      <DeploymentApprovals />
-
       {/* Recent drafts ─────────────────────────────────────────────── */}
       <section aria-label="Recent drafts">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -231,6 +286,20 @@ export default function DeployAppHome({
           </ul>
         )}
       </section>
+        </div>
+      </div>
+
+      {/* Deployments & approvals ───────────────────────────────────── */}
+      <div
+        role="tabpanel"
+        aria-label="Deployments & approvals"
+        hidden={tab !== 'deployments'}
+        className={cn('min-h-0 flex-1 overflow-y-auto', tab !== 'deployments' && 'hidden')}
+      >
+        <div className="pb-2">
+          <DeploymentApprovals />
+        </div>
+      </div>
     </div>
   );
 }

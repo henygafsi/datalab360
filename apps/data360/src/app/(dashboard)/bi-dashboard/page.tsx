@@ -511,6 +511,27 @@ const CREATE_DENIED_REASON = 'Requires the "create" permission on Business Repor
 /** sessionStorage key: per-session dismissal of the read-only module notice. */
 const RO_NOTICE_KEY = 'd360.read-only-notice.bi_reporting';
 
+// ---------------------------------------------------------------------------
+// Viewport-fit tabs ("no one page and lifetime scroll" directive 2026-07-10).
+// The landing's content zones are grouped into tabs — each fits ONE viewport
+// (the tab panel scrolls internally, the page itself never scrolls):
+//   dashboards — ScoreCards (health row) + the dashboard cards grid
+//   discover   — cross-module Related links + the capability feature grid
+// ?tab= is parsed once on mount (deep links keep working); switching is pure
+// state + history.replaceState — no navigation, no remount.
+// ---------------------------------------------------------------------------
+
+type LandingTab = 'dashboards' | 'discover';
+
+const LANDING_TABS: { id: LandingTab; label: string }[] = [
+  { id: 'dashboards', label: 'Dashboards' },
+  { id: 'discover', label: 'Capabilities' },
+];
+
+function parseLandingTab(v: string | null): LandingTab {
+  return v === 'discover' ? 'discover' : 'dashboards';
+}
+
 function BIDashboardPage() {
   const { trackFeatureClick } = useTrackEvent();
   // Action-RBAC gate (System 2): creating / auto-creating a dashboard hits POST
@@ -550,6 +571,23 @@ function BIDashboardPage() {
   // selection UI. Opening a project still routes to `/bi-dashboard/[projectId]`.
   const searchParams = useSearchParams();
   const urlProjectId = searchParams.get('project');
+  // Viewport-fit tabs — ?tab= read once on mount; switches sync the URL via
+  // history.replaceState (no navigation) and preserve other params (?project=).
+  const [tab, setTabState] = useState<LandingTab>(() => parseLandingTab(searchParams.get('tab')));
+  const setTab = useCallback(
+    (next: LandingTab) => {
+      setTabState(next);
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', next);
+        window.history.replaceState(null, '', url.toString());
+      } catch {
+        /* URL sync is best-effort */
+      }
+      trackFeatureClick('bi_landing_tab', { tab: next });
+    },
+    [trackFeatureClick],
+  );
   const [showCreate, setShowCreate] = useState(false);
   const [showAiBuild, setShowAiBuild] = useState(false);
   const [projects, setProjects] = useState<UnifiedProject[]>([]);
@@ -668,10 +706,14 @@ function BIDashboardPage() {
 
   return (
     <ErrorBoundary>
-      <div className="flex min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="flex min-w-0 flex-1 flex-col">
+      {/* Viewport-fit shell — the page itself never scrolls; the active tab
+          panel scrolls internally. (Replaces the former min-h-screen column.)
+          248px = app header (64) + layout main pt/pb (24+48) + layout footer
+          (~110) + 2px border budget, so the WHOLE document fits 100dvh. */}
+      <div className="flex h-[calc(100dvh-224px)] min-h-[540px] overflow-hidden bg-gray-50 dark:bg-gray-950">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <div className="border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-6 py-4">
+        <div className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-lg bg-cyan-50 dark:bg-cyan-900/30 flex items-center justify-center">
@@ -718,7 +760,7 @@ function BIDashboardPage() {
         {/* Viewer-safe read-only notice — only after my-module-access resolves
             to 'read'; dismissable for the session. Write/unknown → not rendered. */}
         {readOnly && !roNoticeDismissed && (
-          <div className="px-6 pt-3">
+          <div className="shrink-0 px-6 pt-3">
             <div
               role="status"
               className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-300"
@@ -742,71 +784,122 @@ function BIDashboardPage() {
         {/* Unified KPI strip — honest "—" until a value is genuinely known;
             Published / Shares / Est. cost fill in from the lazily-fetched
             cockpit signals and click through to their owning axis. */}
-        <BiLandingKpis
-          projects={projects}
-          listLoading={projectsLoading}
-          signals={signals}
-          onJumpAxis={openAxis}
-        />
-
-        {/* Cross-module context */}
-        <div className="px-6 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-          <span>Related:</span>
-          <Link href="/explore-design" className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
-            <Compass className="w-3 h-3" /> Explore &amp; Design (Source Tables)
-          </Link>
-          <Link href="/workflow" className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
-            <GitBranch className="w-3 h-3" /> Workflow (ETL Pipelines)
-          </Link>
+        <div className="shrink-0">
+          <BiLandingKpis
+            projects={projects}
+            listLoading={projectsLoading}
+            signals={signals}
+            onJumpAxis={openAxis}
+          />
         </div>
 
-        {/* Content */}
-        <div className="p-6 max-w-5xl mx-auto">
-          {/* Cross-module health score cards (Data360 G6). A `?project=` deep-link
-              scopes them to that project; otherwise account-wide. We exclude the
-              not-yet-backed PREVISION placeholder so no "coming soon" tile ships
-              on the flagship landing (the project path never returns it anyway). */}
-          <div className="mb-6">
-            <ScoreCards
-              projectId={urlProjectId ?? undefined}
-              dimensions={['dq', 'cost', 'perf', 'gov']}
-            />
-          </div>
-          {/* Distinct error state — never collapse a fetch failure into the
-              "no dashboards yet" empty state. */}
-          {!projectsLoading && projectsError && (
-            <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-red-200 bg-red-50 px-6 py-12 text-center dark:border-red-900/50 dark:bg-red-900/10">
-              <AlertTriangle className="h-8 w-8 text-red-500" />
-              <p className="max-w-md text-sm text-red-600 dark:text-red-400">{projectsError}</p>
-              <button
-                type="button"
-                onClick={() => loadProjects()}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Retry
-              </button>
+        {/* Tab bar — viewport-fit tabs; each panel scrolls internally. */}
+        <div
+          role="tablist"
+          aria-label="BI dashboard landing tabs"
+          data-testid="bi-landing-tabs"
+          className="flex shrink-0 items-center gap-1 border-b border-gray-200 bg-white px-6 pt-2 dark:border-gray-800 dark:bg-gray-900"
+        >
+          {LANDING_TABS.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              aria-controls={`bi-landing-panel-${t.id}`}
+              onClick={() => setTab(t.id)}
+              className={cn(
+                'rounded-t-lg border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+                tab === t.id
+                  ? 'border-cyan-600 text-cyan-700 dark:border-cyan-400 dark:text-cyan-300'
+                  : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200',
+              )}
+            >
+              {t.label}
+              {t.id === 'dashboards' && (
+                <span
+                  className={cn(
+                    'ml-1.5 tabular-nums text-xs',
+                    tab === t.id ? 'text-cyan-500' : 'text-gray-400 dark:text-gray-500',
+                  )}
+                >
+                  {projectsLoading ? '…' : projects.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Active tab panel — the ONLY scroll container of the main column. */}
+        <div
+          role="tabpanel"
+          id={`bi-landing-panel-${tab}`}
+          data-testid={`bi-landing-panel-${tab}`}
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          {tab === 'dashboards' && (
+            <div className="mx-auto max-w-5xl p-6">
+              {/* Cross-module health score cards (Data360 G6). A `?project=` deep-link
+                  scopes them to that project; otherwise account-wide. We exclude the
+                  not-yet-backed PREVISION placeholder so no "coming soon" tile ships
+                  on the flagship landing (the project path never returns it anyway). */}
+              <div className="mb-6">
+                <ScoreCards
+                  projectId={urlProjectId ?? undefined}
+                  dimensions={['dq', 'cost', 'perf', 'gov']}
+                />
+              </div>
+              {/* Distinct error state — never collapse a fetch failure into the
+                  "no dashboards yet" empty state. */}
+              {!projectsLoading && projectsError && (
+                <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-red-200 bg-red-50 px-6 py-12 text-center dark:border-red-900/50 dark:bg-red-900/10">
+                  <AlertTriangle className="h-8 w-8 text-red-500" />
+                  <p className="max-w-md text-sm text-red-600 dark:text-red-400">{projectsError}</p>
+                  <button
+                    type="button"
+                    onClick={() => loadProjects()}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Retry
+                  </button>
+                </div>
+              )}
+              {!projectsLoading && !projectsError && projects.length === 0 && (
+                <EmptyState onCreate={() => { setShowCreate(true); }} hideCreate={readOnly} />
+              )}
+              {!projectsError && (
+                <ProjectList
+                  projects={projects}
+                  isLoading={projectsLoading}
+                  highlightId={urlProjectId}
+                  onChanged={handleListChanged}
+                />
+              )}
             </div>
           )}
-          {!projectsLoading && !projectsError && projects.length === 0 && (
-            <EmptyState onCreate={() => { setShowCreate(true); }} hideCreate={readOnly} />
+          {tab === 'discover' && (
+            <div className="mx-auto max-w-5xl p-6">
+              {/* Cross-module context (formerly the slim strip under the KPI row). */}
+              <div className="flex items-center gap-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-2.5 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900/50 dark:text-gray-400">
+                <span>Related:</span>
+                <Link href="/explore-design" className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
+                  <Compass className="w-3 h-3" /> Explore &amp; Design (Source Tables)
+                </Link>
+                <Link href="/workflow" className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
+                  <GitBranch className="w-3 h-3" /> Workflow (ETL Pipelines)
+                </Link>
+              </div>
+              <FeatureGrid />
+            </div>
           )}
-          {!projectsError && (
-            <ProjectList
-              projects={projects}
-              isLoading={projectsLoading}
-              highlightId={urlProjectId}
-              onChanged={handleListChanged}
-            />
-          )}
-          {!projectsError && (!projectsLoading || projects.length > 0) && <FeatureGrid />}
         </div>
         </div>
 
         {/* Right-edge cockpit — the unified AxisCockpit (overview / cost /
-            governance / history / AI), sticky below the 64px app header.
+            governance / history / AI). Fills the viewport-fit shell's height
+            (no page-level sticky needed — the page no longer scrolls).
             Hidden only on phones where the panel would crush the list. */}
-        <div className="sticky top-16 z-20 hidden h-[calc(100dvh-64px)] shrink-0 self-start sm:block">
+        <div className="hidden h-full shrink-0 sm:block">
           <BiLandingCockpit
             projects={projects}
             listLoading={projectsLoading}

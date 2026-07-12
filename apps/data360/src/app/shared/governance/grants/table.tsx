@@ -275,22 +275,15 @@ export default function GrantsTable() {
               // e.g., ["cortex", "semantic_models"] → ["intelligent"]
               const collapsedModules = collapseSubModulesToParents(newModules);
 
-              // console.log('[Grants] ========== SAVE STARTED ==========');
-              // console.log('[Grants] Selected modules (UI):', newModules);
-              // console.log('[Grants] Collapsed modules (API):', collapsedModules);
-              // console.log('[Grants] Role name:', modal.role!.role_name);
 
               const roleName = modal.role!.role_name;
 
               // Step 1: Send update to backend
-              // console.log('[Grants] Step 1: Sending update to backend...');
               const updateResponse = await updateGrants(roleName, collapsedModules);
-              // console.log('[Grants] Step 1: Backend response:', updateResponse.data);
 
               // Step 2: Refresh data from backend
               const refreshStartTime = Date.now();
               await refetch();
-              // console.log('[Grants] Step 2: Data refreshed in', Date.now() - refreshStartTime, 'ms');
 
               // Show success toast
               if (collapsedModules.length === 0) {
@@ -299,14 +292,8 @@ export default function GrantsTable() {
                 toast.success(`✅ Updated modules for ${roleName}`);
               }
 
-              // console.log('[Grants] ========== SAVE COMPLETED ==========');
               setModal({ open: false });
             } catch (err: any) {
-              // console.error('[Grants] ========== SAVE FAILED ==========');
-              // console.error('[Grants] Error:', err);
-              // console.error('[Grants] Error name:', err.name);
-              // console.error('[Grants] Error message:', err.message);
-              // console.error('[Grants] Error response:', err.response?.data);
               toast.error(err.message || 'Failed to update modules');
             }
           }}
@@ -330,10 +317,6 @@ function EditModal({
 }) {
   // Expand role modules to include sub-modules for UI display
   const initialModules = expandModulesToIncludeSubModules(role.modules || []);
-  // console.log('[EditModal] Initial state:', {
-  //   roleModules: role.modules,
-  //   expandedModules: initialModules
-  // });
   const [selectedModules, setSelectedModules] = useState<string[]>(initialModules);
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('modules');

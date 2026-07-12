@@ -22,6 +22,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   GitBranch,
   BookOpen,
@@ -768,11 +769,31 @@ const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'python', label: 'Run Python', icon: Code2 },
 ];
 
+const TAB_KEYS: TabKey[] = ['git', 'notebooks', 'sql', 'python'];
+
+function parseTab(raw: string | null): TabKey {
+  return TAB_KEYS.includes(raw as TabKey) ? (raw as TabKey) : 'git';
+}
+
 const WorkflowDevToolsPage: React.FC = () => {
-  const [tab, setTab] = useState<TabKey>('git');
+  const searchParams = useSearchParams();
+  // ?tab= is parsed ONCE on mount (deep links keep working); switches are
+  // pure state + history.replaceState — no navigation, no remount.
+  const [tab, setTabState] = useState<TabKey>(() => parseTab(searchParams.get('tab')));
+  const setTab = useCallback((next: TabKey) => {
+    setTabState(next);
+    window.history.replaceState(null, '', `?tab=${next}`);
+  }, []);
 
   return (
-    <div className="flex h-screen flex-col bg-white dark:bg-gray-900">
+    /*
+     * Viewport-fit shell (no page scroll — user directive 2026-07-10). The
+     * page renders inside the carbon dashboard chrome: header (85px) + main
+     * pt-6 (24px) above, lg:pb-16 (64px) + footer (73px) below = 246px.
+     * `h-screen` previously overflowed the document by that chrome height.
+     * Each tab body scrolls internally in <main> below.
+     */
+    <div className="flex h-[calc(100dvh-222px)] min-h-[480px] flex-col overflow-hidden bg-white dark:bg-gray-900">
       <header className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
         <div className="flex items-center gap-3">
           <Link
@@ -790,11 +811,17 @@ const WorkflowDevToolsPage: React.FC = () => {
         </p>
       </header>
 
-      <nav className="flex gap-1 border-b border-slate-200 px-6 dark:border-slate-700" aria-label="Developer tools">
+      <nav
+        className="flex gap-1 border-b border-slate-200 px-6 dark:border-slate-700"
+        aria-label="Developer tools"
+        role="tablist"
+      >
         {TABS.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             type="button"
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={cn(
               'flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
@@ -810,7 +837,7 @@ const WorkflowDevToolsPage: React.FC = () => {
         ))}
       </nav>
 
-      <main className="flex-1 overflow-auto px-6 py-5">
+      <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
         <div className="mx-auto max-w-4xl">
           {tab === 'git' && <GitReposTab />}
           {tab === 'notebooks' && <NotebooksTab />}

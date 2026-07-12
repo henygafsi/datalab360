@@ -67,7 +67,7 @@ export default function CarbonLayout({
       >
         <Header />
 
-        <main className="flex flex-grow flex-col px-6 pb-12 pt-6 md:px-8 lg:px-10 lg:pb-16 xl:px-12 2xl:px-16">
+        <main className="flex flex-grow flex-col px-3 pb-6 pt-4 md:px-4 lg:px-5 xl:px-6 2xl:px-8">
           <div className="w-full max-w-none">
             <motion.div
               initial={{ opacity: 0, y: 12 }}

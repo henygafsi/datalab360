@@ -52,6 +52,14 @@ const AiSavingsDashboard: React.FC<AiSavingsDashboardProps> = ({
     return n == null ? '—' : n.toFixed(4);
   };
 
+  // Zero-window collapse: three big zero-cards above the fold are noise — when
+  // credits saved, AI cost AND ROI are all zero/absent, the explanatory
+  // sentence IS the state.
+  const allZero = !!data
+    && (safeNum(data.total_credits_saved) ?? 0) === 0
+    && (safeNum(data.ai_cost_credits) ?? 0) === 0
+    && (safeNum(data.roi_multiplier) ?? 0) === 0;
+
   return (
     <div className={cn('border dark:border-slate-700 rounded-lg overflow-hidden', className)}>
       {/* Header */}
@@ -89,23 +97,27 @@ const AiSavingsDashboard: React.FC<AiSavingsDashboardProps> = ({
           <RefreshCw className="h-4 w-4 animate-spin mr-2" />
           Loading savings data...
         </div>
+      ) : data && allZero ? (
+        <p className="px-4 py-6 text-center text-xs text-slate-400">
+          No AI savings recorded in this window — apply AI suggestions (optimize, DMF, masking) to build the trail.
+        </p>
       ) : data ? (
         <div className="p-4 space-y-4">
           {/* Summary cards */}
           <div className="grid grid-cols-3 gap-3">
             <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-center">
               <DollarSign className="h-4 w-4 text-emerald-500 mx-auto mb-1" />
-              <p className="text-xs text-slate-500">Estimated Savings</p>
+              <p className="text-xs text-slate-500">Credits Saved</p>
               <p className="text-lg font-bold text-emerald-700 dark:text-emerald-300">
-                {formatCredits(data.total_estimated_savings_credits)}
+                {formatCredits(data.total_credits_saved)}
               </p>
-              <p className="text-[10px] text-slate-400">credits</p>
+              <p className="text-[10px] text-slate-400">credits · {String(data.period ?? '').replace(/_/g, ' ')}</p>
             </div>
             <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-center">
               <BarChart3 className="h-4 w-4 text-blue-500 mx-auto mb-1" />
-              <p className="text-xs text-slate-500">Actual Savings</p>
+              <p className="text-xs text-slate-500">AI Cost</p>
               <p className="text-lg font-bold text-blue-700 dark:text-blue-300">
-                {formatCredits(data.total_actual_savings_credits)}
+                {formatCredits(data.ai_cost_credits)}
               </p>
               <p className="text-[10px] text-slate-400">credits</p>
             </div>
@@ -119,8 +131,8 @@ const AiSavingsDashboard: React.FC<AiSavingsDashboardProps> = ({
             </div>
           </div>
 
-          {/* Per-feature breakdown */}
-          {data.by_feature.length > 0 && (
+          {/* Per-feature breakdown — real contract: breakdown is a map, may be {} */}
+          {Object.keys(data.breakdown ?? {}).length > 0 ? (
             <div>
               <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                 By Feature
@@ -131,26 +143,22 @@ const AiSavingsDashboard: React.FC<AiSavingsDashboardProps> = ({
                     <tr className="bg-slate-50 dark:bg-slate-800/50 text-xs text-slate-500">
                       <th className="text-left px-3 py-2 font-medium">Feature</th>
                       <th className="text-right px-3 py-2 font-medium">Actions</th>
-                      <th className="text-right px-3 py-2 font-medium">Estimated</th>
-                      <th className="text-right px-3 py-2 font-medium">Actual</th>
+                      <th className="text-right px-3 py-2 font-medium">Credits saved</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y dark:divide-slate-700">
-                    {data.by_feature.map((item) => (
-                      <tr key={item.feature} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                    {Object.entries(data.breakdown ?? {}).map(([feature, item]) => (
+                      <tr key={feature} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                         <td className="px-3 py-2 text-xs font-medium">
-                          {item.feature.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                          {feature.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
                         </td>
                         <td className="px-3 py-2 text-xs text-right text-slate-500">
-                          {item.actions}
+                          {safeNum(item?.actions) ?? '—'}
                         </td>
                         <td className="px-3 py-2 text-xs text-right text-emerald-600">
-                          {formatCredits(item.estimated_savings)}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-right text-blue-600 flex items-center justify-end gap-0.5">
-                          {formatCredits(item.actual_savings)}
-                          {item.actual_savings > item.estimated_savings && (
-                            <ArrowUpRight className="h-3 w-3 text-emerald-500" />
+                          {formatCredits(item?.credits_saved)}
+                          {safeNum(item?.credits_saved) != null && safeNum(item.credits_saved)! > 0 && (
+                            <ArrowUpRight className="inline h-3 w-3 ml-0.5 text-emerald-500" />
                           )}
                         </td>
                       </tr>
@@ -159,6 +167,10 @@ const AiSavingsDashboard: React.FC<AiSavingsDashboardProps> = ({
                 </table>
               </div>
             </div>
+          ) : (
+            <p className="text-center text-xs text-slate-400">
+              No per-feature savings recorded in this window — apply AI suggestions (optimize, DMF, masking) to build the trail.
+            </p>
           )}
         </div>
       ) : (

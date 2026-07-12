@@ -78,7 +78,15 @@ function DeployAppPageContent() {
   }, [trackFeatureClick]);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-900">
+    /*
+     * Viewport-fit shell (no page scroll — user directive 2026-07-10). The
+     * page renders inside the carbon dashboard chrome: header (85px) + main
+     * pt-6 (24px) above, lg:pb-16 (64px) + footer (73px) below = 246px.
+     * `min-h-screen` previously let the landing grow the document (the
+     * deployments list alone pushed it past 9000px). DeployAppHome now owns
+     * TABS (Build / Deployments) and each tab body scrolls internally.
+     */
+    <div className="flex h-[calc(100dvh-222px)] min-h-[480px] flex-col overflow-hidden bg-slate-50 dark:bg-slate-900">
       <Toaster position="bottom-right" />
       <DeployAppHome
         onNewApp={openFresh}

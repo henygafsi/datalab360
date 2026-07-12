@@ -59,6 +59,7 @@ import { useTrackEvent } from '@/hooks/useTrackEvent';
 import ServerMetricsPanel from '../../admin/ServerMetricsPanel';
 import RealAccessPanel from '../../admin/RealAccessPanel';
 import RoleGrantsPanel from '../../admin/RoleGrantsPanel';
+import ActivityDashboard from '../../admin/ActivityDashboard';
 import PlatformHealthPanel from './PlatformHealthPanel';
 import CostGovernancePanel from './CostGovernancePanel';
 import ProjectsMonitoringPanel from '../access-center/components/ProjectsMonitoringPanel';
@@ -302,6 +303,11 @@ export default function AdministrationHub() {
             {/* 1. Platform Health — audit-backed KPIs + granular tables + AI */}
             {tab === 'health' && (
               <div className="space-y-4">
+                {/* Data first — live panels render before navigation CTAs
+                    (UX rule: display what's already computed, don't gate it). */}
+                <ServiceHealthPanel />
+                <PlatformHealthPanel />
+                <ActivityDashboard />
                 <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/40">
                   <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                     Continue in
@@ -332,8 +338,6 @@ export default function AdministrationHub() {
                     </OpenLink>
                   </CtaRow>
                 </div>
-                <ServiceHealthPanel />
-                <PlatformHealthPanel />
               </div>
             )}
 

@@ -428,11 +428,9 @@ export async function createRLSPolicy(data: CreateRLSPolicyRequest): Promise<RLS
   }
 
   const url = `${POLICIES_API}/row-access`;
-  // console.log('[createRLSPolicy] POST', url, 'params:', params);
 
   const response = await apiClient.post<StandardResponse<RLSPolicy>>(url, null, { params });
 
-  // console.log('[createRLSPolicy] Response:', response.status, response.data);
   return response.data.data;
 }
 
@@ -491,11 +489,9 @@ export async function deleteRLSPolicy(
 ): Promise<any> {
   // Backend spec: DELETE /gouvernance/policies/{TYPE}/{NAME}
   const url = `${POLICIES_API}/ROW_ACCESS/${policy_name}`;
-  // console.log('[deleteRLSPolicy] DELETE', url);
 
   try {
     const response = await apiClient.delete<StandardResponse>(url);
-    // console.log('[deleteRLSPolicy] Response:', response.status, response.data);
     return response.data.data;
   } catch (error: any) {
     console.error('Delete RLS policy error:', {
@@ -536,7 +532,6 @@ export async function getMaskingPolicyDetails(
 
   try {
     const response = await apiClient.get<StandardResponse>(url);
-    // console.log('✅ GET Masking Policy Details Response:', response.data.data);
     return response.data.data;
   } catch (error: any) {
     console.error(`Failed to get details for masking policy ${policy_name}:`, error);
@@ -632,7 +627,6 @@ export async function getMaskingPolicies(
     };
   });
 
-  // console.log('🔄 Mapped masking policies with details:', mappedPolicies);
 
   return mappedPolicies;
 }
@@ -661,11 +655,9 @@ export async function createMaskingPolicy(data: CreateMaskingPolicyRequest): Pro
   }
 
   const url = `${POLICIES_API}/masking`;
-  // console.log('[createMaskingPolicy] POST', url, 'params:', params);
 
   const response = await apiClient.post<StandardResponse<MaskingPolicy>>(url, null, { params });
 
-  // console.log('[createMaskingPolicy] Response:', response.status, response.data);
   return response.data.data;
 }
 
@@ -726,11 +718,9 @@ export async function deleteMaskingPolicy(
 ): Promise<any> {
   // Backend spec: DELETE /gouvernance/policies/{TYPE}/{NAME}
   const url = `${POLICIES_API}/MASKING/${policy_name}`;
-  // console.log('[deleteMaskingPolicy] DELETE', url);
 
   try {
     const response = await apiClient.delete<StandardResponse>(url);
-    // console.log('[deleteMaskingPolicy] Response:', response.status, response.data);
     return response.data.data;
   } catch (error: any) {
     console.error('Delete masking policy error:', {
@@ -750,7 +740,6 @@ export async function getNetworkPolicyDetails(policy_name: string): Promise<any>
 
   try {
     const response = await apiClient.get<StandardResponse>(url);
-    // console.log('✅ GET Network Policy Details Response:', response.data.data);
     return response.data.data;
   } catch (error: any) {
     console.error(`Failed to get details for network policy ${policy_name}:`, error);
@@ -760,17 +749,11 @@ export async function getNetworkPolicyDetails(policy_name: string): Promise<any>
 
 export async function getNetworkPolicies(): Promise<NetworkPolicy[]> {
   const url = `${POLICIES_API}/network/list`;
-  // console.log('🔍 GET Network Policies API Call:', { url });
 
   // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
   const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
 
   const responseData = response.data.data;
-  // console.log('✅ GET Network Policies Response:', {
-    // status: response.status,
-    // message: response.data.message,
-    // policiesCount: responseData?.policies?.length
-  // });
 
   // Defensive check: ensure we always return an array
   const backendPolicies = responseData?.policies;
@@ -798,7 +781,6 @@ export async function getNetworkPolicies(): Promise<NetworkPolicy[]> {
     expiration_date: policy.expiration_date || undefined,
   }));
 
-  // console.log('🔄 Mapped network policies:', mappedPolicies);
 
   return mappedPolicies;
 }
@@ -822,11 +804,9 @@ export async function createNetworkPolicy(data: CreateNetworkPolicyRequest): Pro
   }
 
   const url = `${POLICIES_API}/network`;
-  // console.log('[createNetworkPolicy] POST', url, 'params:', params);
 
   const response = await apiClient.post<StandardResponse<NetworkPolicy>>(url, null, { params });
 
-  // console.log('[createNetworkPolicy] Response:', response.status, response.data);
   return response.data.data;
 }
 
@@ -834,11 +814,9 @@ export async function deleteNetworkPolicy(policy_name: string): Promise<any> {
   // Backend spec: Network uses specific endpoint (lowercase)
   // DELETE /gouvernance/policies/network/{name}
   const url = `${POLICIES_API}/network/${policy_name}`;
-  // console.log('[deleteNetworkPolicy] DELETE', url);
 
   try {
     const response = await apiClient.delete<StandardResponse>(url);
-    // console.log('[deleteNetworkPolicy] Response:', response.status, response.data);
     return response.data.data;
   } catch (error: any) {
     console.error('Delete network policy error:', {
@@ -875,7 +853,6 @@ export async function getTagDetails(
 
   try {
     const response = await apiClient.get<StandardResponse>(url);
-    // console.log('✅ GET Tag Details Response:', response.data.data);
     return response.data.data;
   } catch (error: any) {
     console.error(`Failed to get details for tag ${tag_name}:`, error);
@@ -886,11 +863,6 @@ export async function getTagDetails(
 export async function getTags(): Promise<Tag[]> {
   const response = await apiClient.get<StandardResponse<{ tags: any[] }>>(`${POLICIES_API}/tags/list`);
 
-  // console.log('✅ GET Tags Response:', {
-    // status: response.status,
-    // fullData: response.data,
-    // tagsArray: response.data.data?.tags
-  // });
 
   // Defensive check: ensure we always return an array
   const backendTags = response.data.data?.tags;
@@ -908,7 +880,6 @@ export async function getTags(): Promise<Tag[]> {
     created_at: tag.created_at || tag.created_on || '',
   }));
 
-  // console.log('🔄 Mapped tags:', mappedTags);
 
   return mappedTags;
 }
@@ -1010,7 +981,6 @@ export async function getPasswordPolicyDetails(
 
   try {
     const response = await apiClient.get<StandardResponse>(url);
-    // console.log('✅ GET Password Policy Details Response:', response.data.data);
     return response.data.data;
   } catch (error: any) {
     console.error(`Failed to get details for password policy ${policy_name}:`, error);
@@ -1054,7 +1024,6 @@ export async function getPasswordPolicies(): Promise<PasswordPolicy[]> {
     expiration_date: policy.expiration_date || undefined,
   }));
 
-  // console.log('🔄 Mapped password policies:', mappedPolicies);
 
   return mappedPolicies;
 }
@@ -1098,11 +1067,9 @@ export async function createPasswordPolicy(data: CreatePasswordPolicyRequest): P
   }
 
   const url = `${POLICIES_API}/password`;
-  // console.log('[createPasswordPolicy] POST', url, 'params:', params);
 
   const response = await apiClient.post<StandardResponse<PasswordPolicy>>(url, null, { params });
 
-  // console.log('[createPasswordPolicy] Response:', response.status, response.data);
   return response.data.data;
 }
 
@@ -1111,11 +1078,9 @@ export async function deletePasswordPolicy(
 ): Promise<any> {
   // Backend spec: DELETE /gouvernance/policies/{TYPE}/{NAME}
   const url = `${POLICIES_API}/PASSWORD/${policy_name}`;
-  // console.log('[deletePasswordPolicy] DELETE', url);
 
   try {
     const response = await apiClient.delete<StandardResponse>(url);
-    // console.log('[deletePasswordPolicy] Response:', response.status, response.data);
     return response.data.data;
   } catch (error: any) {
     console.error('Delete password policy error:', {
@@ -1158,7 +1123,6 @@ export async function getSessionPolicyDetails(
 
   try {
     const response = await apiClient.get<StandardResponse>(url);
-    // console.log('✅ GET Session Policy Details Response:', response.data.data);
     return response.data.data;
   } catch (error: any) {
     console.error(`Failed to get details for session policy ${policy_name}:`, error);
@@ -1194,7 +1158,6 @@ export async function getSessionPolicies(): Promise<SessionPolicy[]> {
     expiration_date: policy.expiration_date || undefined,
   }));
 
-  // console.log('🔄 Mapped session policies:', mappedPolicies);
 
   return mappedPolicies;
 }
@@ -1211,11 +1174,9 @@ export async function createSessionPolicy(data: CreateSessionPolicyRequest): Pro
   }
 
   const url = `${POLICIES_API}/session`;
-  // console.log('[createSessionPolicy] POST', url, 'params:', params);
 
   const response = await apiClient.post<StandardResponse<SessionPolicy>>(url, null, { params });
 
-  // console.log('[createSessionPolicy] Response:', response.status, response.data);
   return response.data.data;
 }
 
@@ -1224,11 +1185,9 @@ export async function deleteSessionPolicy(
 ): Promise<any> {
   // Backend spec: DELETE /gouvernance/policies/{TYPE}/{NAME}
   const url = `${POLICIES_API}/SESSION/${policy_name}`;
-  // console.log('[deleteSessionPolicy] DELETE', url);
 
   try {
     const response = await apiClient.delete<StandardResponse>(url);
-    // console.log('[deleteSessionPolicy] Response:', response.status, response.data);
     return response.data.data;
   } catch (error: any) {
     console.error('Delete session policy error:', {
@@ -1291,7 +1250,6 @@ export async function getAggregationPolicyDetails(
 
   try {
     const response = await apiClient.get<StandardResponse>(url);
-    // console.log('✅ GET Aggregation Policy Details Response:', response.data.data);
     return response.data.data;
   } catch (error: any) {
     console.error(`Failed to get details for aggregation policy ${policy_name}:`, error);
@@ -1352,11 +1310,9 @@ export async function createAggregationPolicy(data: CreateAggregationPolicyReque
   }
 
   const url = `${POLICIES_API}/aggregation`;
-  // console.log('[createAggregationPolicy] POST', url, 'params:', params);
 
   const response = await apiClient.post<StandardResponse<AggregationPolicy>>(url, null, { params });
 
-  // console.log('[createAggregationPolicy] Response:', response.status, response.data);
   return response.data.data;
 }
 
@@ -1408,11 +1364,9 @@ export async function deleteAggregationPolicy(
 ): Promise<any> {
   // Backend spec: DELETE /gouvernance/policies/{TYPE}/{NAME}
   const url = `${POLICIES_API}/AGGREGATION/${policy_name}`;
-  // console.log('[deleteAggregationPolicy] DELETE', url);
 
   try {
     const response = await apiClient.delete<StandardResponse>(url);
-    // console.log('[deleteAggregationPolicy] Response:', response.status, response.data);
     return response.data.data;
   } catch (error: any) {
     console.error('Delete aggregation policy error:', {
@@ -1480,11 +1434,6 @@ export async function getColumns(database: string, schema: string, table: string
   const response = await apiClient.get<StandardResponse<{ columns: ColumnObject[] }>>(
     `${POLICIES_API}/objects/columns/${database}/${schema}/${table}`
   );
-  // console.log('✅ GET Columns Response:', {
-    // status: response.status,
-    // fullData: response.data,
-    // columnsArray: response.data.data?.columns
-  // });
   const columns = response.data.data?.columns || [];
 
   return columns.map(col => col.column_name);
@@ -1534,9 +1483,6 @@ export async function assignPolicyToRoles(
   // Map frontend policy type to backend policy type
   const backendPolicyType = POLICY_TYPE_MAP[policyType] || policyType.toUpperCase();
 
-  // console.log('[assignPolicyToRoles] Assigning policy:', policyName);
-  // console.log('[assignPolicyToRoles] Policy type:', policyType, '→', backendPolicyType);
-  // console.log('[assignPolicyToRoles] Roles:', roles);
 
   try {
     // PUT /gouvernance/policies/{policy_type}/{policy_name}/roles — confirmed in backend OpenAPI.
@@ -1780,11 +1726,9 @@ export async function getTablePolicies(
   table: string
 ): Promise<TablePoliciesResponse> {
   const url = `${POLICIES_API}/objects/${database}/${schema}/${table}/policies`;
-  // console.log('[getTablePolicies] GET', url);
 
   try {
     const response = await apiClient.get<StandardResponse<TablePoliciesResponse>>(url);
-    // console.log('[getTablePolicies] Response:', response.data);
     return response.data.data;
   } catch (error: any) {
     console.error('Get table policies error:', {

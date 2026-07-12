@@ -4,7 +4,6 @@ import React, { useCallback, useMemo, useState, useRef, useEffect } from 'react'
 import ReactFlow, {
   Node,
   Edge,
-  Controls,
   Background,
   MiniMap,
   useNodesState,
@@ -36,6 +35,7 @@ import PolicyAssignmentPanel, { PolicyCategory } from './PolicyAssignmentPanel';
 import AddColumnModal, { ComputedColumn } from './AddColumnModal';
 import ColumnMappingModal from './ColumnMappingModal';
 import MappingSummaryPanel from './MappingSummaryPanel';
+import OverflowMenu from './OverflowMenu';
 // TableOptionsSidebar (T1 — RETIRED as a separate panel): the modeling view no
 // longer floats it; its actions now live in the unified ContextRightBar cockpit.
 // The component file is retained (it backs other surfaces) but is not rendered here.
@@ -134,6 +134,12 @@ interface ModelingCanvasProps {
    * keeping the select -> add-to-modeling -> configure-ingestion flow intact.
    */
   onAddTable?: (mode: 'manual' | 'empty') => void;
+  /**
+   * Mockup #68 — "+ Add table" is the FIRST item of the single canvas toolbar.
+   * Routes to the SAME creation flow as the right-bar Create group (the
+   * exhaustive creation home): the page opens that group.
+   */
+  onOpenCreate?: () => void;
   // Fullscreen & panel toggle props
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
@@ -309,6 +315,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   onStreamCreate,
   onAlertCreate,
   onAddTable,
+  onOpenCreate,
   isFullscreen = false,
   onToggleFullscreen,
   showSidebar,
@@ -606,11 +613,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
   // Create edges from default relationships
   useEffect(() => {
-    // console.log('[ModelingCanvas] defaultRelationships:', defaultRelationships);
-    // console.log('[ModelingCanvas] tables:', tables.map(t => t.id));
 
     if (defaultRelationships.length === 0 || tables.length === 0) {
-      // console.log('[ModelingCanvas] Skipping - no relationships or tables');
       return;
     }
 
@@ -619,7 +623,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     if (!firstTable) return;
 
     const { database } = firstTable;
-    // console.log('[ModelingCanvas] Using database:', database);
 
     // Group relationships by child_table + parent_table to create single edges with multiple column mappings
     const relationshipGroups = new Map<string, TableRelationship[]>();
@@ -632,7 +635,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       relationshipGroups.get(key)!.push(rel);
     });
 
-    // console.log('[ModelingCanvas] Relationship groups:', Array.from(relationshipGroups.keys()));
 
     // Create edges from grouped relationships
     const newEdges: Edge[] = [];
@@ -647,7 +649,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       const sourceExists = tables.some(t => t.id === sourceId);
       const targetExists = tables.some(t => t.id === targetId);
 
-      // console.log(`[ModelingCanvas] Checking: ${sourceId} (exists: ${sourceExists}) -> ${targetId} (exists: ${targetExists})`);
 
       if (sourceExists && targetExists) {
         // Create label showing FK relationship (not ETL mapping)
@@ -677,11 +678,9 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           },
         });
       } else {
-        // console.log(`[ModelingCanvas] SKIPPED edge - table not found`);
       }
     });
 
-    // console.log(`[ModelingCanvas] Created ${newEdges.length} FK edges:`, newEdges);
 
     // Preserve existing mapping edges and FK edges from events, add/update template FK edges
     setEdges(prev => {
@@ -741,6 +740,19 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         console.warn(`[ModelingCanvas] FK edge skipped — no match for src=${srcDb}.${srcSchema}.${srcTable} or tgt=${tgtDb}.${tgtSchema}.${tgtTable}`, {
           tablesOnCanvas: tables.map(t => t.id).slice(0, 10),
         });
+        continue;
+      }
+
+      // The name-only fallback above can resolve BOTH ends to the same node
+      // when the event references a same-named table in a schema that is not
+      // on the canvas (stale history). If the event named two different
+      // tables but we landed on one node, the match is wrong — skip instead
+      // of painting a self-loop. (A genuine self-referencing FK still passes:
+      // its event names the same schema.table on both ends.)
+      if (
+        sourceNode.id === targetNode.id &&
+        `${srcSchema}.${srcTable}` !== `${tgtSchema}.${tgtTable}`
+      ) {
         continue;
       }
 
@@ -867,7 +879,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   useEffect(() => {
     // Reset when project changes
     if (projectId !== prevProjectIdRef.current) {
-      // console.log('[ModelingCanvas] Project changed, resetting state');
       edgesCreatedForProjectRef.current = null;
       prevProjectIdRef.current = projectId;
       // Also clear current state for new project
@@ -876,24 +887,20 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     }
 
     if (initialMappings.length === 0) {
-      // console.log('[ModelingCanvas] No initial mappings to restore');
       return;
     }
 
     // Wait for tables to be available before restoring mappings
     if (tables.length === 0) {
-      // console.log('[ModelingCanvas] Waiting for tables to load before restoring mappings');
       return;
     }
 
     // Check if we've already created edges for this project with these mappings
     const mappingKey = `${projectId}-${initialMappings.length}-${tables.length}`;
     if (edgesCreatedForProjectRef.current === mappingKey) {
-      // console.log('[ModelingCanvas] Edges already created for this project/mappings/tables combo, skipping');
       return;
     }
 
-    // console.log('[ModelingCanvas] Restoring mappings from events:', initialMappings.length, 'mappings,', tables.length, 'tables');
 
     // Mark as processed
     edgesCreatedForProjectRef.current = mappingKey;
@@ -908,7 +915,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     });
     const dedupedMappings = Array.from(uniqueMappings.values());
 
-    // console.log('[ModelingCanvas] Deduped mappings:', dedupedMappings.length, 'from', initialMappings.length);
 
     // Convert initial mappings to columnMappingsList format
     const restoredMappings = dedupedMappings.map(m => ({
@@ -920,13 +926,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       transformation: m.transformation,
     }));
     setColumnMappingsList(restoredMappings);
-
-    // Log available tables for debugging
-    // console.log('[ModelingCanvas] Available tables:', tables.map(t => ({
-      // id: t.id,
-      // table: t.table,
-      // schema: t.schema,
-    // })));
 
     // Update dynamic mappings for unmapped indicator
     const newDynamicMappings = new Map<string, Set<string>>();
@@ -959,7 +958,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       mappingsByKey.get(key)!.push(m);
     });
 
-    // console.log('[ModelingCanvas] Mapping groups:', Array.from(mappingsByKey.keys()));
 
     // Create an edge for each unique mapping (source table → target table.column)
     mappingsByKey.forEach((mappings, key) => {
@@ -976,22 +974,21 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       // Fallback: match by table name only if schema match fails
       if (!sourceTable) {
         sourceTable = tables.find(t => t.table === firstMapping.sourceTable);
-        // console.log('[ModelingCanvas] Source table fallback match:', sourceTable?.id);
       }
       if (!targetTable) {
         targetTable = tables.find(t => t.table === firstMapping.targetTable);
-        // console.log('[ModelingCanvas] Target table fallback match:', targetTable?.id);
       }
 
-      // console.log('[ModelingCanvas] Creating edge for:', {
-        // key,
-        // sourceTable: sourceTable?.id,
-        // targetTable: targetTable?.id,
-        // lookingFor: {
-          // source: `${firstMapping.sourceSchema}.${firstMapping.sourceTable}`,
-          // target: `${firstMapping.targetSchema}.${firstMapping.targetTable}`,
-        // }
-      // });
+
+      // The name-only fallbacks can resolve BOTH ends to the same node when a
+      // stale mapping references a same-named table in a schema that is not on
+      // the canvas. An ETL mapping edge from a node to itself is never real —
+      // drop it instead of painting a self-loop (this exact path drew the
+      // phantom "COD_MAGASIN → COD_MAGASIN" self-edges).
+      if (sourceTable && targetTable && sourceTable.id === targetTable.id) {
+        console.warn('[ModelingCanvas] Skipping self-mapping produced by name-only table match:', key);
+        return;
+      }
 
       if (sourceTable && targetTable) {
         // Collect all source columns that map to this target column
@@ -1026,12 +1023,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       }
     });
 
-    // console.log('[ModelingCanvas] Created mapping edges:', mappingEdges.length, mappingEdges.map(e => ({
-      // id: e.id,
-      // source: e.source,
-      // target: e.target,
-      // label: e.label,
-    // })));
 
     // Add mapping edges (keeping FK edges from defaultRelationships)
     if (mappingEdges.length > 0) {
@@ -1039,7 +1030,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // Keep FK edges, add restored mapping edges
         const fkEdges = prev.filter(e => e.data?.edgeType === 'fk');
         const newEdges = [...fkEdges, ...mappingEdges];
-        // console.log('[ModelingCanvas] Setting edges:', newEdges.length, '(', fkEdges.length, 'FK +', mappingEdges.length, 'mapping)');
         return newEdges;
       });
     } else {
@@ -1055,11 +1045,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   // ENFORCES: Source tables (user-added) → Target tables (DWH/default)
   const onConnect = useCallback(
     (params: Connection) => {
-      // console.log('[ModelingCanvas] onConnect called:', {
-        // source: params.source,
-        // target: params.target,
-        // targetTableIds: Array.from(targetTableIds),
-      // });
 
       if (!params.source || !params.target) return;
 
@@ -1078,12 +1063,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       const sourceIsTarget = targetTableIds.has(params.source);
       const targetIsTarget = targetTableIds.has(params.target);
 
-      // console.log('[ModelingCanvas] Connection validation:', {
-        // sourceTable: sourceTable.table,
-        // targetTable: targetTable.table,
-        // sourceIsTarget,
-        // targetIsTarget,
-      // });
 
       // DWH ↔ DWH: treat as FK relationship — open picker modal
       if (sourceIsTarget && targetIsTarget) {
@@ -1120,7 +1099,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       if (sourceIsTarget && !targetIsTarget) {
         // User connected backwards: DWH → Source, swap them
         toast('Swapped direction: Source → Target (DWH)', { icon: '🔄' });
-        // console.log('[ModelingCanvas] Swapping direction - Source will be:', targetTable.table, 'Target will be:', sourceTable.table);
         setMappingSourceTable(targetTable);
         setMappingTargetTable(sourceTable);
         setPendingConnectionParams({
@@ -1130,7 +1108,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         });
       } else {
         // Correct direction: Source → DWH
-        // console.log('[ModelingCanvas] Correct direction - Source:', sourceTable.table, 'Target:', targetTable.table);
         setMappingSourceTable(sourceTable);
         setMappingTargetTable(targetTable);
         setPendingConnectionParams(params);
@@ -1144,14 +1121,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   // Handle column mapping from modal (ETL mapping, not FK relationship)
   const handleColumnMapping = useCallback(
     async (sourceColumns: string[], targetColumn: string, transformation?: string | null) => {
-      // console.log('[ModelingCanvas] handleColumnMapping called:', {
-        // sourceColumns,
-        // targetColumn,
-        // transformation,
-        // mappingSourceTable: mappingSourceTable?.table,
-        // mappingTargetTable: mappingTargetTable?.table,
-        // pendingConnectionParams,
-      // });
 
       if (!mappingSourceTable || !mappingTargetTable || !pendingConnectionParams) {
         console.error('[ModelingCanvas] handleColumnMapping - missing required data:', {
@@ -1199,11 +1168,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         ? `${sourceColumns.join(' + ')}${transformLabel} → ${targetColumn}`
         : `${sourceColumns[0]}${transformLabel} → ${targetColumn}`;
 
-      // console.log('[ModelingCanvas] Creating mapping edge:', {
-        // source: pendingConnectionParams.source,
-        // target: pendingConnectionParams.target,
-        // label: mappingLabel,
-      // });
 
       // Add edge with label showing column mapping (ETL style - blue/green, animated)
       // Use mappingSourceTable and mappingTargetTable IDs directly for reliable edge creation
@@ -1217,7 +1181,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // Check if edge already exists (avoid duplicates)
         const existingEdge = eds.find(e => e.id === edgeId);
         if (existingEdge) {
-          // console.log('[ModelingCanvas] Edge already exists, updating:', edgeId);
           // Update existing edge with new source columns
           return eds.map(e => e.id === edgeId ? {
             ...e,
@@ -1250,14 +1213,6 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         const sourceNodeExists = getNodes().some(n => n.id === sourceId);
         const targetNodeExists = getNodes().some(n => n.id === targetId);
 
-        // console.log('[ModelingCanvas] Adding mapping edge:', {
-          // newEdge,
-          // sourceId,
-          // targetId,
-          // sourceNodeExists,
-          // targetNodeExists,
-          // existingEdgesCount: eds.length,
-        // });
 
         if (!sourceNodeExists || !targetNodeExists) {
           console.error('[ModelingCanvas] ERROR: Source or target node not found!', {
@@ -1621,129 +1576,31 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         }}
         className="bg-slate-50 dark:bg-slate-900"
       >
-        {/* Controls Panel */}
-        <Panel position="top-left" className="flex gap-2">
-          <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border dark:border-slate-700">
-            <Tooltip content="Zoom In">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => zoomIn()}
-                className="p-2"
-              >
-                <ZoomIn className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-            <Tooltip content="Zoom Out">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => zoomOut()}
-                className="p-2"
-              >
-                <ZoomOut className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-            <Tooltip content="Fit View">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => fitView({ padding: 0.2 })}
-                className="p-2"
-              >
-                <Maximize2 className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-            <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
-            <Tooltip content="Auto Layout">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={handleAutoLayout}
-                className="p-2"
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-            {!isReadOnly && canWrite && (
-              <Tooltip content="Save layout (positions persist across reloads)">
-                <Button
-                  variant="text"
-                  size="sm"
-                  onClick={handleSaveLayout}
-                  disabled={isSavingLayout}
-                  aria-busy={isSavingLayout}
-                  className="p-2"
-                >
-                  {isSavingLayout ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                </Button>
-              </Tooltip>
+        {/* ONE canvas toolbar row, slimmed (audit: 13 icon buttons → 6):
+            "+ Add table" · undo/redo · fit view · fullscreen, with every
+            secondary action (zoom, layout, save, lock, grid, minimap,
+            mapping summary, export) folded into a single "⋯" overflow menu.
+            This is still the ONLY zoom surface — the built-in ReactFlow
+            <Controls> stack was removed (P1b dedupe). */}
+        <Panel position="top-left" className="flex max-w-[94%] gap-2">
+          <div className="flex flex-wrap items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border dark:border-slate-700">
+            {onOpenCreate && (
+              <>
+                <Tooltip content={isReadOnly || !canWrite ? 'You need create access' : 'Add a table — opens the Create group (right bar)'}>
+                  <Button
+                    variant="text"
+                    size="sm"
+                    disabled={isReadOnly || !canWrite}
+                    onClick={onOpenCreate}
+                    className="gap-1 px-2 py-2 text-xs font-medium text-blue-600 dark:text-blue-400"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add table
+                  </Button>
+                </Tooltip>
+                <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
+              </>
             )}
-          </div>
-
-          {/* + Add table — drops a new table straight onto the canvas:
-              define it by hand (Power BI style) or start empty to be fed by
-              sources. Hidden in read-only / when the host doesn't wire it. */}
-          {onAddTable && !isReadOnly && (
-            <div className="relative">
-              <Tooltip content="Add a table to the model">
-                <Button
-                  variant="text"
-                  size="sm"
-                  onClick={() => setShowAddTableMenu((v) => !v)}
-                  className={cn(
-                    'flex items-center gap-1 rounded-lg border bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-800',
-                    showAddTableMenu && 'text-blue-600 dark:text-blue-400',
-                  )}
-                >
-                  <Plus className="h-4 w-4" />
-                  <span className="text-xs font-medium">Add table</span>
-                </Button>
-              </Tooltip>
-              {showAddTableMenu && (
-                <>
-                  {/* click-away (transparent, non-blocking) */}
-                  <div
-                    className="fixed inset-0 z-[5]"
-                    onClick={() => setShowAddTableMenu(false)}
-                  />
-                  <div className="absolute left-0 top-full z-10 mt-1 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => { setShowAddTableMenu(false); onAddTable('manual'); }}
-                      className="flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/60"
-                    >
-                      <Table2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">Define manually</span>
-                        <span className="block text-[11px] text-slate-500 dark:text-slate-400">Add columns by hand, like Power BI</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setShowAddTableMenu(false); onAddTable('empty'); }}
-                      className="flex w-full items-start gap-2.5 border-t border-slate-100 px-3 py-2.5 text-left transition-colors hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/60"
-                    >
-                      <Database className="mt-0.5 h-4 w-4 shrink-0 text-teal-500" />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">Empty table</span>
-                        <span className="block text-[11px] text-slate-500 dark:text-slate-400">Start blank, feed it from sources</span>
-                      </span>
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </Panel>
-
-        {/* Tools Panel */}
-        <Panel position="top-right" className="flex gap-2">
-          <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border dark:border-slate-700">
             <Tooltip content="Undo">
               <Button
                 variant="text"
@@ -1767,99 +1624,77 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
               </Button>
             </Tooltip>
             <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
-            <Tooltip content={isLocked ? 'Unlock Canvas' : 'Lock Canvas'}>
+            <Tooltip content="Fit View">
               <Button
                 variant="text"
                 size="sm"
-                onClick={() => setIsLocked(!isLocked)}
-                className={cn('p-2', isLocked && 'text-red-500')}
-              >
-                {isLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
-              </Button>
-            </Tooltip>
-            <Tooltip content={showGrid ? 'Hide Grid' : 'Show Grid'}>
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => setShowGrid(!showGrid)}
+                onClick={() => fitView({ padding: 0.2 })}
                 className="p-2"
               >
-                <Grid3X3 className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-            <Tooltip content={showMinimap ? 'Hide Minimap' : 'Show Minimap'}>
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => setShowMinimap(!showMinimap)}
-                className="p-2"
-              >
-                {showMinimap ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
-            </Tooltip>
-            <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
-            <Tooltip content={showMappingSummary ? 'Hide Mapping Summary' : 'Show Mapping Summary'}>
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => setShowMappingSummary(!showMappingSummary)}
-                className={cn('p-2', showMappingSummary && 'text-blue-500 bg-blue-50 dark:bg-blue-900/30')}
-              >
-                <List className="h-4 w-4" />
-                {columnMappingsList.length > 0 && (
-                  <span className="ml-1 text-xs">{columnMappingsList.length}</span>
-                )}
-              </Button>
-            </Tooltip>
-            <Tooltip content="Export Model">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={handleExport}
-                className="p-2"
-              >
-                <Download className="h-4 w-4" />
+                <Maximize2 className="h-4 w-4" />
               </Button>
             </Tooltip>
             {onToggleFullscreen && (
-              <>
-                <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
-                <Tooltip content={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
-                  <Button
-                    variant="text"
-                    size="sm"
-                    onClick={onToggleFullscreen}
-                    className={cn("p-2", isFullscreen && "text-blue-500 bg-blue-50 dark:bg-blue-900/30")}
-                  >
-                    {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                  </Button>
-                </Tooltip>
-              </>
-            )}
-            {!isFullscreen && onToggleSidebar && (
-              <Tooltip content={showSidebar ? "Hide Tables" : "Show Tables"}>
+              <Tooltip content={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
                 <Button
                   variant="text"
                   size="sm"
-                  onClick={onToggleSidebar}
-                  className={cn("p-2", !showSidebar && "text-blue-500")}
+                  onClick={onToggleFullscreen}
+                  className={cn("p-2", isFullscreen && "text-blue-500 bg-blue-50 dark:bg-blue-900/30")}
                 >
-                  <PanelLeft className="h-4 w-4" />
+                  {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                 </Button>
               </Tooltip>
             )}
-            {!isFullscreen && onToggleEventPanel && (
-              <Tooltip content={showEventPanel ? "Hide Events" : "Show Events"}>
-                <Button
-                  variant="text"
-                  size="sm"
-                  onClick={onToggleEventPanel}
-                  className={cn("p-2", !showEventPanel && "text-blue-500")}
-                >
-                  <PanelRight className="h-4 w-4" />
-                </Button>
-              </Tooltip>
-            )}
+            <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
+            <OverflowMenu
+              items={[
+                { label: 'Zoom in', icon: ZoomIn, onClick: () => zoomIn() },
+                { label: 'Zoom out', icon: ZoomOut, onClick: () => zoomOut() },
+                { label: 'Auto layout', icon: LayoutGrid, onClick: handleAutoLayout },
+                ...(!isReadOnly && canWrite
+                  ? [{
+                      label: isSavingLayout ? 'Saving layout…' : 'Save layout',
+                      icon: Save,
+                      onClick: handleSaveLayout,
+                      disabled: isSavingLayout,
+                    }]
+                  : []),
+                {
+                  label: isLocked ? 'Unlock canvas' : 'Lock canvas',
+                  icon: isLocked ? Lock : Unlock,
+                  onClick: () => setIsLocked(!isLocked),
+                  active: isLocked,
+                },
+                {
+                  label: showGrid ? 'Hide grid' : 'Show grid',
+                  icon: Grid3X3,
+                  onClick: () => setShowGrid(!showGrid),
+                  active: showGrid,
+                  activeColor: 'blue',
+                },
+                {
+                  label: showMinimap ? 'Hide minimap' : 'Show minimap',
+                  icon: showMinimap ? EyeOff : Eye,
+                  onClick: () => setShowMinimap(!showMinimap),
+                  active: showMinimap,
+                  activeColor: 'blue',
+                },
+                {
+                  label: columnMappingsList.length > 0
+                    ? `Mapping summary (${columnMappingsList.length})`
+                    : 'Mapping summary',
+                  icon: List,
+                  onClick: () => setShowMappingSummary(!showMappingSummary),
+                  active: showMappingSummary,
+                  activeColor: 'blue',
+                },
+                { label: 'Export model', icon: Download, onClick: handleExport },
+              ]}
+            />
+            {/* #61: the floating Hide-Tables / Hide-Events pair duplicated the
+                list header toggle and the cockpit mini-rail ('2 right bars —
+                too much'). ONE rail owns panel state now; center-click focuses. */}
           </div>
         </Panel>
 
@@ -1884,27 +1719,20 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           </Panel>
         )}
 
-        {/* Stats Panel */}
-        <Panel position="bottom-left">
-          <div className="flex items-center gap-3 px-3 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-lg border dark:border-slate-700 text-sm">
-            <div className="flex items-center gap-1 text-slate-500">
-              <Table2 className="h-4 w-4" />
-              <span>{nodes.length} tables</span>
-            </div>
-            <div className="flex items-center gap-1 text-slate-500">
-              <ArrowLeftRight className="h-4 w-4" />
-              <span>{edges.length} relations</span>
-            </div>
-          </div>
-        </Panel>
+        {/* Stats moved into the page's bottom Quick Actions band (mockup #68)
+            so the canvas floor has ONE strip, not a floating card + band. */}
 
         {/* Background and helpers */}
         {showGrid && (
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#94a3b8" />
         )}
-        <Controls showInteractive={false} />
-        {showMinimap && (
+        {/* P1b (mockup #68): built-in <Controls> removed — the single toolbar
+            above is the ONE zoom/fit surface (no duplicated zoom stacks). */}
+        {/* Minimap earns its pixels only on big graphs (#65: it dwarfed a
+            4-node model). Fixed compact size — never scales with the pane. */}
+        {showMinimap && nodes.length >= 8 && (
           <MiniMap
+            style={{ width: 160, height: 100 }}
             nodeColor={(node) => {
               switch (node.data?.status) {
                 case 'configured':
@@ -1916,7 +1744,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
               }
             }}
             maskColor="rgba(0, 0, 0, 0.1)"
-            className="!bg-white dark:!bg-slate-800"
+            className="!bg-white/90 dark:!bg-slate-800/90 rounded-lg border border-slate-200 dark:border-slate-700"
           />
         )}
       </ReactFlow>

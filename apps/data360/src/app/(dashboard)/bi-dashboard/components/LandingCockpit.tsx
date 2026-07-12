@@ -436,6 +436,46 @@ function DashRow({
   );
 }
 
+/**
+ * Per-axis highlight chip (Overview axis) — a compact jump-off summarizing one
+ * axis from the SAME lazily-fetched signals the axes render (no new endpoints).
+ * Honest "—" until the axis' data is genuinely known.
+ */
+function AxisChip({
+  icon: Icon,
+  label,
+  value,
+  tone,
+  title,
+  onClick,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  tone: 'ok' | 'warn' | 'idle';
+  title: string;
+  onClick: () => void;
+}) {
+  const toneClass =
+    tone === 'warn'
+      ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300'
+      : tone === 'ok'
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-300'
+        : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10.5px] font-medium transition-colors hover:brightness-95 dark:hover:brightness-110 ${toneClass}`}
+    >
+      <Icon className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+      <span className="opacity-70">{label}</span>
+      <span className="font-semibold tabular-nums">{value}</span>
+    </button>
+  );
+}
+
 function LivePill({ status }: { status: DashboardLiveStatus }) {
   return status === 'live' ? (
     <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
@@ -550,6 +590,54 @@ export function BiLandingCockpit({
           )}
           {!listLoading && !listError && (
             <>
+              {/* Per-axis highlight chips — same lazily-fetched signals the
+                  axes use; "—" until an axis' probe has genuinely loaded. */}
+              <div className="flex flex-wrap gap-1.5" data-testid="bi-axis-chips">
+                <AxisChip
+                  icon={ShieldCheck}
+                  label="Gov"
+                  value={
+                    stats.govKnown
+                      ? stats.warnRows.length > 0
+                        ? `${stats.warnRows.length} at risk`
+                        : `${stats.live ?? 0} live`
+                      : '—'
+                  }
+                  tone={stats.govKnown ? (stats.warnRows.length > 0 ? 'warn' : 'ok') : 'idle'}
+                  title={
+                    stats.govKnown
+                      ? 'Publish/share posture — open the Governance axis'
+                      : 'Loads when the Governance axis opens'
+                  }
+                  onClick={() => onOpenAxis('governance')}
+                />
+                <AxisChip
+                  icon={Coins}
+                  label="Cost"
+                  value={
+                    stats.credits != null
+                      ? `${stats.credits.toFixed(2)} cr`
+                      : stats.costKnown && stats.bytesScanned != null
+                        ? fmtBytes(stats.bytesScanned)
+                        : '—'
+                  }
+                  tone={stats.costKnown ? 'ok' : 'idle'}
+                  title={
+                    stats.costKnown
+                      ? 'Per-dashboard usage — open the Cost & usage axis'
+                      : 'Loads when the Cost axis opens'
+                  }
+                  onClick={() => onOpenAxis('cost')}
+                />
+                <AxisChip
+                  icon={Clock}
+                  label="Activity"
+                  value={recent.length > 0 ? fmtDate(recent[0].updated_at) : '—'}
+                  tone="idle"
+                  title="Most recent dashboard update — open the History axis"
+                  onClick={() => onOpenAxis('history')}
+                />
+              </div>
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
                   Dashboards

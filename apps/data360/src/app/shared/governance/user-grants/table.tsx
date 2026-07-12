@@ -305,11 +305,6 @@ export default function UserGrantsTable() {
     setSaveRolesError(null);
 
     try {
-      // console.log('[User Grants] ========== SAVE STARTED ==========');
-      // console.log('[User Grants] Username:', currentUser.username);
-      // console.log('[User Grants] Display Name:', currentUser.displayName);
-      // console.log('[User Grants] Selected roles:', modal.selectedRoles);
-      // console.log('[User Grants] Previous roles:', currentUser.roles);
 
       const username = currentUser.username;
       const displayName = currentUser.displayName;
@@ -319,20 +314,13 @@ export default function UserGrantsTable() {
       const rolesToSend = modal.selectedRoles.filter(r => r !== 'ALL');
       const expectedRoles = [...rolesToSend].sort();
 
-      // console.log('[User Grants] Selected roles (UI):', modal.selectedRoles);
-      // console.log('[User Grants] Roles to send (API):', rolesToSend);
 
       // Step 1: Send update to backend
-      // console.log('[User Grants] Step 1: Sending update to backend...');
-      // console.log('[User Grants] Step 1: Endpoint: PUT /gouvernance/users/' + username + '/roles');
-      // console.log('[User Grants] Step 1: Payload:', { roles: rolesToSend });
       const updateResponse = await updateUserRoles(username, rolesToSend);
-      // console.log('[User Grants] Step 1: Backend response:', updateResponse);
 
       // Step 2: Refresh data from backend
       const refreshStartTime = Date.now();
       await refetch();
-      // console.log('[User Grants] Step 2: Data refreshed in', Date.now() - refreshStartTime, 'ms');
 
       // Show success toast
       if (expectedRoles.length === 0) {
@@ -341,13 +329,8 @@ export default function UserGrantsTable() {
         toast.success(`✅ Updated roles for ${displayName}`);
       }
 
-      // console.log('[User Grants] ========== SAVE COMPLETED ==========');
       handleCloseModal();
     } catch (err: any) {
-      // console.error('[User Grants] ❌ Error saving roles:', err);
-      // console.error('[User Grants] Error type:', err.name);
-      // console.error('[User Grants] Error message:', err.message);
-      // console.error('[User Grants] Error response:', err.response?.data);
 
       if (shouldRedirectToLoginOnError(err)) {
         redirectToLogin();

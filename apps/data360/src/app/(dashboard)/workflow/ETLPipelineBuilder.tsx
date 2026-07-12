@@ -4,6 +4,8 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useAuth } from '@/hooks/useAuth';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import PermissionGate from '@/components/ui/PermissionGate';
+import FullscreenPanel, { FullscreenExpandButton } from '@/components/ui/FullscreenPanel';
+import { PagedDataTable } from '@/components/ui/TablePager';
 import ReactFlow, {
   Node,
   Edge,
@@ -37,8 +39,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ETLPalette from './components/ETLPalette';
 import ETLConfigSidebar from './components/ETLConfigSidebar';
 import ScheduleManager from './components/ScheduleManager';
-// WorkflowProjectBar's operational tabs (Usage / Cost / Governance) were folded
-// into the single WorkflowSmartPanel rail — the standalone second rail is gone.
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 import ETLExecutionHistory from './components/ETLExecutionHistory';
@@ -741,6 +741,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [previewData, setPreviewData] = useState<{ columns: string[]; rows: Record<string, any>[]; total_rows: number; table: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  // Fullscreen deep-dive of the results preview / run history (right rail is
+  // ~428px — the expand affordance opens the SAME content full-viewport).
+  const [previewFull, setPreviewFull] = useState(false);
+  const [runsFull, setRunsFull] = useState(false);
 
   // Role-based access. `userRole` is the project-CONTRIBUTOR role (owner/editor/
   // viewer) — orthogonal to Data360 Action-RBAC, which gates the mutating CTAs
@@ -961,9 +965,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   // Load workflows on mount
   const loadWorkflowsFn = useCallback(
-    // mine_only=false: same reason as ProjectSelector — backend's "mine" filter
-    // is contributor-based and returns 0 for accountadmins on projects they made.
-    () => listProjects({ project_type: 'workflow', mine_only: false }),
+    // mine_only=true (granted-only): the old "returns 0 for accountadmins"
+    // claim was disproven live 2026-07-10 (owner/contributor filter works —
+    // HAHA sees 52/52, a viewer persona exactly its granted 6). Lists show
+    // what the caller owns or was granted, not the whole account.
+    () => listProjects({ project_type: 'workflow', mine_only: true }),
     [accessToken]
   );
 
@@ -3100,6 +3106,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             projects={workflows}
             loading={isLoading}
             error={loadError}
+            // Wide canvas host: 2xl left ~50% dead flanks at 1440/1920.
+            widthClass="max-w-4xl"
             onRetry={loadWorkflows}
             onSelect={(projectId) => {
               const w = workflows.find((wf) => wf.id === projectId);
@@ -4195,39 +4203,37 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                     </button>
                   </div>
                 ) : previewData ? (
+                  /* Standardized preview grid (sticky header, 25/page) with a
+                     fullscreen deep-dive — same content, full viewport. */
+                  <FullscreenPanel
+                    title={`Results preview — ${previewData.table}`}
+                    subtitle={`${previewData.rows.length} of ${previewData.total_rows} rows · Esc to close`}
+                    open={previewFull}
+                    onOpenChange={setPreviewFull}
+                  >
                   <div className="px-4 space-y-2">
                     <div className="flex items-center justify-between">
                       <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                         {previewData.table}
                       </h4>
-                      <span className="text-[11px] text-slate-500">
-                        {previewData.rows.length} of {previewData.total_rows} rows
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-slate-500">
+                          {previewData.rows.length} of {previewData.total_rows} rows
+                        </span>
+                        {!previewFull && (
+                          <FullscreenExpandButton
+                            onClick={() => setPreviewFull(true)}
+                            label="Expand results preview to fullscreen"
+                            className="h-6 w-6"
+                          />
+                        )}
+                      </div>
                     </div>
-                    <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-auto max-h-[500px]">
-                      <table className="w-full text-xs">
-                        <thead className="bg-slate-50 dark:bg-slate-700/50 sticky top-0">
-                          <tr>
-                            {previewData.columns.map((col) => (
-                              <th key={col} className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap border-b border-slate-200 dark:border-slate-600">
-                                {col}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {previewData.rows.map((row, i) => (
-                            <tr key={i} className="border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                              {previewData.columns.map((col) => (
-                                <td key={col} className="px-3 py-1.5 text-slate-700 dark:text-slate-300 whitespace-nowrap max-w-[200px] truncate">
-                                  {row[col] != null ? String(row[col]) : <span className="text-slate-400 italic">null</span>}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <PagedDataTable
+                      rows={previewData.rows as Array<Record<string, unknown>>}
+                      columns={previewData.columns}
+                      maxHeightClass={previewFull ? 'max-h-[calc(100vh-200px)]' : 'max-h-[500px]'}
+                    />
                     <button
                       onClick={loadResultsPreview}
                       className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
@@ -4235,6 +4241,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                       Refresh
                     </button>
                   </div>
+                  </FullscreenPanel>
                 ) : !lastExecution ? (
                   <div className="px-4 py-8 text-center">
                     <Eye className="h-8 w-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
@@ -4253,13 +4260,29 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             )}
 
             {activeTab === 'runs' && (
-              <ETLExecutionHistory
-                key={executionRefreshKey}
-                pipelineId={activeWorkflowId}
-                pipelineName={activeWorkflowName}
-                compact
-                className="-mx-4 -mt-4"
-              />
+              /* Fullscreen deep-dive of the run history — the compact rail
+                 view expands to the SAME component full-viewport. */
+              <FullscreenPanel
+                title={`Run history${activeWorkflowName ? ` — ${activeWorkflowName}` : ''}`}
+                subtitle="Execution history deep-dive · Esc to close"
+                open={runsFull}
+                onOpenChange={setRunsFull}
+              >
+                {!runsFull && (
+                  <FullscreenExpandButton
+                    onClick={() => setRunsFull(true)}
+                    label="Expand run history to fullscreen"
+                    className="absolute -top-2 right-8 z-10 h-6 w-6"
+                  />
+                )}
+                <ETLExecutionHistory
+                  key={executionRefreshKey}
+                  pipelineId={activeWorkflowId}
+                  pipelineName={activeWorkflowName}
+                  compact
+                  className={runsFull ? '' : '-mx-4 -mt-4'}
+                />
+              </FullscreenPanel>
             )}
 
             {activeTab === 'schedules' && (

@@ -70,13 +70,9 @@ export default function CostPreview({
       })
       .catch((err: any) => {
         if (cancelled) return;
-        const status = err?.response?.status;
-        if (status === 404 || status === 501) {
-          // Contracted-but-not-deployed → degrade quietly, no redeploy needed.
-          setUnavailable(true);
-        } else {
-          setUnavailable(true);
-        }
+        // Contracted-but-not-deployed (404/501) and transient failures both
+        // degrade to the same quiet 'unavailable' chip — one branch, honestly.
+        setUnavailable(true);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

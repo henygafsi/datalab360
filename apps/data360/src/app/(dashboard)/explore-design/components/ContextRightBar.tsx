@@ -9,6 +9,7 @@ import {
   Rocket, Play, Search, Info, ArrowRight, ExternalLink,
   PanelRight, Ban, Coins,
   Edit2, Copy, Link2, Database, Boxes, Activity, Layers, Trash2,
+  Table2, Timer, Cloud, Snowflake, Bell,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isUnavailable } from '@/lib/http-status';
@@ -47,6 +48,7 @@ const AXIS_COUNT_CLASS: Record<string, string> = {
 const METRIC_TEXT_CLASS: Record<string, string> = {
   amber: 'text-amber-600 dark:text-amber-400', blue: 'text-blue-600 dark:text-blue-400',
   slate: 'text-slate-600 dark:text-slate-400', green: 'text-green-600 dark:text-green-400',
+  red: 'text-red-600 dark:text-red-400',
 };
 
 // ---------------------------------------------------------------------------
@@ -55,6 +57,14 @@ const METRIC_TEXT_CLASS: Record<string, string> = {
 
 export type RightBarTab = 'actions' | 'ai' | 'quality' | 'cost' | 'governance' | 'history' | 'deploy' | 'help';
 export type FocusedAction = 'policies' | 'ingestion' | 'add_column' | 'release' | null;
+
+// Object kinds the right bar can CREATE (addendum #66: the right bar owns
+// object creation). The page maps each kind to its existing modal / DDL flow —
+// this component only surfaces the entries.
+export type CreateObjectKind =
+  | 'add_column' | 'relationship'
+  | 'standard' | 'temporary' | 'transient' | 'external' | 'iceberg'
+  | 'dynamic_table' | 'event_table' | 'hybrid_table' | 'stream' | 'alert';
 
 interface ColumnInfo {
   name: string;
@@ -75,7 +85,7 @@ interface TableItem {
   sensitiveColumns?: number;
 }
 
-interface HistoryEvent {
+export interface HistoryEvent {
   id: string;
   type: string;
   status: 'success' | 'warning' | 'error' | 'pending';
@@ -171,6 +181,35 @@ export interface ContextRightBarProps {
    * bottom of the right-bar). Omitted → no footer, behaviour unchanged.
    */
   analystSlot?: React.ReactNode;
+  /**
+   * Addendum #66 — the right bar OWNS object creation. When supplied, the
+   * Actions section shows a "Create" group at its top (Add column · tables ·
+   * relationship · data-eng objects). Each entry calls back with its kind; the
+   * PAGE maps kinds to the existing modals / DDL flows (nothing rebuilt here).
+   * Role-gating stays honest: entries disable when the user lacks `create`.
+   */
+  onCreateObject?: (kind: CreateObjectKind) => void;
+  /**
+   * Mockup #68 — table inspector. When a table is selected the Actions section
+   * gains a Details | Preview pair; Preview renders THIS node (the page's
+   * existing inline-preview data, same fetch as the catalog preview). Omitted →
+   * the Preview tab shows an honest "not available" note.
+   */
+  inspectorPreview?: React.ReactNode;
+  /** Mockup #68 — "Show all columns" jumps to the catalog Columns sub-tab. */
+  onShowAllColumns?: () => void;
+  /**
+   * Right-bar-only redesign: schema-level quality readiness summary rendered in
+   * the Data Quality section when NO table is selected (moved from the removed
+   * full-width Quality view). Omitted → the shared empty state, unchanged.
+   */
+  qualityEmptyOverride?: React.ReactNode;
+  /**
+   * Project CRUD affordances (rename / description / delete) rendered at the
+   * top of the Overview (Actions, no table selected) section. The PAGE builds
+   * the node with its own permission gating; omitted → nothing renders.
+   */
+  projectCrudSlot?: React.ReactNode;
 }
 
 // Rail severity → literal Tailwind dot classes. Interpolated `bg-${x}-500` would
@@ -196,6 +235,8 @@ const RAIL_SEVERITY_DOT: Record<RailSeverity, string> = {
 // Versioned, minimal localStorage key (client-localstorage-schema): the shared
 // RightTabPanel persists the user's last-viewed section ("draft of menu") to this
 // key and restores it (validated against the known section ids) on mount.
+// NOTE: page.tsx mirrors this literal (legacy ?view= deep-link pre-seed) —
+// keep the two in sync if the key is ever bumped.
 const ACTIVE_TAB_KEY = 'data360.exploreDesign.contextTab.v1';
 
 // ---------------------------------------------------------------------------
@@ -209,8 +250,13 @@ export default function ContextRightBar({
   onAddEvent, profileData, historyEvents,
   pendingEventsCount, pendingEvents, selectedDatabase, selectedSchema, userRole, onDeselectTable,
   emptyOverride, onNodeAction, deployOverride, ingestionTrace, tabSeverity,
-  analystSlot,
+  analystSlot, onCreateObject, inspectorPreview, onShowAllColumns,
+  qualityEmptyOverride, projectCrudSlot,
 }: ContextRightBarProps) {
+  // Inspector (mockup #68): Details | Preview pair on the Actions section when
+  // a table is selected. Resets to Details on every new selection.
+  const [inspectorTab, setInspectorTab] = useState<'details' | 'preview'>('details');
+  useEffect(() => { setInspectorTab('details'); }, [selectedTable?.id]);
 
   // Model-general landing: when nothing is selected and the caller supplied an
   // overview, show it in place of the bare "Select a table" empty state across
@@ -263,7 +309,7 @@ export default function ContextRightBar({
     </div>
   );
   const quickActions: QuickAction[] = [];
-  if (canCreate.allowed || canCreate.loading) {
+  if ((canCreate.allowed || canCreate.loading) && activeTab !== 'actions') {
     quickActions.push({
       id: 'create',
       label: 'Add column',
@@ -271,25 +317,16 @@ export default function ContextRightBar({
       onClick: () => { onTabChange('actions'); onFocusAction('add_column'); },
     });
   }
-  if (canApprove.allowed || canApprove.loading) {
-    // The only approval flow in this panel is the Deploy pipeline's request step,
-    // so "Review & approve" focuses that tab (named for the destination, honestly).
-    quickActions.push({
-      id: 'approve',
-      label: 'Review & approve',
-      icon: CheckCircle,
-      onClick: () => onTabChange('deploy'),
-    });
-  }
-  if (canDeploy.allowed || canDeploy.loading) {
+  // 'Review & approve' and 'Deploy' both just NAVIGATED to the Release tab —
+  // two buttons, one destination, and both dead no-ops when already there
+  // (user: 'buttons not working as deploy' + 'eliminate duplications').
+  // One honest action, hidden on its own destination tab.
+  if ((canDeploy.allowed || canDeploy.loading || canApprove.allowed || canApprove.loading) && activeTab !== 'deploy') {
     quickActions.push({
       id: 'deploy',
-      label: 'Deploy',
+      label: 'Review & deploy',
       icon: Rocket,
       tone: 'primary',
-      // Deploy is now a docked tab (the embedded 8-step stepper), not a modal:
-      // switch to it instead of opening a popup. `onOpenDeployModal` is retained
-      // for back-compat but the page now also routes it to this same tab.
       onClick: () => onTabChange('deploy'),
     });
   }
@@ -313,9 +350,109 @@ export default function ContextRightBar({
       help: selectedTable
         ? 'The table hub. Draft modelling changes (rename, keys, relations), configure ingestion, apply masking/RLS, and add changes to a release. Every mutating action is role-gated and queued for deploy.'
         : 'With no table selected this is the project roll-up: model health, table/relation counts, data-quality, PII risk, cost impact and release readiness. Pick a table on the left to act on it.',
-      render: () => selectedTable ? (
+      render: () => (
+        <>
+          {/* Project CRUD (rename / description / delete) — Overview header
+              area only (no table selected); the page gates it by role. */}
+          {!selectedTable && projectCrudSlot}
+          {/* Addendum #66 — the right bar owns object creation: one governed
+              "Create" group at the top of the Actions section. Collapsed when a
+              table is selected so its actions stay above the fold. */}
+          {onCreateObject && (
+            <CreateObjectsGroup
+              onCreate={onCreateObject}
+              canCreate={canCreate.allowed || canCreate.loading}
+              hasTable={!!selectedTable}
+              defaultOpen={!selectedTable}
+            />
+          )}
+          {selectedTable ? (
+        <>
+          {/* Inspector header (mockup #68): model-status chip + Details|Preview. */}
+          <div className="px-4 pt-3">
+            <div className="flex items-center gap-2">
+              <span className={cn(
+                'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                selectedTable.status === 'configured'
+                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                  : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+              )}>
+                {selectedTable.status}
+              </span>
+              <span className="text-[10px] text-slate-400">{tableColumns.length} columns</span>
+            </div>
+            <div role="tablist" aria-label="Table inspector" className="mt-2 flex rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+              {(['details', 'preview'] as const).map((t) => (
+                <button
+                  key={t}
+                  role="tab"
+                  aria-selected={inspectorTab === t}
+                  onClick={() => setInspectorTab(t)}
+                  className={cn(
+                    'flex-1 rounded-md px-2 py-1 text-[11px] font-medium capitalize transition-colors',
+                    inspectorTab === t
+                      ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
+                  )}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {inspectorTab === 'preview' ? (
+            <div className="p-4">
+              {inspectorPreview ?? (
+                <p className="py-6 text-center text-xs text-slate-400">Preview is not available in this context.</p>
+              )}
+            </div>
+          ) : (
         <>
           <AxisIntro icon={Zap} text={`Act on ${tableName}: modelling, keys, ingestion, governance and release — all queued for deploy.`} />
+
+          {/* Columns quick list (mockup #68) — first columns + Add column +
+              Show all columns; the full standardized table lives in the
+              catalog Columns sub-tab. */}
+          <div className="px-4 pt-3">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-700">
+                <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">Columns ({tableColumns.length})</span>
+                {(canCreate.allowed || canCreate.loading) && (
+                  <button
+                    type="button"
+                    onClick={() => onFocusAction('add_column')}
+                    className="inline-flex items-center gap-0.5 text-[10px] font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400"
+                  >
+                    <Plus className="h-3 w-3" /> Add column
+                  </button>
+                )}
+              </div>
+              {tableColumns.length > 0 ? (
+                <ul className="max-h-40 overflow-y-auto">
+                  {tableColumns.slice(0, 6).map((c) => (
+                    <li key={c.name} className="flex items-center gap-1.5 px-3 py-1 text-[11px]">
+                      {c.isPrimaryKey && <Key className="h-2.5 w-2.5 shrink-0 text-amber-500" />}
+                      <span className="min-w-0 flex-1 truncate font-mono text-slate-700 dark:text-slate-300">{c.name}</span>
+                      <span className="rounded bg-slate-100 px-1 py-0 font-mono text-[9px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">{c.dataType}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="px-3 py-2 text-[10px] text-slate-400">Columns not loaded yet</p>
+              )}
+              {onShowAllColumns && (
+                <button
+                  type="button"
+                  onClick={onShowAllColumns}
+                  className="block w-full border-t border-slate-200 px-3 py-1.5 text-left text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:border-slate-700 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                >
+                  Show all columns →
+                </button>
+              )}
+            </div>
+          </div>
+
           <ActionsPanel
             table={selectedTable}
             columns={tableColumns}
@@ -328,9 +465,14 @@ export default function ContextRightBar({
             database={selectedDatabase}
             onDeselectTable={onDeselectTable}
             onNodeAction={onNodeAction}
+            onGoToTab={(t) => onTabChange(t)}
           />
         </>
-      ) : empty,
+          )}
+        </>
+          ) : empty}
+        </>
+      ),
     },
     {
       id: 'ai', icon: Brain, label: 'AI Assist',
@@ -374,7 +516,7 @@ export default function ContextRightBar({
       help: 'The data-quality axis: quality score, null columns, primary-key candidate and freshness. Run profiling on demand and draft freshness monitoring (applied on deploy). Read-only for viewers.',
       render: () => selectedTable
         ? <QualityPanel table={selectedTable} columns={tableColumns} projectId={projectId} profileData={profileData} onAddEvent={onAddEvent} ingestionTrace={ingestionTrace ?? null} />
-        : empty,
+        : (qualityEmptyOverride ?? empty),
     },
     {
       // Per-PROJECT cost & KPIs — read-only rollup (runs · cost · perf · recos ·
@@ -417,8 +559,8 @@ export default function ContextRightBar({
       // NOTE: id stays 'deploy' (frozen union / page width logic); only the
       // user-facing label is the axis name 'Release'.
       id: 'deploy', icon: Rocket, label: 'Release',
-      description: 'Review, validate and deploy the pending changes.',
-      help: 'The release axis: a guided pipeline over the changes queued in this project — review the DDL/SQL, run pre-checks and a dry-run, analyse downstream impact, then execute the deploy and post-verify. Project/release-scoped, not per-table.',
+      description: 'What is live in production, plus review, validate and deploy of pending changes.',
+      help: 'The release axis. It opens on the DEPLOYED TRUTH — the objects this project shipped to the warehouse (with live row counts where Snowflake exposes them cheaply), the dynamic tables / streams of the target schema, and the schedule state — followed by the guided pipeline over queued changes: review the DDL/SQL, run pre-checks and a dry-run, analyse downstream impact, then execute the deploy and post-verify. Project/release-scoped, not per-table.',
       render: () => deployOverride ?? (selectedTable ? (
         <DeployPanel
           projectId={projectId}
@@ -447,7 +589,10 @@ export default function ContextRightBar({
       id: 'help', icon: HelpCircle, label: 'Help',
       description: 'What this table is and recommended next steps.',
       help: 'A guided summary for this table — what it is, recommended next modelling steps, and a governance readiness checklist. Every other tab also has its own "?" for axis-specific help.',
-      render: () => selectedTable ? <HelpPanel table={selectedTable} /> : empty,
+      // With a table: the table-scoped guide. Without one: the ACTION CATALOG —
+      // the registry of everything this module can do (label + why + verified),
+      // served from EVENT_STORE.EXPLORE_ACTION_CATALOG, never a hardcoded list.
+      render: () => selectedTable ? <HelpPanel table={selectedTable} /> : <ActionCatalogPanel />,
     },
   ];
 
@@ -460,39 +605,50 @@ export default function ContextRightBar({
   // quick-actions) land on the section they asked for.
   return (
     <div className="flex h-full shrink-0" style={{ flexShrink: 0, flexGrow: 0 }}>
-      {/* Collapsed mini-rail — re-expands the panel (and jumps to a section). */}
-      <div className={cn('w-12 border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col items-center py-2 gap-1', isOpen && 'hidden')}>
-        <button
-          onClick={onToggle}
-          className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 mb-2"
-          title="Expand panel"
-          aria-label="Expand panel"
-        >
-          <PanelRight className="h-4 w-4" />
-        </button>
+      {/* Collapsed rail — an "Explore axes" MENU (mockup #68): each entry keeps
+          its icon + label + one-line description, so the closed state reads as
+          navigation, not mystery icons. Click re-expands on that section. */}
+      <div className={cn('w-44 shrink-0 border-l border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col py-2 gap-0.5 overflow-y-auto', isOpen && 'hidden')}>
+        <div className="flex items-center justify-between px-2.5 pb-1">
+          <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">Explore axes</span>
+          <button
+            onClick={onToggle}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800"
+            title="Expand panel"
+            aria-label="Expand panel"
+          >
+            <PanelRight className="h-4 w-4" />
+          </button>
+        </div>
         {sections.map((tab) => {
           const Icon = tab.icon;
           const severity = tabSeverity?.[tab.id as RightBarTab];
           return (
-            <Tooltip key={tab.id} content={tab.description ?? tab.label} placement="left">
-              <button
-                onClick={() => { onTabChange(tab.id as RightBarTab); onToggle(); }}
-                aria-label={tab.label}
-                aria-pressed={false}
-                className="relative p-2 rounded-lg transition-colors text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-600"
-              >
-                <Icon className="h-4 w-4" />
+            <button
+              key={tab.id}
+              onClick={() => { onTabChange(tab.id as RightBarTab); onToggle(); }}
+              aria-label={tab.label}
+              aria-pressed={false}
+              title={tab.description ?? tab.label}
+              className="mx-1.5 flex items-start gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-slate-200 dark:hover:bg-slate-800"
+            >
+              <span className="relative mt-0.5 shrink-0">
+                <Icon className="h-3.5 w-3.5 text-slate-400" />
                 {severity && (
                   <span
                     aria-hidden="true"
                     className={cn(
-                      'absolute right-1 top-1 h-1.5 w-1.5 rounded-full ring-1 ring-white dark:ring-slate-900',
+                      'absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full ring-1 ring-white dark:ring-slate-900',
                       RAIL_SEVERITY_DOT[severity],
                     )}
                   />
                 )}
-              </button>
-            </Tooltip>
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[11px] font-medium text-slate-700 dark:text-slate-300">{tab.label}</span>
+                <span className="block truncate text-[9px] leading-tight text-slate-400">{tab.description}</span>
+              </span>
+            </button>
           );
         })}
       </div>
@@ -517,7 +673,7 @@ export default function ContextRightBar({
           // breathe (horizontal stepper with labels + the review/diff/impact
           // content). Widen the docked panel only while Deploy is active; all
           // other sections stay at the compact rail width.
-          widthClassName={activeTab === 'deploy' ? 'w-[720px] max-w-[60vw]' : 'w-[380px]'}
+          widthClassName={activeTab === 'deploy' ? 'w-[min(720px,36vw)]' : 'w-[min(380px,26vw)]'}
           // Deploy hosts a pinned Back/Next footer — cap the panel shorter so it
           // fits at its flow position and the footer stays on-screen without
           // scrolling the page (the default cap let the footer fall ~86px below
@@ -534,6 +690,39 @@ export default function ContextRightBar({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Legibility primitives (right-bar sweep):
+//  · GoToChip — the ONE pattern for "this spec's controls live elsewhere":
+//    a small link-chip that navigates to the canonical section instead of
+//    duplicating its buttons here.
+//  · MoreDetails — long helper prose demoted below the fold: collapsed
+//    <details> so information is kept, never deleted, but sections stay
+//    action-first with at most one line of static explanation.
+// ---------------------------------------------------------------------------
+function GoToChip({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+    >
+      {label} <ArrowRight className="h-2.5 w-2.5" aria-hidden />
+    </button>
+  );
+}
+
+function MoreDetails({ children }: { children: React.ReactNode }) {
+  return (
+    <details className="group">
+      <summary className="cursor-pointer list-none inline-flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 select-none">
+        <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" aria-hidden />
+        More about this
+      </summary>
+      <div className="mt-1.5 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">{children}</div>
+    </details>
+  );
+}
+
 // Shown in any section when no table is selected (same copy as before).
 function EmptyState() {
   return (
@@ -541,6 +730,115 @@ function EmptyState() {
       <Info className="h-8 w-8 mb-3 text-slate-300" />
       <p className="text-sm font-medium">Select a table</p>
       <p className="text-xs mt-1">Choose a table from the list to see contextual actions</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Create group (addendum #66) — the right bar owns object creation. One entry
+// per object kind; the page maps kinds to its EXISTING modals / DDL flows.
+// Each entry carries the docs.snowflake.com reference for its object type,
+// surfaced as a small external-link icon.
+// ---------------------------------------------------------------------------
+
+const SNOWFLAKE_DOCS = 'https://docs.snowflake.com/en/sql-reference/sql';
+const CREATE_ENTRIES: {
+  kind: CreateObjectKind;
+  label: string;
+  icon: React.ElementType;
+  group: 'Structure' | 'Tables' | 'Specialized' | 'Data integration';
+  docsUrl: string;
+  /** Needs a selected table (e.g. Add column) — disabled otherwise. */
+  needsTable?: boolean;
+}[] = [
+  { kind: 'add_column', label: 'Add column', icon: Plus, group: 'Structure', docsUrl: `${SNOWFLAKE_DOCS}/alter-table-column`, needsTable: true },
+  { kind: 'relationship', label: 'Create relationship', icon: Link2, group: 'Structure', docsUrl: `${SNOWFLAKE_DOCS}/create-table-constraint` },
+  { kind: 'standard', label: 'Standard table', icon: Table2, group: 'Tables', docsUrl: `${SNOWFLAKE_DOCS}/create-table` },
+  { kind: 'temporary', label: 'Temporary table', icon: Clock, group: 'Tables', docsUrl: `${SNOWFLAKE_DOCS}/create-table` },
+  { kind: 'transient', label: 'Transient table', icon: Timer, group: 'Tables', docsUrl: `${SNOWFLAKE_DOCS}/create-table` },
+  { kind: 'external', label: 'External table', icon: Cloud, group: 'Tables', docsUrl: `${SNOWFLAKE_DOCS}/create-external-table` },
+  { kind: 'iceberg', label: 'Iceberg table', icon: Snowflake, group: 'Tables', docsUrl: `${SNOWFLAKE_DOCS}/create-iceberg-table` },
+  { kind: 'dynamic_table', label: 'Dynamic table', icon: RefreshCw, group: 'Specialized', docsUrl: `${SNOWFLAKE_DOCS}/create-dynamic-table` },
+  { kind: 'event_table', label: 'Event table', icon: Bell, group: 'Specialized', docsUrl: `${SNOWFLAKE_DOCS}/create-event-table` },
+  { kind: 'hybrid_table', label: 'Hybrid table', icon: Layers, group: 'Specialized', docsUrl: `${SNOWFLAKE_DOCS}/create-hybrid-table` },
+  { kind: 'stream', label: 'Stream (CDC)', icon: GitBranch, group: 'Data integration', docsUrl: `${SNOWFLAKE_DOCS}/create-stream` },
+  { kind: 'alert', label: 'Alert', icon: AlertTriangle, group: 'Data integration', docsUrl: `${SNOWFLAKE_DOCS}/create-alert` },
+];
+
+// The three everyday actions stay flat; the long tail of object types folds
+// into a collapsed "More object types" <details> so the group reads as 4
+// choices, not 12 (slim-down audit).
+const PRIMARY_CREATE_KINDS: CreateObjectKind[] = ['add_column', 'relationship', 'standard'];
+
+function CreateObjectsGroup({ onCreate, canCreate, hasTable, defaultOpen }: {
+  onCreate: (kind: CreateObjectKind) => void;
+  canCreate: boolean;
+  hasTable: boolean;
+  defaultOpen: boolean;
+}) {
+  const primaryEntries = CREATE_ENTRIES.filter((e) => PRIMARY_CREATE_KINDS.includes(e.kind));
+  const moreEntries = CREATE_ENTRIES.filter((e) => !PRIMARY_CREATE_KINDS.includes(e.kind));
+  const moreGroups = Array.from(new Set(moreEntries.map((e) => e.group)));
+  const renderEntry = ({ kind, label, icon: Icon, docsUrl, needsTable }: (typeof CREATE_ENTRIES)[number]) => {
+    const disabled = !canCreate || (needsTable && !hasTable);
+    return (
+      <div key={kind} className="flex items-center gap-1">
+        <button
+          type="button"
+          disabled={disabled}
+          title={!canCreate ? 'You need the "create" permission on Explore & Design' : needsTable && !hasTable ? 'Select a table first' : undefined}
+          onClick={() => onCreate(kind)}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-xs text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          <Icon className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+          <span className="truncate">{label}</span>
+        </button>
+        <a
+          href={docsUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Snowflake docs: ${label}`}
+          title={`Snowflake docs: ${label}`}
+          className="shrink-0 rounded p-1 text-slate-300 transition-colors hover:bg-slate-100 hover:text-blue-500 dark:hover:bg-slate-800"
+        >
+          <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+    );
+  };
+  return (
+    <div className="px-4 pt-4" data-testid="rightbar-create-group">
+      <details
+        open={defaultOpen}
+        className="rounded-xl border border-slate-200 dark:border-slate-700"
+      >
+        <summary className="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
+          <Plus className="h-3.5 w-3.5 text-blue-500" />
+          Create
+          {!canCreate && (
+            <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-slate-400">
+              <Lock className="h-2.5 w-2.5" /> needs create access
+            </span>
+          )}
+        </summary>
+        <div className="border-t border-slate-200 p-2 dark:border-slate-700">
+          {primaryEntries.map(renderEntry)}
+          <details className="group/more mt-1">
+            <summary className="flex cursor-pointer select-none items-center gap-1.5 rounded-md px-1.5 py-1.5 text-xs text-slate-500 transition-colors hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800 list-none">
+              <ChevronRight className="h-3 w-3 transition-transform group-open/more:rotate-90" aria-hidden />
+              More object types ({moreEntries.length})
+            </summary>
+            <div className="mt-1">
+              {moreGroups.map((g) => (
+                <div key={g} className="mb-1 last:mb-0">
+                  <p className="px-1.5 py-1 text-[9px] font-semibold uppercase tracking-wider text-slate-400">{g}</p>
+                  {moreEntries.filter((e) => e.group === g).map(renderEntry)}
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+      </details>
     </div>
   );
 }
@@ -717,7 +1015,9 @@ function LastIngestionCard({ projectId }: { projectId: string }) {
 // Below the strip: AiSavingsDashboard (credits saved, ROI multiplier, per-feature
 // breakdown including warehouse_sizing savings if any) + LastIngestionCard
 // (rows and duration of the most-recent ingestion run).
-function CostKpiPanel({ projectId }: { projectId: string }) {
+// Exported: the catalog page reuses this Impact & Cost body FULL-WIDTH in its
+// center Lineage view (the section's impact content), no duplicated logic.
+export function CostKpiPanel({ projectId }: { projectId: string }) {
   return (
     <div className="p-4 space-y-4">
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
@@ -725,14 +1025,14 @@ function CostKpiPanel({ projectId }: { projectId: string }) {
           <Coins className="h-4 w-4 text-amber-500" />
           <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Project KPIs</h4>
         </div>
-        <p className="text-[11px] text-slate-500">
-          Per-project rollup — runs, cost, performance, recommendations and storage.
-          Read-only; "—" means not yet provisioned for this project.
-        </p>
         <ProjectKpiStrip
           projectId={projectId}
           dimensions={['runs', 'cost', 'perf', 'recos', 'storage']}
         />
+        <MoreDetails>
+          Per-project rollup — runs, cost, performance, recommendations and storage.
+          Read-only; &quot;—&quot; means not yet provisioned for this project.
+        </MoreDetails>
       </div>
 
       {/* Value & ROI — AI credits saved, ROI multiplier, per-feature savings
@@ -749,13 +1049,15 @@ function CostKpiPanel({ projectId }: { projectId: string }) {
 // A. Actions Panel
 // ---------------------------------------------------------------------------
 
-function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction, onAddEvent, classifications, userRole, database, onDeselectTable, onNodeAction }: {
+function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction, onAddEvent, classifications, userRole, database, onDeselectTable, onNodeAction, onGoToTab }: {
   table: TableItem; columns: ColumnInfo[]; projectId: string | null;
   focusedAction: FocusedAction; onFocusAction: (a: FocusedAction) => void;
   onAddEvent: (e: any) => void; classifications?: Record<string, string>;
   userRole?: string; database?: string; onDeselectTable?: () => void;
   /** Modeling-only canvas-action bridge (T1). Undefined in catalog view. */
   onNodeAction?: (tableId: string, action: string) => void;
+  /** Dedupe navigation: jump to a spec's canonical section instead of duplicating it. */
+  onGoToTab?: (tab: RightBarTab) => void;
 }) {
   const piiCount = columns.filter((c) => c.isSensitive).length;
   // System 2 Action-RBAC (replaces the old hardcoded Snowflake-role allow-lists).
@@ -880,7 +1182,13 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
         onAddEvent={onAddEvent}
       />
 
-      {/* 2. Ingestion & Snowpipe/Tasks */}
+      {/* 2. Ingestion & Snowpipe/Tasks — ACTIONS only. Dedupe contract: the
+          Mode/last-load STATUS grid this card used to duplicate lives in ONE
+          canonical home (Data Quality → "Ingestion & Cost") and is reached via
+          the link-chip; the old "Configure" button was a dead self-pointer
+          (focusedAction 'ingestion' scrolls to this very card) and is removed —
+          full ingestion configuration lives in the Ingestion Config panel
+          (modeling toolbar) and the deploy wizard's Configure step. */}
       <div ref={ingestionRef} className={cn('rounded-xl border p-4 space-y-3 transition-colors', focusedAction === 'ingestion' ? 'border-blue-300 dark:border-blue-700 bg-blue-50/30 dark:bg-blue-900/10' : 'border-slate-200 dark:border-slate-700')}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -889,12 +1197,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
           </div>
           <StatusChip label={table.status === 'configured' ? 'Active' : 'Not set'} color={table.status === 'configured' ? 'green' : 'slate'} />
         </div>
-        <div className="grid grid-cols-2 gap-2 text-[10px]">
-          <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800"><span className="text-slate-400">Mode</span><p className="font-medium text-slate-700 dark:text-slate-300">{(table as any).ingestionMode || 'Not set'}</p></div>
-          <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800"><span className="text-slate-400">Columns</span><p className="font-medium text-slate-700 dark:text-slate-300">{columns.length}</p></div>
-        </div>
         <div className="flex flex-wrap gap-1.5">
-          <ActionBtn label="Configure" icon={RefreshCw} disabled={!canWrite} onClick={() => onFocusAction('ingestion')} />
           <ActionBtn label="Run refresh" icon={Play} disabled={!canExecute} onClick={() => {
             onAddEvent({ type: 'INGESTION_MODE_SET', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { mode: 'full_refresh' } });
             toast.success('Refresh added — review in Deploy tab');
@@ -914,11 +1217,13 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             } catch (e: any) { toast.error(toServiceError(e, 'Detection failed').message); } finally { setDetectingPipes(false); }
           }} />
         </div>
+        {onGoToTab && (
+          <GoToChip label="Load status & cost in Data Quality" onClick={() => onGoToTab('quality')} />
+        )}
         {/* Add as data-product asset vs. link to project — two distinct flows
             (PRODUCT_ASSET_ADDED publishes the table into a data product; TABLE_SELECTED
-            attaches it to the active project). Labels disambiguated; events unchanged. */}
+            attaches it to the active project). Actions first; one-line hint after. */}
         <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-          <p className="text-[10px] text-slate-400">Publish to a data product, or attach to this project.</p>
           <div className="flex flex-wrap gap-1.5">
             <ActionBtn label="Add as data-product asset" icon={Plus} disabled={!canWrite} onClick={() => {
               onAddEvent({ type: 'PRODUCT_ASSET_ADDED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { assetType: 'table' } });
@@ -929,6 +1234,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
               toast.success(`${table.table} linked to project`);
             }} />
           </div>
+          <p className="text-[10px] text-slate-400">Publish to a data product, or attach to this project.</p>
         </div>
       </div>
 
@@ -941,25 +1247,18 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
           <AlertTriangle className="h-4 w-4 text-amber-500" />
           <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Recommendations</h4>
         </div>
+        {/* Dedupe contract: recommendations POINT to each spec's canonical home
+            instead of re-emitting the same events with their own buttons —
+            masking/RLS controls live ONCE in the "Masking & RLS" card above
+            (scroll-focus), freshness monitoring lives ONCE in the Data Quality
+            tab. Only "Set PK" stays inline: it has no other home. */}
         <div className="space-y-1.5">
-          {piiCount > 0 && <RecoItem text={`PII candidate detected in ${columns.find((c) => c.isSensitive)?.name || 'column'} — apply masking policy`} cta="Apply masking" onClick={() => {
-            const col = columns.find((c) => c.isSensitive);
-            if (col) { onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { column: col.name, policyType: 'SHA2_MASK' } }); toast.success(`Masking policy drafted for ${col.name}`); }
-          }} />}
+          {piiCount > 0 && <RecoItem text={`PII candidate detected in ${columns.find((c) => c.isSensitive)?.name || 'column'} — apply masking policy`} cta="Open Masking & RLS" onClick={() => onFocusAction('policies')} />}
           {!table.hasPrimaryKey && <RecoItem text={`Recommend primary key on ${columns[0]?.name || 'TX_ID'}`} cta="Set PK" onClick={() => {
             if (columns[0]) { onAddEvent({ type: 'PRIMARY_KEY_SET', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { columns: [columns[0].name] } }); toast.success(`PK on ${columns[0].name} added to deployment draft`); }
           }} />}
-          <RecoItem text={`RLS missing for ${table.table} — add row access policy`} cta="Add RLS" onClick={() => {
-            onAddEvent({ type: 'RLS_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { policyName: `rls_${table.table.toLowerCase()}`, roleColumn: 'CURRENT_ROLE()' } });
-            toast.success(`RLS policy drafted for ${table.table}`);
-          }} />
-          {/* Same QUALITY_GATE_SET event as the Quality tab CTA — no real DMF SQL
-              emitted yet (deployment-utils default branch), so labelled as
-              "monitoring" not a "quality rule" until the deploy path lands. */}
-          <RecoItem text="Set up freshness monitoring" cta="Set up" onClick={() => {
-            onAddEvent({ type: 'QUALITY_GATE_SET', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { gateType: 'freshness', maxAgeHours: 24, column: columns.find((c) => c.dataType === 'TIMESTAMP' || c.dataType === 'DATE')?.name || 'UPDATED_AT' } });
-            toast.success('Freshness monitoring added to draft');
-          }} />
+          <RecoItem text={`RLS missing for ${table.table} — add row access policy`} cta="Open Masking & RLS" onClick={() => onFocusAction('policies')} />
+          <RecoItem text="Set up freshness monitoring" cta="Open Data Quality" onClick={() => onGoToTab?.('quality')} />
         </div>
       </div>
 
@@ -1095,7 +1394,6 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
           <Rocket className="h-4 w-4 text-blue-500" />
           <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Release</h4>
         </div>
-        <p className="text-[11px] text-slate-500">Add current changes to a deployment release.</p>
         <div className="flex gap-2">
           <ActionBtn label="Add to draft" icon={Plus} disabled={!canWrite} onClick={() => {
             onAddEvent({ type: 'RELEASE_DRAFT_UPDATED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { action: 'add_to_release' } });
@@ -1110,6 +1408,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             } catch (e: any) { toast.error(toServiceError(e, 'Impact analysis failed').message); }
           }} />
         </div>
+        <p className="text-[10px] text-slate-400">Adds current changes to a deployment release.</p>
       </div>
 
       {/* 7. Access context */}
@@ -1179,17 +1478,12 @@ function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAd
 
   return (
     <div className="p-4 space-y-4">
-      {/* Read-only notice + primary CTA */}
+      {/* Read-only notice — CTA first, one-line explanation, long prose demoted. */}
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40 p-4 space-y-3">
         <div className="flex items-center gap-2">
           <Eye className="h-4 w-4 text-slate-400" />
           <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">View-only access</h4>
         </div>
-        <p className="text-[11px] text-slate-500 leading-relaxed">
-          You have view-only access to this project. You can review governance,
-          impact and quality below{canExecute ? ', and run profiling' : ''} — but
-          editing the model, policies and deployments needs edit access.
-        </p>
         <button
           onClick={requestEditAccess}
           disabled={requesting}
@@ -1198,6 +1492,13 @@ function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAd
         >
           {requesting ? <><Loader size="sm" className="h-3 w-3" /> Requesting…</> : <><Send className="h-3.5 w-3.5" /> Request edit access</>}
         </button>
+        <p className="text-[11px] text-slate-500">Editing the model, policies and deployments needs edit access.</p>
+        <MoreDetails>
+          You have view-only access to this project. You can review governance,
+          impact and quality below{canExecute ? ', and run profiling' : ''}. The
+          Quality, Cost &amp; KPIs and History tabs are fully available in
+          view-only mode.
+        </MoreDetails>
       </div>
 
       {/* Governance posture — read-only, self-fetches + self-hides on 404/501. */}
@@ -1231,9 +1532,6 @@ function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAd
             } catch (e: any) { toast.error(toServiceError(e, 'Impact analysis failed').message); }
           }} />
         </div>
-        <p className="text-[10px] text-slate-400">
-          Quality, Cost &amp; KPIs and History tabs are fully available in view-only mode.
-        </p>
       </div>
 
       {/* Object-type READ operations (ungated reads, kept for viewers). */}
@@ -1376,7 +1674,6 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
           <Sparkles className="h-4 w-4 text-purple-500" />
           <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">AI Column Classification</h4>
         </div>
-        <p className="text-[11px] text-slate-500">Detect identifiers, measures, dimensions, PII, dates and more using AI.</p>
         {classifyUnavailable ? (
           <span
             role="status"
@@ -1396,6 +1693,7 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
             {isClassifying ? <><Loader size="sm" className="h-3 w-3" /> Classifying...</> : <><Sparkles className="h-3.5 w-3.5" /> Run AI Classification</>}
           </button>
         )}
+        <p className="text-[11px] text-slate-500">Detects identifiers, measures, dimensions, PII and dates using AI.</p>
 
         {/* Classification Results */}
         {hasClassifications && (
@@ -1574,9 +1872,10 @@ function IngestionCostPanel({ table, trace }: { table: TableItem; trace: Ingesti
           <p className="font-medium text-slate-700 dark:text-slate-300">{creditsLabel}</p>
         </div>
       </div>
-      <p className="text-[10px] text-slate-400">
-        Source-load activity (Snowpipe &amp; COPY) and best-effort warehouse credits. "—" = no data.
-      </p>
+      <MoreDetails>
+        Source-load activity (Snowpipe &amp; COPY) over the last 7 days and
+        best-effort warehouse credits. &quot;—&quot; = no data recorded.
+      </MoreDetails>
     </div>
   );
 }
@@ -1596,7 +1895,9 @@ function AxisIntro({ icon: Icon, text }: { icon: React.ElementType; text: string
   );
 }
 
-function QualityPanel({ table, columns, projectId, profileData, onAddEvent, ingestionTrace }: { table: TableItem; columns: ColumnInfo[]; projectId: string | null; profileData?: any; onAddEvent: (e: any) => void; ingestionTrace?: IngestionTraceEntry | null }) {
+// Exported: the catalog page reuses this axis body FULL-WIDTH in its center
+// Quality view / Quality sub-tab (same component, no duplicated logic).
+export function QualityPanel({ table, columns, projectId, profileData, onAddEvent, ingestionTrace }: { table: TableItem; columns: ColumnInfo[]; projectId: string | null; profileData?: any; onAddEvent: (e: any) => void; ingestionTrace?: IngestionTraceEntry | null }) {
   // Role-aware hint: a viewer can read every metric here; only "Set up monitoring"
   // drafts a change (gated downstream). canWrite folds in loading (fail-open).
   const writePerm = useCanPerform('explore_design', 'create', projectId);
@@ -1618,32 +1919,10 @@ function QualityPanel({ table, columns, projectId, profileData, onAddEvent, inge
       <AxisIntro icon={BarChart3} text={canWrite
         ? 'Data quality for this table — profile it and draft freshness / completeness monitoring (applied on deploy).'
         : 'Data quality for this table — all metrics are readable; setting up monitoring needs edit access.'} />
-      {/* Ingestion & Cost — Snowpipe/COPY trace + per-table credits for this table. */}
-      <IngestionCostPanel table={table} trace={ingestionTrace ?? null} />
 
-      {/* Score overview */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Quality Score</h4>
-          <span className={cn('text-lg font-bold', !hasScore ? 'text-slate-400' : qualityScore >= 80 ? 'text-green-600' : qualityScore >= 60 ? 'text-amber-600' : 'text-red-600')}>{hasScore ? `${qualityScore}%` : '—'}</span>
-        </div>
-        <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-          <div className={cn('h-full rounded-full transition-all', !hasScore ? 'bg-slate-300 dark:bg-slate-600' : qualityScore >= 80 ? 'bg-green-500' : qualityScore >= 60 ? 'bg-amber-500' : 'bg-red-500')} style={{ width: hasScore ? `${qualityScore}%` : '0%' }} />
-        </div>
-      </div>
-
-      {/* Metrics grid */}
+      {/* Actions first (legibility rule): the two things you can DO on this
+          axis — one compact row (density), not two stacked full-width rows. */}
       <div className="grid grid-cols-2 gap-2">
-        <MetricCard label="Null columns" value={nullCols == null ? '—' : nullCols} total={nullCols == null ? undefined : columns.length} color={nullCols == null ? 'slate' : nullCols > 0 ? 'amber' : 'green'} />
-        {/* No duplicate-risk / freshness field on the profile payload — render an
-            honest "—" rather than a hardcoded "Low" / "Not set" for every table. */}
-        <MetricCard label="Duplicate risk" value="—" color="slate" />
-        <MetricCard label="PK candidate" value={pkCandidate} color={pkCandidate === '—' ? 'slate' : 'blue'} />
-        <MetricCard label="Freshness" value="—" color="slate" />
-      </div>
-
-      {/* Actions — real API calls */}
-      <div className="space-y-2">
         <ActionBtn label="Run profiling" icon={BarChart3} onClick={async () => {
           try {
             const { getTableProfile } = await import('@/app/services/explore-design/de-objects');
@@ -1656,13 +1935,34 @@ function QualityPanel({ table, columns, projectId, profileData, onAddEvent, inge
             generator has no case for it (falls into the default branch — a comment
             only, no DMF), so this records intent / drafts a freshness watch but
             does NOT yet move DQ coverage. Honest label + honest toast until the
-            deploy path lands. */}
+            deploy path lands. This is the ONE canonical freshness-monitoring
+            control (the Table-tab recommendation links here instead of duplicating it). */}
         <ActionBtn label="Set up monitoring" icon={Plus} disabled={!canWrite} onClick={() => {
           const colName = columns.find((c) => c.dataType === 'TIMESTAMP' || c.dataType === 'DATE')?.name || columns[0]?.name || 'UPDATED_AT';
           onAddEvent({ type: 'QUALITY_GATE_SET', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { gateType: 'freshness', maxAgeHours: 24, column: colName } });
           toast.success(`Freshness monitoring on ${colName} added to draft`);
         }} fullWidth />
       </div>
+
+      {/* Ingestion & Cost — Snowpipe/COPY trace + per-table credits for this table
+          (the ONE canonical load-status home; the Table tab links here).
+          Collapsed by default (density) — expand on demand. */}
+      <details className="rounded-xl border border-slate-200 dark:border-slate-700">
+        <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300">Ingestion cost</summary>
+        <IngestionCostPanel table={table} trace={ingestionTrace ?? null} />
+      </details>
+
+      {/* Metrics grid — the score is a cell here (density), not its own card. */}
+      <div className="grid grid-cols-2 gap-2">
+        <MetricCard label="Quality score" value={hasScore ? `${qualityScore}%` : '—'} color={!hasScore ? 'slate' : qualityScore >= 80 ? 'green' : qualityScore >= 60 ? 'amber' : 'red'} />
+        <MetricCard label="Null columns" value={nullCols == null ? '—' : nullCols} total={nullCols == null ? undefined : columns.length} color={nullCols == null ? 'slate' : nullCols > 0 ? 'amber' : 'green'} />
+        {/* No duplicate-risk / freshness field on the profile payload — render an
+            honest "—" rather than a hardcoded "Low" / "Not set" for every table. */}
+        <MetricCard label="Duplicate risk" value="—" color="slate" />
+        <MetricCard label="PK candidate" value={pkCandidate} color={pkCandidate === '—' ? 'slate' : 'blue'} />
+        <MetricCard label="Freshness" value="—" color="slate" />
+      </div>
+
     </div>
   );
 }
@@ -1671,12 +1971,36 @@ function QualityPanel({ table, columns, projectId, profileData, onAddEvent, inge
 // D. History Panel
 // ---------------------------------------------------------------------------
 
-function HistoryPanel({ events }: { events: HistoryEvent[] }) {
+// Exported: reused full-width by the catalog page (Insights view / History
+// sub-tab). The HistoryEvent shape below is exported alongside.
+export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
   const grouped = events.reduce<Record<string, HistoryEvent[]>>((acc, e) => {
     const day = new Date(e.timestamp).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     (acc[day] ||= []).push(e);
     return acc;
   }, {});
+
+  // One shared row renderer — the expanded latest day and the collapsed older
+  // days render identical rows.
+  const renderItems = (items: HistoryEvent[]) => (
+    <div className="space-y-1.5">
+      {items.map((e) => (
+        <div key={e.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg border border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+          <HistoryStatusIcon status={e.status} />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-slate-800 dark:text-slate-200">{e.type}</p>
+            <p className="text-[10px] text-slate-500 truncate">{e.actor} · {e.object}</p>
+            {e.message && e.status === 'error' && (
+              <p className="text-[10px] text-red-500 mt-0.5 line-clamp-1">{e.message}</p>
+            )}
+          </div>
+          <span className="text-[9px] text-slate-400 shrink-0">
+            {new Date(e.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="p-4 space-y-4">
@@ -1686,27 +2010,23 @@ function HistoryPanel({ events }: { events: HistoryEvent[] }) {
           <p className="text-xs">No history yet</p>
         </div>
       ) : (
-        Object.entries(grouped).map(([day, items]) => (
-          <div key={day}>
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">{day}</p>
-            <div className="space-y-1.5">
-              {items.map((e) => (
-                <div key={e.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg border border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                  <HistoryStatusIcon status={e.status} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-slate-800 dark:text-slate-200">{e.type}</p>
-                    <p className="text-[10px] text-slate-500 truncate">{e.actor} · {e.object}</p>
-                    {e.message && e.status === 'error' && (
-                      <p className="text-[10px] text-red-500 mt-0.5 line-clamp-1">{e.message}</p>
-                    )}
-                  </div>
-                  <span className="text-[9px] text-slate-400 shrink-0">
-                    {new Date(e.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-              ))}
+        // Density: only the most recent day is expanded; older days collapse
+        // into <details> with the day as summary.
+        Object.entries(grouped).map(([day, items], idx) => (
+          idx === 0 ? (
+            <div key={day}>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">{day}</p>
+              {renderItems(items)}
             </div>
-          </div>
+          ) : (
+            <details key={day} className="group">
+              <summary className="flex cursor-pointer select-none items-center gap-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 list-none">
+                <ChevronRight className="h-3 w-3 transition-transform group-open:rotate-90" aria-hidden />
+                {day} ({items.length})
+              </summary>
+              {renderItems(items)}
+            </details>
+          )
         ))
       )}
     </div>
@@ -1716,6 +2036,77 @@ function HistoryPanel({ events }: { events: HistoryEvent[] }) {
 // ---------------------------------------------------------------------------
 // E. Help Panel
 // ---------------------------------------------------------------------------
+
+function ActionCatalogPanel() {
+  // Registry-driven "what can I do here": GET /explore-design/actions serves
+  // the seeded action table (42 actions, 7 areas) with per-action `why` and
+  // the live-verified stamp from POST /actions/verify. Data-first: skeleton
+  // while loading, honest error state, never a hardcoded list.
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [areas, setAreas] = useState<Record<string, import('@/app/services/explore-design').ExploreAction[]>>({});
+  const [meta, setMeta] = useState<{ count: number; verified: number }>({ count: 0, verified: 0 });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getExploreActions } = await import('@/app/services/explore-design');
+        const d = await getExploreActions();
+        if (cancelled) return;
+        setAreas(d.areas || {});
+        setMeta({
+          count: d.count,
+          verified: (d.actions || []).filter(a => a.verified_at &&
+            (String(a.verified_status ?? '').startsWith('2') || String(a.verified_status ?? '').includes('honest'))).length,
+        });
+        setState('ready');
+      } catch {
+        if (!cancelled) setState('error');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (state === 'loading') {
+    return (
+      <div className="p-4 space-y-2">
+        {[0, 1, 2, 3].map(i => <div key={i} className="h-8 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />)}
+      </div>
+    );
+  }
+  if (state === 'error') {
+    return <div className="p-4 text-[11px] text-slate-500">Action catalog unavailable right now — the module still works; this panel just can't list its actions.</div>;
+  }
+  return (
+    <div className="p-4 space-y-3">
+      <div className="text-[11px] text-slate-500">
+        <span className="font-semibold text-slate-700 dark:text-slate-300">{meta.count} actions</span>
+        {' '}in this module · {meta.verified} contract-verified live
+      </div>
+      {Object.entries(areas).map(([area, list]) => (
+        <details key={area} className="rounded-xl border border-slate-200 dark:border-slate-700" open={area === 'catalog'}>
+          <summary className="cursor-pointer select-none px-3 py-2 text-xs font-semibold capitalize text-slate-800 dark:text-slate-200">
+            {area} <span className="font-normal text-slate-400">({list.length})</span>
+          </summary>
+          <div className="px-3 pb-2 space-y-2">
+            {list.map(a => (
+              <div key={a.action_id} className="text-[11px] leading-snug">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-slate-700 dark:text-slate-300">{a.label}</span>
+                  {a.verified_at && (String(a.verified_status ?? '').startsWith('2') || String(a.verified_status ?? '').includes('honest')) && (
+                    <CheckCircle className="h-3 w-3 text-green-500 shrink-0" aria-label="contract verified live" />
+                  )}
+                </div>
+                <p className="text-slate-500">{a.why}</p>
+              </div>
+            ))}
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
 
 function HelpPanel({ table }: { table: TableItem }) {
   // No-fake-0: only `hasPrimaryKey` is a real signal passed to this panel. The PK

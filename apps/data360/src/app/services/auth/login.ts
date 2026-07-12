@@ -1,4 +1,3 @@
-// ////dependency//// service → lib.api-contracts (endpoint), axios (no apiClient: no token yet). Data: sign-in form → login() → POST /signin → token
 import axios, { AxiosError } from 'axios';
 
 /**

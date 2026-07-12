@@ -236,12 +236,23 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Sync from API data
+  // Sync from API data. The dashboard's own pages are the project view's tabs
+  // ("no lifetime scroll" directive): an inbound ?tab=<page_id> deep-link picks
+  // that page; otherwise the first page opens as before.
   useEffect(() => {
     if (!dashboard) return;
     setPages(dashboard.pages || []);
     if (!activePageId && dashboard.pages?.length > 0) {
-      setActivePageId(dashboard.pages[0].page_id);
+      let wanted: string | null = null;
+      try {
+        wanted = new URLSearchParams(window.location.search).get('tab');
+      } catch {
+        /* deep-link read is best-effort */
+      }
+      const match = wanted
+        ? dashboard.pages.find((p) => p.page_id === wanted)
+        : undefined;
+      setActivePageId(match ? match.page_id : dashboard.pages[0].page_id);
     }
   }, [dashboard]);
 
@@ -344,12 +355,21 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
     [pages]
   );
 
-  // Handle page switch — clear old results and reset auto-fetch key
+  // Handle page switch — clear old results and reset auto-fetch key. The
+  // switch is pure state + history.replaceState (?tab=<page_id>, preserving
+  // other params like ?source_table=) — no navigation, no remount.
   const handlePageSelect = useCallback(
     (pageId: string) => {
       setActivePageId(pageId);
       clearResults();
       autoFetchedKeyRef.current = null;
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', pageId);
+        window.history.replaceState(null, '', url.toString());
+      } catch {
+        /* URL sync is best-effort */
+      }
       trackTabSwitch(pageId);
     },
     [clearResults, trackTabSwitch]
@@ -986,9 +1006,12 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
   }
 
   return (
-    <div className="space-y-4">
+    // Viewport-fit column: toolbar / page-tabs / filters / NL bar are fixed
+    // rows; the canvas row takes the rest and scrolls internally (grid center
+    // is already overflow-auto, the right bar body overflow-y-auto).
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden pt-3">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex shrink-0 items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <Badge size="lg" className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
             {pageWidgets.length} widget{pageWidgets.length !== 1 ? 's' : ''}
@@ -1126,28 +1149,33 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
         </div>
       </div>
 
-      {/* Page Tabs */}
-      <PageTabs
-        projectId={projectId}
-        pages={simplifiedPages}
-        activePageId={activePageId}
-        onPageSelect={handlePageSelect}
-        onPagesChange={handlePagesChange}
-      />
+      {/* Page Tabs — the project view's ?tab= synced tabs (each dashboard page
+          is one viewport-fit tab; the canvas below scrolls internally). */}
+      <div className="shrink-0">
+        <PageTabs
+          projectId={projectId}
+          pages={simplifiedPages}
+          activePageId={activePageId}
+          onPageSelect={handlePageSelect}
+          onPagesChange={handlePagesChange}
+        />
+      </div>
 
       {/* Smart Filters — auto-detected date & dimension columns from this page's
           tables. Replaces the manual FilterBar (filters never reached render) and
           the TimeIntelligenceBar (time filtering was a no-op). */}
-      <SmartFilterBar
-        widgets={pageWidgets}
-        onChange={handleFiltersApply}
-        onRefreshNow={handleRefreshNow}
-        executing={executing}
-      />
+      <div className="shrink-0">
+        <SmartFilterBar
+          widgets={pageWidgets}
+          onChange={handleFiltersApply}
+          onRefreshNow={handleRefreshNow}
+          executing={executing}
+        />
+      </div>
 
       {/* NL-to-chart bar — POST /bi-dashboard/nl-to-chart, appends a widget to the active page */}
       {activePageId && (
-        <div className="space-y-1">
+        <div className="shrink-0 space-y-1">
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <Sparkles className="h-4 w-4 shrink-0 text-cyan-500" />
             {nlUnavailable ? (
@@ -1199,7 +1227,9 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
           create widgets. Applying a template PERSISTS real widgets (POST /widgets)
           via handleApplyTemplate; once widgets exist the gallery yields to the grid. */}
       {activePageId && pageWidgets.length === 0 && canCreate && (
-        <div className="mt-4">
+        // Viewport-fit: the gallery scrolls internally (capped height) so the
+        // canvas below keeps its share of the viewport.
+        <div className="max-h-[40%] shrink-0 overflow-y-auto">
           {applyingTemplate && (
             <p className="mb-2 flex items-center gap-1.5 text-xs text-cyan-600 dark:text-cyan-400" role="status">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Applying template...
@@ -1213,7 +1243,7 @@ export default function DashboardEditor({ projectId, projectName, initialSourceT
           click-empty-canvas to hide both rails) + BiSmartRightBar (right, hosts
           widget config / runs / schedule / share / AI — no popups). */}
       {activePageId && (
-        <div className="flex min-h-[480px] gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex min-h-0 flex-1 gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <ChartPaletteRail
             projectId={projectId}
             pageId={activePageId}

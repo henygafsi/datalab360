@@ -155,7 +155,7 @@ export default function ProfileCardMenu({
                   )}
                 </span>
               </span>
-              {icon && icon}
+              {icon}
             </Button>
           </Popover.Trigger>
 

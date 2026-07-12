@@ -88,12 +88,6 @@ export const WIDGET_TILE_GROUPS: WidgetGroup[] = [
   },
 ];
 
-interface DraftPayload {
-  widgetType: WidgetType;
-  chartType: DashboardChartType | null;
-  savedAt: number;
-}
-
 const DRAFT_KEY = (projectId: string) => `bi-draft:${projectId}`;
 
 interface ChartPaletteRailProps {
@@ -133,32 +127,17 @@ export default function ChartPaletteRail({
   const createDeniedReason = 'Requires the "create" permission on Business Reporting.';
 
   const [search, setSearch] = useState('');
-  const [savedDraft, setSavedDraft] = useState<DraftPayload | null>(null);
 
-  // ── Draft load on mount ───────────────────────────────────────────────
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(DRAFT_KEY(projectId));
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as DraftPayload;
-      // Only offer draft if < 7 days old to avoid surfacing stale ones.
-      if (Date.now() - parsed.savedAt < 7 * 86_400_000) {
-        setSavedDraft(parsed);
-      } else {
-        window.localStorage.removeItem(DRAFT_KEY(projectId));
-      }
-    } catch {
-      /* ignore bad draft */
-    }
-  }, [projectId]);
-
+  // Stale localStorage drafts from the retired popup flow are purged, never
+  // resurfaced: the live form state now lives in the Configure panel
+  // (addDraft in DashboardEditor), so a second "resume" entry point would
+  // silently compete with it.
   const clearDraft = useCallback(() => {
     try {
       window.localStorage.removeItem(DRAFT_KEY(projectId));
     } catch {
       /* ignore */
     }
-    setSavedDraft(null);
   }, [projectId]);
 
   const handleItemSelect = (
@@ -166,18 +145,11 @@ export default function ChartPaletteRail({
     chartType: DashboardChartType | null,
   ) => {
     // Every type — chart / KPI / table / TEXT — opens docked in the right
-    // panel (BiSmartRightBar's Configure section). No popup. The live form
-    // state lives in the panel (addDraft in DashboardEditor), so the
-    // localStorage draft is vestigial — clear any stale one (and the
-    // redundant "Saved draft" banner) instead of writing a new one.
+    // panel (BiSmartRightBar's Configure section). No popup.
     clearDraft();
     onStartAdd(widgetType, chartType);
   };
 
-  const resumeDraft = () => {
-    if (!savedDraft) return;
-    handleItemSelect(savedDraft.widgetType, savedDraft.chartType);
-  };
 
   // Filter tiles by search query
   const filtered = WIDGET_TILE_GROUPS.map((g) => ({
@@ -256,42 +228,9 @@ export default function ChartPaletteRail({
           </div>
         </div>
 
-        {/* Draft resume banner */}
-        <AnimatePresence>
-          {savedDraft && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="overflow-hidden border-b border-amber-200 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-900/20"
-            >
-              <div className="px-3 py-2 text-[11px]">
-                <p className="font-semibold text-amber-800 dark:text-amber-200">
-                  Saved draft
-                </p>
-                <p className="mt-0.5 text-amber-700 dark:text-amber-300">
-                  Unsaved {savedDraft.widgetType.replace('_', ' ')} widget
-                </p>
-                <div className="mt-1.5 flex gap-1">
-                  <button
-                    onClick={resumeDraft}
-                    disabled={!canCreate}
-                    title={!canCreate ? createDeniedReason : undefined}
-                    className="rounded-md bg-gradient-to-r from-amber-500 to-orange-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Resume
-                  </button>
-                  <button
-                    onClick={clearDraft}
-                    className="rounded-md px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-100/60 dark:text-amber-300 dark:hover:bg-amber-900/30"
-                  >
-                    Discard
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Draft-resume banner removed: the live form state lives in the
+            Configure panel (addDraft in DashboardEditor); the localStorage draft
+            was vestigial (see the note above) and its two buttons duplicated it. */}
 
         {/* Scrollable tile grid */}
         <div className="custom-scrollbar flex-1 overflow-y-auto px-3 py-3">

@@ -3,13 +3,17 @@ import ProfileMenu from '@/layouts/profile-menu';
 import NotificationDropdown from './notification-dropdown';
 import DeploymentProgressChip from './deployment-progress-chip';
 import { HiOutlineBell, HiOutlineSun, HiOutlineMoon } from 'react-icons/hi2';
-import { useState } from 'react';
+import { forwardRef, useState } from 'react';
 import { useUnreadBadge } from '@/hooks/useNotifications';
 
-function BellWithBadge() {
+// Popover.Trigger clones its child with a ref + interaction props — a plain
+// function component here warned "Function components cannot be given refs"
+// on EVERY page (the header renders everywhere). Forward both.
+const BellWithBadge = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  function BellWithBadge(props, ref) {
   const { count } = useUnreadBadge();
   return (
-    <div className="relative">
+    <div className="relative" ref={ref} {...props}>
       <button className="group rounded-xl bg-slate-100/70 p-2.5 transition-all duration-200 hover:scale-110 hover:bg-slate-200 dark:bg-slate-800/70 dark:hover:bg-slate-700">
         <HiOutlineBell className="h-5 w-5 text-slate-600 group-hover:text-slate-900 dark:text-slate-300 dark:group-hover:text-white" />
       </button>
@@ -20,7 +24,7 @@ function BellWithBadge() {
       )}
     </div>
   );
-}
+});
 
 export default function HeaderMenuRight() {
   const [isDarkMode, setIsDarkMode] = useState(false);
