@@ -14,7 +14,7 @@ import { test, expect, type Page } from '@playwright/test';
 const PASS = process.env.D360_PASS ?? '';
 test.setTimeout(30 * 60_000);
 
-const PAGES: Array<{ route: string; label: string; minTabs?: number }> = [
+const ALL_PAGES: Array<{ route: string; label: string; minTabs?: number }> = [
   { route: '/account-overview', label: 'account-overview', minTabs: 8 },
   { route: '/data-quality', label: 'data-quality', minTabs: 4 },
   { route: '/bi-dashboard', label: 'bi-landing', minTabs: 2 },
@@ -24,6 +24,13 @@ const PAGES: Array<{ route: string; label: string; minTabs?: number }> = [
   { route: '/admin/performance', label: 'admin-performance', minTabs: 5 },
   { route: '/intelligent?tab=semantic-models', label: 'intelligent', minTabs: 4 },
 ];
+
+// TV_START/TV_END: verbatim copy of tabs-validation.spec.ts, page list sliced by
+// env so the >10-min battery fits two foreground runs (assertions unchanged).
+const PAGES = ALL_PAGES.slice(
+  Number(process.env.TV_START ?? 0),
+  Number(process.env.TV_END ?? ALL_PAGES.length),
+);
 
 async function signIn(page: Page) {
   await page.goto('/signin');

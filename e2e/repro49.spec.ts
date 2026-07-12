@@ -9,12 +9,12 @@ async function signIn(page: Page) {
   await page.locator('button[type="submit"]').first().click();
   await page.waitForURL((u) => !u.pathname.includes('/signin'), { timeout: 120_000 });
 }
-test('repro #49: catalog view proj_27fcf868068a', async ({ page }) => {
+test('repro #49: catalog view proj_d850771ce218', async ({ page }) => {
   const errs: string[] = [];
   page.on('pageerror', (e) => errs.push(String((e as Error).stack || e).slice(0, 800)));
   page.on('console', (m) => { if (m.type() === 'error') errs.push('[console] ' + m.text().slice(0, 400)); });
   await signIn(page);
-  await page.goto('/explore-design?project_id=proj_27fcf868068a&view=catalog');
+  await page.goto('/explore-design?project_id=proj_d850771ce218&view=catalog');
   await page.waitForLoadState('networkidle', { timeout: 120_000 }).catch(() => {});
   await page.waitForTimeout(8000);
   const boundary = await page.getByText('Something went wrong', { exact: false }).isVisible().catch(() => false);
