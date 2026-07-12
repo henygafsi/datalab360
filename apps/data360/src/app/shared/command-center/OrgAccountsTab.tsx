@@ -537,8 +537,11 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
         </div>
       )}
 
-      {/* Top-strip KPIs */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-9">
+      {/* Top-strip KPIs — max 3 across. This strip renders in a narrow sub-column
+          (~460px), so lg:grid-cols-9 clipped every card to ~130px ("Accou in org",
+          "ENT · STA", "Man Acc" — spec forbids clipped values). 3-across gives each
+          card ~150px so labels wrap on word boundaries and 9 cards form 3 clean rows. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <KpiCard
           icon={Building2}
           label="Accounts in org"
@@ -973,12 +976,20 @@ function KpiCard({
 }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-      <div className="flex items-center justify-between text-xs text-slate-500">
-        <span>{label}</span>
-        <Icon className="h-3.5 w-3.5 text-slate-400" />
+      <div className="flex items-start justify-between gap-1 text-xs text-slate-500">
+        {/* Wrap the label on word boundaries (never clip); tooltip carries it too. */}
+        <span className="min-w-0 leading-tight" title={label}>
+          {label}
+        </span>
+        <Icon className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
       </div>
       <div className="mt-1 flex items-baseline gap-1.5">
-        <span className="text-xl font-semibold text-slate-900 dark:text-white">
+        {/* Single-line truncate + tooltip: a long value (e.g. "ENTERPRISE · STANDARD")
+            stays on one line with an ellipsis instead of wrapping to 5 lines. */}
+        <span
+          className="min-w-0 truncate text-xl font-semibold text-slate-900 dark:text-white"
+          title={loading ? undefined : String(dash(value))}
+        >
           {loading ? '…' : dash(value)}
         </span>
         {!loading && trendPct != null && (
