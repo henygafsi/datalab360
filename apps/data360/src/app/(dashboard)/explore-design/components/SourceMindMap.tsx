@@ -4,12 +4,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactFlow, {
   Node, Edge, useNodesState, useEdgesState, Handle, Position,
   ReactFlowProvider, MiniMap, Controls, Background, BackgroundVariant,
-  NodeProps,
+  NodeProps, useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import {
   Database, Layers, Table2, Key, Shield, ChevronRight, Home,
   RefreshCw, Tag as TagIcon, Check, X, Loader2, Gauge,
+  ArrowLeft, ArrowRight, GitBranch,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 // Canonical table shape — shared with the page state + VirtualizedTableList so
@@ -23,12 +24,31 @@ import {
   SOURCE_TAG_OPTIONS, readAllTags, writeTag, tagKey,
 } from '@/app/services/catalog/sourceTags';
 
+// Minimal lineage inputs — REUSED from state the page already holds (FK
+// relationships + column mappings). No new fetch: the map only composes.
+export interface LineageRelationship {
+  child_schema: string;
+  child_table: string;
+  parent_schema: string;
+  parent_table: string;
+}
+export interface LineageMapping {
+  sourceSchema: string;
+  sourceTable: string;
+  targetSchema: string;
+  targetTable: string;
+}
+
 interface SourceMindMapProps {
   databases: string[];
   schemas: string[];
   tables: TableItem[];
   selectedDatabase: string;
   onSelectTable: (table: TableItem) => void;
+  /** FK relationships already loaded by the page (child references parent). */
+  relationships?: LineageRelationship[];
+  /** Column mappings already loaded by the page (source feeds target). */
+  mappings?: LineageMapping[];
 }
 
 // focusLevel state machine — overview → db → schema → object. Each focus pins
@@ -457,6 +477,212 @@ function TagEditor({
 }
 
 // ---------------------------------------------------------------------------
+// Focus KPI band — compact header INSIDE the center pane, shown while a DB or
+// SCHEMA is focused. Composed 100% from data already in state (tables list,
+// per-object scores fetched on schema dive, FK relationships, column mappings).
+// Honest "—" when a value isn't known; "No lineage recorded" when none exists.
+// ---------------------------------------------------------------------------
+interface LineageSide {
+  /** "SCHEMA.TABLE" (schema focus) or "SCHEMA → SCHEMA" (db focus) chips. */
+  items: string[];
+}
+
+/**
+ * Derive immediate lineage for the focused node from relationships + mappings
+ * already in page state. Directions: mapping source → target; FK child
+ * references parent (parent = upstream).
+ */
+function deriveLineage(
+  focus: Focus,
+  dbSchemas: string[],
+  relationships: LineageRelationship[],
+  mappings: LineageMapping[],
+): { upstream: LineageSide; downstream: LineageSide } {
+  const up = new Set<string>();
+  const down = new Set<string>();
+
+  if (focus.level === 'schema' && focus.schema) {
+    const s = focus.schema;
+    for (const m of mappings) {
+      if (m.targetSchema === s && m.sourceSchema !== s && m.sourceTable) {
+        up.add(`${m.sourceSchema}.${m.sourceTable}`);
+      }
+      if (m.sourceSchema === s && m.targetSchema !== s && m.targetTable) {
+        down.add(`${m.targetSchema}.${m.targetTable}`);
+      }
+    }
+    for (const r of relationships) {
+      if (r.child_schema === s && r.parent_schema !== s && r.parent_table) {
+        up.add(`${r.parent_schema}.${r.parent_table}`);
+      }
+      if (r.parent_schema === s && r.child_schema !== s && r.child_table) {
+        down.add(`${r.child_schema}.${r.child_table}`);
+      }
+    }
+  } else if (focus.level === 'db') {
+    // DB focus: schema→schema flows touching this database's schemas. A flow
+    // whose ends are BOTH in the db is internal — listed once (under "Feeds")
+    // rather than duplicated on both sides.
+    const inDb = new Set(dbSchemas);
+    const addFlow = (src: string, tgt: string) => {
+      if (src === tgt) return;
+      const srcIn = inDb.has(src);
+      const tgtIn = inDb.has(tgt);
+      if (!srcIn && !tgtIn) return;
+      const label = `${src} → ${tgt}`;
+      if (srcIn) down.add(label);
+      else up.add(label);
+    };
+    for (const m of mappings) addFlow(m.sourceSchema, m.targetSchema);
+    for (const r of relationships) addFlow(r.parent_schema, r.child_schema);
+  }
+  return { upstream: { items: [...up] }, downstream: { items: [...down] } };
+}
+
+function KpiCell({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
+  return (
+    <div className="px-3 py-1 min-w-[64px]" title={hint}>
+      <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="text-sm font-bold leading-tight text-slate-800 dark:text-slate-100 font-mono">{value}</p>
+    </div>
+  );
+}
+
+function LineageChips({
+  dir, items, onJumpSchema,
+}: {
+  dir: 'up' | 'down';
+  items: string[];
+  onJumpSchema?: (schema: string) => void;
+}) {
+  const Icon = dir === 'up' ? ArrowLeft : ArrowRight;
+  const shown = items.slice(0, 4);
+  return (
+    <div className="flex items-center gap-1 min-w-0">
+      <span className="inline-flex items-center gap-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400 shrink-0">
+        <Icon className="h-2.5 w-2.5" /> {dir === 'up' ? 'Fed by' : 'Feeds'}
+      </span>
+      {shown.map((it) => {
+        const schema = it.includes(' → ') ? null : it.split('.')[0];
+        return (
+          <button
+            key={it}
+            type="button"
+            disabled={!schema || !onJumpSchema}
+            onClick={() => schema && onJumpSchema?.(schema)}
+            title={schema ? `Focus ${schema}` : it}
+            className={cn(
+              'px-1.5 py-0.5 rounded text-[10px] font-mono truncate max-w-[160px]',
+              'bg-slate-100 text-slate-600 dark:bg-slate-700/70 dark:text-slate-300',
+              schema && onJumpSchema && 'hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900/40 dark:hover:text-blue-300',
+            )}
+          >
+            {it}
+          </button>
+        );
+      })}
+      {items.length > 4 && (
+        <span className="text-[9px] text-slate-400 shrink-0">+{items.length - 4}</span>
+      )}
+    </div>
+  );
+}
+
+function FocusKpiBand({
+  focus, tables, dbSchemas, kpisByFqn, loadingCount, relationships, mappings, onJumpSchema,
+}: {
+  focus: Focus;
+  /** Tables in the focused scope (db or schema). */
+  tables: TableItem[];
+  /** Schemas of the focused database. */
+  dbSchemas: string[];
+  kpisByFqn: Record<string, NodeKpis>;
+  loadingCount: number;
+  relationships: LineageRelationship[];
+  mappings: LineageMapping[];
+  onJumpSchema: (schema: string) => void;
+}) {
+  const isSchema = focus.level === 'schema';
+  const columns = tables.reduce((n, t) => n + (t.columnCount || 0), 0);
+  // PII: only claim a number when at least one table actually carries the field.
+  const piiKnown = tables.some((t) => typeof t.sensitiveColumns === 'number');
+  const pii = tables.reduce((n, t) => n + (t.sensitiveColumns || 0), 0);
+  // Quality: average of the per-object DQ scores already fetched on schema dive
+  // — never fabricated. "n/N scored" keeps the denominator honest.
+  const scored = tables
+    .map((t) => kpisByFqn[`${t.database}.${t.schema}.${t.table}`])
+    .filter((k): k is NodeKpis => !!k && k.hasScores && k.dq != null);
+  const avgDq = scored.length
+    ? Math.round(scored.reduce((n, k) => n + (k.dq as number), 0) / scored.length)
+    : null;
+
+  const { upstream, downstream } = deriveLineage(focus, dbSchemas, relationships, mappings);
+  const hasLineage = upstream.items.length > 0 || downstream.items.length > 0;
+
+  return (
+    <div
+      data-testid="focus-kpi-band"
+      className="shrink-0 border-b border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 px-4 py-2"
+    >
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Focused object */}
+        <span className="inline-flex items-center gap-1.5 pr-3 border-r border-slate-200 dark:border-slate-700">
+          {isSchema
+            ? <Layers className="h-4 w-4 text-purple-500 shrink-0" />
+            : <Database className="h-4 w-4 text-blue-500 shrink-0" />}
+          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 font-mono truncate max-w-[240px]">
+            {isSchema ? focus.schema : focus.database}
+          </span>
+          <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+            {isSchema ? 'schema' : 'database'}
+          </span>
+        </span>
+
+        {/* KPIs — composed from already-loaded state, honest "—" when absent. */}
+        {!isSchema && <KpiCell label="Schemas" value={dbSchemas.length} />}
+        <KpiCell label="Tables" value={tables.length} />
+        <KpiCell label="Columns" value={columns > 0 ? columns.toLocaleString() : '—'} />
+        <KpiCell
+          label="PII cols"
+          value={piiKnown ? pii : '—'}
+          hint={piiKnown ? 'Sensitive columns detected across this scope' : 'Not classified yet'}
+        />
+        <KpiCell
+          label="Quality"
+          value={
+            loadingCount > 0 && scored.length === 0
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+              : avgDq != null ? `${avgDq}` : '—'
+          }
+          hint={
+            scored.length
+              ? `Average DQ score over ${scored.length}/${tables.length} scored table(s)`
+              : 'No persisted scores yet — dive into the schema and run dry-run → refresh'
+          }
+        />
+
+        {/* Immediate lineage — from relationships/mappings already in state. */}
+        <div className="flex items-center gap-3 pl-3 border-l border-slate-200 dark:border-slate-700 min-w-0 flex-1">
+          <GitBranch className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+          {hasLineage ? (
+            <div className="flex items-center gap-3 flex-wrap min-w-0">
+              {upstream.items.length > 0 && (
+                <LineageChips dir="up" items={upstream.items} onJumpSchema={onJumpSchema} />
+              )}
+              {downstream.items.length > 0 && (
+                <LineageChips dir="down" items={downstream.items} onJumpSchema={onJumpSchema} />
+              )}
+            </div>
+          ) : (
+            <span className="text-[10px] italic text-slate-400">No lineage recorded</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Breadcrumb — the "back to overview" affordance at every focus level.
 // ---------------------------------------------------------------------------
 function Breadcrumb({
@@ -519,6 +745,7 @@ function Breadcrumb({
 // ---------------------------------------------------------------------------
 function SourceMindMapInner({
   databases, schemas, tables, selectedDatabase, onSelectTable,
+  relationships = [], mappings = [],
 }: SourceMindMapProps) {
   // Lazy-init: if the page already has a selected DB, start focused on it.
   const [focus, setFocus] = useState<Focus>(() =>
@@ -539,6 +766,24 @@ function SourceMindMapInner({
     (database: string, schema: string) => setFocus({ level: 'schema', database, schema }),
     [],
   );
+  // Lineage-chip jump: resolve the schema's database from the loaded tables
+  // (mappings/relationships don't carry the db). Unknown schema → no-op.
+  const jumpToSchema = useCallback((schema: string) => {
+    const hit = tables.find((t) => t.schema === schema);
+    if (hit) setFocus({ level: 'schema', database: hit.database, schema });
+  }, [tables]);
+
+  // Re-center on every focus change: clicking a db/schema node (or a breadcrumb)
+  // re-fits the viewport to the focused slice — this is the "click re-centers
+  // the map on it" contract. rAF waits for the rebuilt nodes to land.
+  const { fitView } = useReactFlow();
+  const focusKey = `${focus.level}|${focus.database ?? ''}|${focus.schema ?? ''}`;
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      fitView({ padding: 0.3, duration: 350 });
+    }, 60);
+    return () => window.clearTimeout(id);
+  }, [focusKey, fitView]);
 
   // --- tag editing -------------------------------------------------------
   const editDbTag = useCallback((database: string) => {
@@ -640,8 +885,37 @@ function SourceMindMapInner({
     setEdges(initialEdges);
   }, [initialNodes, initialEdges, setNodes, setEdges]);
 
+  // --- focus scope for the KPI band (same slice rules as buildLayout) -----
+  const bandScope = useMemo(() => {
+    if (focus.level === 'overview' || !focus.database) return null;
+    const dbTables = tables.filter((t) => t.database === focus.database);
+    let dbSchemas = [...new Set(dbTables.map((t) => t.schema))];
+    if (dbSchemas.length === 0 && schemas.length > 0 && focus.database === selectedDatabase) {
+      dbSchemas = [...schemas];
+    }
+    const scopeTables = focus.level === 'schema'
+      ? dbTables.filter((t) => t.schema === focus.schema)
+      : dbTables;
+    return { scopeTables, dbSchemas };
+  }, [focus, tables, schemas, selectedDatabase]);
+
   return (
-    <div className="relative h-full w-full">
+    <div className="h-full w-full flex flex-col">
+      {/* Center KPI band — visible while a db/schema is focused; the Overview
+          breadcrumb (one click) restores the full map and hides the band. */}
+      {bandScope && (
+        <FocusKpiBand
+          focus={focus}
+          tables={bandScope.scopeTables}
+          dbSchemas={bandScope.dbSchemas}
+          kpisByFqn={kpisByFqn}
+          loadingCount={loadingFqns.size}
+          relationships={relationships}
+          mappings={mappings}
+          onJumpSchema={jumpToSchema}
+        />
+      )}
+      <div className="relative flex-1 min-h-0">
       <Breadcrumb focus={focus} onOverview={goOverview} onDb={drillDb} />
       {tagEditor && (
         <TagEditor state={tagEditor} onApply={applyTag} onClose={() => setTagEditor(null)} />
@@ -670,6 +944,7 @@ function SourceMindMapInner({
           className="!bg-white/80 dark:!bg-slate-800/80 !border-slate-200 dark:!border-slate-700 !rounded-lg !shadow"
         />
       </ReactFlow>
+      </div>
     </div>
   );
 }

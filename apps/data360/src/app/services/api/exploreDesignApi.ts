@@ -14,8 +14,6 @@ import type {
   SaveStateResponse,
   EventListResponse,
   // Templates
-  TemplateListResponse,
-  CreateTemplateRequest,
   ConfigTemplate,
   // Metadata
   TableRef,
@@ -52,9 +50,7 @@ import type {
   MaskingConfigRequest,
   MaskingConfigResponse,
   // Mappings
-  CreateMappingRequest,
   ColumnMapping,
-  MappingListResponse,
   // DDL Actions
   CreateDDLActionRequest,
   DDLAction,
@@ -117,13 +113,8 @@ import type {
   WatermarkListResult,
   Watermark,
   // Phase D — Event Lifecycle
-  AuditTrailParams,
-  AuditTrailResult,
   CreateEventTemplateRequest,
   CreateEventTemplateResult,
-  EventTemplate,
-  ApplyEventTemplateRequest,
-  ApplyEventTemplateResult,
   // AI Phase 1 — Schema Intelligence
   ClassifyColumnsRequest,
   ClassifyColumnsResult,
@@ -199,43 +190,6 @@ export async function getExploreEvents(
     { params },
   );
   return data;
-}
-
-// ============================================================================
-// Templates
-// ============================================================================
-
-/**
- * NOTE: /{project_id}/templates endpoints DO NOT EXIST on backend.
- * Wrapped in try-catch with safe fallback.
- */
-export async function listTemplates(projectId: string) {
-  try {
-    const { data } = await apiClient.get<TemplateListResponse>(
-      `${PREFIX}/${projectId}/templates`,
-    );
-    return data;
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[listTemplates] Endpoint not implemented on backend; returning empty list.', error);
-    }
-    return { templates: [] } as TemplateListResponse;
-  }
-}
-
-export async function createTemplate(projectId: string, body: CreateTemplateRequest) {
-  try {
-    const { data } = await apiClient.post<{ template_id: string; template_name: string }>(
-      `${PREFIX}/${projectId}/templates`,
-      body,
-    );
-    return data;
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[createTemplate] Endpoint not implemented on backend.', error);
-    }
-    throw error;
-  }
 }
 
 // ============================================================================
@@ -387,44 +341,6 @@ export async function scheduleIngestion(
 // ============================================================================
 
 // ============================================================================
-// Column Mappings
-// ============================================================================
-
-/**
- * NOTE: /{project_id}/mappings endpoints DO NOT EXIST on backend.
- * Mappings are submitted inside ingestion bodies (executeIngestion, dryRunIngestion).
- * Wrapped in try-catch with safe fallback.
- */
-export async function createMapping(projectId: string, body: CreateMappingRequest) {
-  try {
-    const { data } = await apiClient.post<{ mapping_id: string }>(
-      `${PREFIX}/${projectId}/mappings`,
-      body,
-    );
-    return data;
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[createMapping] Endpoint not on backend; mappings live in ingestion payloads.', error);
-    }
-    throw error;
-  }
-}
-
-export async function listMappings(projectId: string) {
-  try {
-    const { data } = await apiClient.get<MappingListResponse>(
-      `${PREFIX}/${projectId}/mappings`,
-    );
-    return data;
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[listMappings] Endpoint not on backend; returning empty list.', error);
-    }
-    return { project_id: projectId, mappings: [] } as MappingListResponse;
-  }
-}
-
-// ============================================================================
 // DDL Actions
 // ============================================================================
 
@@ -437,9 +353,9 @@ export async function addDDLAction(projectId: string, body: CreateDDLActionReque
 }
 
 /**
- * NOTE: /{project_id}/ddl-actions/batch DOES NOT EXIST on backend.
- * Backend only exposes the singular POST /{project_id}/ddl-actions.
- * Wrapped: falls back to per-action POST so callers stay functional.
+ * NOTE: /{project_id}/ddl-actions/batch DOES NOT EXIST on backend (live 404).
+ * Backend only exposes the singular POST /{project_id}/ddl-actions, so the
+ * per-action POSTs ARE the primary path — no batch attempt first.
  */
 export async function batchAddDDLActions(
   projectId: string,
@@ -453,26 +369,15 @@ export async function batchAddDDLActions(
     }>;
   },
 ) {
-  try {
-    const { data } = await apiClient.post(
-      `${PREFIX}/${projectId}/ddl-actions/batch`,
-      body,
-    );
-    return data;
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[batchAddDDLActions] /ddl-actions/batch not on backend; falling back to per-action POST.', error);
-    }
-    const results = await Promise.all(
-      body.actions.map((a) =>
-        apiClient
-          .post(`${PREFIX}/${projectId}/ddl-actions`, a)
-          .then((r) => r.data)
-          .catch((err) => ({ error: err instanceof Error ? err.message : String(err) })),
-      ),
-    );
-    return { actions: results };
-  }
+  const results = await Promise.all(
+    body.actions.map((a) =>
+      apiClient
+        .post(`${PREFIX}/${projectId}/ddl-actions`, a)
+        .then((r) => r.data)
+        .catch((err) => ({ error: err instanceof Error ? err.message : String(err) })),
+    ),
+  );
+  return { actions: results };
 }
 
 export async function listDDLActions(
@@ -891,71 +796,6 @@ export async function getWatermark(projectId: string, sourceTableFqn: string) {
     `${PREFIX}/${projectId}/watermarks/${encodeURIComponent(sourceTableFqn)}`,
   );
   return data;
-}
-
-// ============================================================================
-// Phase D — Event Lifecycle
-// ============================================================================
-
-/**
- * NOTE: /{project_id}/audit-trail DOES NOT EXIST on backend.
- * Audit data is exposed via /{project_id}/events -- use getExploreEvents.
- * Wrapped in try-catch with safe fallback.
- */
-export async function getAuditTrail(
-  projectId: string,
-  params?: AuditTrailParams,
-) {
-  try {
-    const { data } = await apiClient.get<AuditTrailResult>(
-      `${PREFIX}/${projectId}/audit-trail`,
-      { params },
-    );
-    return data;
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[getAuditTrail] /audit-trail not on backend; use getExploreEvents.', error);
-    }
-    return { project_id: projectId, entries: [], total: 0, limit: 0 } as AuditTrailResult;
-  }
-}
-
-/**
- * NOTE: /event-templates DOES NOT EXIST on backend (do not confuse with /event-tables).
- * Wrapped in try-catch with safe fallback.
- */
-export async function listEventTemplates(params?: { category?: string }) {
-  // No-fake-empty: a 404/501 means the route is absent, NOT "zero templates".
-  // Rethrow it so the caller can render an honest "unavailable" state (and a
-  // `useActionGate` can self-disable) instead of a misleading empty list.
-  // Any OTHER error also rethrows so it isn't swallowed into a silent empty.
-  const { data } = await apiClient.get<EventTemplate[]>(
-    `${PREFIX}/event-templates`,
-    { params },
-  );
-  return data;
-}
-
-/**
- * NOTE: /{project_id}/event-templates/apply DOES NOT EXIST on backend.
- * Wrapped in try-catch.
- */
-export async function applyEventTemplate(
-  projectId: string,
-  body: ApplyEventTemplateRequest,
-) {
-  try {
-    const { data } = await apiClient.post<ApplyEventTemplateResult>(
-      `${PREFIX}/${projectId}/event-templates/apply`,
-      body,
-    );
-    return data;
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[applyEventTemplate] Endpoint not implemented on backend.', error);
-    }
-    throw error;
-  }
 }
 
 // ============================================================================

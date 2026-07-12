@@ -108,7 +108,10 @@ export default function StepReadiness({
   const askAi = useCallback(async () => {
     try {
       await appendAiHistory(projectId, {
-        kind: 'question',
+        // Backend enum is detection|suggestion|interview|outcome — 'question'
+        // 422'd with INVALID_KIND (user screenshot #62). An ask-the-analyst
+        // exchange is an 'interview' entry.
+        kind: 'interview',
         axis: 'release',
         severity: 'info',
         message: 'Explain the current release blockers and how to fix them.',

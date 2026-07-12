@@ -42,7 +42,7 @@ import {
   dropAlert,
 } from '@/app/services/explore-design/de-objects';
 import type { TableRelationship } from '@/app/services/explore-design/de-objects';
-import { listDDLActions, addDDLAction, removeDDLAction, validateFkTypes, cascadeDrop, checkConflicts, aiSchemaHealth, tablePreview, tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
+import { listDDLActions, addDDLAction, removeDDLAction, validateFkTypes, cascadeDrop, checkConflicts, aiSchemaHealth, tablePreview, tableProfile as fetchTableProfile, getExploreEvents } from '@/app/services/api/exploreDesignApi';
 import { generateSnowflakeSQL, DDL_EVENT_TYPES, inferDDLType } from './components/deployment/deployment-utils';
 import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors, listProjects } from '@/app/services/api/projectsApi';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
@@ -52,7 +52,7 @@ import { toServiceError } from '@/app/services/_errors';
 import { isUnavailable } from '@/lib/http-status';
 import { fmtNum } from '@/app/shared/ui/format';
 import { safeLocale } from '@/lib/format-number';
-import { createSchemaClone, getERDLayout } from '@/app/services/explore-design';
+import { createSchemaClone, getERDLayout, listMaskingConfigs, type MaskingConfig as ServiceMaskingConfig } from '@/app/services/explore-design';
 // TODO verify endpoint: reuses the org-accounts warehouse usage rollup (the only
 // existing contract that lists warehouse names) to populate DE create modals.
 import { getWarehouses } from '@/app/services/org-accounts/hooks';
@@ -66,12 +66,23 @@ import dynamic from 'next/dynamic';
 const ModelingCanvas = dynamic(() => import('./components/ModelingCanvas'), { ssr: false });
 const SourceMindMap = dynamic(() => import('./components/SourceMindMap'), { ssr: false });
 const ContextRightBar = dynamic(() => import('./components/ContextRightBar'), { ssr: false });
-import type { RightBarTab, FocusedAction, RailSeverity } from './components/ContextRightBar';
+import type { RightBarTab, FocusedAction, RailSeverity, HistoryEvent as RightBarHistoryEvent, CreateObjectKind } from './components/ContextRightBar';
+// Reuse of the right-bar section bodies in the catalog sub-tabs (Lineage /
+// Quality / History scoped to the selection) — the SAME components the docked
+// right bar uses, no duplicated logic. The former full-width axis views were
+// removed (right-bar-only redesign).
+const QualityAxisPanel = dynamic(() => import('./components/ContextRightBar').then((m) => m.QualityPanel), { ssr: false });
+const HistoryAxisPanel = dynamic(() => import('./components/ContextRightBar').then((m) => m.HistoryPanel), { ssr: false });
+const CortexAssistantPanel = dynamic(() => import('./components/CortexAssistantPanel'), { ssr: false });
+import type { CortexSuggestion, CortexChip } from './components/CortexAssistantPanel';
 import ModelKpiStrip, { type ModelKpis } from './components/ModelKpiStrip';
+import OverflowMenu from './components/OverflowMenu';
+import AddColumnModal from './components/AddColumnModal';
 import DeployStateButton, { deriveDeployState, type DeployState } from './components/DeployStateButton';
 import ReleasePanel from './components/release/ReleasePanel';
 import DeployedProduction from './components/release/DeployedProduction';
 import ProjectIdentityChips from './components/ProjectIdentityChips';
+import ProjectCrudControls from './components/ProjectCrudControls';
 import AiChangeAnalyst from './components/AiChangeAnalyst';
 import { useReleaseState } from './components/release/useReleaseState';
 import type { AxisSignal, ReleaseStatus } from './components/release/types';
@@ -119,12 +130,11 @@ import SqlDiffViewer from './components/SqlDiffViewer';
 import IngestionResultsPanel from './components/IngestionResultsPanel';
 import DagViewer from './components/DagViewer';
 import CascadeConfirmModal from './components/CascadeConfirmModal';
-import ImpactAnalysisPanel from './components/ImpactAnalysisPanel';
 import WhereClauseBuilder from './components/WhereClauseBuilder';
 import QualityGatesPanel from './components/QualityGatesPanel';
-import IngestionDryRunPanel from './components/IngestionDryRunPanel';
+// (dedupe) IngestionDryRunPanel import removed — it was never rendered here; its
+// one canonical home is inside IngestionConfigPanel (config slideout + deploy step).
 import ConflictResolutionModal, { EventConflict } from './components/ConflictResolutionModal';
-import EventTemplatePickerModal from './components/EventTemplatePickerModal';
 import AiFeatureToggle from './components/AiFeatureToggle';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { useAiAnalysis } from './hooks/useAiAnalysis';
@@ -152,8 +162,25 @@ interface GlobalSearchResult {
   schema?: string;
 }
 
-// View modes — only `catalog` and `modeling` are actually rendered as tabs.
+// View modes — the main tab bar. Workflow-page pattern: ONE center canvas
+// (Catalog or Modeling); every other axis (lineage/quality/policies/insights…)
+// lives ONLY in the ContextRightBar sections. Legacy ?view= deep-links for the
+// four removed full-width views map to catalog + the matching right-bar tab
+// (see LEGACY_VIEW_TO_RIGHT_TAB below).
 type ViewMode = 'catalog' | 'modeling';
+const VIEW_MODES: ViewMode[] = ['catalog', 'modeling'];
+// Backward-compat: pre-redesign ?view= / localStorage values → the right-bar
+// section that now owns that axis (relations/impact = the Impact & Cost tab).
+const LEGACY_VIEW_TO_RIGHT_TAB: Record<string, RightBarTab> = {
+  lineage: 'cost',
+  quality: 'quality',
+  policies: 'governance',
+  insights: 'history',
+};
+
+// Catalog center sub-tabs (mockup catalog64, region 2) — scoped to the current
+// selection (schema when no table is selected, table otherwise).
+type CatalogSubTab = 'overview' | 'columns' | 'preview' | 'lineage' | 'quality' | 'history';
 
 // Type for masking policy display (mapped from MaskingPolicy)
 interface MaskingPolicyDisplay {
@@ -309,93 +336,6 @@ const BulkActionsBar: React.FC<{
           <X className="h-4 w-4" />
         </button>
       </div>
-    </div>
-  );
-};
-
-// Overflow menu — holds secondary toolbar actions so the page header can
-// fit on one line. Click toggles a small popover; click outside closes it.
-// Each item is a {label, icon, onClick, active?, disabled?} entry rendered
-// as a row with optional active highlight (e.g. when a panel is currently
-// open) so the user still has a visual indicator of toggle state.
-interface OverflowItem {
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  onClick: () => void;
-  active?: boolean;
-  disabled?: boolean;
-  /** Optional accent color (`'violet' | 'teal' | 'purple'`) when active. */
-  activeColor?: 'violet' | 'teal' | 'purple' | 'blue';
-}
-const OverflowMenu: React.FC<{ items: OverflowItem[] }> = ({ items }) => {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, [open]);
-  return (
-    <div ref={ref} className="relative">
-      <Tooltip content="More actions">
-        <button
-          aria-label="More actions"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={() => setOpen((o) => !o)}
-          className={cn(
-            'flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700',
-            open && 'bg-slate-100 dark:bg-slate-700',
-          )}
-        >
-          <MoreVertical className="h-4 w-4" />
-        </button>
-      </Tooltip>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-full z-40 mt-1 min-w-[200px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-        >
-          {items.map((it) => {
-            const Icon = it.icon;
-            const activeAccent =
-              it.active && it.activeColor
-                ? {
-                    violet: 'text-violet-600 dark:text-violet-400',
-                    teal: 'text-teal-600 dark:text-teal-400',
-                    purple: 'text-purple-600 dark:text-purple-400',
-                    blue: 'text-blue-600 dark:text-blue-400',
-                  }[it.activeColor]
-                : '';
-            return (
-              <button
-                key={it.label}
-                role="menuitem"
-                disabled={it.disabled}
-                onClick={() => {
-                  it.onClick();
-                  setOpen(false);
-                }}
-                className={cn(
-                  'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-                  it.active
-                    ? 'bg-slate-50 dark:bg-slate-800'
-                    : 'hover:bg-slate-50 dark:hover:bg-slate-800',
-                )}
-              >
-                <Icon className={cn('h-3.5 w-3.5 text-slate-500', activeAccent)} />
-                <span className={cn('text-slate-700 dark:text-slate-200', activeAccent)}>{it.label}</span>
-                {it.active && (
-                  <span className="ml-auto text-[10px] uppercase text-slate-400">on</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 };
@@ -967,6 +907,138 @@ function ModelOverview({ tableCount, relationCount, targetDwh, projectId }: {
   );
 }
 
+// Honest empty state for selection-scoped panels (Quality / Policies / Data
+// Preview / Columns …) — mirrors the right bar's "Select a table" copy.
+function SelectTableHint({ what }: { what: string }) {
+  return (
+    <div className="flex h-full min-h-[220px] flex-col items-center justify-center p-8 text-center text-slate-400">
+      <Table2 className="mb-3 h-10 w-10 text-slate-300" />
+      <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Select a table</p>
+      <p className="mt-1 max-w-xs text-xs">Pick a table in the Source Tables panel to see its {what}.</p>
+    </div>
+  );
+}
+
+// Compact sample-rows table — ONE renderer for the Overview "Data Preview"
+// card AND the right-bar inspector's Preview tab (mockup #68). Reuses the
+// page's existing inline-preview fetch state; honest loading/error/empty.
+function PreviewMiniTable({ loading, error, data, tableColumns }: {
+  loading: boolean;
+  error: string | null;
+  data: { columns: string[]; rows: Record<string, any>[]; total_rows: number } | null;
+  tableColumns: ColumnInfo[];
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8 text-sm text-slate-500">
+        <RefreshCw className="mr-2 h-4 w-4 animate-spin text-blue-400" /> Loading preview...
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="py-6 text-center text-sm">
+        <AlertCircle className="mx-auto mb-1.5 h-5 w-5 text-amber-500" />
+        <p className="font-medium text-slate-700 dark:text-slate-200">Preview failed</p>
+        <p className="mx-auto mt-1 max-w-xs text-xs text-slate-500">{error}</p>
+      </div>
+    );
+  }
+  if (!data || data.rows.length === 0) {
+    return <div className="py-6 text-center text-sm text-slate-400">No rows returned (table is empty)</div>;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="border-b bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
+            {data.columns.map((col: string) => (
+              <th key={col} className="whitespace-nowrap px-2.5 py-1.5 text-left font-medium text-slate-500">{col}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.slice(0, 5).map((row: Record<string, any>, i: number) => (
+            <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+              {data.columns.map((col: string) => {
+                const val = row[col];
+                const isNull = val === null || val === undefined;
+                const isMasked = tableColumns.find((c) => c.name === col || c.name === col.toUpperCase())?.isSensitive;
+                return (
+                  <td key={col} className={cn('max-w-[160px] truncate whitespace-nowrap px-2.5 py-1 font-mono', isNull ? 'italic text-slate-400' : isMasked ? 'text-amber-500/70' : 'text-slate-700 dark:text-slate-300')}>
+                    {isNull ? 'null' : isMasked ? '••••••' : String(val)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Unified relation row (FK constraint or column mapping) — built by the page
+// from state it already loaded; rendered by the Lineage sub-tab AND the
+// full-width Lineage view through the ONE table below.
+interface CatalogRelationRow {
+  id: string;
+  kind: 'FK' | 'Mapping';
+  source: string;
+  sourceCol?: string;
+  target: string;
+  targetCol?: string;
+  name?: string;
+}
+
+function RelationsTable({ rows, emptyText }: { rows: CatalogRelationRow[]; emptyText: string }) {
+  if (rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center text-slate-400">
+        <GitBranch className="mb-2 h-8 w-8 text-slate-300" />
+        <p className="max-w-sm text-xs">{emptyText}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b bg-slate-50 text-left dark:border-slate-700 dark:bg-slate-800">
+            <th className="px-3 py-2 font-medium text-slate-500">Type</th>
+            <th className="px-3 py-2 font-medium text-slate-500">Source</th>
+            <th className="px-3 py-2 font-medium text-slate-500">Column</th>
+            <th className="px-2 py-2" aria-hidden />
+            <th className="px-3 py-2 font-medium text-slate-500">Target</th>
+            <th className="px-3 py-2 font-medium text-slate-500">Column</th>
+            <th className="px-3 py-2 font-medium text-slate-500">Constraint / Transform</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50">
+              <td className="px-3 py-1.5">
+                <span className={cn(
+                  'rounded px-1.5 py-0 text-[9px] font-semibold',
+                  r.kind === 'FK'
+                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                    : 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
+                )}>{r.kind}</span>
+              </td>
+              <td className="whitespace-nowrap px-3 py-1.5 font-mono text-slate-700 dark:text-slate-300">{r.source}</td>
+              <td className="whitespace-nowrap px-3 py-1.5 font-mono text-slate-500">{r.sourceCol || '—'}</td>
+              <td className="px-2 py-1.5 text-slate-400"><ArrowRight className="h-3 w-3" aria-hidden /></td>
+              <td className="whitespace-nowrap px-3 py-1.5 font-mono text-slate-700 dark:text-slate-300">{r.target}</td>
+              <td className="whitespace-nowrap px-3 py-1.5 font-mono text-slate-500">{r.targetCol || '—'}</td>
+              <td className="max-w-[220px] truncate px-3 py-1.5 text-slate-500" title={r.name}>{r.name || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // Dev-only probe for the e2e boundary test (e2e/ed-ux.spec.ts): when the page
 // is opened with ?__force_chunk_error=1 it throws a synthetic ChunkLoadError
 // exactly once per browser session, so the test can verify the ErrorBoundary's
@@ -1152,7 +1224,12 @@ export default function ExploreDesignPage() {
   const [showScaleTest, setShowScaleTest] = useState(false);
   const [showCreateTableModal, setShowCreateTableModal] = useState(false);
   const [showRelationshipModal, setShowRelationshipModal] = useState(false);
-  const [showCreateMenuCatalog, setShowCreateMenuCatalog] = useState(false);
+  // Page-level Add-Column modal — simple adds happen INLINE on the schema/table
+  // view (no right-bar detour, no tab switch).
+  const [showAddColumnModal, setShowAddColumnModal] = useState(false);
+  // (Addendum #66) The old catalog Create DROPDOWN moved into the right bar's
+  // Create group — the header Create button and the Source-Tables pinned
+  // button are now shortcuts that open it (see openCreateGroup).
   const [showCreateMenuModeling, setShowCreateMenuModeling] = useState(false);
 
   // Inline preview & profile panels (replace modals)
@@ -1227,18 +1304,41 @@ export default function ExploreDesignPage() {
 
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('catalog');
-  // Persist viewMode to localStorage
+  // Catalog center sub-tab (Overview | Columns | Data Preview | Lineage |
+  // Quality | History) — scoped to the current selection.
+  const [catalogSubTab, setCatalogSubTab] = useState<CatalogSubTab>('overview');
+  // Restore the active view from the deep-link (?view) on first load so a
+  // shared link reopens where the user was (catalog vs modeling). Legacy
+  // full-width views (lineage/quality/policies/insights — removed, right-bar
+  // only now) map to catalog + the right-bar tab that owns that axis, with
+  // the bar opened so the destination is visible. Anything else → catalog.
+  // MUST be declared BEFORE the persist effect below: effects run in
+  // declaration order, and persisting first would overwrite a legacy
+  // localStorage value before this restore could read it.
+  useEffect(() => {
+    const v = searchParams.get('view') ?? localStorage.getItem('explore-design-view-mode');
+    if (!v) return;
+    if ((VIEW_MODES as string[]).includes(v)) {
+      setViewMode(v as ViewMode);
+    } else if (LEGACY_VIEW_TO_RIGHT_TAB[v]) {
+      setViewMode('catalog');
+      setActiveRightTab(LEGACY_VIEW_TO_RIGHT_TAB[v]);
+      setRightBarOpen(true);
+      // Pre-seed the right bar's own section-restore key (ContextRightBar
+      // ACTIVE_TAB_KEY — literal mirrored here): the panel lazy-mounts AFTER
+      // this effect and would otherwise restore its last-viewed section over
+      // the legacy deep-link mapping.
+      try { localStorage.setItem('data360.exploreDesign.contextTab.v1', LEGACY_VIEW_TO_RIGHT_TAB[v]); } catch { /* storage unavailable */ }
+    } else {
+      setViewMode('catalog');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist viewMode to localStorage (after the legacy-restore effect above).
   useEffect(() => {
     localStorage.setItem('explore-design-view-mode', viewMode);
   }, [viewMode]);
-
-  // Restore the active view from the deep-link (?view) on first load so a
-  // shared link reopens where the user was (catalog vs modeling).
-  useEffect(() => {
-    const v = searchParams.get('view');
-    if (v === 'modeling' || v === 'catalog') setViewMode(v);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Keep ?project_id + ?view in the URL so the page is shareable/bookmarkable
   // and restores the selected project + view. router.replace (not push) avoids
@@ -1255,7 +1355,6 @@ export default function ExploreDesignPage() {
 
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
-  const [showEventTemplatePicker, setShowEventTemplatePicker] = useState(false);
   const [modelingChoice, setModelingChoice] = useState<ModelingChoice | null>(null);
   // Persist modeling choice per project so re-selecting a project doesn't re-show the modal
   const modelingChoicesByProject = useRef<Map<string, { choice: ModelingChoice; database?: string; schema?: string }>>(new Map());
@@ -1876,11 +1975,175 @@ export default function ExploreDesignPage() {
     },
   }), [kpiTableCount, kpiRelationCount, kpiColumnTotal, piiLevel, deployBlockers, displayablePendingEvents.length, isLoadingTables]);
 
+  // Server-recorded project events (GET /explore-design/{id}/events) — merged
+  // into the History panel below so backend-written events (e.g. recorded by
+  // other sessions or via /projects/{id}/events) show up even when they never
+  // entered the local event store.
+  const [serverEvents, setServerEvents] = useState<any[]>([]);
+  useEffect(() => {
+    if (!selectedProjectId) { setServerEvents([]); return; }
+    let cancelled = false;
+    getExploreEvents(selectedProjectId, { limit: 50 })
+      .then((res) => { if (!cancelled) setServerEvents(res?.events ?? []); })
+      .catch(() => { if (!cancelled) setServerEvents([]); });
+    return () => { cancelled = true; };
+  }, [selectedProjectId]);
+
+  // Right-bar / Insights history events — lifted to ONE memo so the docked bar,
+  // the Insights main tab and the catalog History sub-tab all render the same
+  // mapped list (previously built inline in the ContextRightBar props).
+  // Local store events come first (freshest UX state), then server events that
+  // the store doesn't already contain (id-dedup on the backend event_id).
+  const rightBarHistoryEvents = useMemo<RightBarHistoryEvent[]>(() => {
+    const local = events.slice(0, 50).map((e: any) => ({
+      id: e.id || String(Math.random()),
+      type: e.type || 'Event',
+      status: (e.status === 'deployed' || e.status === 'success') ? 'success' as const : e.status === 'error' ? 'error' as const : e.status === 'warning' ? 'warning' as const : 'pending' as const,
+      actor: e.createdBy || e.actor || currentUsername || 'System',
+      timestamp: e.createdAt || e.timestamp || new Date().toISOString(),
+      object: e.target?.table || e.target?.schema || '—',
+      message: e.error || undefined,
+    }));
+    // Dedup on BOTH the local id and the synced backend event_id — store events
+    // hydrated from the backend carry id === event_id, locally-created ones
+    // carry the server id in `backendId` once synced.
+    const seen = new Set<string>();
+    events.slice(0, 50).forEach((e: any) => {
+      if (e?.id) seen.add(String(e.id));
+      if (e?.backendId) seen.add(String(e.backendId));
+    });
+    const remote = serverEvents
+      .filter((e: any) => e?.event_id && !seen.has(String(e.event_id)))
+      .map((e: any) => {
+        const details: any = e.details || e.event_details || {};
+        const target: any = details.target || details;
+        const s = String(e.status || '').toUpperCase();
+        return {
+          id: String(e.event_id),
+          type: e.event_type || 'Event',
+          status: (s === 'SUCCESS' || s === 'APPLIED' || s === 'DEPLOYED') ? 'success' as const : (s === 'FAILED' || s === 'ERROR') ? 'error' as const : s === 'WARNING' ? 'warning' as const : 'pending' as const,
+          actor: e.username || 'System',
+          timestamp: e.timestamp || new Date().toISOString(),
+          object: target?.table || target?.schema || details.table || details.schema || '—',
+          message: e.error_message || undefined,
+        };
+      });
+    return [...local, ...remote];
+  }, [events, serverEvents, currentUsername]);
+
+  // Unified relation rows (FK constraints + column mappings) — REUSES the state
+  // this page already loaded (same inputs the SourceMindMap composes). Powers
+  // the catalog Lineage sub-tab and the full-width Lineage view.
+  const catalogRelations = useMemo(() => {
+    const fk = defaultRelationships.map((r, i) => ({
+      id: `fk_${i}`,
+      kind: 'FK' as const,
+      source: `${r.child_schema}.${r.child_table}`,
+      sourceCol: r.child_column,
+      target: `${r.parent_schema}.${r.parent_table}`,
+      targetCol: r.parent_column,
+      name: r.constraint_name,
+    }));
+    const mp = initialColumnMappings.map((m) => ({
+      id: `map_${m.id}`,
+      kind: 'Mapping' as const,
+      source: `${m.sourceSchema}.${m.sourceTable}`,
+      sourceCol: m.sourceColumn,
+      target: `${m.targetSchema}.${m.targetTable}`,
+      targetCol: m.targetColumn,
+      name: m.transformation ? String(m.transformation) : undefined,
+    }));
+    return [...fk, ...mp];
+  }, [defaultRelationships, initialColumnMappings]);
+
+  // Cortex Smart Suggestions — real counts from data ALREADY fetched by this
+  // page (tables list + FK/mapping state + AI classifications). A signal with
+  // no source yet renders an honest "—" line, never a fabricated 0.
+  const cortexSuggestions = useMemo<CortexSuggestion[]>(() => {
+    const out: CortexSuggestion[] = [];
+    if (tables.length === 0) {
+      out.push({ id: 'no_data', severity: 'unknown', text: 'Load a database & schema to analyze schema health — no tables loaded yet.' });
+      return out;
+    }
+    const noPk = tables.filter((t) => !t.hasPrimaryKey).length;
+    out.push({
+      id: 'pk',
+      severity: noPk > 0 ? 'medium' : 'ok',
+      text: noPk > 0 ? `${noPk} of ${tables.length} tables have no primary key` : 'All tables have a primary key',
+    });
+    const related = new Set<string>();
+    for (const r of catalogRelations) { related.add(r.source.toUpperCase()); related.add(r.target.toUpperCase()); }
+    const orphan = tables.filter((t) => !related.has(`${t.schema}.${t.table}`.toUpperCase())).length;
+    out.push({
+      id: 'rel',
+      severity: orphan > 0 ? 'medium' : 'ok',
+      text: orphan > 0 ? `${orphan} tables have no detected relationship` : 'Every table participates in a relationship',
+    });
+    const piiCols = classificationDetails.filter((c) => {
+      const r = (c.piiRisk || '').toString().toLowerCase();
+      return r === 'high' || r === 'medium' || r === 'low';
+    }).length;
+    if (piiCols > 0) {
+      out.push({ id: 'pii', severity: 'high', text: `${piiCols} columns flagged as PII by AI Classify — review masking` });
+    } else {
+      out.push({ id: 'pii', severity: 'unknown', text: 'PII exposure — run AI Classify on a table to measure it' });
+    }
+    return out;
+  }, [tables, catalogRelations, classificationDetails]);
+
   // Server release-state (GET /explore-design/{id}/release-state): the full
   // 12-state machine + per-axis signals, SSE-refreshed. Degrades to null/derived
   // on 404 (endpoint not deployed yet) — local heuristics below take over.
-  const { state: releaseServerState, degraded: releaseDegraded } =
+  const { state: releaseServerState, degraded: releaseDegraded, loading: releaseLoading } =
     useReleaseState(selectedProjectId);
+
+  // ── "Ready data" health strip inputs ─────────────────────────────────────
+  // Shared by the catalog KPI strip AND the schema-level Quality summary (full
+  // width Quality view with no table selected) so the two never disagree.
+  // Everything here reuses state this page already loads — no extra fetch
+  // except the lazy masking-config list below.
+  const healthStrip = useMemo(() => {
+    const total = tables.length;
+    const ready = tables.filter((t) => t.status === 'configured').length;
+    const withPk = tables.filter((t) => t.hasPrimaryKey).length;
+    return { total, ready, withPk };
+  }, [tables]);
+
+  // Masking coverage — lazy ON PURPOSE (the list endpoint takes 4-6s): the
+  // fetch fires ~1.5s AFTER first paint so it never blocks it; switching
+  // projects cancels the timer and ignores any in-flight response.
+  const [maskingConfigs, setMaskingConfigs] = useState<ServiceMaskingConfig[] | null>(null);
+  const [maskingFetch, setMaskingFetch] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  useEffect(() => {
+    setMaskingConfigs(null);
+    if (!selectedProjectId) { setMaskingFetch('idle'); return; }
+    let cancelled = false;
+    setMaskingFetch('loading');
+    const timer = setTimeout(() => {
+      listMaskingConfigs(selectedProjectId)
+        .then((res) => { if (!cancelled) { setMaskingConfigs(res.configs ?? []); setMaskingFetch('ready'); } })
+        .catch(() => { if (!cancelled) setMaskingFetch('error'); });
+    }, 1500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [selectedProjectId]);
+
+  // Axis signal → strip dot colour (blue "running" carries no strip urgency).
+  const axisToStripSignal = (s: AxisSignal | null | undefined): 'green' | 'amber' | 'red' | 'grey' =>
+    s === 'green' ? 'green' : s === 'orange' ? 'amber' : s === 'red' ? 'red' : 'grey';
+  const dqAxisSignal = releaseServerState?.axis_signals?.data_quality ?? 'grey';
+  const dqAxisLabel = ({ green: 'Passing', orange: 'At risk', red: 'Failing', blue: 'Running', grey: 'No checks yet' } as const)[dqAxisSignal];
+  const releaseStatusLabel = releaseServerState
+    ? releaseServerState.status.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
+    : null;
+  const releaseStripSignal: 'green' | 'amber' | 'red' | 'grey' = !releaseServerState
+    ? 'grey'
+    : releaseServerState.axis_signals?.release && releaseServerState.axis_signals.release !== 'grey'
+      ? axisToStripSignal(releaseServerState.axis_signals.release)
+      : ['deployed', 'verified'].includes(releaseServerState.status)
+        ? 'green'
+        : ['blocked', 'failed', 'rolled_back'].includes(releaseServerState.status)
+          ? 'red'
+          : releaseServerState.status === 'no_changes' ? 'grey' : 'amber';
 
   // Deploy button state — server truth first (full lifecycle incl. approval /
   // deployed / failed phases the page can't source locally); the local
@@ -2065,8 +2328,16 @@ export default function ExploreDesignPage() {
         const savedRels = (Array.isArray(layout?.relationships) ? layout.relationships : [])
           .filter((r: any) => r?.source_table && r?.target_table)
           .map((r: any) => {
-            const [, srcSchema = '', srcTable = ''] = String(r.source_table).split('.');
-            const [, tgtSchema = '', tgtTable = ''] = String(r.target_table).split('.');
+            // The ERD API returns BARE table names (source_table: "FACT_REVIEWS");
+            // the old 3-part destructure left schema+table empty and every
+            // relation row rendered as "." (audit 2026-07-12). Take the last
+            // segment as table, the one before as schema, whatever the form.
+            const srcParts = String(r.source_table).split('.');
+            const tgtParts = String(r.target_table).split('.');
+            const srcTable = srcParts[srcParts.length - 1] ?? '';
+            const srcSchema = srcParts.length > 1 ? srcParts[srcParts.length - 2] : '';
+            const tgtTable = tgtParts[tgtParts.length - 1] ?? '';
+            const tgtSchema = tgtParts.length > 1 ? tgtParts[tgtParts.length - 2] : '';
             return {
               constraint_name: String(r.relationship_id ?? `${srcTable}_${r.source_column}_fk`),
               child_schema: srcSchema,
@@ -2579,8 +2850,18 @@ export default function ExploreDesignPage() {
   // overview is visible without a click (it replaces the bare empty canvas). The
   // user can still collapse it to the w-12 mini-rail to reclaim canvas width.
   useEffect(() => {
-    if (viewMode === 'modeling') setRightBarOpen(true);
+    // Only auto-open when there is a model to inspect — on an EMPTY canvas the
+    // Start-Modeling overlay owns the stage and the cockpit is just noise (#61).
+    if (viewMode === 'modeling' && modelingTableIds.size > 0) setRightBarOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode]);
+  // Catalog landing (mockup region 5): with a project in scope, open the right
+  // cockpit so the AI Assistant (Cortex) panel is visible without a click. The
+  // user can still collapse it to the mini-rail.
+  useEffect(() => {
+    if (viewMode === 'catalog' && selectedProjectId) setRightBarOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, selectedProjectId]);
   useEffect(() => {
     if (!showInlinePreview || !selectedTable || !selectedProjectId) return;
     let cancelled = false;
@@ -2782,6 +3063,47 @@ export default function ExploreDesignPage() {
     // which hid the source selection the instant you clicked a table on the canvas
     // ("on la voit plus") — and modeling had no re-open toggle. The user closes it
     // manually via the panel toggle (and can re-open it from the modeling rail).
+  }, []);
+
+  // Addendum #66 — the right bar owns object creation. ONE mapping from the
+  // Create-group kinds to the page's EXISTING modals / flows (nothing rebuilt);
+  // the header Create button and the left rail's pinned button are shortcuts
+  // that open this group.
+  const handleCreateObject = useCallback((kind: CreateObjectKind) => {
+    if (readOnlyGuard()) return;
+    switch (kind) {
+      case 'standard':
+      case 'temporary':
+      case 'transient':
+      case 'external':
+      case 'iceberg':
+        setCreateTableType(kind); setShowCreateTableModal(true); break;
+      case 'dynamic_table': setDynamicTableModal(true); break;
+      case 'event_table': setEventTableModal(true); break;
+      case 'hybrid_table': setHybridTableModal(true); break;
+      case 'stream': setStreamModal(true); break;
+      case 'alert': setAlertModal(true); break;
+      case 'relationship': setShowRelationshipModal(true); break;
+      case 'add_column':
+        setShowAddColumnModal(true); break;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnlyGuard]);
+
+  // Opens the right bar's Create group (Actions section top) — the shortcut
+  // used by the header Create button and the Source-Tables pinned button.
+  const openCreateGroup = useCallback(() => {
+    if (readOnlyGuard()) return;
+    setActiveRightTab('actions');
+    setRightBarOpen(true);
+  }, [readOnlyGuard]);
+
+  // Cortex quick chips (mockup region 5c) — switch the right-bar sections:
+  // DQ Check → Data Quality; Lineage / Impact / Cost → Impact & Cost (the one
+  // section carrying impact+cost; per-model lineage lives in the Lineage view).
+  const handleCortexChip = useCallback((chip: CortexChip) => {
+    setActiveRightTab(chip === 'dq' ? 'quality' : 'cost');
+    setRightBarOpen(true);
   }, []);
 
   // Handle project selection - load events for the selected project
@@ -4079,11 +4401,92 @@ export default function ExploreDesignPage() {
     </ErrorBoundary>
   );
 
+  // ── Right-bar Overview header: complete project CRUD ──
+  // Rename / edit-description / delete (typed-name confirm) live in the right
+  // bar's Overview section — create stays on the header selector's wizard.
+  // Gated honestly (disabled + tooltip for viewers); after mutations the
+  // project list refetches (the shared CACHE_KEYS.PROJECTS SSE invalidation
+  // refreshes the header selector too).
+  const projectCrudNode = selectedProjectId ? (
+    <ProjectCrudControls
+      projectId={selectedProjectId}
+      projectName={selectedProjectName}
+      canWrite={!isReadOnly}
+      onRenamed={(name) => {
+        setSelectedProjectName(name);
+        void refetchGateProjects();
+      }}
+      onDeleted={() => {
+        setSelectedProjectId(null);
+        setSelectedProjectName('');
+        setSelectedTable(null);
+        void refetchGateProjects();
+        // Drop the deep-link param so the deleted project can't re-auto-select.
+        const params = new URLSearchParams(Array.from(searchParams.entries()));
+        params.delete('project_id');
+        router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
+      }}
+    />
+  ) : undefined;
+
+  // ── Right-bar Quality tab, no table selected ──
+  // Schema-level readiness summary (moved from the removed full-width Quality
+  // view — right-bar-only redesign). Same computed values as the health strip
+  // (healthStrip / dqAxisSignal); select a table for its full profile.
+  const schemaQualityReadiness = (
+    <div className="p-1">
+      <div className="border-b px-3 py-2 dark:border-slate-800">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+          <BarChart3 className="h-3.5 w-3.5 text-green-500" />
+          Schema quality readiness
+        </span>
+        <p className="mt-0.5 text-[10px] text-slate-400">Model-level readiness from the loaded catalog — select a table on the left for its full profile and monitoring.</p>
+      </div>
+      {isLoadingTables && healthStrip.total === 0 ? (
+        <div className="grid grid-cols-1 gap-3 p-4">
+          {[1, 2, 3].map((i) => <div key={i} className="h-20 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />)}
+        </div>
+      ) : healthStrip.total === 0 ? (
+        <div className="py-10 text-center text-sm text-slate-400">No tables loaded yet — pick a database &amp; schema to measure readiness.</div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 p-4">
+          <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Ready tables</p>
+            <p className={cn('mt-1 font-mono text-lg font-bold', healthStrip.ready === healthStrip.total ? 'text-green-600' : 'text-amber-600')}>
+              {healthStrip.ready}/{healthStrip.total}
+            </p>
+            <p className="text-[10px] text-slate-400">configured vs total in this model</p>
+          </div>
+          <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">PK coverage</p>
+            <p className={cn('mt-1 font-mono text-lg font-bold', healthStrip.withPk === healthStrip.total ? 'text-green-600' : 'text-amber-600')}>
+              {healthStrip.withPk}/{healthStrip.total}
+            </p>
+            <p className="text-[10px] text-slate-400">tables with a primary key</p>
+          </div>
+          <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">DQ checks</p>
+            <p className={cn(
+              'mt-1 text-lg font-bold',
+              dqAxisSignal === 'green' ? 'text-green-600' : dqAxisSignal === 'orange' ? 'text-amber-600' : dqAxisSignal === 'red' ? 'text-red-600' : 'text-slate-400',
+            )}>
+              {dqAxisLabel}
+            </p>
+            <p className="text-[10px] text-slate-400">release-state data-quality signal</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <ErrorBoundary>
     <ChunkErrorProbe enabled={forceChunkError} />
     <div className={cn(
-      "flex flex-col -mx-6 -mt-6 -mb-12 md:-mx-8 lg:-mx-10 lg:-mb-16 xl:-mx-12 2xl:-mx-16",
+      // Full-bleed: these negative margins must EXACTLY mirror carbon-layout's
+      // <main> paddings (px-3 pt-4 pb-6 md:px-4 lg:px-5 xl:px-6 2xl:px-8) —
+      // stale values pull the page under the sidebar (user screenshot #55).
+      "flex flex-col -mx-3 -mt-4 -mb-6 md:-mx-4 lg:-mx-5 xl:-mx-6 2xl:-mx-8",
       isFullscreen ? "h-screen" : "h-[calc(100dvh-64px)]"
     )}>
       {/* Offline Warning Banner */}
@@ -4184,39 +4587,37 @@ export default function ExploreDesignPage() {
                 View Only
               </Badge>
             )}
-            {/* View-mode tabs — feel native, not crammed */}
-            <div className="ml-1 flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800">
-              <button
-                className={cn(
-                  'flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors',
-                  viewMode === 'catalog'
-                    ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
-                )}
-                onClick={() => { trackTabSwitch('catalog'); setViewMode('catalog'); }}
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-                Catalog
-              </button>
-              <button
-                className={cn(
-                  'flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors',
-                  viewMode === 'modeling'
-                    ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
-                )}
-                onClick={() => {
-                  if (!modelingChoice && readOnlyGuard()) return;
-                  trackTabSwitch('modeling');
-                  // No popup — go straight to the ReactFlow canvas; the inline
-                  // onboarding panel (DWH template / scratch) shows on the canvas
-                  // itself when no template choice has been made yet.
-                  setViewMode('modeling');
-                }}
-              >
-                <Workflow className="h-3.5 w-3.5" />
-                Modeling
-              </button>
+            {/* Main tab bar — workflow-page pattern: Catalog | Modeling only.
+                Lineage / Quality / Policies / Insights are right-bar sections
+                (Impact & Cost / Data Quality / Governance / History). */}
+            <div role="tablist" aria-label="Explore & Design views" className="ml-1 flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800">
+              {([
+                { id: 'catalog', label: 'Catalog', icon: LayoutGrid },
+                { id: 'modeling', label: 'Modeling', icon: Workflow },
+              ] as { id: ViewMode; label: string; icon: React.ElementType }[]).map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={viewMode === id}
+                  aria-label={`${label} view`}
+                  className={cn(
+                    'flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors lg:px-2.5',
+                    viewMode === id
+                      ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+                      : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
+                  )}
+                  onClick={() => {
+                    // No popup for modeling — straight to the ReactFlow canvas;
+                    // its inline onboarding shows when no template choice yet.
+                    if (id === 'modeling' && !modelingChoice && readOnlyGuard()) return;
+                    trackTabSwitch(id);
+                    setViewMode(id);
+                  }}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="hidden md:inline">{label}</span>
+                </button>
+              ))}
             </div>
           </div>
 
@@ -4260,20 +4661,26 @@ export default function ExploreDesignPage() {
                 onClick; the state's own disabled phases are additive on top. */}
             <DeployStateButton
               state={deployState}
-              disabled={!selectedProjectId || isReadOnly}
+              disabled={!selectedProjectId}
               changeCount={displayablePendingEvents.length}
               onClick={async () => {
-                if (readOnlyGuard()) return;
                 if (!selectedProjectId) {
                   toast.error('Please select a project first');
                   return;
                 }
-                const eventIds = pendingEvents.map((e) => e.id);
-                if (eventIds.length > 0) {
-                  const hasConflicts = await checkForConflicts(eventIds);
-                  if (hasConflicts) {
-                    pendingConflictAction.current = { type: 'deploy', eventIds };
-                    return;
+                // Read-only users still OPEN the Release tab (deploy is the
+                // unique deployment surface): the panel reads freely, execute
+                // actions gate themselves, and an approval request is offered
+                // instead of the blocked deploy. Only writers run the
+                // conflict pre-check (it guards their own pending events).
+                if (!isReadOnly) {
+                  const eventIds = pendingEvents.map((e) => e.id);
+                  if (eventIds.length > 0) {
+                    const hasConflicts = await checkForConflicts(eventIds);
+                    if (hasConflicts) {
+                      pendingConflictAction.current = { type: 'deploy', eventIds };
+                      return;
+                    }
                   }
                 }
                 setActiveRightTab('deploy');
@@ -4546,10 +4953,11 @@ export default function ExploreDesignPage() {
         />
       )}
 
-      {/* Top KPI strip (redesign Wave A / mockup 01) — one row below the header,
-          above the workspace, covering BOTH catalog + modeling views. Props-
-          driven; unsourced values render "—" (never fake 0s). */}
-      {!isFullscreen && selectedProjectId && (
+      {/* Top KPI strip (redesign Wave A / mockup 01) — MODELING only now: the
+          catalog view carries its own 6-tile KPI band inside the center column
+          (mockup catalog64 region 2), so showing both would duplicate the row.
+          Props-driven; unsourced values render "—" (never fake 0s). */}
+      {!isFullscreen && selectedProjectId && viewMode === 'modeling' && (
         <ModelKpiStrip kpis={modelKpis} />
       )}
 
@@ -4578,11 +4986,21 @@ export default function ExploreDesignPage() {
             Now ALSO shown in modeling view: a source-selection rail to inject
             source tables into the React-Flow model (select → "Add to Modeling"),
             harmonizing modeling with catalog (Power-BI-Desktop style). */}
-        {selectedProjectId && showSidebar && (viewMode === 'catalog' || viewMode === 'modeling') && (() => {
+        {/* Shown across ALL views (the new Quality/Policies center views need a
+            way to pick the table they are scoped to). */}
+        {selectedProjectId && showSidebar && (() => {
           const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
           const allSelected = selectedTables.size === catalogTables.length && catalogTables.length > 0;
           return (
-          <div className="w-64 lg:w-72 xl:w-80 border-r dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col overflow-hidden flex-shrink-0">
+          <div className={cn(
+            // Focus mode (user #56): with a table selected AND the right cockpit
+            // open, the source rail NARROWS (never hides — 'on la voit plus')
+            // so the canvas/detail gets the room.
+            viewMode === 'modeling' || (selectedTable && rightBarOpen)
+              ? 'w-48 lg:w-52 xl:w-56'
+              : 'w-64 lg:w-72 xl:w-80',
+            'border-r dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col overflow-hidden flex-shrink-0 transition-[width] duration-200',
+          )}>
             {/* Table List Header */}
             <div className="px-3 py-2.5 border-b dark:border-slate-800 bg-gradient-to-b from-slate-50 to-white dark:from-slate-800/60 dark:to-slate-900 space-y-2">
               <div className="flex items-center justify-between">
@@ -4661,28 +5079,6 @@ export default function ExploreDesignPage() {
                 )}
               </div>
 
-              {/* Add to Modeling — animated entrance, shimmer on hover */}
-              {selectedTables.size > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: 4 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  transition={{ type: 'spring', stiffness: 380, damping: 28 }}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Button
-                    size="sm"
-                    onClick={handleAddToModeling}
-                    className="group relative w-full gap-2 overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg hover:shadow-blue-500/40"
-                  >
-                    {/* Shimmer sweep */}
-                    <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-                    <Plus className="h-3.5 w-3.5" />
-                    Add {selectedTables.size} to Modeling
-                    <ArrowRight className="ml-auto h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-                  </Button>
-                </motion.div>
-              )}
             </div>
 
             {/* Virtualized Table List */}
@@ -4738,6 +5134,46 @@ export default function ExploreDesignPage() {
                 </div>
               )}
             </div>
+
+            {/* Pinned bottom (mockup region 4 + addendum #66): the LEFT bar owns
+                SOURCE adding — "Add to Modeling" is the sticky PRIMARY action
+                whenever source tables are selected; below it, the Create button
+                stays for NEW objects (a shortcut to the right bar's Create
+                group, which is the exhaustive creation home). */}
+            <div className="shrink-0 space-y-1.5 border-t dark:border-slate-800 bg-white dark:bg-slate-900 p-2">
+              {selectedTables.size > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: 4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <Button
+                    size="sm"
+                    onClick={handleAddToModeling}
+                    className="group relative w-full gap-2 overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg hover:shadow-blue-500/40"
+                  >
+                    {/* Shimmer sweep */}
+                    <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+                    <Plus className="h-3.5 w-3.5" />
+                    Add {selectedTables.size} to Modeling
+                    <ArrowRight className="ml-auto h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+                  </Button>
+                </motion.div>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isReadOnly}
+                className="w-full gap-1.5 justify-center"
+                onClick={() => handleCreateObject('standard')}
+                title="Create a standard table (opens the Create Table modal)"
+              >
+                <Plus className="h-4 w-4" />
+                Create New Table / View
+              </Button>
+            </div>
           </div>
           );
         })()}
@@ -4770,95 +5206,22 @@ export default function ExploreDesignPage() {
                 </div>
               )}
 
-              {/* Catalog Toolbar - Create Dropdown */}
+              {/* Catalog Toolbar — Create is now a SHORTCUT to the right bar's
+                  Create group (addendum #66: the right bar owns object
+                  creation; the old dropdown's entries moved there). */}
               <div className="px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2">
-                <div className="relative">
-                  <Tooltip content={isReadOnly ? 'View-only access' : 'Create new object'}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={isReadOnly}
-                      onClick={() => {
-                        if (readOnlyGuard()) return;
-                        setShowCreateMenuCatalog(!showCreateMenuCatalog);
-                      }}
-                      className="gap-1.5"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Create
-                      <ChevronDown className="h-3 w-3" />
-                    </Button>
-                  </Tooltip>
-                  {showCreateMenuCatalog && (
-                    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-50 min-w-[220px]">
-                      <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Tables</div>
-                      <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                        onClick={() => { setCreateTableType('standard'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
-                      >
-                        <Table2 className="w-4 h-4" /> Standard Table
-                      </button>
-                      <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                        onClick={() => { setCreateTableType('temporary'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
-                      >
-                        <Clock className="w-4 h-4" /> Temporary Table
-                      </button>
-                      <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                        onClick={() => { setCreateTableType('transient'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
-                      >
-                        <Timer className="w-4 h-4" /> Transient Table
-                      </button>
-                      <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                        onClick={() => { setCreateTableType('external'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
-                      >
-                        <Cloud className="w-4 h-4" /> External Table
-                      </button>
-                      <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                        onClick={() => { setCreateTableType('iceberg'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
-                      >
-                        <Snowflake className="w-4 h-4" /> Iceberg Table
-                      </button>
-                      <div className="border-t dark:border-slate-700 my-1" />
-                      <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Specialized</div>
-                      <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                        onClick={() => { setDynamicTableModal(true); setShowCreateMenuCatalog(false); }}
-                      >
-                        <RefreshCw className="w-4 h-4" /> Dynamic Table
-                      </button>
-                      <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                        onClick={() => { setEventTableModal(true); setShowCreateMenuCatalog(false); }}
-                      >
-                        <Bell className="w-4 h-4" /> Event Table
-                      </button>
-                      <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                        onClick={() => { setHybridTableModal(true); setShowCreateMenuCatalog(false); }}
-                      >
-                        <Layers className="w-4 h-4" /> Hybrid Table
-                      </button>
-                      <div className="border-t dark:border-slate-700 my-1" />
-                      <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Data Integration</div>
-                      <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                        onClick={() => { setStreamModal(true); setShowCreateMenuCatalog(false); }}
-                      >
-                        <GitBranch className="w-4 h-4" /> Stream (CDC)
-                      </button>
-                      <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                        onClick={() => { setAlertModal(true); setShowCreateMenuCatalog(false); }}
-                      >
-                        <AlertTriangle className="w-4 h-4" /> Alert
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <Tooltip content={isReadOnly ? 'View-only access' : 'Create new object — opens the Create group in the right bar'}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isReadOnly}
+                    onClick={openCreateGroup}
+                    className="gap-1.5"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create
+                  </Button>
+                </Tooltip>
 
                 {/* Right side of the toolbar — the Create button used to sit
                     alone on a full-width empty bar (orphan-button dead zone,
@@ -4888,8 +5251,156 @@ export default function ExploreDesignPage() {
 
               {/* Center + Right Bar row */}
               <div className="flex flex-1 overflow-hidden min-h-0">
-              {/* Table Detail Panel - Now in CENTER */}
-              <div className="flex-1 overflow-auto min-w-0">
+              {/* CENTER column (mockup region 2): KPI band → sub-tabs → content */}
+              <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+                {/* "Ready data" health strip — each tile pairs a REAL value
+                    (skeleton while its source is in flight, muted "n/a" when
+                    the fetch errored — never an unexplained "—") with a
+                    threshold dot and ONE deep-link CTA to the fixing action.
+                    Values shared with the Quality view via `healthStrip`. */}
+                <div className="shrink-0 px-3 pt-3">
+                  <div
+                    data-testid="catalog-kpi-band"
+                    className="grid grid-cols-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white shadow-sm dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-6 sm:divide-y-0 sm:divide-x"
+                  >
+                    {([
+                      {
+                        key: 'ready',
+                        label: 'Ready tables',
+                        loading: isLoadingTables && healthStrip.total === 0,
+                        value: `${healthStrip.ready}/${healthStrip.total}`,
+                        muted: healthStrip.total === 0,
+                        signal: healthStrip.total === 0 ? 'grey' : healthStrip.ready === healthStrip.total ? 'green' : 'amber',
+                        cta: 'Review',
+                        onCta: () => setCatalogSubTab('columns'),
+                      },
+                      {
+                        key: 'pk',
+                        label: 'PK coverage',
+                        loading: isLoadingTables && healthStrip.total === 0,
+                        value: `${healthStrip.withPk}/${healthStrip.total}`,
+                        muted: healthStrip.total === 0,
+                        signal: healthStrip.total === 0 ? 'grey' : healthStrip.withPk === healthStrip.total ? 'green' : 'amber',
+                        cta: 'Set PKs',
+                        onCta: () => { if (readOnlyGuard()) return; setShowBulkPKModal(true); },
+                      },
+                      {
+                        // Server DQ axis signal; upgraded to the exact profile
+                        // score when a table is selected AND profiled.
+                        key: 'dq',
+                        label: 'Data quality',
+                        loading: releaseLoading && !releaseServerState,
+                        value: selectedTable && inlineProfileData ? `${inlineProfileData.aggregate_quality_score}%` : dqAxisLabel,
+                        muted: !(selectedTable && inlineProfileData) && dqAxisSignal === 'grey',
+                        signal: selectedTable && inlineProfileData
+                          ? (inlineProfileData.aggregate_quality_score >= 80 ? 'green' : inlineProfileData.aggregate_quality_score >= 60 ? 'amber' : 'red')
+                          : axisToStripSignal(dqAxisSignal),
+                        cta: 'Open',
+                        onCta: () => setCatalogSubTab('quality'),
+                      },
+                      {
+                        // applied/declared masking configs — lazy fetch (see
+                        // the maskingConfigs effect); honest n/a on error.
+                        key: 'masking',
+                        label: 'Masking',
+                        loading: maskingFetch === 'loading',
+                        value: maskingFetch === 'ready' && maskingConfigs
+                          ? `${maskingConfigs.filter((c) => c.applied_at).length}/${maskingConfigs.length}`
+                          : 'n/a',
+                        muted: maskingFetch !== 'ready' || (maskingConfigs?.length ?? 0) === 0,
+                        signal: maskingFetch !== 'ready' || !maskingConfigs || maskingConfigs.length === 0
+                          ? 'grey'
+                          : maskingConfigs.every((c) => c.applied_at) ? 'green' : 'amber',
+                        cta: 'Govern',
+                        onCta: () => { setActiveRightTab('governance'); setRightBarOpen(true); },
+                      },
+                      {
+                        key: 'pii',
+                        label: 'PII risk',
+                        loading: false,
+                        value: piiLevel ?? 'Not scanned',
+                        muted: !piiLevel,
+                        signal: piiLevel === 'High' ? 'red' : piiLevel === 'Medium' ? 'amber' : piiLevel === 'Low' ? 'green' : 'grey',
+                        cta: piiLevel ? 'Re-scan' : 'Classify',
+                        onCta: () => { setActiveRightTab('ai'); if (!rightBarOpen) setRightBarOpen(true); handleAIClassify(); },
+                      },
+                      {
+                        key: 'release',
+                        label: 'Release',
+                        loading: releaseLoading && !releaseServerState,
+                        value: releaseStatusLabel ?? 'n/a',
+                        muted: !releaseServerState,
+                        signal: releaseStripSignal,
+                        cta: 'Deploy',
+                        onCta: () => { setActiveRightTab('deploy'); setRightBarOpen(true); },
+                      },
+                    ] as Array<{ key: string; label: string; loading: boolean; value: string; muted: boolean; signal: 'green' | 'amber' | 'red' | 'grey'; cta: string; onCta: () => void }>).map((t) => (
+                      <div key={t.key} className="min-w-0 px-3 py-2">
+                        <p className="flex items-center gap-1 truncate text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+                          <span
+                            className={cn(
+                              'h-1.5 w-1.5 shrink-0 rounded-full',
+                              t.signal === 'green' && 'bg-green-500',
+                              t.signal === 'amber' && 'bg-amber-500',
+                              t.signal === 'red' && 'bg-red-500',
+                              t.signal === 'grey' && 'bg-slate-300 dark:bg-slate-600',
+                            )}
+                            aria-hidden="true"
+                          />
+                          <span className="truncate">{t.label}</span>
+                        </p>
+                        {t.loading ? (
+                          <span className="mt-1 block h-4 w-12 animate-pulse rounded bg-slate-200 dark:bg-slate-700" aria-hidden="true" />
+                        ) : (
+                          <p className={cn('truncate font-mono text-sm font-bold', t.muted ? 'text-slate-400' : 'text-slate-800 dark:text-slate-100')}>{t.value}</p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={t.onCta}
+                          className="mt-0.5 text-[10px] font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                          {t.cta}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Sub-tabs — scoped to the current selection (schema or table). */}
+                <div
+                  role="tablist"
+                  aria-label="Catalog sections"
+                  className="shrink-0 flex items-center gap-0.5 overflow-x-auto border-b px-3 pt-2 dark:border-slate-800"
+                >
+                  {([
+                    { id: 'overview', label: 'Overview' },
+                    { id: 'columns', label: `Columns (${selectedTable ? tableColumns.length : kpiColumnTotal > 0 ? kpiColumnTotal : '—'})` },
+                    { id: 'preview', label: 'Data Preview' },
+                    { id: 'lineage', label: 'Lineage' },
+                    { id: 'quality', label: 'Quality' },
+                    { id: 'history', label: 'History' },
+                  ] as { id: CatalogSubTab; label: string }[]).map((t) => (
+                    <button
+                      key={t.id}
+                      role="tab"
+                      aria-selected={catalogSubTab === t.id}
+                      onClick={() => setCatalogSubTab(t.id)}
+                      className={cn(
+                        '-mb-px whitespace-nowrap border-b-2 px-2.5 py-1.5 text-xs font-medium transition-colors',
+                        catalogSubTab === t.id
+                          ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                          : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Data Preview sub-tab — the pre-existing table detail block
+                    (header card + unified columns/types/quality/data preview). */}
+                {catalogSubTab === 'preview' && (
+                <div className="flex-1 min-h-0 overflow-y-auto">
                 {selectedTable ? (
                   <div className="p-4 max-w-4xl mx-auto">
                     {/* Table Header with Name & Status */}
@@ -4941,9 +5452,10 @@ export default function ExploreDesignPage() {
                           <span className="inline-flex items-center gap-0.5 text-xs text-red-500"><Shield className="h-3 w-3" />{tableColumns.filter((c) => c.isSensitive).length} PII</span>
                         )}
                         <span className="flex-1" />
-                        {/* Quick actions → open right bar tabs */}
+                        {/* Quick actions — simple adds run INLINE (modal / docked
+                            panel); only Policies still lives in the right bar. */}
                         <button
-                          onClick={() => { if (readOnlyGuard()) return; if (!canCreateObjects) { toast.error(createDeniedReason); return; } setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
+                          onClick={() => { if (readOnlyGuard()) return; if (!canCreateObjects) { toast.error(createDeniedReason); return; } setShowAddColumnModal(true); }}
                           disabled={isReadOnly || !canCreateObjects}
                           title={!canCreateObjects ? createDeniedReason : undefined}
                           className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
@@ -4957,7 +5469,7 @@ export default function ExploreDesignPage() {
                           <Shield className="h-3 w-3" /> Policies
                         </button>
                         <button
-                          onClick={() => { setActiveRightTab('actions'); setFocusedAction('ingestion'); if (!rightBarOpen) setRightBarOpen(true); }}
+                          onClick={() => { if (readOnlyGuard()) return; setShowModelingIngestionPanel(true); }}
                           className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-cyan-600 dark:text-cyan-400 rounded-md hover:bg-cyan-50 dark:hover:bg-cyan-900/30 transition-colors"
                         >
                           <RefreshCw className="h-3 w-3" /> Ingestion
@@ -5188,22 +5700,286 @@ export default function ExploreDesignPage() {
                     {/* Profile data is now integrated into the preview table above */}
                   </div>
                 ) : (
-                  <div className="h-full w-full">
-                    {tables.length > 0 ? (
-                      <SourceMindMap
-                        databases={databases}
-                        schemas={schemas}
-                        tables={tables}
-                        selectedDatabase={selectedDatabase}
-                        onSelectTable={(t) => setSelectedTable(t)}
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                        <Table2 className="h-16 w-16 mb-4 text-slate-300" />
-                        <p className="font-medium text-lg">Select a database & schema</p>
-                        <p className="text-sm mt-1">Choose from the toolbar above to browse tables</p>
+                  <SelectTableHint what="sample rows and profile" />
+                )}
+                </div>
+                )}
+
+                {/* Overview sub-tab — the source map (existing SourceMindMap)
+                    with the two selection-scoped cards below (mockup region 3). */}
+                {catalogSubTab === 'overview' && (
+                  <div className="flex-1 min-h-0 overflow-y-auto">
+                    <div className="h-[52vh] min-h-[360px]">
+                      {tables.length > 0 ? (
+                        <SourceMindMap
+                          databases={databases}
+                          schemas={schemas}
+                          tables={tables}
+                          selectedDatabase={selectedDatabase}
+                          onSelectTable={(t) => setSelectedTable(t)}
+                          // Lineage for the focus KPI band — REUSES state already
+                          // loaded by this page (FK relationships + column
+                          // mappings); the map composes, it never re-fetches.
+                          relationships={defaultRelationships}
+                          mappings={initialColumnMappings}
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                          <Table2 className="h-16 w-16 mb-4 text-slate-300" />
+                          <p className="font-medium text-lg">Select a database &amp; schema</p>
+                          <p className="text-sm mt-1">Choose from the toolbar above to browse tables</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Two side-by-side cards below the map. */}
+                    <div className="grid grid-cols-1 gap-3 border-t p-3 dark:border-slate-800 xl:grid-cols-2">
+                      {/* Data Preview · <selected table> — reuses the SAME
+                          inline-preview fetch the Data Preview sub-tab uses. */}
+                      <div data-testid="overview-preview-card" className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center justify-between border-b px-3 py-2 dark:border-slate-800">
+                          <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                            <Eye className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                            <span className="truncate">Data Preview{selectedTable ? ` · ${selectedTable.table}` : ''}</span>
+                          </span>
+                          {selectedTable && (
+                            <button
+                              type="button"
+                              onClick={() => setCatalogSubTab('preview')}
+                              className="shrink-0 text-[11px] font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400"
+                            >
+                              Open full preview →
+                            </button>
+                          )}
+                        </div>
+                        {!selectedTable ? (
+                          <SelectTableHint what="sample rows" />
+                        ) : (
+                          <PreviewMiniTable
+                            loading={isLoadingInlinePreview}
+                            error={inlinePreviewError}
+                            data={inlinePreviewData}
+                            tableColumns={tableColumns}
+                          />
+                        )}
                       </div>
+
+                      {/* Columns (N) — compact list + jump to the Columns sub-tab. */}
+                      <div data-testid="overview-columns-card" className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                        <div className="flex items-center justify-between border-b px-3 py-2 dark:border-slate-800">
+                          <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                            <Columns3 className="h-3.5 w-3.5 text-purple-500" />
+                            Columns ({selectedTable ? tableColumns.length : kpiColumnTotal > 0 ? kpiColumnTotal : '—'})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setCatalogSubTab('columns')}
+                            className="text-[11px] font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400"
+                          >
+                            View all columns →
+                          </button>
+                        </div>
+                        {selectedTable ? (
+                          tableColumns.length > 0 ? (
+                            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {tableColumns.slice(0, 8).map((c) => (
+                                <li key={c.name} className="flex items-center gap-2 px-3 py-1.5">
+                                  {c.isPrimaryKey && <Key className="h-3 w-3 shrink-0 text-amber-500" />}
+                                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-slate-700 dark:text-slate-300">{c.name}</span>
+                                  <span className="rounded bg-slate-100 px-1.5 py-0 font-mono text-[9px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">{c.dataType}</span>
+                                  {c.isSensitive && <span className="rounded bg-red-100 px-1 py-0 text-[9px] font-semibold text-red-600 dark:bg-red-900/30 dark:text-red-400">PII</span>}
+                                </li>
+                              ))}
+                              {tableColumns.length > 8 && (
+                                <li className="px-3 py-1.5 text-[10px] text-slate-400">+{tableColumns.length - 8} more — view all columns</li>
+                              )}
+                            </ul>
+                          ) : (
+                            <div className="py-6 text-center text-sm text-slate-400">Loading columns…</div>
+                          )
+                        ) : (
+                          <SelectTableHint what="columns and types" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Columns sub-tab — standardized column table (or schema-level
+                    aggregate when nothing is selected). */}
+                {catalogSubTab === 'columns' && (
+                  <div className="flex-1 min-h-0 overflow-y-auto p-3">
+                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                      <div className="flex items-center justify-between border-b px-3 py-2 dark:border-slate-800">
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          {selectedTable
+                            ? `Columns (${tableColumns.length}) · ${selectedTable.database}.${selectedTable.schema}.${selectedTable.table}`
+                            : `Tables in scope (${tables.length}) — select one for its column detail`}
+                        </span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        {selectedTable ? (
+                          tableColumns.length > 0 ? (
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b bg-slate-50 text-left dark:border-slate-700 dark:bg-slate-800">
+                                  <th className="w-8 px-2.5 py-2 font-medium text-slate-500">#</th>
+                                  <th className="px-2.5 py-2 font-medium text-slate-500">Column</th>
+                                  <th className="px-2.5 py-2 font-medium text-slate-500">Type</th>
+                                  <th className="px-2.5 py-2 font-medium text-slate-500">Constraints</th>
+                                  <th className="px-2.5 py-2 font-medium text-slate-500">Sensitivity</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {tableColumns.map((c, i) => (
+                                  <tr key={c.name} className={cn('border-t border-slate-100 dark:border-slate-800', i % 2 === 1 && 'bg-slate-50/50 dark:bg-slate-800/20')}>
+                                    <td className="px-2.5 py-1.5 font-mono text-slate-400">{i + 1}</td>
+                                    <td className="whitespace-nowrap px-2.5 py-1.5 font-mono font-medium text-slate-700 dark:text-slate-300">{c.name}</td>
+                                    <td className="whitespace-nowrap px-2.5 py-1.5">
+                                      <span className="rounded bg-slate-100 px-1.5 py-0 font-mono text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">{c.dataType}</span>
+                                    </td>
+                                    <td className="whitespace-nowrap px-2.5 py-1.5">
+                                      <span className="flex items-center gap-1">
+                                        {c.isPrimaryKey && <span className="rounded bg-amber-100 px-1 py-0 text-[9px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">PK</span>}
+                                        {!c.isNullable && <span className="rounded bg-blue-100 px-1 py-0 text-[9px] font-semibold text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">NN</span>}
+                                        {!c.isPrimaryKey && c.isNullable && <span className="text-slate-300">—</span>}
+                                      </span>
+                                    </td>
+                                    <td className="whitespace-nowrap px-2.5 py-1.5">
+                                      <span className="flex items-center gap-1">
+                                        {c.isSensitive && <span className="rounded bg-red-100 px-1 py-0 text-[9px] font-semibold text-red-600 dark:bg-red-900/30 dark:text-red-400">PII</span>}
+                                        <ClassificationBadge tableId={selectedTable.id} columnName={c.name} classifications={columnClassifications} />
+                                        {!c.isSensitive && <span className="text-slate-300">—</span>}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              {/* Inline add — the simple action lives right where the
+                                  columns are, no right-bar detour. */}
+                              <tfoot>
+                                <tr className="border-t border-slate-100 dark:border-slate-800">
+                                  <td colSpan={5} className="p-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => { if (readOnlyGuard()) return; if (!canCreateObjects) { toast.error(createDeniedReason); return; } setShowAddColumnModal(true); }}
+                                      className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50/60 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                                    >
+                                      <Plus className="h-3.5 w-3.5" /> Add column
+                                    </button>
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          ) : (
+                            <div className="py-8 text-center text-sm text-slate-400">Columns not loaded yet for this table</div>
+                          )
+                        ) : tables.length > 0 ? (
+                          // Schema-level aggregate: one row per table in scope.
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b bg-slate-50 text-left dark:border-slate-700 dark:bg-slate-800">
+                                <th className="px-2.5 py-2 font-medium text-slate-500">Table</th>
+                                <th className="px-2.5 py-2 font-medium text-slate-500">Schema</th>
+                                <th className="px-2.5 py-2 font-medium text-slate-500">Columns</th>
+                                <th className="px-2.5 py-2 font-medium text-slate-500">PK</th>
+                                <th className="px-2.5 py-2 font-medium text-slate-500">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {tables.map((t) => (
+                                <tr
+                                  key={t.id}
+                                  onClick={() => handleTableClick(t)}
+                                  className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50"
+                                >
+                                  <td className="whitespace-nowrap px-2.5 py-1.5 font-mono font-medium text-slate-700 dark:text-slate-300">{t.table}</td>
+                                  <td className="whitespace-nowrap px-2.5 py-1.5 font-mono text-slate-500">{t.database}.{t.schema}</td>
+                                  <td className="px-2.5 py-1.5 text-slate-600 dark:text-slate-400">{t.columnCount || '—'}</td>
+                                  <td className="px-2.5 py-1.5">{t.hasPrimaryKey ? <Key className="h-3 w-3 text-amber-500" /> : <span className="text-slate-300">—</span>}</td>
+                                  <td className="px-2.5 py-1.5">
+                                    <span className={cn('rounded px-1.5 py-0 text-[9px] font-semibold', t.status === 'configured' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400')}>{t.status}</span>
+                                  </td>
+                                </tr>
+                              ))}
+                              {/* Inline add — schema level: create a table right from
+                                  the list (opens the Create Table modal directly). */}
+                              <tr className="border-t border-slate-100 dark:border-slate-800">
+                                <td colSpan={5} className="p-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => { if (!canCreateObjects) { toast.error(createDeniedReason); return; } handleCreateObject('standard'); }}
+                                    className="flex w-full items-center gap-1.5 px-2.5 py-2 text-left text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50/60 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" /> Add table
+                                  </button>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        ) : (
+                          <div className="py-8 text-center text-sm text-slate-400">No tables loaded — select a database &amp; schema above</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Lineage sub-tab — relations already loaded by this page
+                    (FK constraints + column mappings), scoped to the selection. */}
+                {catalogSubTab === 'lineage' && (() => {
+                  const scopeKey = selectedTable ? `${selectedTable.schema}.${selectedTable.table}`.toUpperCase() : null;
+                  const rows = scopeKey
+                    ? catalogRelations.filter((r) => r.source.toUpperCase() === scopeKey || r.target.toUpperCase() === scopeKey)
+                    : catalogRelations;
+                  return (
+                    <div className="flex-1 min-h-0 overflow-y-auto p-3">
+                      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                        <div className="border-b px-3 py-2 text-xs font-semibold text-slate-800 dark:border-slate-800 dark:text-slate-200">
+                          Relations ({rows.length}){selectedTable ? ` · ${selectedTable.table}` : ''}
+                        </div>
+                        <RelationsTable
+                          rows={rows}
+                          emptyText={selectedTable
+                            ? `No FK relationships or column mappings touch ${selectedTable.table} — draft one in Modeling or run AI relationship discovery.`
+                            : 'No FK relationships or column mappings loaded — draft them in Modeling or run AI relationship discovery.'}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Quality sub-tab — the SAME QualityPanel the right bar docks. */}
+                {catalogSubTab === 'quality' && (
+                  <div className="flex-1 min-h-0 overflow-y-auto">
+                    {selectedTable ? (
+                      <div className="mx-auto max-w-3xl">
+                        <QualityAxisPanel
+                          table={selectedTable}
+                          columns={tableColumns}
+                          projectId={selectedProjectId}
+                          profileData={inlineProfileData}
+                          onAddEvent={addEvent}
+                          ingestionTrace={selectedIngestion}
+                        />
+                      </div>
+                    ) : (
+                      <SelectTableHint what="quality profile and monitoring" />
                     )}
+                  </div>
+                )}
+
+                {/* History sub-tab — the SAME HistoryPanel the right bar docks,
+                    filtered to the selection when a table is active. */}
+                {catalogSubTab === 'history' && (
+                  <div className="flex-1 min-h-0 overflow-y-auto">
+                    <div className="mx-auto max-w-3xl">
+                      <HistoryAxisPanel
+                        events={selectedTable
+                          ? rightBarHistoryEvents.filter((e) => e.object === selectedTable.table || e.object === selectedTable.schema)
+                          : rightBarHistoryEvents}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -5226,15 +6002,7 @@ export default function ExploreDesignPage() {
                 onRunClassify={handleAIClassify}
                 onAddEvent={addEvent}
                 profileData={inlineProfileData}
-                historyEvents={events.slice(0, 50).map((e: any) => ({
-                  id: e.id || String(Math.random()),
-                  type: e.type || 'Event',
-                  status: (e.status === 'deployed' || e.status === 'success') ? 'success' as const : e.status === 'error' ? 'error' as const : e.status === 'warning' ? 'warning' as const : 'pending' as const,
-                  actor: e.createdBy || e.actor || currentUsername || 'System',
-                  timestamp: e.createdAt || e.timestamp || new Date().toISOString(),
-                  object: e.target?.table || e.target?.schema || '—',
-                  message: e.error || undefined,
-                }))}
+                historyEvents={rightBarHistoryEvents}
                 pendingEventsCount={displayablePendingEvents.length}
                 pendingEvents={displayablePendingEvents}
                 selectedDatabase={selectedDatabase}
@@ -5246,19 +6014,33 @@ export default function ExploreDesignPage() {
                 deployOverride={deployTabNode}
                 ingestionTrace={selectedIngestion}
                 tabSeverity={rightBarSeverity}
+                onCreateObject={handleCreateObject}
+                inspectorPreview={selectedTable ? (
+                  <PreviewMiniTable
+                    loading={isLoadingInlinePreview}
+                    error={inlinePreviewError}
+                    data={inlinePreviewData}
+                    tableColumns={tableColumns}
+                  />
+                ) : undefined}
+                onShowAllColumns={() => { setViewMode('catalog'); setCatalogSubTab('columns'); }}
+                qualityEmptyOverride={schemaQualityReadiness}
+                projectCrudSlot={projectCrudNode}
+                // Catalog landing (mockup region 5): the AI Assistant (Cortex)
+                // panel — smart suggestions from already-fetched signals, the
+                // existing COCO draft entry, and section quick chips.
                 emptyOverride={
-                  <ModelOverview
-                    tableCount={tables.length || modelingTableIds.size}
-                    relationCount={tables.length > 0 ? defaultRelationships.length + initialColumnMappings.length : 0}
-                    targetDwh={selectedDatabase || dwhTargetDatabase || ''}
-                    projectId={selectedProjectId}
+                  <CortexAssistantPanel
+                    suggestions={cortexSuggestions}
+                    onViewRecommendations={() => { setActiveRightTab('ai'); setRightBarOpen(true); }}
+                    onChip={handleCortexChip}
+                    draftTablesSeed={tables.slice(0, 3).map((t) => `${t.database}.${t.schema}.${t.table}`).join(', ')}
                   />
                 }
               />
               </div>{/* end center+right row */}
             </>
           )}
-
 
           {viewMode === 'modeling' && (
             // Modeling View — canvas + right action cockpit (mirrors catalog).
@@ -5303,129 +6085,40 @@ export default function ExploreDesignPage() {
                           <ChevronDown className="h-3 w-3" />
                         </Button>
                       </Tooltip>
+                      {/* Slimmed fullscreen Create menu (audit: 10 items → 4).
+                          The full object-type catalog lives in ONE place — the
+                          right bar's Create group — reachable via "More object
+                          types…". Canvas toolbar owns undo/redo in fullscreen. */}
                       {showCreateMenuModeling && (
                         <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-50 min-w-[220px]">
-                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Tables</div>
                           <button
                             className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
                             onClick={() => { setCreateTableType('standard'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
                           >
-                            <TableIcon className="w-4 h-4" /> Standard Table
+                            <TableIcon className="w-4 h-4" /> Standard table
                           </button>
                           <button
                             className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                            onClick={() => { setCreateTableType('temporary'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                            onClick={() => { setShowAddColumnModal(true); setShowCreateMenuModeling(false); }}
                           >
-                            <Clock className="w-4 h-4" /> Temporary Table
+                            <Columns3 className="w-4 h-4" /> Add column
                           </button>
                           <button
                             className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                            onClick={() => { setCreateTableType('transient'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                            onClick={() => { setShowRelationshipModal(true); setShowCreateMenuModeling(false); }}
                           >
-                            <Timer className="w-4 h-4" /> Transient Table
-                          </button>
-                          <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                            onClick={() => { setCreateTableType('external'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
-                          >
-                            <Cloud className="w-4 h-4" /> External Table
-                          </button>
-                          <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                            onClick={() => { setCreateTableType('iceberg'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
-                          >
-                            <Snowflake className="w-4 h-4" /> Iceberg Table
+                            <Link2 className="w-4 h-4" /> Create relationship
                           </button>
                           <div className="border-t dark:border-slate-700 my-1" />
-                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Specialized</div>
                           <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                            onClick={() => { setDynamicTableModal(true); setShowCreateMenuModeling(false); }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-500 dark:text-slate-400"
+                            onClick={() => { openCreateGroup(); setShowCreateMenuModeling(false); }}
                           >
-                            <RefreshCw className="w-4 h-4" /> Dynamic Table
-                          </button>
-                          <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                            onClick={() => { setEventTableModal(true); setShowCreateMenuModeling(false); }}
-                          >
-                            <Bell className="w-4 h-4" /> Event Table
-                          </button>
-                          <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                            onClick={() => { setHybridTableModal(true); setShowCreateMenuModeling(false); }}
-                          >
-                            <Layers className="w-4 h-4" /> Hybrid Table
-                          </button>
-                          <div className="border-t dark:border-slate-700 my-1" />
-                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Data Integration</div>
-                          <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                            onClick={() => { setStreamModal(true); setShowCreateMenuModeling(false); }}
-                          >
-                            <GitBranch className="w-4 h-4" /> Stream (CDC)
-                          </button>
-                          <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                            onClick={() => { setAlertModal(true); setShowCreateMenuModeling(false); }}
-                          >
-                            <AlertTriangle className="w-4 h-4" /> Alert
-                          </button>
-                          <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
-                            onClick={() => { setShowIngestionModal(true); setShowCreateMenuModeling(false); }}
-                          >
-                            <Workflow className="w-4 h-4" /> Guided Ingestion (source → target)
+                            <ChevronRight className="w-4 h-4" /> More object types…
                           </button>
                         </div>
                       )}
                     </div>
-                    <Tooltip content={isReadOnly ? 'View-only access' : "Ingestion Config"}>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          if (readOnlyGuard()) return;
-                          if (!selectedTable) {
-                            toast.error('Please select a table first');
-                            return;
-                          }
-                          setShowModelingIngestionPanel(true);
-                        }}
-                        disabled={!selectedTable || isReadOnly}
-                        className="gap-2"
-                      >
-                        <Upload className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip content={isReadOnly ? 'View-only access' : "Manage Relationships"}>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          if (readOnlyGuard()) return;
-                          if (!selectedTable) {
-                            toast.error('Please select a table first');
-                            return;
-                          }
-                          setShowRelationshipModal(true);
-                        }}
-                        disabled={!selectedTable || isReadOnly}
-                        className="gap-2"
-                      >
-                        <Link2 className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
-                    <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
-                    <Tooltip content={isReadOnly ? 'View-only access' : 'Undo'}>
-                      <Button variant="outline" size="sm" onClick={() => undoEvent()} disabled={!canUndo || isReadOnly}>
-                        <Undo2 className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip content={isReadOnly ? 'View-only access' : 'Redo'}>
-                      <Button variant="outline" size="sm" onClick={() => redoEvent()} disabled={!canRedo || isReadOnly}>
-                        <Redo2 className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
                     <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
                     <Button
                       size="sm"
@@ -5476,8 +6169,10 @@ export default function ExploreDesignPage() {
               )}
               {/* Inline onboarding (no popup): choose DWH template or scratch
                   directly on the canvas. Only shown for a genuinely empty,
-                  not-yet-started model — never overlay a populated canvas. */}
-              {!modelingChoice && modelingTableIds.size === 0 && (
+                  not-yet-started model — never overlay a populated canvas: if
+                  the project already has tables loaded (in scope OR on the
+                  canvas), the canvas itself must show. */}
+              {!modelingChoice && modelingTableIds.size === 0 && tables.length === 0 && (
                 <ModelingTemplateModal
                   inline
                   isOpen
@@ -5508,14 +6203,11 @@ export default function ExploreDesignPage() {
                 onColumnsMapUpdate={setTableColumnsMap}
                 onTableSelect={handleTableClick}
                 onBlankClick={() => {
-                  // Spec §1: empty-canvas click with nothing selected closes the
-                  // right-bar; with a selection it only clears the selection
-                  // (the bar falls back to the project-overview landing).
-                  if (selectedTable) {
-                    setSelectedTable(null);
-                  } else if (rightBarOpen) {
-                    setRightBarOpen(false);
-                  }
+                  // #61: ONE center click = full canvas focus — clear the
+                  // selection AND hide the cockpit in the same gesture (the
+                  // old two-step felt like the bar refused to leave).
+                  setSelectedTable(null);
+                  setRightBarOpen(false);
                 }}
                 selectedTableId={selectedTable?.id}
                 onTableExclude={handleRemoveFromModeling}
@@ -5632,6 +6324,9 @@ export default function ExploreDesignPage() {
                   setAlertModal(true);
                 }}
                 onAddTable={handleAddTableFromCanvas}
+                // Mockup #68 — "+ Add table" first toolbar item routes to the
+                // right bar's Create group (the exhaustive creation home).
+                onOpenCreate={openCreateGroup}
                 className={cn("h-full", isFullscreen && "pt-16")}
                 projectId={selectedProjectId}
                 defaultRelationships={defaultRelationships}
@@ -5645,6 +6340,42 @@ export default function ExploreDesignPage() {
                 initialMappings={initialColumnMappings}
               />
               </ErrorBoundary>
+
+              {/* Quick Actions band (mockup #68 P2c) — ONE slim strip on the
+                  canvas floor routing to EXISTING flows (no new logic). Also
+                  hosts the model counts (the old floating stats card). */}
+              <div
+                data-testid="modeling-quick-actions"
+                className="absolute inset-x-0 bottom-0 z-10 flex items-center gap-1.5 overflow-x-auto border-t border-slate-200 bg-white/95 px-3 py-1.5 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95"
+              >
+                <span className="hidden shrink-0 items-center gap-1.5 text-[10px] text-slate-400 sm:flex">
+                  <Table2 className="h-3 w-3" />
+                  {tables.filter((t) => modelingTableIds.has(t.id)).length} tables
+                  <span aria-hidden>·</span>
+                  <GitBranch className="h-3 w-3" />
+                  {kpiRelationCount} relations
+                </span>
+                <span className="mx-1 hidden h-4 w-px shrink-0 bg-slate-200 dark:bg-slate-700 sm:block" aria-hidden />
+                <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-slate-400">Quick actions</span>
+                {([
+                  { label: 'Create Table', icon: Table2, onClick: openCreateGroup, title: 'Opens the Create group in the right bar' },
+                  { label: 'Create View', icon: Eye, onClick: () => handleCreateObject('dynamic_table'), title: 'Ships as a governed Dynamic Table (SQL-defined, auto-refreshed)' },
+                  { label: 'Ingestion Run', icon: RefreshCw, onClick: () => { if (readOnlyGuard()) return; setShowModelingIngestionPanel(true); }, title: 'Configure & run ingestion for the model' },
+                  { label: 'DAG Viewer', icon: Workflow, onClick: () => setShowDagViewer(true), title: 'Dependency graph of pending changes' },
+                  { label: 'AI Recommendations', icon: Sparkles, onClick: () => { setActiveRightTab('ai'); setRightBarOpen(true); }, title: 'Open the AI Assist section' },
+                ] as { label: string; icon: React.ElementType; onClick: () => void; title: string }[]).map(({ label, icon: Icon, onClick, title }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={onClick}
+                    title={title}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
+                  >
+                    <Icon className="h-3 w-3" />
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
 
               {/* Right action cockpit — same component as catalog, fed the
@@ -5669,15 +6400,7 @@ export default function ExploreDesignPage() {
                 onRunClassify={handleAIClassify}
                 onAddEvent={addEvent}
                 profileData={inlineProfileData}
-                historyEvents={events.slice(0, 50).map((e: any) => ({
-                  id: e.id || String(Math.random()),
-                  type: e.type || 'Event',
-                  status: (e.status === 'deployed' || e.status === 'success') ? 'success' as const : e.status === 'error' ? 'error' as const : e.status === 'warning' ? 'warning' as const : 'pending' as const,
-                  actor: e.createdBy || e.actor || currentUsername || 'System',
-                  timestamp: e.createdAt || e.timestamp || new Date().toISOString(),
-                  object: e.target?.table || e.target?.schema || '—',
-                  message: e.error || undefined,
-                }))}
+                historyEvents={rightBarHistoryEvents}
                 pendingEventsCount={displayablePendingEvents.length}
                 pendingEvents={displayablePendingEvents}
                 selectedDatabase={selectedDatabase}
@@ -5687,9 +6410,21 @@ export default function ExploreDesignPage() {
                 onDeselectTable={() => { setSelectedTable(null); }}
                 analystSlot={selectedProjectId ? <AiChangeAnalyst projectId={selectedProjectId} /> : undefined}
                 onNodeAction={handleNodeContextAction}
+                onCreateObject={handleCreateObject}
+                inspectorPreview={selectedTable ? (
+                  <PreviewMiniTable
+                    loading={isLoadingInlinePreview}
+                    error={inlinePreviewError}
+                    data={inlinePreviewData}
+                    tableColumns={tableColumns}
+                  />
+                ) : undefined}
+                onShowAllColumns={() => { setViewMode('catalog'); setCatalogSubTab('columns'); }}
                 deployOverride={deployTabNode}
                 ingestionTrace={selectedIngestion}
                 tabSeverity={rightBarSeverity}
+                qualityEmptyOverride={schemaQualityReadiness}
+                projectCrudSlot={projectCrudNode}
                 emptyOverride={
                   <ModelOverview
                     // Count the tables actually present in the model (what the
@@ -6087,6 +6822,36 @@ export default function ExploreDesignPage() {
         />
       )}
 
+      {/* Add Column Modal — page-level so simple adds happen inline from the
+          schema/table view (Create menus, Columns sub-tab, Data Preview),
+          without the right-bar detour. Mirrors ModelingCanvas's onColumnAdd
+          wiring: the modal itself queues the ADD_COLUMN event; here we only
+          reflect the new column in the local column caches. */}
+      {selectedTable && (
+        <AddColumnModal
+          isOpen={showAddColumnModal}
+          onClose={() => setShowAddColumnModal(false)}
+          table={selectedTable}
+          columns={tableColumns}
+          projectId={selectedProjectId}
+          onColumnAdd={(column) => {
+            const newCol: ColumnInfo = {
+              name: column.name,
+              dataType: column.dataType,
+              isNullable: true,
+              isPrimaryKey: false,
+            };
+            setTableColumnsMap(prev => {
+              const existing = prev.get(selectedTable.id) || [];
+              const updated = new Map(prev);
+              updated.set(selectedTable.id, [...existing, newCol]);
+              return updated;
+            });
+            setTableColumns(prev => [...prev, newCol]);
+          }}
+        />
+      )}
+
       {/* Modeling Template Choice Modal */}
       <ModelingTemplateModal
         isOpen={showTemplateModal}
@@ -6122,21 +6887,6 @@ export default function ExploreDesignPage() {
         currentDatabase={dwhTargetDatabase || undefined}
         currentSchema={dwhTargetSchema || undefined}
       />
-
-      {/* Event Template Picker (server-side API) */}
-      {selectedProjectId && (
-        <EventTemplatePickerModal
-          isOpen={showEventTemplatePicker}
-          onClose={() => setShowEventTemplatePicker(false)}
-          projectId={selectedProjectId}
-          targetDatabase={dwhTargetDatabase || selectedDatabase || ''}
-          targetSchema={dwhTargetSchema || ''}
-          onApplied={(result) => {
-            toast.success(`Template applied: ${result.events_created} events created`);
-            // Refresh events after template apply
-          }}
-        />
-      )}
 
       {/* Conflict Resolution Modal */}
       <ConflictResolutionModal

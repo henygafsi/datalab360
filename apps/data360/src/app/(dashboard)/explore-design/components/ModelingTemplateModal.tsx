@@ -37,7 +37,7 @@ const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
   const body = (
       <div>
         {/* Options */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <div className="@container"><div className="grid grid-cols-1 @xl:grid-cols-2 gap-4 mb-6">
           {/* DWH Template */}
           <button
             onClick={() => setSelected('dwh_template')}
@@ -194,6 +194,7 @@ const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
               </div>
             )}
           </button>
+        </div>
         </div>
 
         {/* Action */}

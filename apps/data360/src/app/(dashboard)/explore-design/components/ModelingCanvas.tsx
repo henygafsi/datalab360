@@ -4,7 +4,6 @@ import React, { useCallback, useMemo, useState, useRef, useEffect } from 'react'
 import ReactFlow, {
   Node,
   Edge,
-  Controls,
   Background,
   MiniMap,
   useNodesState,
@@ -36,6 +35,7 @@ import PolicyAssignmentPanel, { PolicyCategory } from './PolicyAssignmentPanel';
 import AddColumnModal, { ComputedColumn } from './AddColumnModal';
 import ColumnMappingModal from './ColumnMappingModal';
 import MappingSummaryPanel from './MappingSummaryPanel';
+import OverflowMenu from './OverflowMenu';
 // TableOptionsSidebar (T1 — RETIRED as a separate panel): the modeling view no
 // longer floats it; its actions now live in the unified ContextRightBar cockpit.
 // The component file is retained (it backs other surfaces) but is not rendered here.
@@ -134,6 +134,12 @@ interface ModelingCanvasProps {
    * keeping the select -> add-to-modeling -> configure-ingestion flow intact.
    */
   onAddTable?: (mode: 'manual' | 'empty') => void;
+  /**
+   * Mockup #68 — "+ Add table" is the FIRST item of the single canvas toolbar.
+   * Routes to the SAME creation flow as the right-bar Create group (the
+   * exhaustive creation home): the page opens that group.
+   */
+  onOpenCreate?: () => void;
   // Fullscreen & panel toggle props
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
@@ -309,6 +315,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   onStreamCreate,
   onAlertCreate,
   onAddTable,
+  onOpenCreate,
   isFullscreen = false,
   onToggleFullscreen,
   showSidebar,
@@ -1569,129 +1576,31 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         }}
         className="bg-slate-50 dark:bg-slate-900"
       >
-        {/* Controls Panel */}
-        <Panel position="top-left" className="flex gap-2">
-          <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border dark:border-slate-700">
-            <Tooltip content="Zoom In">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => zoomIn()}
-                className="p-2"
-              >
-                <ZoomIn className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-            <Tooltip content="Zoom Out">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => zoomOut()}
-                className="p-2"
-              >
-                <ZoomOut className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-            <Tooltip content="Fit View">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => fitView({ padding: 0.2 })}
-                className="p-2"
-              >
-                <Maximize2 className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-            <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
-            <Tooltip content="Auto Layout">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={handleAutoLayout}
-                className="p-2"
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-            {!isReadOnly && canWrite && (
-              <Tooltip content="Save layout (positions persist across reloads)">
-                <Button
-                  variant="text"
-                  size="sm"
-                  onClick={handleSaveLayout}
-                  disabled={isSavingLayout}
-                  aria-busy={isSavingLayout}
-                  className="p-2"
-                >
-                  {isSavingLayout ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                </Button>
-              </Tooltip>
+        {/* ONE canvas toolbar row, slimmed (audit: 13 icon buttons → 6):
+            "+ Add table" · undo/redo · fit view · fullscreen, with every
+            secondary action (zoom, layout, save, lock, grid, minimap,
+            mapping summary, export) folded into a single "⋯" overflow menu.
+            This is still the ONLY zoom surface — the built-in ReactFlow
+            <Controls> stack was removed (P1b dedupe). */}
+        <Panel position="top-left" className="flex max-w-[94%] gap-2">
+          <div className="flex flex-wrap items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border dark:border-slate-700">
+            {onOpenCreate && (
+              <>
+                <Tooltip content={isReadOnly || !canWrite ? 'You need create access' : 'Add a table — opens the Create group (right bar)'}>
+                  <Button
+                    variant="text"
+                    size="sm"
+                    disabled={isReadOnly || !canWrite}
+                    onClick={onOpenCreate}
+                    className="gap-1 px-2 py-2 text-xs font-medium text-blue-600 dark:text-blue-400"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add table
+                  </Button>
+                </Tooltip>
+                <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
+              </>
             )}
-          </div>
-
-          {/* + Add table — drops a new table straight onto the canvas:
-              define it by hand (Power BI style) or start empty to be fed by
-              sources. Hidden in read-only / when the host doesn't wire it. */}
-          {onAddTable && !isReadOnly && (
-            <div className="relative">
-              <Tooltip content="Add a table to the model">
-                <Button
-                  variant="text"
-                  size="sm"
-                  onClick={() => setShowAddTableMenu((v) => !v)}
-                  className={cn(
-                    'flex items-center gap-1 rounded-lg border bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-800',
-                    showAddTableMenu && 'text-blue-600 dark:text-blue-400',
-                  )}
-                >
-                  <Plus className="h-4 w-4" />
-                  <span className="text-xs font-medium">Add table</span>
-                </Button>
-              </Tooltip>
-              {showAddTableMenu && (
-                <>
-                  {/* click-away (transparent, non-blocking) */}
-                  <div
-                    className="fixed inset-0 z-[5]"
-                    onClick={() => setShowAddTableMenu(false)}
-                  />
-                  <div className="absolute left-0 top-full z-10 mt-1 w-60 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => { setShowAddTableMenu(false); onAddTable('manual'); }}
-                      className="flex w-full items-start gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/60"
-                    >
-                      <Table2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">Define manually</span>
-                        <span className="block text-[11px] text-slate-500 dark:text-slate-400">Add columns by hand, like Power BI</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setShowAddTableMenu(false); onAddTable('empty'); }}
-                      className="flex w-full items-start gap-2.5 border-t border-slate-100 px-3 py-2.5 text-left transition-colors hover:bg-slate-50 dark:border-slate-700/60 dark:hover:bg-slate-700/60"
-                    >
-                      <Database className="mt-0.5 h-4 w-4 shrink-0 text-teal-500" />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">Empty table</span>
-                        <span className="block text-[11px] text-slate-500 dark:text-slate-400">Start blank, feed it from sources</span>
-                      </span>
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </Panel>
-
-        {/* Tools Panel */}
-        <Panel position="top-right" className="flex gap-2">
-          <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-800 rounded-lg shadow-lg border dark:border-slate-700">
             <Tooltip content="Undo">
               <Button
                 variant="text"
@@ -1715,99 +1624,77 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
               </Button>
             </Tooltip>
             <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
-            <Tooltip content={isLocked ? 'Unlock Canvas' : 'Lock Canvas'}>
+            <Tooltip content="Fit View">
               <Button
                 variant="text"
                 size="sm"
-                onClick={() => setIsLocked(!isLocked)}
-                className={cn('p-2', isLocked && 'text-red-500')}
-              >
-                {isLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
-              </Button>
-            </Tooltip>
-            <Tooltip content={showGrid ? 'Hide Grid' : 'Show Grid'}>
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => setShowGrid(!showGrid)}
+                onClick={() => fitView({ padding: 0.2 })}
                 className="p-2"
               >
-                <Grid3X3 className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-            <Tooltip content={showMinimap ? 'Hide Minimap' : 'Show Minimap'}>
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => setShowMinimap(!showMinimap)}
-                className="p-2"
-              >
-                {showMinimap ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
-            </Tooltip>
-            <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
-            <Tooltip content={showMappingSummary ? 'Hide Mapping Summary' : 'Show Mapping Summary'}>
-              <Button
-                variant="text"
-                size="sm"
-                onClick={() => setShowMappingSummary(!showMappingSummary)}
-                className={cn('p-2', showMappingSummary && 'text-blue-500 bg-blue-50 dark:bg-blue-900/30')}
-              >
-                <List className="h-4 w-4" />
-                {columnMappingsList.length > 0 && (
-                  <span className="ml-1 text-xs">{columnMappingsList.length}</span>
-                )}
-              </Button>
-            </Tooltip>
-            <Tooltip content="Export Model">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={handleExport}
-                className="p-2"
-              >
-                <Download className="h-4 w-4" />
+                <Maximize2 className="h-4 w-4" />
               </Button>
             </Tooltip>
             {onToggleFullscreen && (
-              <>
-                <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
-                <Tooltip content={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
-                  <Button
-                    variant="text"
-                    size="sm"
-                    onClick={onToggleFullscreen}
-                    className={cn("p-2", isFullscreen && "text-blue-500 bg-blue-50 dark:bg-blue-900/30")}
-                  >
-                    {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                  </Button>
-                </Tooltip>
-              </>
-            )}
-            {!isFullscreen && onToggleSidebar && (
-              <Tooltip content={showSidebar ? "Hide Tables" : "Show Tables"}>
+              <Tooltip content={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
                 <Button
                   variant="text"
                   size="sm"
-                  onClick={onToggleSidebar}
-                  className={cn("p-2", !showSidebar && "text-blue-500")}
+                  onClick={onToggleFullscreen}
+                  className={cn("p-2", isFullscreen && "text-blue-500 bg-blue-50 dark:bg-blue-900/30")}
                 >
-                  <PanelLeft className="h-4 w-4" />
+                  {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                 </Button>
               </Tooltip>
             )}
-            {!isFullscreen && onToggleEventPanel && (
-              <Tooltip content={showEventPanel ? "Hide Events" : "Show Events"}>
-                <Button
-                  variant="text"
-                  size="sm"
-                  onClick={onToggleEventPanel}
-                  className={cn("p-2", !showEventPanel && "text-blue-500")}
-                >
-                  <PanelRight className="h-4 w-4" />
-                </Button>
-              </Tooltip>
-            )}
+            <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
+            <OverflowMenu
+              items={[
+                { label: 'Zoom in', icon: ZoomIn, onClick: () => zoomIn() },
+                { label: 'Zoom out', icon: ZoomOut, onClick: () => zoomOut() },
+                { label: 'Auto layout', icon: LayoutGrid, onClick: handleAutoLayout },
+                ...(!isReadOnly && canWrite
+                  ? [{
+                      label: isSavingLayout ? 'Saving layout…' : 'Save layout',
+                      icon: Save,
+                      onClick: handleSaveLayout,
+                      disabled: isSavingLayout,
+                    }]
+                  : []),
+                {
+                  label: isLocked ? 'Unlock canvas' : 'Lock canvas',
+                  icon: isLocked ? Lock : Unlock,
+                  onClick: () => setIsLocked(!isLocked),
+                  active: isLocked,
+                },
+                {
+                  label: showGrid ? 'Hide grid' : 'Show grid',
+                  icon: Grid3X3,
+                  onClick: () => setShowGrid(!showGrid),
+                  active: showGrid,
+                  activeColor: 'blue',
+                },
+                {
+                  label: showMinimap ? 'Hide minimap' : 'Show minimap',
+                  icon: showMinimap ? EyeOff : Eye,
+                  onClick: () => setShowMinimap(!showMinimap),
+                  active: showMinimap,
+                  activeColor: 'blue',
+                },
+                {
+                  label: columnMappingsList.length > 0
+                    ? `Mapping summary (${columnMappingsList.length})`
+                    : 'Mapping summary',
+                  icon: List,
+                  onClick: () => setShowMappingSummary(!showMappingSummary),
+                  active: showMappingSummary,
+                  activeColor: 'blue',
+                },
+                { label: 'Export model', icon: Download, onClick: handleExport },
+              ]}
+            />
+            {/* #61: the floating Hide-Tables / Hide-Events pair duplicated the
+                list header toggle and the cockpit mini-rail ('2 right bars —
+                too much'). ONE rail owns panel state now; center-click focuses. */}
           </div>
         </Panel>
 
@@ -1832,27 +1719,20 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           </Panel>
         )}
 
-        {/* Stats Panel */}
-        <Panel position="bottom-left">
-          <div className="flex items-center gap-3 px-3 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-lg border dark:border-slate-700 text-sm">
-            <div className="flex items-center gap-1 text-slate-500">
-              <Table2 className="h-4 w-4" />
-              <span>{nodes.length} tables</span>
-            </div>
-            <div className="flex items-center gap-1 text-slate-500">
-              <ArrowLeftRight className="h-4 w-4" />
-              <span>{edges.length} relations</span>
-            </div>
-          </div>
-        </Panel>
+        {/* Stats moved into the page's bottom Quick Actions band (mockup #68)
+            so the canvas floor has ONE strip, not a floating card + band. */}
 
         {/* Background and helpers */}
         {showGrid && (
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#94a3b8" />
         )}
-        <Controls showInteractive={false} />
-        {showMinimap && (
+        {/* P1b (mockup #68): built-in <Controls> removed — the single toolbar
+            above is the ONE zoom/fit surface (no duplicated zoom stacks). */}
+        {/* Minimap earns its pixels only on big graphs (#65: it dwarfed a
+            4-node model). Fixed compact size — never scales with the pane. */}
+        {showMinimap && nodes.length >= 8 && (
           <MiniMap
+            style={{ width: 160, height: 100 }}
             nodeColor={(node) => {
               switch (node.data?.status) {
                 case 'configured':
@@ -1864,7 +1744,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
               }
             }}
             maskColor="rgba(0, 0, 0, 0.1)"
-            className="!bg-white dark:!bg-slate-800"
+            className="!bg-white/90 dark:!bg-slate-800/90 rounded-lg border border-slate-200 dark:border-slate-700"
           />
         )}
       </ReactFlow>
