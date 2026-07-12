@@ -1544,12 +1544,13 @@ function CommandCenterDashboardInner() {
         end_date: filters.end_date,
       };
       // Each call wrapped in .catch(() => null) so one slow/404 endpoint
-      // doesn't block Promise.all. Per-call timeout is 25s: the slowest
-      // valid backend response we measured is /command-center/module-health
-      // at ~17s, so 25s leaves a small safety margin. The page-level safety
-      // timeout (10s on `isLoading`) still escapes the skeleton at 10s,
-      // and per-card empty-states render gracefully while slow calls land.
-      const OVERVIEW_TIMEOUT_MS = 25000;
+      // doesn't block Promise.all. Per-call timeout matches the backend's
+      // 15-minute statement guard (org-account audit 2026-07-12: cold
+      // ACCOUNT_USAGE scans on real org accounts legitimately run for
+      // minutes; the old 25s cutoff dropped panels to empty while the
+      // backend was still working). Panels keep their skeleton until real
+      // data lands — loading, never a fabricated empty.
+      const OVERVIEW_TIMEOUT_MS = 900_000;
       // Capture whether any failure was the analytics-cache-warming 503 so the
       // banner can distinguish "warming up" (reachable) from "unreachable".
       let sawCacheWarming = false;
