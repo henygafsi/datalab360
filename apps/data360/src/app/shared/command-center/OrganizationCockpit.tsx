@@ -258,7 +258,24 @@ export default function OrganizationCockpit() {
                       )}
                       title="Open account investigation"
                     >
-                      <td className="py-1.5 pr-2 font-mono text-[11px] text-slate-700 dark:text-slate-300">{a.account}</td>
+                      <td className="py-1.5 pr-2 font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                        <span className="flex items-center gap-1.5">
+                          {a.account}
+                          {typeof a.classification === 'string' && a.classification && (
+                            <span
+                              className={cn(
+                                'rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide',
+                                a.classification === 'restricted' || a.classification === 'confidential'
+                                  ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+                                  : 'bg-slate-100 text-slate-500 dark:bg-slate-800',
+                              )}
+                              title={`Classification: ${a.classification}${typeof a.owner === 'string' && a.owner ? ` · Owner: ${a.owner}` : ''}`}
+                            >
+                              {a.classification}
+                            </span>
+                          )}
+                        </span>
+                      </td>
                       <td className="py-1.5 pr-2 text-slate-500">{a.region}</td>
                       <td className="py-1.5 pr-2 text-slate-500">{a.edition}</td>
                       <td className="py-1.5 pr-2">
