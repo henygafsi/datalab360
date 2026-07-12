@@ -27,6 +27,7 @@ import {
   AlertTriangle, Building2, ChevronDown, Database, Gauge, RefreshCw,
   ShieldCheck, Sparkles, Users,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 import {
   getOrganizationIntelligence,
@@ -36,6 +37,11 @@ import {
   type OrgDetailTab,
   type OrgAccountRow,
 } from '@/app/services/command-center';
+import {
+  getAccountMetadata,
+  updateAccountMetadata,
+  type AccountMetadata,
+} from '@/app/services/org-accounts/hooks';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function relTime(iso: string | null | undefined): string {
@@ -460,6 +466,10 @@ function AccountRightBar({
             </div>
           </div>
 
+          {/* Governed edit: Data360 account metadata (owner/classification/
+              monitoring/tags) → persists + emits an audit event. */}
+          <AccountMetadataEditor account={String(account.account)} />
+
           {/* Backend-authorized actions (allowed_actions.account) */}
           {actions.length > 0 && (
             <div className="p-4">
@@ -478,6 +488,123 @@ function AccountRightBar({
           )}
         </div>
       </aside>
+    </div>
+  );
+}
+
+// ── Governed account-metadata editor (right-bar Edit workflow) ───────────────
+const CLASSIFICATIONS = ['public', 'internal', 'confidential', 'restricted'];
+const MONITORING_LEVELS = ['minimal', 'standard', 'enhanced'];
+
+function AccountMetadataEditor({ account }: { account: string }) {
+  const [meta, setMeta] = useState<AccountMetadata | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [owner, setOwner] = useState('');
+  const [classification, setClassification] = useState('');
+  const [monitoring, setMonitoring] = useState('');
+  const [tags, setTags] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const m = await getAccountMetadata(account);
+      setMeta(m);
+      setOwner(m.owner ?? '');
+      setClassification(m.classification ?? '');
+      setMonitoring(m.monitoring_level ?? '');
+      setTags((m.tags ?? []).join(', '));
+    } catch {
+      setMeta(null);
+    }
+  }, [account]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const save = useCallback(async () => {
+    setSaving(true);
+    try {
+      const updated = await updateAccountMetadata(account, {
+        owner: owner.trim() || undefined,
+        classification: classification || undefined,
+        monitoring_level: monitoring || undefined,
+        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+      });
+      setMeta(updated);
+      setEditing(false);
+      toast.success(`Saved · governance metadata updated for ${account}`);
+    } catch (e) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(typeof msg === 'string' ? msg : 'Save failed (not authorized?)');
+    } finally {
+      setSaving(false);
+    }
+  }, [account, owner, classification, monitoring, tags]);
+
+  return (
+    <div className="border-b border-slate-200 p-4 dark:border-slate-700">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Governance metadata</p>
+        {!editing && (
+          <button type="button" onClick={() => setEditing(true)}
+            className="text-xs text-blue-600 hover:underline dark:text-blue-400">Edit</button>
+        )}
+      </div>
+
+      {!editing ? (
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+          {[
+            ['Owner', meta?.owner],
+            ['Classification', meta?.classification],
+            ['Monitoring', meta?.monitoring_level],
+            ['Tags', (meta?.tags ?? []).join(', ') || null],
+          ].map(([k, v]) => (
+            <div key={k as string} className="flex items-center justify-between gap-2">
+              <dt className="text-slate-400">{k}</dt>
+              <dd className="truncate font-medium text-slate-700 dark:text-slate-300" title={String(v ?? '')}>
+                {v ? String(v) : <span className="text-slate-400">— not set</span>}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <div className="space-y-2">
+          <label className="block text-[11px] text-slate-500">Owner
+            <input value={owner} onChange={(e) => setOwner(e.target.value)}
+              className="mt-0.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800" placeholder="team or person" />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-[11px] text-slate-500">Classification
+              <select value={classification} onChange={(e) => setClassification(e.target.value)}
+                className="mt-0.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800">
+                <option value="">—</option>
+                {CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label className="block text-[11px] text-slate-500">Monitoring
+              <select value={monitoring} onChange={(e) => setMonitoring(e.target.value)}
+                className="mt-0.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800">
+                <option value="">—</option>
+                {MONITORING_LEVELS.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="block text-[11px] text-slate-500">Tags (comma-separated)
+            <input value={tags} onChange={(e) => setTags(e.target.value)}
+              className="mt-0.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800" placeholder="retail, pii, demo" />
+          </label>
+          <div className="flex items-center gap-2 pt-1">
+            <button type="button" disabled={saving} onClick={() => void save()}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" disabled={saving} onClick={() => { setEditing(false); void load(); }}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300">
+              Cancel
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-400">Persisted to Data360 · emits an audit event · backend-authorized.</p>
+        </div>
+      )}
     </div>
   );
 }

@@ -1063,6 +1063,41 @@ export async function getAccountHealth(accountName: string): Promise<AccountHeal
   return data;
 }
 
+// ── Account metadata (Data360-side governance fields; governed edit) ──────────
+export interface AccountMetadata {
+  account: string;
+  owner: string | null;
+  classification: string | null;
+  monitoring_level: string | null;
+  tags: string[];
+  updated_by: string | null;
+  updated_at: string | null;
+  changed_fields?: string[];
+}
+export interface AccountMetadataEdit {
+  owner?: string;
+  classification?: string;
+  monitoring_level?: string;
+  tags?: string[];
+}
+
+/** GET /org-accounts/accounts/{account}/metadata — current governance metadata. */
+export async function getAccountMetadata(account: string): Promise<AccountMetadata> {
+  const { data } = await apiClient.get<AccountMetadata>(
+    `${BASE_URL}/accounts/${encodeURIComponent(account)}/metadata`);
+  return data;
+}
+
+/** POST /org-accounts/accounts/{account}/metadata — governed edit (backend-authorized;
+ *  emits an ACCOUNT_METADATA_UPDATED audit event). Only provided fields change. */
+export async function updateAccountMetadata(
+  account: string, edit: AccountMetadataEdit,
+): Promise<AccountMetadata> {
+  const { data } = await apiClient.post<AccountMetadata>(
+    `${BASE_URL}/accounts/${encodeURIComponent(account)}/metadata`, edit);
+  return data;
+}
+
 // ---------------------------------------------------------------------------
 // Errors deep-dive + COCO narrative (GET /org-accounts/errors-overview[/insight])
 // ---------------------------------------------------------------------------
