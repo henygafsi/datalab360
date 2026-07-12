@@ -50,7 +50,6 @@ import {
   Search,
   X,
   Filter,
-  PanelRight,
   ArrowUpDown,
   Check,
   XCircle,
@@ -166,7 +165,6 @@ const SnowflakeAccountsAuditSection = lazy(() => import('./SnowflakeAccountsAudi
 const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
 const DwhActionPlanTab = lazy(() => import('./dwh-action-plan-tab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
-import CommandCenterActionsPanel from './ActionsPanel';
 import { useSession } from 'next-auth/react';
 import ServerlessFinOpsCards from './serverless-finops-cards';
 import TopProblemsPanel from './TopProblemsPanel';
@@ -177,6 +175,7 @@ import ExecutiveOverview from './ExecutiveOverview';
 import AiAdvisor from './AiAdvisor';
 import SnowflakeInsightsAdvisor from './SnowflakeInsightsAdvisor';
 import SecurityMap from './SecurityMap';
+import GovernanceCockpit from './GovernanceCockpit';
 import ObjectStorageAudit from './ObjectStorageAudit';
 import SnowflakeObjectsTab from './SnowflakeObjectsTab';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
@@ -1398,7 +1397,6 @@ function CommandCenterDashboardInner() {
   }, []);
   const [, startTabTransition] = useTransition();
   // Docked actions right-bar (the module's single centralized action surface).
-  const [panelOpen, setPanelOpen] = useState(false);
   // Tabbed navigation (2026-07-10 redesign): the main column renders ONLY the
   // active section inside a viewport-fit frame — no page scroll, no scrollspy.
   const goToTab = useCallback(
@@ -2244,6 +2242,14 @@ function CommandCenterDashboardInner() {
            No popups, no page scroll. */
         return (
           <div className="flex h-full min-h-0 flex-col gap-3">
+            {/* Refactored governance cockpit — compact KPI strip + segmented
+                Overview/Audit/Timeline + contextual right bar, consuming the
+                /account-overview/governance/intelligence aggregator. Mounted
+                ABOVE the legacy SecurityAdvTab (additive/non-breaking; a
+                follow-up removes the now-duplicated legacy sections). */}
+            <div className="shrink-0">
+              <GovernanceCockpit filters={filters} />
+            </div>
             <div className="min-h-0 flex-1">
               {tabError.security && !tabLoading['security'] ? (
                 <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
@@ -2358,27 +2364,10 @@ function CommandCenterDashboardInner() {
           <div className="hidden lg:block">
             <AdnHeaderBadge projectId={null} />
           </div>
-          <motion.button
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => {
-              trackFeatureClick('actions_panel', { open: !panelOpen });
-              setPanelOpen((o) => !o);
-            }}
-            aria-expanded={panelOpen}
-            aria-label="Toggle actions panel"
-            className={cn(
-              'group relative flex items-center gap-2 overflow-hidden rounded-lg border px-3 py-2 text-sm shadow-sm transition-all hover:shadow-md',
-              panelOpen
-                ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
-                : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-600',
-            )}
-          >
-            {/* Subtle gradient shimmer on hover */}
-            <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-blue-500/10 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-            <PanelRight className="h-4 w-4" />
-            Actions
-          </motion.button>
+          {/* The standalone "Actions" panel was removed (governance-refactor
+              spec §3): actions now live only in the dynamic contextual right
+              bar (AxisCockpit / GovernanceCockpit RightBar) — no duplicated
+              action surface. */}
         </div>
       </motion.div>
 
@@ -2488,15 +2477,8 @@ function CommandCenterDashboardInner() {
           </div>
         </div>
 
-        {/* ── Docked Actions right-bar (module action surface) ───────── */}
-        {panelOpen && (
-          <CommandCenterActionsPanel
-            onRefresh={handleRefresh}
-            lastUpdated={lastUpdated}
-            refreshing={!!tabLoading[activeTab]}
-            onClose={() => setPanelOpen(false)}
-          />
-        )}
+        {/* Actions right-bar removed (spec §3) — contextual actions live in the
+            Axis Cockpit / GovernanceCockpit right bar below. */}
 
         {/* ── Docked Axis Cockpit panel — opened from KPI-strip tiles and the
             rail's axis chips; nothing renders while closed (the SectionRail

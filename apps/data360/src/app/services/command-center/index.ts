@@ -735,3 +735,59 @@ export async function getSnowflakeInsights(): Promise<SnowflakeInsightsPayload> 
     return { insights: [], generated_at: new Date().toISOString(), degraded: ['request_failed'] };
   }
 }
+
+// ── Governance Intelligence — the one aggregate the Governance cockpit consumes ──
+// GET /account-overview/governance/intelligence (backend governance_intelligence.py).
+// Reuse-first: composes compliance score + gov KPI detail + the /api/recommendations
+// lifecycle store + activity feed into score summary + compact KPI cards (no-dash) +
+// server-paginated/filterable findings + timeline + facets, with per-section degrade.
+
+export interface GovIntelKpiCard {
+  id: string; label: string; value: number | string | null;
+  unit?: string; tone?: 'red' | 'amber' | 'green' | null; group?: string;
+}
+export interface GovIntelFinding {
+  finding_id: string; kind: 'identity' | 'policy' | 'recommendation'; severity: string;
+  finding: string; user: string | null; role: string | null; object: string | null;
+  recommendation: string | null; status: string; evidence: Record<string, unknown>;
+  window_days: number | null;
+}
+export interface GovIntelTimelineEvent {
+  ts: string; module: string | null; event_type: string | null;
+  status: string | null; actor: string | null; severity: string | null;
+}
+export interface GovIntelResponse {
+  generated_at: string; account: string; window_days: number;
+  score_summary: { score: number | null; scope: string; breakdown: Record<string, unknown>;
+    critical_findings: number; open_recommendations: number };
+  kpi_cards: GovIntelKpiCard[];
+  more_metrics: GovIntelKpiCard[];
+  timeline: GovIntelTimelineEvent[];
+  recommendations: Array<Record<string, unknown>>;
+  allowed_actions: Record<string, string[]>;
+  sources: string[];
+  degraded_sources: Record<string, string>;
+  audit: {
+    rows: GovIntelFinding[]; page: number; page_size: number;
+    total_rows: number; filtered_rows: number; has_next: boolean;
+    sort_by: string; sort_order: string; applied_filters: Record<string, string>;
+  };
+  facets: { severity: string[]; kind: string[]; status: string[]; users: string[]; date_presets_days: number[] };
+  cache: { ttl_seconds: number; generated_at: string };
+}
+
+export interface GovIntelParams {
+  days?: number; severity?: string; kind?: string; user?: string; status?: string;
+  q?: string; page?: number; page_size?: number; sort_by?: string; sort_order?: string;
+}
+
+/** Fetch the governance cockpit payload. Never throws — degraded payload on error. */
+export async function getGovernanceIntelligence(params: GovIntelParams = {}): Promise<GovIntelResponse | null> {
+  try {
+    const { data } = await apiClient.get<GovIntelResponse>(
+      '/account-overview/governance/intelligence', { params });
+    return data;
+  } catch {
+    return null;
+  }
+}
