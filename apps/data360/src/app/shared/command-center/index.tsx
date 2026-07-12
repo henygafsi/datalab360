@@ -143,7 +143,6 @@ import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
-import AxisCockpit from '@/app/shared/cockpit/AxisCockpit';
 import KpiStrip from '@/app/shared/cockpit/KpiStrip';
 import { useCommandCenterCockpit } from './CommandCenterCockpit';
 import SectionRail from './SectionRail';
@@ -1498,14 +1497,13 @@ function CommandCenterDashboardInner() {
   const [filterOptions, setFilterOptions] =
     useState<FilterOptionsResponse | null>(null);
 
-  // Unified Axis Cockpit (shared right-edge primitive) + KPI strip. Reuses the
-  // shell-fetched state above (summary / module-health / activity-feed / cost)
-  // and lazily fetches an axis's data only the first time it is opened.
+  // KPI strip source (the docked AxisCockpit overlay was deleted 2026-07-12 —
+  // it duplicated tab content behind a second navigation; every strip tile now
+  // deep-links to its owning section's audit tables instead).
   const cockpit = useCommandCenterCockpit({
     days: filters.days,
     summary,
     moduleHealth,
-    activityFeed,
     costData,
     onNavigateTab: goToTab,
   });
@@ -2167,12 +2165,14 @@ function CommandCenterDashboardInner() {
   };
   const onSectionRefresh = sectionRefresh[activeTabDef.id];
 
-  // Rail axis chips → the docked cockpit axis that owns that dimension.
-  const DIMENSION_TO_AXIS: Record<KpiDimension, string> = {
-    dq: 'quality',
-    gov: 'governance',
-    cost: 'cost',
-    perf: 'perf',
+  // Rail axis chips → the SECTION whose audit tables own that dimension
+  // (the docked cockpit-axis overlay was deleted — metrics drill into real
+  // data, causes and actions live in the sections' audit tables).
+  const DIMENSION_TO_SECTION: Record<KpiDimension, string> = {
+    dq: 'data-quality',
+    gov: 'security',
+    cost: 'finops',
+    perf: 'usage-performance',
   };
 
   // ONLY the active section's body is computed + rendered. All 9 sections'
@@ -2524,24 +2524,7 @@ function CommandCenterDashboardInner() {
         </div>
 
         {/* Actions right-bar removed (spec §3) — contextual actions live in the
-            Axis Cockpit / GovernanceCockpit right bar below. */}
-
-        {/* ── Docked Axis Cockpit panel — opened from KPI-strip tiles and the
-            rail's axis chips; nothing renders while closed (the SectionRail
-            is the resting right edge). Zero popups, everything docked. ── */}
-        {cockpit.open && (
-          <div className="hidden min-h-0 shrink-0 self-stretch overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 md:block">
-            <AxisCockpit
-              railMode="header"
-              axes={cockpit.axes}
-              open={cockpit.open}
-              activeAxis={cockpit.activeAxis}
-              onOpenAxis={cockpit.openAxis}
-              onClose={cockpit.close}
-              className="h-full"
-            />
-          </div>
-        )}
+            GovernanceCockpit right bar / section audit tables. */}
 
         {/* ── SectionRail: overview by axis + the section navigation ── */}
         <SectionRail
@@ -2549,7 +2532,7 @@ function CommandCenterDashboardInner() {
           activeId={activeTabDef.id}
           onSelect={goToTab}
           days={filters.days}
-          onOpenDimension={(dim) => cockpit.openAxis(DIMENSION_TO_AXIS[dim])}
+          onOpenDimension={(dim) => goToTab(DIMENSION_TO_SECTION[dim])}
           // #69/#70: the page scrolls (growth contract) — the rail must
           // FOLLOW or its column reads as a giant dead zone when scrolled.
           className="order-first md:order-last md:sticky md:top-4 md:max-h-[calc(100dvh-2rem)] md:self-start md:overflow-y-auto"
