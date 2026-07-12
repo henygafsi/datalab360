@@ -437,18 +437,24 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
 
   // ----- render -----
   const o = state.overview?.overview;
-  const totalAccounts = o?.total_client_accounts ?? 0;
-  const activeAccounts = o?.active_accounts ?? 0;
-  const inactiveAccounts = o?.inactive_accounts ?? 0;
-  // Render-only: keep missing as null so the credits/storage cards show '—'
-  // instead of a fabricated 0. (These two cards are intentionally ungated —
-  // for a non-org-admin the backend returns the caller's OWN account figures.)
+  // HONESTY (R3): when the overview payload is absent (fetch failed / not loaded),
+  // every count is UNKNOWN → null → renders '—'. A `?? 0` here fabricated a "0"
+  // whenever /dashboard/overview transiently errored, so the KPI cards showed
+  // "0 accounts" while the accounts-list endpoint (and the deep-dive drawer) showed
+  // the real 36 — a live-caught contradiction. Never a fake zero; a genuine 0 from
+  // the backend still renders 0.
+  const totalAccounts = o?.total_client_accounts ?? null;
+  const activeAccounts = o?.active_accounts ?? null;
+  const inactiveAccounts = o?.inactive_accounts ?? null;
   const orgCredits = o?.total_credits_30d ?? null;
   const orgStorageBytes = o?.total_storage_bytes ?? null;
-  const replicationGroupsCount = o?.replication_groups_count ?? 0;
-  const failoverGroupsCount = o?.failover_groups_count ?? 0;
+  const replicationGroupsCount = o?.replication_groups_count ?? null;
+  const failoverGroupsCount = o?.failover_groups_count ?? null;
+  // Managed accounts: prefer the overview figure; fall back to the accounts-list
+  // length ONLY when that list actually loaded (else null → '—', never a fake 0).
   const managedAccountsCount =
-    o?.managed_accounts_count ?? state.accounts?.accounts?.length ?? 0;
+    o?.managed_accounts_count ??
+    (state.accounts?.accounts ? state.accounts.accounts.length : null);
   const networkPoliciesCount = o?.network_policies_count ?? 0;
   // Backend tells us when the Snowflake role can't see org-level data so
   // the UI can show a clear empty/CTA state instead of a wall of zeros.
@@ -622,7 +628,7 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
       hint: 'Replication is enabled per-account in the data warehouse',
     });
   }
-  if (inactiveAccounts > 0) {
+  if (inactiveAccounts != null && inactiveAccounts > 0) {
     recoCtas.push({
       kind: 'nav',
       text: `Review ${inactiveAccounts} inactive account${
@@ -633,7 +639,7 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
       href: '/account-overview?tab=snowflake-accounts',
     });
   }
-  if (totalAccounts > 0 && networkPoliciesCount < totalAccounts) {
+  if (totalAccounts != null && totalAccounts > 0 && networkPoliciesCount < totalAccounts) {
     recoCtas.push({
       kind: 'nav',
       text: `Enable network policies on all accounts (currently ${networkPoliciesCount}/${totalAccounts}).`,
@@ -682,9 +688,15 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
         <KpiCard
           icon={ShieldCheck}
           label="Active / Inactive"
-          value={isOrgAdmin ? `${activeAccounts} / ${inactiveAccounts}` : '—'}
+          value={
+            isOrgAdmin && activeAccounts != null && inactiveAccounts != null
+              ? `${activeAccounts} / ${inactiveAccounts}`
+              : '—'
+          }
           loading={state.loading}
-          onClick={isOrgAdmin ? () => setOpenKpi('active_inactive') : undefined}
+          onClick={
+            isOrgAdmin && activeAccounts != null ? () => setOpenKpi('active_inactive') : undefined
+          }
         />
         <KpiCard
           icon={Cloud}
@@ -718,14 +730,14 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
         <KpiCard
           icon={GitBranch}
           label="Replication Groups"
-          value={replicationGroupsCount > 0 ? fmtNumber(replicationGroupsCount) : '—'}
+          value={replicationGroupsCount ? fmtNumber(replicationGroupsCount) : '—'}
           loading={state.loading}
           onClick={replicationRows.length ? () => setOpenKpi('replication') : undefined}
         />
         <KpiCard
           icon={Zap}
           label="Failover Groups"
-          value={failoverGroupsCount > 0 ? fmtNumber(failoverGroupsCount) : '—'}
+          value={failoverGroupsCount ? fmtNumber(failoverGroupsCount) : '—'}
           loading={state.loading}
           onClick={replicationRows.length ? () => setOpenKpi('failover') : undefined}
         />
