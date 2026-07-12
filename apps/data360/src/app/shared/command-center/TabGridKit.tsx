@@ -51,8 +51,8 @@ export function KpiZone({
   return (
     <div
       className={cn(
-        'min-h-0 shrink-0 space-y-3 overflow-y-auto',
-        'max-h-[45%]',
+        // #52: no height clamp — the page scrolls, cells don't.
+        'shrink-0 space-y-3',
         className,
       )}
     >
@@ -76,7 +76,7 @@ export function Board({
   return (
     <div
       className={cn(
-        'grid min-h-0 flex-1 content-start grid-cols-12 gap-3 overflow-y-auto pr-0.5',
+        'grid flex-1 content-start grid-cols-12 gap-3 pr-0.5',
         className,
       )}
     >

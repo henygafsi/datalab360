@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import ManageAccessButton from '@/app/shared/governance/ManageAccessButton';
 
@@ -51,6 +52,20 @@ const MobileNotice: React.FC = () => (
  */
 const WorkflowPage: React.FC = () => {
   const isDesktop = useIsDesktop();
+  // Fullscreen deep-dive via the NATIVE Fullscreen API on the frame div:
+  // the SAME component goes full-viewport with zero remount, so the
+  // react-flow canvas keeps its unsaved state. Esc exits natively.
+  const frameRef = React.useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement === frameRef.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void frameRef.current?.requestFullscreen();
+  };
   return (
     <ErrorBoundary>
       {/*
@@ -63,17 +78,34 @@ const WorkflowPage: React.FC = () => {
        * internally (react-flow) and the smart panel scrolling internally,
        * while the document itself never scrolls.
        */}
-      <div className="flex flex-col h-[calc(100dvh-246px)] min-h-[480px] overflow-hidden bg-white dark:bg-gray-900">
+      <div
+        ref={frameRef}
+        className={
+          isFullscreen
+            ? 'flex h-screen w-screen flex-col overflow-hidden bg-white dark:bg-gray-900'
+            : 'flex flex-col h-[calc(100dvh-222px)] min-h-[480px] overflow-hidden bg-white dark:bg-gray-900'
+        }
+      >
         <div className="flex-1 overflow-hidden">
           {isDesktop ? <ETLPipelineBuilder /> : <MobileNotice />}
         </div>
-        {/* Cross-module links */}
+        {/* Cross-module links + fullscreen deep-dive toggle */}
         <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-gray-900 flex-wrap">
           <span>Related:</span>
           <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore &amp; Design (Source Tables)</a>
           <a href="/data-quality" className="text-blue-600 dark:text-blue-400 hover:underline">Data Quality (Checks)</a>
           <a href="/bi-dashboard" className="text-blue-600 dark:text-blue-400 hover:underline">BI Dashboard (Visualize)</a>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              aria-label={isFullscreen ? 'Exit fullscreen (Esc)' : 'Expand builder to fullscreen'}
+              title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Expand builder to fullscreen'}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" aria-hidden /> : <Maximize2 className="h-3.5 w-3.5" aria-hidden />}
+              {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            </button>
             <ManageAccessButton module="workflow" page="workflow" objectLabel="Workflow" />
           </div>
         </div>

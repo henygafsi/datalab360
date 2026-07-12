@@ -793,7 +793,7 @@ const WorkflowDevToolsPage: React.FC = () => {
      * `h-screen` previously overflowed the document by that chrome height.
      * Each tab body scrolls internally in <main> below.
      */
-    <div className="flex h-[calc(100dvh-246px)] min-h-[480px] flex-col overflow-hidden bg-white dark:bg-gray-900">
+    <div className="flex h-[calc(100dvh-222px)] min-h-[480px] flex-col overflow-hidden bg-white dark:bg-gray-900">
       <header className="border-b border-slate-200 px-6 py-4 dark:border-slate-700">
         <div className="flex items-center gap-3">
           <Link

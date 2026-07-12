@@ -23,6 +23,7 @@ import {
   HiOutlineCpuChip,
 } from 'react-icons/hi2';
 import { PiDatabase, PiCode, PiMagicWand, PiVectorThree, PiClockCounterClockwise, PiLightbulb, PiFlask, PiLightning } from 'react-icons/pi';
+import { PagedDataTable } from '@/components/ui/TablePager';
 import {
   queryCortex,
   type CortexQueryResult,
@@ -176,35 +177,10 @@ function ResultBlock({
   return null;
 }
 
+/** Standardized result grid — sticky header + 25/page (shared PagedDataTable). */
 function DataTable({ rows }: { rows: Array<Record<string, unknown>> }) {
   if (!rows.length) return null;
-  const cols = Object.keys(rows[0]);
-  return (
-    <div className="max-h-64 overflow-auto rounded-md border border-gray-200 dark:border-gray-700">
-      <table className="min-w-full text-xs">
-        <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
-          <tr>
-            {cols.map((c) => (
-              <th key={c} className="border-b border-gray-200 px-2 py-1.5 text-left font-semibold text-gray-600 dark:border-gray-700 dark:text-gray-300">
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 50).map((row, ri) => (
-            <tr key={ri} className="odd:bg-white even:bg-gray-50 dark:odd:bg-gray-900 dark:even:bg-gray-800/40">
-              {cols.map((c) => (
-                <td key={c} className="border-b border-gray-100 px-2 py-1 text-gray-700 dark:border-gray-800 dark:text-gray-300">
-                  {row[c] === null || row[c] === undefined ? '—' : String(row[c])}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  return <PagedDataTable rows={rows} maxHeightClass="max-h-72" />;
 }
 
 // ── Main component ─────────────────────────────────────────────────────

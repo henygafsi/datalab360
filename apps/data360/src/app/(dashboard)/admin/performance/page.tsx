@@ -620,9 +620,20 @@ function PerformancePageContent() {
               <KpiCard
                 label="Cache hit rate"
                 icon={Database}
-                value={fmtPct(ov?.cache_hit_rate, 1)}
-                source={ov?.cache_hit_rate != null ? 'request-trail' : null}
-                help={{ definition: 'Share of requests served from cache vs. recomputed. Request-trail only.', goodRange: '> 80%' }}
+                value={fmtPct(ov?.cache_layer?.hit_rate ?? ov?.cache_hit_rate, 1)}
+                sub={
+                  ov?.cache_layer?.hit_rate != null
+                    ? `${fmtInt(ov.cache_layer.hits)} hits · ${fmtInt(ov.cache_layer.misses)} misses since boot`
+                    : undefined
+                }
+                source={
+                  ov?.cache_layer?.hit_rate != null
+                    ? 'cache-layer'
+                    : ov?.cache_hit_rate != null
+                      ? 'request-trail'
+                      : null
+                }
+                help={{ definition: 'Share of cacheable reads served from cache. Counted by the cache layer itself (since boot); falls back to the request trail.', goodRange: '> 80%' }}
               />
               <KpiCard
                 label="Requests / 5min"

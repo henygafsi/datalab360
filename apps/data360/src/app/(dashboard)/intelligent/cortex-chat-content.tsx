@@ -23,6 +23,7 @@ import {
   PiMagicWand,
 } from 'react-icons/pi';
 import { queryCortex, type CortexQueryResult } from '@/app/services/cortex';
+import { PagedDataTable } from '@/components/ui/TablePager';
 import { listSemanticModels, type SemanticModel } from '@/app/services/cortex/semantic-models';
 import {
   listConversations,
@@ -470,41 +471,11 @@ export default function CortexChatContent({
                   <HiOutlineTableCells className="w-4 h-4" />
                   Query Results ({result.data.length} rows)
                 </span>
-                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                  <table className="min-w-full text-sm">
-                    <thead className="bg-slate-50 dark:bg-slate-800">
-                      <tr>
-                        {Object.keys(result.data[0]).map((key) => (
-                          <th
-                            key={key}
-                            className="px-4 py-2 text-left font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap"
-                          >
-                            {key}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                      {result.data.slice(0, 10).map((row, rowIndex) => (
-                        <tr key={rowIndex} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                          {Object.values(row).map((value, cellIndex) => (
-                            <td
-                              key={cellIndex}
-                              className="px-4 py-2 text-slate-700 dark:text-slate-300 whitespace-nowrap"
-                            >
-                              {String(value)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {result.data.length > 10 && (
-                    <div className="px-4 py-2 text-xs text-slate-500 bg-slate-50 dark:bg-slate-800 text-center">
-                      Showing 10 of {result.data.length} rows
-                    </div>
-                  )}
-                </div>
+                {/* Standardized grid — sticky header + 25/page (shared PagedDataTable) */}
+                <PagedDataTable
+                  rows={result.data as Array<Record<string, unknown>>}
+                  maxHeightClass="max-h-[420px]"
+                />
               </div>
             )}
           </div>

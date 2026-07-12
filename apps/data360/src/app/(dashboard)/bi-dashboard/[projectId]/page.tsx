@@ -66,7 +66,7 @@ export default function BIDashboardProjectPage() {
           and the dashboard's own pages act as ?tab= synced tabs. */}
       {/* 248px = app header (64) + layout main pt/pb (24+48) + layout footer
           (~110) + border budget → the whole document fits 100dvh (no scroll). */}
-      <div className="flex h-[calc(100dvh-248px)] min-h-[540px] flex-col overflow-hidden bg-gray-50 dark:bg-gray-950">
+      <div className="flex h-[calc(100dvh-224px)] min-h-[540px] flex-col overflow-hidden bg-gray-50 dark:bg-gray-950">
         {/* Top bar */}
         <div className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center gap-3">
           <Link

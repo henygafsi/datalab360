@@ -3059,7 +3059,7 @@ export default function DataQualityPage() {
         ≈246px live — 250 leaves a small buffer) and each main tab scrolls inside
         its own panel. min-h keeps very short viewports usable (they regain page
         scroll — an honest, deliberate floor). */}
-    <div data-dq-root className="flex h-[calc(100dvh-250px)] min-h-[560px] gap-0 overflow-hidden">
+    <div data-dq-root className="flex h-[calc(100dvh-226px)] min-h-[560px] gap-0 overflow-hidden">
     <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden p-4 pb-2">
       <Breadcrumb items={[{ label: 'Data Quality', href: '/data-quality' }]} />
       {/* ── Header Bar ── */}

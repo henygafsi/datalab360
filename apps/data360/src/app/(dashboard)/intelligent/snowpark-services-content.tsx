@@ -37,6 +37,7 @@ import {
   autoStopService,
 } from '@/app/services/cortex/ai';
 import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
+import { usePagedRows, TablePager } from '@/components/ui/TablePager';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { ConfirmDestructiveDialog, ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
@@ -131,6 +132,7 @@ function usePollWhile(shouldPoll: boolean, load: () => void, intervalMs = 5000) 
 
 function ComputePoolsPanel() {
   const [pools, setPools] = useState<ComputePool[]>([]);
+  const poolsPager = usePagedRows(pools, 25);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -236,15 +238,15 @@ function ComputePoolsPanel() {
 
       {error && <ErrorBar error={error} onRetry={load} />}
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="overflow-auto max-h-[480px] rounded-lg border border-gray-200 dark:border-gray-700">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+          <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
             <tr><TH>Name</TH><TH>State</TH><TH>Instance Family</TH><TH className="text-center">Nodes (Min/Max)</TH><TH className="text-center">Auto Suspend</TH><TH className="text-right">Actions</TH></tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {loading ? <SkeletonRows rows={3} cols={6} /> : pools.length === 0 ? (
               <EmptyRow cols={6} msg="No compute pools found. Create one to get started." />
-            ) : pools.map((p) => (
+            ) : poolsPager.visible.map((p) => (
               <tr key={p.name} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-900 dark:text-gray-200">
                 <td className="px-4 py-3 font-medium">{p.name}</td>
                 <td className="px-4 py-3"><StatusBadge status={p.state} /></td>
@@ -270,6 +272,7 @@ function ComputePoolsPanel() {
             ))}
           </tbody>
         </table>
+        <TablePager page={poolsPager.page} totalPages={poolsPager.totalPages} total={poolsPager.total} onPage={poolsPager.setPage} className="border-t-0" />
       </div>
     </div>
   );
@@ -279,6 +282,7 @@ function ComputePoolsPanel() {
 
 function ContainerServicesPanel() {
   const [services, setServices] = useState<ContainerService[]>([]);
+  const servicesPager = usePagedRows(services, 25);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -425,15 +429,15 @@ function ContainerServicesPanel() {
 
       {error && <ErrorBar error={error} onRetry={load} />}
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="overflow-auto max-h-[480px] rounded-lg border border-gray-200 dark:border-gray-700">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+          <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
             <tr><TH>Name</TH><TH>Compute Pool</TH><TH>Status</TH><TH className="text-center">Instances</TH><TH>Created</TH><TH className="text-right">Actions</TH></tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {loading ? <SkeletonRows rows={3} cols={6} /> : services.length === 0 ? (
               <EmptyRow cols={6} msg="No services found. Deploy one to get started." />
-            ) : services.map((s) => (
+            ) : servicesPager.visible.map((s) => (
               <tr key={s.name} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-900 dark:text-gray-200">
                 <td className="px-4 py-3 font-medium">{s.name}</td>
                 <td className="px-4 py-3">{s.compute_pool}</td>
@@ -490,6 +494,7 @@ function ContainerServicesPanel() {
             ))}
           </tbody>
         </table>
+        <TablePager page={servicesPager.page} totalPages={servicesPager.totalPages} total={servicesPager.total} onPage={servicesPager.setPage} className="border-t-0" />
       </div>
 
       {/* Drop service — irreversible, type-to-confirm */}
@@ -571,6 +576,7 @@ function ContainerServicesPanel() {
 function StreamlitAppsPanel() {
   const router = useRouter();
   const [apps, setApps] = useState<StreamlitApp[]>([]);
+  const appsPager = usePagedRows(apps, 25);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -657,15 +663,15 @@ function StreamlitAppsPanel() {
 
       {error && <ErrorBar error={error} onRetry={load} />}
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="overflow-auto max-h-[480px] rounded-lg border border-gray-200 dark:border-gray-700">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+          <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
             <tr><TH>Name</TH><TH>Database</TH><TH>Schema</TH><TH>Main File</TH><TH>Warehouse</TH><TH>Created</TH><TH className="text-right">Actions</TH></tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {loading ? <SkeletonRows rows={3} cols={7} /> : apps.length === 0 ? (
               <EmptyRow cols={7} msg="No data apps found. Create one to get started." />
-            ) : apps.map((a) => (
+            ) : appsPager.visible.map((a) => (
               <tr key={a.name} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-900 dark:text-gray-200">
                 <td className="px-4 py-3 font-medium">{a.name}</td>
                 <td className="px-4 py-3">{a.database_name}</td>
@@ -684,6 +690,7 @@ function StreamlitAppsPanel() {
             ))}
           </tbody>
         </table>
+        <TablePager page={appsPager.page} totalPages={appsPager.totalPages} total={appsPager.total} onPage={appsPager.setPage} className="border-t-0" />
       </div>
     </div>
   );
@@ -693,6 +700,7 @@ function StreamlitAppsPanel() {
 
 function ImageReposPanel() {
   const [repos, setRepos] = useState<ImageRepo[]>([]);
+  const reposPager = usePagedRows(repos, 25);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -725,15 +733,15 @@ function ImageReposPanel() {
 
       {error && <ErrorBar error={error} onRetry={load} />}
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="overflow-auto max-h-[480px] rounded-lg border border-gray-200 dark:border-gray-700">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+          <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
             <tr><TH>Name</TH><TH>Database</TH><TH>Schema</TH><TH>Repository URL</TH><TH>Owner</TH><TH>Created</TH><TH className="text-right">Actions</TH></tr>
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {loading ? <SkeletonRows rows={3} cols={7} /> : repos.length === 0 ? (
               <EmptyRow cols={7} msg="No image repositories found." />
-            ) : repos.map((r) => (
+            ) : reposPager.visible.map((r) => (
               <tr key={r.name} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-900 dark:text-gray-200">
                 <td className="px-4 py-3 font-medium">{r.name}</td>
                 <td className="px-4 py-3">{r.database_name}</td>
@@ -752,6 +760,7 @@ function ImageReposPanel() {
             ))}
           </tbody>
         </table>
+        <TablePager page={reposPager.page} totalPages={reposPager.totalPages} total={reposPager.total} onPage={reposPager.setPage} className="border-t-0" />
       </div>
 
       {repos.length > 0 && (

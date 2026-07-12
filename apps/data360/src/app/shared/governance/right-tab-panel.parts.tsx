@@ -141,6 +141,8 @@ interface SectionNavProps {
 export function DesktopRail({ sections, activeSection, onSectionChange, accentClassName }: SectionNavProps) {
   return (
     <nav
+      role="tablist"
+      aria-orientation="vertical"
       aria-label="Panel sections"
       className="flex w-14 shrink-0 flex-col items-center gap-1 border-l border-slate-200 bg-slate-50/80 py-3 dark:border-slate-800 dark:bg-slate-950/40"
     >
@@ -151,9 +153,10 @@ export function DesktopRail({ sections, activeSection, onSectionChange, accentCl
           <div key={item.id} className="group relative">
             <button
               type="button"
-              onClick={() => onSectionChange(item.id)}
+              role="tab"
+              onClick={(e) => { onSectionChange(item.id); e.currentTarget.blur(); }}
               aria-label={item.label}
-              aria-pressed={isActive}
+              aria-selected={isActive}
               title={item.description ?? item.label}
               className={cn(
                 'flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-150',
@@ -169,7 +172,13 @@ export function DesktopRail({ sections, activeSection, onSectionChange, accentCl
             <span
               role="tooltip"
               aria-hidden="true"
-              className="pointer-events-none absolute right-full top-1/2 z-20 mr-2 max-w-[14rem] -translate-y-1/2 whitespace-normal rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium leading-snug text-white opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 dark:bg-slate-700"
+              className={cn(
+                'pointer-events-none absolute right-full top-1/2 z-20 mr-2 max-w-[14rem] -translate-y-1/2 whitespace-normal rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium leading-snug text-white opacity-0 shadow-md transition-opacity duration-150 dark:bg-slate-700',
+                // No tooltip on the ACTIVE section — the panel header already
+                // names it, and a hover tooltip lingering next to the freshly
+                // clicked tab read as a stuck black layer (user #60).
+                !isActive && 'group-hover:opacity-100 group-has-[:focus-visible]:opacity-100',
+              )}
             >
               {item.description ?? item.label}
             </span>

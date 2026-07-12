@@ -710,7 +710,7 @@ function BIDashboardPage() {
           panel scrolls internally. (Replaces the former min-h-screen column.)
           248px = app header (64) + layout main pt/pb (24+48) + layout footer
           (~110) + 2px border budget, so the WHOLE document fits 100dvh. */}
-      <div className="flex h-[calc(100dvh-248px)] min-h-[540px] overflow-hidden bg-gray-50 dark:bg-gray-950">
+      <div className="flex h-[calc(100dvh-224px)] min-h-[540px] overflow-hidden bg-gray-50 dark:bg-gray-950">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* Header */}
         <div className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-6 py-3">

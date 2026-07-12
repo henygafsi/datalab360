@@ -167,6 +167,7 @@ const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
 const DwhActionPlanTab = lazy(() => import('./dwh-action-plan-tab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
 import CommandCenterActionsPanel from './ActionsPanel';
+import { useSession } from 'next-auth/react';
 import ServerlessFinOpsCards from './serverless-finops-cards';
 import TopProblemsPanel from './TopProblemsPanel';
 import WhatChangedCard from './WhatChangedCard';
@@ -1962,6 +1963,8 @@ function CommandCenterDashboardInner() {
   // Refresh is now driven solely by SSE cache-invalidation events (handled
   // elsewhere via useCacheInvalidation) and by the manual refresh button.
 
+  const { data: cxSession } = useSession();
+
   const handleRefresh = useCallback(() => {
     trackFeatureClick('refresh', { tab: activeTab });
     // Invalidate client-side tab cache on manual refresh
@@ -2277,7 +2280,7 @@ function CommandCenterDashboardInner() {
                 component with INTERNAL scroll (they own their fetches and
                 ORGADMIN gating). Below xl the grid stacks and the tab's zone
                 scrolls internally; the page never scrolls. */}
-            <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto xl:grid-cols-2 xl:grid-rows-2 xl:overflow-hidden">
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               <div className="min-h-0 xl:overflow-y-auto">
                 {/* Self-contained: owns its own date-range + role/module/account
                     filters; does NOT consume the parent global filter bar. */}
@@ -2318,9 +2321,30 @@ function CommandCenterDashboardInner() {
         transition={{ duration: 0.3, ease: 'easeOut' }}
         className="mb-3 flex shrink-0 items-center justify-between"
       >
-        {/* Header text deleted (user: 'delete all header — eliminate scroll').
-            The row keeps only the live controls, right-aligned and slim. */}
-        <div />
+        {/* Real page header (user mockup #52): identity left, live Snowflake
+            context chips right — a header band, not content. */}
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              Account Overview
+            </h1>
+            <p className="hidden truncate text-[11px] text-slate-500 dark:text-slate-400 md:block">
+              Consolidated Snowflake account audit — secured by your access
+            </p>
+          </div>
+          <div className="hidden items-center gap-1.5 lg:flex">
+            {cxSession?.user?.account_name && (
+              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                Account: {cxSession.user.account_name}
+              </span>
+            )}
+            {cxSession?.user?.role && (
+              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                Role: {cxSession.user.role}
+              </span>
+            )}
+          </div>
+        </div>
         <div className="flex items-center gap-3">
           {lastUpdated && (
             <span className="hidden text-[11px] text-slate-400 dark:text-slate-500 sm:block">
@@ -2362,7 +2386,7 @@ function CommandCenterDashboardInner() {
           the frame (order-first / md:order-last). ── */}
       <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 md:flex-row md:gap-4">
         {/* ── Main column: ONLY the active section, in the frame ── */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/30">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Frame header: active section identity + its refresh. */}
           <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
             <ActiveIcon className="h-4 w-4 text-slate-400" aria-hidden />
@@ -2497,7 +2521,9 @@ function CommandCenterDashboardInner() {
           onSelect={goToTab}
           days={filters.days}
           onOpenDimension={(dim) => cockpit.openAxis(DIMENSION_TO_AXIS[dim])}
-          className="order-first md:order-last"
+          // #69/#70: the page scrolls (growth contract) — the rail must
+          // FOLLOW or its column reads as a giant dead zone when scrolled.
+          className="order-first md:order-last md:sticky md:top-4 md:max-h-[calc(100dvh-2rem)] md:self-start md:overflow-y-auto"
         />
       </div>
     </div>
@@ -3193,15 +3219,9 @@ const OverviewTab = memo(function OverviewTab({
   // The `provisioned ? … : undefined` guard makes the kpis side fall THROUGH
   // to summary when the cache is missing (a raw `0 ?? summary` short-circuits).
   // Honest values: real number when present, else `null` → "—" (no fake 0s).
-  const creditsUsed =
-    (provisioned ? safeNumOrNull(kpis?.credits_used) : null) ??
-    safeNumOrNull(summary?.cost?.credits_30d);
-  const activeUsers =
-    (provisioned ? safeNumOrNull(kpis?.data360_users) : null) ??
-    safeNumOrNull(summary?.platform?.active_users_7d);
-  const totalProjects =
-    (provisioned ? safeNumOrNull(kpis?.active_projects) : null) ??
-    safeNumOrNull(summary?.platform?.total_projects);
+  // creditsUsed / activeUsers / totalProjects tiles moved to the shell's
+  // 8-tile hero KpiStrip (density mandate 2026-07) — their per-tab KpiCards
+  // were exact duplicates and were removed with them.
   const qualityScore =
     (provisioned ? safeNumOrNull(kpis?.workspace_health_pct) : null) ??
     safeNumOrNull(summary?.quality?.health_score);
@@ -3266,7 +3286,7 @@ const OverviewTab = memo(function OverviewTab({
     return total > 0 ? Math.round((active / total) * 100) : null;
   })();
   const cortexSpend = safeNum(kpis?.cortex_credits, 0);
-  const failedLogins7d = safeNum(summary?.security?.failed_logins_7d, 0);
+  // failedLogins7d tile moved to the hero KpiStrip (Failed logins).
   const securityPolicies =
     safeNum(summary?.security?.masking_policies, 0) +
     safeNum(summary?.security?.rls_policies, 0);
@@ -3324,174 +3344,136 @@ const OverviewTab = memo(function OverviewTab({
         <ProvisionKpisBanner onProvisioned={() => void refreshKpis()} />
       )}
 
-      {/* ── KPI tiles first (dashboard order) — dense, reflow, internal
-          scroll only when the viewport is short. ── */}
+      {/* ── Density mandate 2026-07: the ONE hero KPI band of the Account tab
+          is the 8-tile KpiStrip the shell renders above this tab (Active
+          users · Credits · Query fail % · Failed logins · Storage · Active
+          projects · Modules healthy · Open alerts — each with its drill-down).
+          Every other tile lives in the single "All metrics" drawer below,
+          grouped Health & Posture / Operations & Security — content
+          preserved, honest "—" kept. Exact duplicates of hero tiles
+          (Active Users · Credits · Active Projects · Failed Logins ·
+          Open Alerts) were REMOVED here, not duplicated. ── */}
       <KpiZone>
-      {/* ── KPI section: 6 primary metrics ─────────────────────────── */}
-      <section>
-        <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          Key metrics
-        </h2>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <KpiCard
-          label={`Active Users (${range})`}
-          value={activeUsers}
-          icon={Users}
-          color="blue"
-        />
-        <KpiCard
-          label="Connected Accounts"
-          value={provisioned ? kpis?.connected_accounts ?? null : null}
-          icon={Database}
-          color="cyan"
-          onActivate={() => onNavigateTab?.('organization')}
-        />
-        <KpiCard
-          label="Active Projects"
-          value={totalProjects}
-          icon={Box}
-          color="violet"
-          onActivate={() => onNavigateTab?.('projects')}
-        />
-        <KpiCard
-          label="Modules Active"
-          value={
-            provisioned && kpis?.modules_total != null
-              ? `${kpis?.modules_active ?? 0}/${kpis.modules_total}`
-              : null
-          }
-          icon={Layers}
-          color="indigo"
-          onActivate={() => onNavigateTab?.('modules')}
-        />
-        <KpiCard
-          label={`Credits (${range})`}
-          value={creditsUsed}
-          icon={DollarSign}
-          color="amber"
-          trend={Number(summary?.cost?.credit_trend_pct) || undefined}
-          help={{
-            title: 'Credits',
-            definition: 'Compute consumption units billed for query and pipeline execution over the selected period.',
-            source: 'data warehouse metering history',
-          }}
-          onActivate={() => onNavigateTab?.('finops')}
-        />
-        <KpiCard
-          label="Open Alerts"
-          value={provisioned ? kpis?.open_alerts ?? null : null}
-          icon={AlertTriangle}
-          color={provisioned && (kpis?.open_alerts ?? 0) > 0 ? 'rose' : 'green'}
-          onActivate={() => onNavigateTab?.('security')}
-        />
-      </div>
-      </section>
+        <MoreDrawer label="All metrics" count={11}>
+          {/* ── Health & posture ─────────────────────────────────────── */}
+          <section>
+            <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Health &amp; posture
+            </h2>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+              <KpiCard
+                label="Workspace Health"
+                value={qualityScore != null ? `${qualityScore}%` : null}
+                icon={CheckCircle}
+                color="green"
+              />
+              <KpiCard
+                label="Warehouse Health"
+                value={
+                  provisioned && kpis?.snowflake_health_pct != null
+                    ? `${kpis.snowflake_health_pct}%`
+                    : null
+                }
+                icon={Gauge}
+                color="blue"
+              />
+              <KpiCard
+                label="Optimization Score"
+                value={
+                  provisioned && kpis?.optimization_score_pct != null
+                    ? `${kpis.optimization_score_pct}%`
+                    : null
+                }
+                icon={Zap}
+                color="amber"
+              />
+              <KpiCard
+                label="MFA / AI Models"
+                value={
+                  mfaCoverage != null || aiModels != null
+                    ? `${mfaCoverage != null ? `${mfaCoverage}%` : '—'} · ${aiModels != null ? aiModels : '—'}`
+                    : null
+                }
+                icon={Shield}
+                color="rose"
+              />
+              {/* Modules ACTIVE (enabled/total from the KPI cache) — distinct
+                  from the hero band's Modules HEALTHY (status counts). */}
+              <KpiCard
+                label="Modules Active"
+                value={
+                  provisioned && kpis?.modules_total != null
+                    ? `${kpis?.modules_active ?? 0}/${kpis.modules_total}`
+                    : null
+                }
+                icon={Layers}
+                color="indigo"
+                onActivate={() => onNavigateTab?.('modules')}
+              />
+            </div>
+          </section>
 
-      {/* ── Health gauges section ──────────────────────────────────── */}
-      <section>
-        <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          Health & posture
-        </h2>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard
-          label="Workspace Health"
-          value={qualityScore != null ? `${qualityScore}%` : null}
-          icon={CheckCircle}
-          color="green"
-        />
-        <KpiCard
-          label="Warehouse Health"
-          value={
-            provisioned && kpis?.snowflake_health_pct != null
-              ? `${kpis.snowflake_health_pct}%`
-              : null
-          }
-          icon={Gauge}
-          color="blue"
-        />
-        <KpiCard
-          label="Optimization Score"
-          value={
-            provisioned && kpis?.optimization_score_pct != null
-              ? `${kpis.optimization_score_pct}%`
-              : null
-          }
-          icon={Zap}
-          color="amber"
-        />
-        <KpiCard
-          label="MFA / AI Models"
-          value={
-            mfaCoverage != null || aiModels != null
-              ? `${mfaCoverage != null ? `${mfaCoverage}%` : '—'} · ${aiModels != null ? aiModels : '—'}`
-              : null
-          }
-          icon={Shield}
-          color="rose"
-        />
-      </div>
-      </section>
-
-      {/* ── Operations & security section (P1 zero-cost renders) ────────── */}
-      <section>
-        <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          Operations &amp; security
-        </h2>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <KpiCard
-          label="Deploy Success (30d)"
-          value={
-            provisioned && deploySuccessRate !== null
-              ? `${deploySuccessRate}%`
-              : '—'
-          }
-          icon={Rocket}
-          color="green"
-        />
-        <KpiCard
-          label="Task Failure (24h)"
-          value={
-            provisioned && taskFailureRate !== null
-              ? `${taskFailureRate}%`
-              : '—'
-          }
-          icon={AlertTriangle}
-          color={
-            provisioned && (taskFailureRate ?? 0) > 0 ? 'rose' : 'green'
-          }
-        />
-        <KpiCard
-          label="AI Spend"
-          value={provisioned ? cortexSpend.toLocaleString() : null}
-          icon={Sparkles}
-          color="violet"
-          onActivate={() => onNavigateTab?.('finops')}
-        />
-        <KpiCard
-          label="Adoption Rate"
-          value={
-            hasPlatformSummary && adoptionRate !== null
-              ? `${adoptionRate}%`
-              : '—'
-          }
-          icon={Users}
-          color="blue"
-        />
-        <KpiCard
-          label="Failed Logins (7d)"
-          value={hasSecuritySummary ? failedLogins7d : '—'}
-          icon={Lock}
-          color={hasSecuritySummary && failedLogins7d > 0 ? 'rose' : 'green'}
-        />
-        <KpiCard
-          label="Security Policies"
-          value={hasSecuritySummary ? securityPolicies : '—'}
-          icon={ShieldCheck}
-          color="indigo"
-        />
-      </div>
-      </section>
-
+          {/* ── Operations & security ────────────────────────────────── */}
+          <section>
+            <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Operations &amp; security
+            </h2>
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+              <KpiCard
+                label="Connected Accounts"
+                value={provisioned ? kpis?.connected_accounts ?? null : null}
+                icon={Database}
+                color="cyan"
+                onActivate={() => onNavigateTab?.('organization')}
+              />
+              <KpiCard
+                label="Deploy Success (30d)"
+                value={
+                  provisioned && deploySuccessRate !== null
+                    ? `${deploySuccessRate}%`
+                    : '—'
+                }
+                icon={Rocket}
+                color="green"
+              />
+              <KpiCard
+                label="Task Failure (24h)"
+                value={
+                  provisioned && taskFailureRate !== null
+                    ? `${taskFailureRate}%`
+                    : '—'
+                }
+                icon={AlertTriangle}
+                color={
+                  provisioned && (taskFailureRate ?? 0) > 0 ? 'rose' : 'green'
+                }
+              />
+              <KpiCard
+                label="AI Spend"
+                value={provisioned ? cortexSpend.toLocaleString() : null}
+                icon={Sparkles}
+                color="violet"
+                onActivate={() => onNavigateTab?.('finops')}
+              />
+              <KpiCard
+                label="Adoption Rate"
+                value={
+                  hasPlatformSummary && adoptionRate !== null
+                    ? `${adoptionRate}%`
+                    : '—'
+                }
+                icon={Users}
+                color="blue"
+              />
+              <KpiCard
+                label="Security Policies"
+                value={hasSecuritySummary ? securityPolicies : '—'}
+                icon={ShieldCheck}
+                color="indigo"
+              />
+            </div>
+          </section>
+        </MoreDrawer>
       </KpiZone>
 
       {/* Tab-level actionable CTAs — drill into cost, enforce MFA, enable
@@ -3731,7 +3713,7 @@ const OverviewTab = memo(function OverviewTab({
       {/* Module Health Grid */}
       {moduleHealth && Array.isArray(moduleHealth.modules) && moduleHealth.modules.length > 0 && (
         <SectionCard title="Module Health">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-3 2xl:grid-cols-4">
             {moduleHealth.modules.map((m) => {
               // Backend uses status_reason (e.g. "4 stages, 0 streams, 0 tasks");
               // older builds returned key_metric. Pick whichever is populated.
@@ -5334,8 +5316,10 @@ const CostTab = memo(function CostTab({
   return (
     <TabGrid>
       <KpiZone>
-      {/* KPI Cards — 6 cards per Screens/Account-overview/03-finops spec */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+      {/* KPI Cards — density dedup 2026-07: the "∆ vs prev Nd" tile was
+          removed (exact duplicate of the trend already rendered ON the
+          Credits tile). */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
         <KpiCard
           label={`Credits (${periodDays}d)`}
           value={data?.total_credits ?? null}
@@ -5347,16 +5331,6 @@ const CostTab = memo(function CostTab({
             definition: 'Compute consumption units billed for query and pipeline execution over the selected period.',
             source: 'data warehouse metering history',
           }}
-        />
-        <KpiCard
-          label={`∆ vs prev ${periodDays}d`}
-          value={
-            data?.credit_trend_pct != null
-              ? `${data.credit_trend_pct > 0 ? '+' : ''}${data.credit_trend_pct}%`
-              : null
-          }
-          icon={(data?.credit_trend_pct ?? 0) >= 0 ? TrendingUp : TrendingDown}
-          color={(data?.credit_trend_pct ?? 0) >= 0 ? 'red' : 'green'}
         />
         <KpiCard
           label="Storage (TB)"
@@ -5398,7 +5372,7 @@ const CostTab = memo(function CostTab({
           color="amber"
         />
         <KpiCard
-          label="Top Warehouses"
+          label="Active Warehouses"
           value={activeWarehouses.toLocaleString()}
           icon={Server}
           color="blue"
@@ -6639,7 +6613,7 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
         </SectionCard>
 
         <SectionCard title="Roles per User (Top 15)">
-          <div className="max-h-64 space-y-2 overflow-y-auto">
+          <div className="max-h-[30rem] space-y-2 overflow-y-auto">
             {userRoleDist.slice(0, 15).map((u: any, i: number) => (
               <div
                 key={i}
@@ -6675,7 +6649,7 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
 
       {/* Recent Grant Changes */}
       <SectionCard title={`Recent Grant Changes (${data.period_days ?? 180}d)`}>
-        <div className="max-h-64 space-y-2 overflow-y-auto">
+        <div className="max-h-[30rem] space-y-2 overflow-y-auto">
           {recentChanges.slice(0, 20).map((c: any, i: number) => (
             <div
               key={i}
@@ -6947,7 +6921,7 @@ const DataOperationsTab = memo(function DataOperationsTab({
         {/* Pipe Activity */}
         <SectionCard title="Snowpipe Activity">
           {pipeActivity.length > 0 ? (
-            <div className="max-h-64 space-y-2 overflow-y-auto">
+            <div className="max-h-[30rem] space-y-2 overflow-y-auto">
               {pipeActivity.slice(0, 10).map((p: any, i: number) => (
                 <div
                   key={i}
@@ -6981,7 +6955,7 @@ const DataOperationsTab = memo(function DataOperationsTab({
         {/* Loading Errors */}
         <SectionCard title="Recent Loading Errors">
           {loadingErrors.length > 0 ? (
-            <div className="max-h-64 space-y-2 overflow-y-auto">
+            <div className="max-h-[30rem] space-y-2 overflow-y-auto">
               {loadingErrors.slice(0, 10).map((e: any, i: number) => (
                 <div
                   key={i}
@@ -7059,7 +7033,7 @@ const DataOperationsTab = memo(function DataOperationsTab({
         {/* Active Tasks */}
         <SectionCard title="Active Tasks">
           {activeTasks.length > 0 ? (
-            <div className="max-h-64 space-y-2 overflow-y-auto">
+            <div className="max-h-[30rem] space-y-2 overflow-y-auto">
               {activeTasks.slice(0, 15).map((t: any, i: number) => (
                 <div
                   key={i}
@@ -7102,7 +7076,7 @@ const DataOperationsTab = memo(function DataOperationsTab({
         {/* Dynamic Tables */}
         <SectionCard title="Dynamic Tables">
           {dynamicTables.length > 0 ? (
-            <div className="max-h-64 space-y-2 overflow-y-auto">
+            <div className="max-h-[30rem] space-y-2 overflow-y-auto">
               {dynamicTables.slice(0, 15).map((dt: any, i: number) => (
                 <div
                   key={i}
@@ -7453,21 +7427,17 @@ const ComputeTab = memo(function ComputeTab({
   /** 'kpis' → KPI tiles for FinOps' KpiZone · 'board' → grid cells. */
   zone: 'kpis' | 'board';
 }) {
-  const { totalCredits, sorted, topWarehouse } = useMemo(() => {
+  const { sorted, topWarehouse } = useMemo(() => {
     const warehouses = Array.isArray(data?.warehouses) ? data.warehouses : [];
-    const total = warehouses.reduce(
-      (s: number, w: any) => s + safeNum(w.total_credits, 0),
-      0
-    );
     const s = [...warehouses].sort(
       (a: any, b: any) => (b.total_credits || 0) - (a.total_credits || 0)
     );
-    return { totalCredits: total, sorted: s, topWarehouse: s[0] || null };
+    return { sorted: s, topWarehouse: s[0] || null };
   }, [data]);
 
   if (loading || !data) {
     return zone === 'kpis' ? (
-      <KpiRowSkeleton count={4} />
+      <KpiRowSkeleton count={2} />
     ) : (
       <GridCell>
         <LoadingSection />
@@ -7481,20 +7451,11 @@ const ComputeTab = memo(function ComputeTab({
     : [];
 
   if (zone === 'kpis') {
+    // Density dedup 2026-07: "Warehouses" (count) and "Total Credits" were
+    // exact duplicates of the FinOps rows above (Active Warehouses · Credits)
+    // — the tab now shows each metric ONCE.
     return (
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard
-          label="Warehouses"
-          value={warehouses.length}
-          icon={Server}
-          color="blue"
-        />
-        <KpiCard
-          label="Total Credits"
-          value={totalCredits.toFixed(2)}
-          icon={DollarSign}
-          color="amber"
-        />
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <KpiCard
           label="Top Consumer"
           value={topWarehouse?.warehouse_name || '-'}
@@ -7590,7 +7551,7 @@ const ComputeTab = memo(function ComputeTab({
       <GridCell className="xl:col-span-6">
         <SectionCard title="Replication">
           {replicationDbs.length > 0 ? (
-            <div className="max-h-64 space-y-2 overflow-y-auto">
+            <div className="max-h-[30rem] space-y-2 overflow-y-auto">
               {replicationDbs.map((r: any, i: number) => (
                 <div
                   key={i}

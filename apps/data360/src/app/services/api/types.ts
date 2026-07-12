@@ -2822,11 +2822,13 @@ export interface AiSavingsFeatureItem {
   actual_savings: number;
 }
 
+/** REAL /explore-design/{id}/ai/savings contract (ai_services.get_savings_dashboard).
+    The previous shape (by_feature[], *_savings_credits) never existed on the
+    backend and crashed the dashboard on mount. */
 export interface AiSavingsResponse {
-  project_id: string;
-  period_days: number;
-  total_estimated_savings_credits: number;
-  total_actual_savings_credits: number;
-  by_feature: AiSavingsFeatureItem[];
+  total_credits_saved: number;
+  ai_cost_credits: number;
   roi_multiplier: number;
+  breakdown: Record<string, { credits_saved: number; actions: number }>;
+  period: string;
 }

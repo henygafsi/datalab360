@@ -50,6 +50,12 @@ export interface ProjectGatePanelProps {
   onCreateNew: () => void;
   /** Called when the user retries after an error. */
   onRetry?: () => void;
+  /**
+   * Max-width utility of the centred card (default `max-w-2xl`). Wide-canvas
+   * hosts (the workflow builder) pass a larger cap so the gate doesn't leave
+   * dead flanks at 1440/1920.
+   */
+  widthClass?: string;
 }
 
 /** Per-module wording — only the noun + accent differ between the two gates. */
@@ -84,6 +90,7 @@ export default function ProjectGatePanel({
   onSelect,
   onCreateNew,
   onRetry,
+  widthClass = 'max-w-2xl',
 }: ProjectGatePanelProps) {
   const copy = MODULE_COPY[module];
   const [query, setQuery] = useState('');
@@ -153,7 +160,7 @@ export default function ProjectGatePanel({
 
   return (
     <div className="flex-1 overflow-auto flex items-start justify-center p-6">
-      <div className="w-full max-w-2xl mt-8">
+      <div className={`w-full ${widthClass} mt-8`}>
         <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm p-6">
           {/* Header */}
           <div className="flex items-center gap-3 mb-1">

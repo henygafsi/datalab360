@@ -55,12 +55,17 @@ function formatCell(v: unknown): string {
 
 interface CocoDraftsPanelProps {
   onBack: () => void;
+  /** Optional seed for the intent textarea (e.g. a question typed in the
+   *  Explore & Design Cortex assistant before hand-off to this flow). */
+  initialIntent?: string;
+  /** Optional seed for the table-FQN input (comma-separated, max 5). */
+  initialTables?: string;
 }
 
-export default function CocoDraftsPanel({ onBack }: CocoDraftsPanelProps) {
+export default function CocoDraftsPanel({ onBack, initialIntent, initialTables }: CocoDraftsPanelProps) {
   const [module, setModule] = useState<DraftModule>('sql');
-  const [intent, setIntent] = useState('');
-  const [tablesInput, setTablesInput] = useState('');
+  const [intent, setIntent] = useState(initialIntent ?? '');
+  const [tablesInput, setTablesInput] = useState(initialTables ?? '');
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<CocoDraftResult | null>(null);
   const [requestError, setRequestError] = useState<string | null>(null);

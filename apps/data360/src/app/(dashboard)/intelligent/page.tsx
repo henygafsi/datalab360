@@ -31,6 +31,8 @@ import { HiOutlineRefresh } from 'react-icons/hi';
 import KPICard from '@/components/analytics/KPICard';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import Breadcrumb from '@/components/ui/Breadcrumb';
+import FullscreenPanel, { FullscreenExpandButton } from '@/components/ui/FullscreenPanel';
+import { usePagedRows, TablePager } from '@/components/ui/TablePager';
 import IntelligentCockpit, { IntelligentKpiStrip } from './components/IntelligentCockpit';
 import AskLanding from './components/AskLanding';
 
@@ -167,6 +169,8 @@ function FeatureUnavailableNotice({ label }: { label: string }) {
 export default function IntelligentPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Fullscreen deep-dive of the main content card (nav + active tab panel).
+  const [contentFull, setContentFull] = useState(false);
   // useTrackEvent auto-fires PAGE_VIEW on mount via pathname; call trackTabSwitch on tab changes.
   const { trackTabSwitch } = useTrackEvent();
   // Deep-links preserved: every historical ?tab= id still renders its tab.
@@ -247,6 +251,20 @@ export default function IntelligentPage() {
     }
     return tables.size;
   }, [vectorColumns]);
+
+  // Standardized tables — pageSize 25 + sticky headers (AuditTable pattern).
+  const svPager = usePagedRows(semanticViews ?? [], 25);
+  const vcPager = usePagedRows(vectorColumns ?? [], 25);
+
+  // Human label of the active tab (fullscreen overlay title).
+  const activeTabLabel = useMemo(() => {
+    if (activeTab === 'home') return 'Ask AI';
+    for (const g of NAV_GROUPS) {
+      const hit = g.items.find((i) => i.id === activeTab);
+      if (hit) return hit.name;
+    }
+    return 'Intelligent Analytics';
+  }, [activeTab]);
 
   // KPI overview (GET /cortex/kpis, no static data) — a single definition
   // rendered above tab content on tab views (as before) and below the chat
@@ -337,19 +355,21 @@ export default function IntelligentPage() {
 
   return (
     <ErrorBoundary>
-    {/* Page shell: scrolling content column + docked intelligence cockpit at the right edge */}
-    <div className="flex items-start gap-4">
-    <div className="min-w-0 flex-1 space-y-8">
+    {/* One-pager shell (platform viewport pattern, same budget as /workflow):
+        fixed-height frame — the main column scrolls INSIDE, the cockpit is
+        docked full-height at the right edge, the document never scrolls. */}
+    <div className="flex h-[calc(100dvh-222px)] min-h-[520px] items-stretch gap-4 overflow-hidden">
+    <div className="min-w-0 flex-1 space-y-5 overflow-y-auto pb-4 pr-1">
       <Breadcrumb items={[{ label: 'Intelligent Analytics', href: '/intelligent' }]} />
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <div className="flex items-center gap-3 mb-2">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-purple-lighter/70">
-              <PiBrain className="h-6 w-6 text-purple" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-lighter/70">
+              <PiBrain className="h-5 w-5 text-purple" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 Intelligent Analytics
               </h1>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
@@ -376,7 +396,13 @@ export default function IntelligentPage() {
           chat-first home it renders BELOW the chat + suggestions instead. */}
       {activeTab !== 'home' && kpiOverview}
 
-      {/* Main Content Card with Tabs */}
+      {/* Main Content Card with Tabs — expandable to a fullscreen deep-dive */}
+      <FullscreenPanel
+        title={`Intelligent Analytics — ${activeTabLabel}`}
+        subtitle="Deep-dive view · Esc to close"
+        open={contentFull}
+        onOpenChange={setContentFull}
+      >
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-muted dark:border-gray-700 shadow-sm overflow-hidden">
         {/* Compact grouped secondary nav — replaces the old wall of tab cards.
             Two purposeful groups; every historical tab id keeps working. */}
@@ -421,6 +447,13 @@ export default function IntelligentPage() {
               })}
             </div>
           ))}
+          {/* Fullscreen deep-dive of the active section (not a tab). */}
+          <span className="ml-auto">
+            <FullscreenExpandButton
+              onClick={() => setContentFull(true)}
+              label={`Expand ${activeTabLabel} to fullscreen`}
+            />
+          </span>
         </nav>
 
         {/* Tab Content */}
@@ -538,14 +571,15 @@ export default function IntelligentPage() {
                 </div>
               ) : (
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                  <div className="max-h-[420px] overflow-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50 dark:bg-gray-800">
+                    <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800">
                       <tr>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">View Name</th>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tables</th>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Measures</th>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Updated</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">View Name</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tables</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Measures</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Updated</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -557,22 +591,24 @@ export default function IntelligentPage() {
                           </td>
                         </tr>
                       ) : (
-                        (semanticViews ?? []).map((view, i) => (
+                        svPager.visible.map((view, i) => (
                           <tr key={view.name || i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{view.name || view.VIEW_NAME || '—'}</td>
-                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{view.table_count ?? view.TABLES ?? '—'}</td>
-                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{view.measure_count ?? view.MEASURES ?? '—'}</td>
-                            <td className="px-4 py-3">
+                            <td className="px-4 py-2.5 font-medium text-gray-900 dark:text-white">{view.name || view.VIEW_NAME || '—'}</td>
+                            <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{view.table_count ?? view.TABLES ?? '—'}</td>
+                            <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{view.measure_count ?? view.MEASURES ?? '—'}</td>
+                            <td className="px-4 py-2.5">
                               <Badge className={`text-[10px] ${view.status === 'active' || view.STATUS === 'ACTIVE' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
                                 {view.status || view.STATUS || 'Draft'}
                               </Badge>
                             </td>
-                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{view.updated_at || view.LAST_ALTERED || '—'}</td>
+                            <td className="px-4 py-2.5 text-gray-500 dark:text-gray-400 text-xs">{view.updated_at || view.LAST_ALTERED || '—'}</td>
                           </tr>
                         ))
                       )}
                     </tbody>
                   </table>
+                  </div>
+                  <TablePager page={svPager.page} totalPages={svPager.totalPages} total={svPager.total} onPage={svPager.setPage} />
                 </div>
               )}
             </div>
@@ -655,8 +691,9 @@ export default function IntelligentPage() {
                       <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs">{(vectorColumns ?? []).length} columns</Badge>
                     </div>
                   </div>
+                  <div className="max-h-[420px] overflow-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50/50 dark:bg-gray-800/50">
+                    <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800">
                       <tr>
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Table.Column</th>
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dimensions</th>
@@ -674,7 +711,7 @@ export default function IntelligentPage() {
                           </td>
                         </tr>
                       ) : (
-                        (vectorColumns ?? []).map((col, i) => {
+                        vcPager.visible.map((col, i) => {
                           const rowCount = col.row_count ?? col.ROW_COUNT;
                           return (
                             <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
@@ -689,57 +726,58 @@ export default function IntelligentPage() {
                       )}
                     </tbody>
                   </table>
+                  </div>
+                  <TablePager page={vcPager.page} totalPages={vcPager.totalPages} total={vcPager.total} onPage={vcPager.setPage} />
                 </div>
               )}
             </div>
           )}
         </div>
       </div>
+      </FullscreenPanel>
 
       {/* On the chat-first home the KPI overview lives under the hero */}
       {activeTab === 'home' && kpiOverview}
 
-      {/* Feature Highlights */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="border border-muted dark:border-gray-700 bg-white dark:bg-gray-900 p-6 rounded-xl transition-all duration-200 hover:shadow-md">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-purple-lighter/70 mb-4">
-            <PiSparkle className="w-5 h-5 text-purple" />
+      {/* Feature highlights — demoted to a one-line collapsible (actions first,
+          prose second): the 3 former hero cards now expand on demand. */}
+      <details className="group rounded-xl border border-muted bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
+        <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200 [&::-webkit-details-marker]:hidden">
+          <PiSparkle className="h-4 w-4 text-purple" aria-hidden />
+          What powers Intelligent Analytics
+          <span className="ml-auto text-xs text-gray-400 group-open:hidden">Show details</span>
+          <span className="ml-auto hidden text-xs text-gray-400 group-open:inline">Hide</span>
+        </summary>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="rounded-lg border border-muted p-3 dark:border-gray-700">
+            <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-white">
+              <PiSparkle className="h-4 w-4 text-purple" aria-hidden /> Natural Language Processing
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Ask questions in plain English and get instant SQL-powered answers from your data warehouse.
+            </p>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-            Natural Language Processing
-          </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Ask questions in plain English and get instant SQL-powered answers from your data warehouse.
-          </p>
-        </div>
-
-        <div className="border border-muted dark:border-gray-700 bg-white dark:bg-gray-900 p-6 rounded-xl transition-all duration-200 hover:shadow-md">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-lighter/70 mb-4">
-            <PiRocketLaunch className="w-5 h-5 text-blue" />
+          <div className="rounded-lg border border-muted p-3 dark:border-gray-700">
+            <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-white">
+              <PiRocketLaunch className="h-4 w-4 text-blue" aria-hidden /> Intelligent Context
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Semantic models provide business context, synonyms, and relationships for accurate query generation.
+            </p>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-            Intelligent Context
-          </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Semantic models provide business context, synonyms, and relationships for accurate query generation.
-          </p>
-        </div>
-
-        <div className="border border-muted dark:border-gray-700 bg-white dark:bg-gray-900 p-6 rounded-xl transition-all duration-200 hover:shadow-md">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-orange-lighter/70 mb-4">
-            <PiGear className="w-5 h-5 text-orange" />
+          <div className="rounded-lg border border-muted p-3 dark:border-gray-700">
+            <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-white">
+              <PiGear className="h-4 w-4 text-orange" aria-hidden /> Enterprise Ready
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Enterprise security, scalability, and governance built-in across the platform.
+            </p>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-            Enterprise Ready
-          </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Enterprise security, scalability, and governance built-in across the platform.
-          </p>
         </div>
-      </div>
+      </details>
 
       {/* Related Modules */}
-      <div className="mt-6 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+      <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
         <span>Related:</span>
         <a href="/workflow" className="text-blue-600 dark:text-blue-400 hover:underline">Workflow (ETL Blocks)</a>
         <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Semantic Models)</a>

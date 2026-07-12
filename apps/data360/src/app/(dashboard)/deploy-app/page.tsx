@@ -86,7 +86,7 @@ function DeployAppPageContent() {
      * deployments list alone pushed it past 9000px). DeployAppHome now owns
      * TABS (Build / Deployments) and each tab body scrolls internally.
      */
-    <div className="flex h-[calc(100dvh-246px)] min-h-[480px] flex-col overflow-hidden bg-slate-50 dark:bg-slate-900">
+    <div className="flex h-[calc(100dvh-222px)] min-h-[480px] flex-col overflow-hidden bg-slate-50 dark:bg-slate-900">
       <Toaster position="bottom-right" />
       <DeployAppHome
         onNewApp={openFresh}

@@ -23,6 +23,7 @@ import {
   listContributors,
   addContributor,
   removeContributor,
+  deleteProject,
   approveDeployment,
   rejectDeployment,
 } from '@/app/services/api/projectsApi';
@@ -137,6 +138,7 @@ function ProjectRow({
   onRefreshMembers,
   onAddMember,
   onRemoveMember,
+  onDeleteProject,
   currentUsername,
 }: {
   project: ProjectWithMembers;
@@ -145,14 +147,20 @@ function ProjectRow({
   onRefreshMembers: () => void;
   onAddMember: (username: string, role: 'editor' | 'viewer') => void;
   onRemoveMember: (username: string) => void;
+  onDeleteProject: () => void;
   currentUsername: string;
 }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newRole, setNewRole] = useState<'editor' | 'viewer'>('viewer');
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  // Delete-project (soft): owner-only affordance with a typed-name confirm —
+  // the backend re-gates (owner or account-admin), this is UX honesty only.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteText, setDeleteText] = useState('');
 
   const owner = project.contributors.find((c) => c.role === 'owner');
+  const iAmOwner = owner?.username?.toLowerCase() === currentUsername.toLowerCase();
   const memberCount = project.contributors.length;
   const isTypeExplore = project.project_type === 'explore_design';
 
@@ -241,6 +249,45 @@ function ProjectRow({
           )}
         </div>
       </button>
+
+      {/* Owner-only project delete (soft) — honest gate + typed confirm. */}
+      {expanded && iAmOwner && (
+        <div className="border-t border-slate-100 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/40 px-4 py-2">
+          {confirmDelete ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Trash2 className="h-3.5 w-3.5 text-red-500 shrink-0" />
+              <span className="text-xs text-red-700 dark:text-red-300">
+                Type <strong>{project.project_name}</strong> to soft-delete this project (recoverable by an admin):
+              </span>
+              <input
+                value={deleteText}
+                onChange={(e) => setDeleteText(e.target.value)}
+                placeholder={project.project_name}
+                className="h-6 rounded border border-red-300 bg-white px-2 text-xs dark:border-red-800 dark:bg-slate-900"
+              />
+              <Button
+                size="sm"
+                disabled={deleteText !== project.project_name}
+                className="h-6 px-2 text-[11px] bg-red-600 hover:bg-red-700 text-white disabled:opacity-40"
+                onClick={() => { onDeleteProject(); setConfirmDelete(false); setDeleteText(''); }}
+              >
+                Delete project
+              </Button>
+              <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => { setConfirmDelete(false); setDeleteText(''); }}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="flex items-center gap-1.5 text-[11px] text-slate-400 transition-colors hover:text-red-500"
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete this project (owner only — soft delete, contributors keep history)
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Open in Explore — only for explore_design projects */}
       {isTypeExplore && (
@@ -584,6 +631,16 @@ function ProjectsGovernancePageInner() {
   );
 
   // Remove member
+  const handleDeleteProject = useCallback(async (projectId: string, name: string) => {
+    try {
+      await deleteProject(projectId);
+      setProjects((prev) => prev.filter((p) => p.project_id !== projectId));
+      toast.success(`Project "${name}" deleted (soft — recoverable by an admin)`);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err) || 'Delete failed');
+    }
+  }, []);
+
   const handleRemoveMember = useCallback(
     async (projectId: string, username: string) => {
       try {
@@ -922,6 +979,7 @@ function ProjectsGovernancePageInner() {
                 onRefreshMembers={() => refreshMembers(project.project_id)}
                 onAddMember={(username, role) => handleAddMember(project.project_id, username, role)}
                 onRemoveMember={(username) => handleRemoveMember(project.project_id, username)}
+                onDeleteProject={() => handleDeleteProject(project.project_id, project.project_name)}
                 currentUsername={currentUsername}
               />
             ))}

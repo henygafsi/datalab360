@@ -19,6 +19,7 @@ import {
   PiSparkle,
 } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
+import { PagedDataTable } from '@/components/ui/TablePager';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
@@ -640,31 +641,8 @@ function ClassificationSection() {
                 The model ran but returned no prediction rows for this input table.
               </div>
             ) : (
-              <div className="overflow-auto max-h-96">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-700">
-                      {cols.map((c) => (
-                        <th key={c} className="text-left py-2 px-3 text-slate-600 dark:text-slate-400 font-medium whitespace-nowrap">{c}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preds.map((row, ri) => (
-                      <tr key={ri} className="border-b border-slate-100 dark:border-slate-800">
-                        {cols.map((c) => {
-                          const val = row[c];
-                          return (
-                            <td key={c} className="py-2 px-3 text-slate-900 dark:text-white whitespace-nowrap">
-                              {val == null ? '—' : typeof val === 'object' ? JSON.stringify(val) : String(val)}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              /* Standardized grid — sticky header + 25/page (shared PagedDataTable) */
+              <PagedDataTable rows={preds as Array<Record<string, unknown>>} columns={cols} maxHeightClass="max-h-96" />
             )}
           </div>
         );

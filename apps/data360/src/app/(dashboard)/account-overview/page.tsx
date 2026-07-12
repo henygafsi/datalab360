@@ -94,12 +94,14 @@ function ViewportFitFrame({ children }: { children: ReactNode }) {
       //  - footer sits above the fold → grow by exactly that spare.
       // Both signals move 1:1 with the frame height (normal flow), so this
       // converges in one or two observer ticks without oscillating.
-      const excess = Math.max(0, doc - window.innerHeight);
+      // #52 contract: the frame is a FLOOR, not a ceiling — short content still
+      // fills down to the footer (no dead space), tall content grows the page
+      // and the user scrolls the PAGE, not cramped inner cells.
+      void doc;
       const footer = document.querySelector('footer');
-      const footerBottom = footer ? footer.getBoundingClientRect().bottom : window.innerHeight;
-      const spare = excess === 0 ? Math.max(0, window.innerHeight - footerBottom) : 0;
-      const current = node.getBoundingClientRect().height;
-      const next = Math.max(240, Math.round(current - excess + spare));
+      const footerH = footer ? footer.getBoundingClientRect().height : 56;
+      const top = node.getBoundingClientRect().top + window.scrollY;
+      const next = Math.max(240, Math.round(window.innerHeight - top - footerH - 8));
       // Change-guard: avoid resize-observer feedback loops on 1px jitter.
       setHeight((prev) => (prev != null && Math.abs(prev - next) <= 1 ? prev : next));
     };
@@ -125,8 +127,8 @@ function ViewportFitFrame({ children }: { children: ReactNode }) {
   return (
     <div
       ref={ref}
-      style={{ height: height != null ? `${height}px` : 'calc(100dvh - 200px)' }}
-      className="min-h-[240px] px-1.5 pb-1"
+      style={{ minHeight: height != null ? `${height}px` : 'calc(100dvh - 200px)' }}
+      className="min-h-[240px] pb-1"
     >
       {children}
     </div>

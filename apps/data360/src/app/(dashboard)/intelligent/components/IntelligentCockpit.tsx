@@ -513,7 +513,8 @@ function RecosAxisBody({
           })}
         </ul>
       )}
-      <TabLink tab="ai-advisor">Full list &amp; re-analysis in AI Advisor</TabLink>
+      {/* Full list lives behind the axis primary CTA (AI Advisor) — no
+          duplicate link here. */}
     </div>
   );
 }
@@ -604,9 +605,9 @@ function ModelsAxisBody({
         </div>
       )}
 
+      {/* Advanced ML is the axis primary CTA — only the complementary link here. */}
       <div className="flex flex-col gap-1.5">
         <TabLink tab="semantic-models">Semantic Models</TabLink>
-        <TabLink tab="advanced-ml">Advanced ML (fine-tuning, classification, document AI)</TabLink>
       </div>
     </div>
   );
@@ -715,8 +716,8 @@ function FunctionalAxisBody({
         )}
       </div>
 
+      {/* Query Analytics is the axis primary CTA — only the complementary link here. */}
       <div className="flex flex-col gap-1.5">
-        <TabLink tab="query-analytics">Query Analytics (run analysis, full drill-down)</TabLink>
         <TabLink tab="advanced-ml">Top Insights (contribution analysis)</TabLink>
       </div>
     </div>
@@ -836,8 +837,8 @@ function HistoryAxisBody({
           })}
         </ul>
       )}
+      {/* AI Chat is the axis primary CTA — only the complementary link here. */}
       <div className="flex flex-col gap-1.5">
-        <TabLink tab="cortex-chat">Continue in AI Chat</TabLink>
         <TabLink tab="ai-console">Ask in the AI Console</TabLink>
       </div>
     </div>
@@ -1303,15 +1304,17 @@ export default function IntelligentCockpit({ kpis }: { kpis: CortexKpis | null }
     [setAxis, setOpen, trackFeatureClick],
   );
 
+  // Docked full-height inside the page's fixed-height one-pager frame
+  // (the frame owns the viewport budget — no sticky offset needed).
   return (
-    <aside aria-label="Intelligence cockpit" className="sticky top-4 z-20 hidden shrink-0 self-start xl:block">
+    <aside aria-label="Intelligence cockpit" className="z-20 hidden h-full shrink-0 xl:block">
       <AxisCockpit
         axes={axes}
         open={open}
         activeAxis={axis}
         onOpenAxis={handleOpenAxis}
         onClose={() => setOpen(false)}
-        className="h-[calc(100vh-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
+        className="h-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
       />
     </aside>
   );

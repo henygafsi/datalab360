@@ -20,6 +20,8 @@ import {
 import type { DuckdbDataset, DuckdbQueryResult } from '@/app/services/cortex';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import FullscreenPanel, { FullscreenExpandButton } from '@/components/ui/FullscreenPanel';
+import { PagedDataTable } from '@/components/ui/TablePager';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -39,6 +41,7 @@ export default function LocalAnalyticsContent() {
   const [queryRunning, setQueryRunning] = useState(false);
   const [queryResult, setQueryResult] = useState<DuckdbQueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
+  const [resultsFull, setResultsFull] = useState(false);
 
   // ── Datasets via useCacheAwareQuery ──
   const fetchDatasets = useCallback(async () => {
@@ -182,7 +185,7 @@ export default function LocalAnalyticsContent() {
               </div>
             ) : (
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                     <th className="text-left px-4 py-2 text-gray-600 dark:text-gray-400 font-medium">Stage</th>
                     <th className="text-left px-4 py-2 text-gray-600 dark:text-gray-400 font-medium">File</th>
@@ -330,8 +333,15 @@ export default function LocalAnalyticsContent() {
         </div>
       </div>
 
-      {/* Results Table */}
+      {/* Results Table — standardized grid (sticky header, 25/page) with a
+          fullscreen deep-dive affordance */}
       {queryResult && queryResult.data && queryResult.data.length > 0 && (
+        <FullscreenPanel
+          title="Query Results"
+          subtitle={`${queryResult.row_count} rows · ${queryResult.execution_time_ms}ms · Esc to close`}
+          open={resultsFull}
+          onOpenChange={setResultsFull}
+        >
         <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center gap-3">
@@ -348,43 +358,23 @@ export default function LocalAnalyticsContent() {
                 </Badge>
               )}
             </div>
+            {!resultsFull && (
+              <FullscreenExpandButton
+                onClick={() => setResultsFull(true)}
+                label="Expand query results to fullscreen"
+              />
+            )}
           </div>
 
-          <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-0">
-                <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                  {(queryResult.columns || []).map((col) => (
-                    <th
-                      key={col}
-                      className="text-left px-4 py-2.5 text-gray-600 dark:text-gray-400 font-medium whitespace-nowrap"
-                    >
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {queryResult.data.map((row, rowIdx) => (
-                  <tr
-                    key={rowIdx}
-                    className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30"
-                  >
-                    {(queryResult.columns || []).map((col) => (
-                      <td
-                        key={col}
-                        className="px-4 py-2 text-gray-900 dark:text-gray-200 whitespace-nowrap max-w-[300px] truncate"
-                        title={String(row[col] ?? '')}
-                      >
-                        {row[col] != null ? String(row[col]) : <span className="text-gray-400 dark:text-gray-500 italic">null</span>}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="p-3">
+            <PagedDataTable
+              rows={(queryResult.data ?? []) as Array<Record<string, unknown>>}
+              columns={queryResult.columns || undefined}
+              maxHeightClass={resultsFull ? 'max-h-[calc(100vh-220px)]' : 'max-h-[420px]'}
+            />
           </div>
         </div>
+        </FullscreenPanel>
       )}
 
       {queryResult && queryResult.data && queryResult.data.length === 0 && (
