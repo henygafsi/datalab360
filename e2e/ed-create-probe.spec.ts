@@ -33,21 +33,21 @@ test('probe: create-table flow in E&D modeling', async ({ page }) => {
 
   const log = (m: string) => console.log('PROBE ' + m); // eslint-disable-line no-console
 
-  // 1. Bottom "Create Table" quick action
-  const createTableBtn = page.getByRole('button', { name: /^Create Table$/ }).first();
-  const ctVisible = await createTableBtn.isVisible().catch(() => false);
-  const ctEnabled = ctVisible ? await createTableBtn.isEnabled().catch(() => false) : false;
-  log(`bottom "Create Table": visible=${ctVisible} enabled=${ctEnabled}`);
-  expect(ctVisible && ctEnabled, 'bottom Create Table is clickable').toBeTruthy();
-  await createTableBtn.click().catch((e) => log('click err ' + e));
+  // Create Table is now reachable from the left source panel "Create New
+  // Table / View" button (the bottom quick-actions strip was removed — those
+  // actions are owned by the right-bar Create group + toolbar). It opens the
+  // create MODAL directly.
+  const createBtn = page.getByRole('button', { name: /Create New Table \/ View/i }).first();
+  const cbVisible = await createBtn.isVisible().catch(() => false);
+  const cbEnabled = cbVisible ? await createBtn.isEnabled().catch(() => false) : false;
+  log(`"Create New Table / View": visible=${cbVisible} enabled=${cbEnabled}`);
+  expect(cbVisible && cbEnabled, 'Create New Table / View is clickable').toBeTruthy();
+  await createBtn.click().catch((e) => log('click err ' + e));
   await page.waitForTimeout(2500);
-  // FIX: the bottom "Create Table" must now open the create MODAL directly
-  // (it used to only open the right-bar group → looked like nothing happened).
   const dialog = await page.getByRole('dialog').count();
-  log(`after click Create Table → dialogs=${dialog}`);
+  log(`after click → dialogs=${dialog}`);
   await page.screenshot({ path: path.join(__dirname, 'night-audit-artifacts', 'probe-create-table.png') }).catch(() => {});
   expect(dialog, 'Create Table opens a modal directly').toBeGreaterThan(0);
-  // close it before the next step
   await page.keyboard.press('Escape').catch(() => {});
   await page.waitForTimeout(800);
 
@@ -55,7 +55,7 @@ test('probe: create-table flow in E&D modeling', async ({ page }) => {
   expect(errors, 'no page/console errors').toEqual([]);
 });
 
-test('DAG Viewer removed from modeling; quick actions + Lineage intact', async ({ page }) => {
+test('modeling floor strip shows only model counts; quick-action buttons removed', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(`/explore-design?project_id=${PROJECT}&view=modeling`, { waitUntil: 'domcontentloaded' });
@@ -63,12 +63,17 @@ test('DAG Viewer removed from modeling; quick actions + Lineage intact', async (
 
   const quick = page.getByTestId('modeling-quick-actions');
   await expect(quick).toBeVisible({ timeout: 30_000 });
-  // DAG Viewer is gone; the remaining quick actions are intact.
+  // The floor strip is now counts-only. DAG Viewer and the four quick-action
+  // buttons (Create Table / Create View / Ingestion Run / AI Recommendations)
+  // are all removed — they live in the right-bar cockpit + toolbar.
   await expect(quick.getByRole('button', { name: /DAG Viewer/i })).toHaveCount(0);
-  await expect(quick.getByRole('button', { name: /^Create Table$/ })).toBeVisible();
-  await expect(quick.getByRole('button', { name: /Ingestion Run/i })).toBeVisible();
-  await expect(quick.getByRole('button', { name: /AI Recommendations/i })).toBeVisible();
+  await expect(quick.getByRole('button', { name: /^Create Table$/ })).toHaveCount(0);
+  await expect(quick.getByRole('button', { name: /^Create View$/ })).toHaveCount(0);
+  await expect(quick.getByRole('button', { name: /Ingestion Run/i })).toHaveCount(0);
+  await expect(quick.getByRole('button', { name: /AI Recommendations/i })).toHaveCount(0);
+  // The model counts remain (tables + relations).
+  await expect(quick.getByText(/relations/i)).toBeVisible();
   // eslint-disable-next-line no-console
-  console.log('DAGREMOVE quick actions intact, DAG Viewer button count = 0');
+  console.log('FLOORSTRIP counts-only, all quick-action buttons removed');
   expect(errors, 'no page errors').toEqual([]);
 });

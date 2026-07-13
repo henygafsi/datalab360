@@ -6320,31 +6320,11 @@ export default function ExploreDesignPage() {
                   <GitBranch className="h-3 w-3" />
                   {kpiRelationCount} relations
                 </span>
-                <span className="mx-1 hidden h-4 w-px shrink-0 bg-slate-200 dark:bg-slate-700 sm:block" aria-hidden />
-                <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-slate-400">Quick actions</span>
-                {([
-                  // "Create Table" opens the create-table MODAL directly (one click →
-                  // form). It used to call openCreateGroup, which only opened the
-                  // right-bar Create section — clicking it looked like nothing happened
-                  // ("cannot click on create table"). Verified via e2e/ed-create-probe.
-                  { label: 'Create Table', icon: Table2, onClick: () => handleCreateObject('standard'), title: 'Create a standard DWH table (opens the create form)' },
-                  { label: 'Create View', icon: Eye, onClick: () => handleCreateObject('dynamic_table'), title: 'Ships as a governed Dynamic Table (SQL-defined, auto-refreshed)' },
-                  { label: 'Ingestion Run', icon: RefreshCw, onClick: () => { if (readOnlyGuard()) return; setShowModelingIngestionPanel(true); }, title: 'Configure & run ingestion for the model' },
-                  // DAG Viewer removed — lineage is shown per table via the right-bar
-                  // Lineage axis (click a table → Lineage), not a separate pending-DAG modal.
-                  { label: 'AI Recommendations', icon: Sparkles, onClick: () => { setActiveRightTab('ai'); setRightBarOpen(true); }, title: 'Open the AI Assist section' },
-                ] as { label: string; icon: React.ElementType; onClick: () => void; title: string }[]).map(({ label, icon: Icon, onClick, title }) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={onClick}
-                    title={title}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
-                  >
-                    <Icon className="h-3 w-3" />
-                    {label}
-                  </button>
-                ))}
+                {/* Quick-actions removed — Create Table / Create View / Ingestion Run
+                    / AI Recommendations are the SAME actions the right-bar cockpit
+                    (Create group · AI axis) and the toolbar "Add table" already own,
+                    so this floor strip duplicated them. It now shows only the model
+                    counts, per the "one right-bar surface" direction. */}
               </div>
             </div>
 
