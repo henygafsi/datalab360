@@ -4019,6 +4019,35 @@ export async function dryRunDDL(projectId: string, data: { database: string; sch
   return res.data;
 }
 
+export interface DdlRemediation {
+  category: string;
+  title: string;
+  rationale: string;
+  diagnostic_sql?: string | null;
+  corrective_sql?: string | null;
+  can_retry?: boolean;
+}
+export interface DdlFailureRemediation {
+  event_id: string;
+  ddl_type?: string;
+  ddl_sql?: string;
+  target_table?: string;
+  error_message?: string;
+  remediation: DdlRemediation;
+}
+export interface DdlRemediationResult {
+  project_id: string;
+  failed_count: number;
+  remediations: DdlFailureRemediation[];
+}
+
+/** Proposed remediation for every FAILED DDL action (deploy error → fix action).
+ *  Read-only on the backend; safe to call after a deploy abort. */
+export async function getDdlRemediation(projectId: string): Promise<DdlRemediationResult> {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/ddl-actions/remediation`);
+  return (res.data?.data ?? res.data) as DdlRemediationResult;
+}
+
 export async function batchAddDDLActions(projectId: string, data: { actions: Array<{ ddl_sql: string; ddl_type?: string; priority?: number; target_table?: string; description?: string }> }) {
   // No backend batch route exists — only POST /{project_id}/ddl-actions (single action;
   // the `/batch` path collided with DELETE /ddl-actions/{event_id}). Submit per-action
