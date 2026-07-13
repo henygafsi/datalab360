@@ -167,6 +167,19 @@ export async function sendMessage(
   return normalizeMessage(res.data?.data ?? res.data);
 }
 
+/**
+ * Delete (soft-delete) a message you sent.
+ * DELETE /chat/conversations/{id}/messages/{message_id}
+ *
+ * The backend checks ownership (403 if not yours, 404 if already gone) and
+ * broadcasts the deletion to open clients. Only your own messages can be removed.
+ */
+export async function deleteMessage(conversationId: string, messageId: string): Promise<void> {
+  await apiClient.delete(
+    `${API.chat.conversationMessages(conversationId)}/${encodeURIComponent(messageId)}`,
+  );
+}
+
 /** Update conversation title */
 export async function updateConversation(conversationId: string, title: string): Promise<ChatConversation> {
   const res = await apiClient.patch(API.chat.conversation(conversationId), { title });
