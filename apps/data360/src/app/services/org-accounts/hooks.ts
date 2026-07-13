@@ -1235,6 +1235,43 @@ export async function getWarehouseEfficiency(days = 30): Promise<WarehouseEffici
 }
 
 // ---------------------------------------------------------------------------
+// FinOps COCO insights over the two richest axes — storage-split &
+// warehouse-efficiency. Same honesty contract as errors-overview/insight:
+// narrative is null (never fabricated) when Cortex is unavailable, and `basis`
+// echoes exactly the rows the model saw so the narrative stays auditable.
+// (GET /org-accounts/storage-split/insight · /warehouse-efficiency/insight)
+// ---------------------------------------------------------------------------
+
+/** Shared shape of a FinOps COCO narrative (storage / warehouse). */
+export interface FinopsInsightResponse {
+  period_days: number;
+  /** null when Cortex is unavailable — never a fabricated summary. */
+  narrative: string | null;
+  model?: string;
+  /** The exact facts the model saw — rendered as evidence next to the narrative. */
+  basis: Record<string, unknown>;
+  degraded_reason?: string | null;
+  /** Present only on the honest empty path (no storage / no warehouse activity). */
+  note?: string;
+  execution_time_ms: number;
+}
+
+export async function getStorageInsight(days = 30): Promise<FinopsInsightResponse> {
+  // Cortex inference over an ACCOUNT_USAGE scan; the endpoint caches for 15 min.
+  const { data } = await apiClient.get<FinopsInsightResponse>(
+    `${BASE_URL}/storage-split/insight`, { params: { days }, timeout: 180000 },
+  );
+  return data;
+}
+
+export async function getWarehouseInsight(days = 30): Promise<FinopsInsightResponse> {
+  const { data } = await apiClient.get<FinopsInsightResponse>(
+    `${BASE_URL}/warehouse-efficiency/insight`, { params: { days }, timeout: 180000 },
+  );
+  return data;
+}
+
+// ---------------------------------------------------------------------------
 // Platform-activity COCO digest (GET /org-accounts/platform-activity/insight)
 // ---------------------------------------------------------------------------
 

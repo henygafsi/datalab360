@@ -25,9 +25,11 @@ import { useSession } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 import {
   getStorageSplit,
+  getStorageInsight,
   type StorageSplitResponse,
 } from '@/app/services/org-accounts/hooks';
 import { invalidateCacheSurface } from '@/app/services/cache/admin';
+import FinopsInsightBlock from './FinopsInsightBlock';
 
 function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0 B';
@@ -136,6 +138,16 @@ export default function StorageSplitCard({ days = 30 }: { days?: number }) {
         >
           <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} /> Refresh axis
         </button>
+      </div>
+
+      {/* COCO reads this axis first — one actionable briefing over the raw split. */}
+      <div className="mb-3">
+        <FinopsInsightBlock
+          fetcher={getStorageInsight}
+          days={data.period_days}
+          title="COCO reads your storage"
+          data-testid="storage-insight"
+        />
       </div>
 
       {/* WHAT — proportional split bar + legend */}
