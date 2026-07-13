@@ -180,25 +180,20 @@ export function OverviewAxisBody({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-slate-200 p-4 text-center dark:border-slate-800">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          Compliance score
+      {/* The headline compliance score is owned by the docked KpiStrip (top of
+          the page); this axis is its detail (breakdown + warnings), so the big
+          score number is NOT repeated here — only its provenance/honest-degrade
+          caption is kept for context. Dedup of the landing value-repetition. */}
+      {scoreKnown && cs?.computed_at && (
+        <div className="text-[10.5px] text-slate-400">
+          Compliance score {dash(score)}/100 · computed {new Date(cs.computed_at).toLocaleString()}
         </div>
-        <div className="mt-1 text-4xl font-bold tabular-nums text-slate-900 dark:text-white">
-          {dash(score)}
-          <span className="ml-1 text-base font-semibold text-slate-400">/100</span>
+      )}
+      {!scoreKnown && (
+        <div className="text-[11px] text-slate-400">
+          Compliance score unavailable right now — shown as “—”, never a fake 0.
         </div>
-        {scoreKnown && cs?.computed_at && (
-          <div className="mt-1 text-[10.5px] text-slate-400">
-            Computed {new Date(cs.computed_at).toLocaleString()}
-          </div>
-        )}
-        {!scoreKnown && (
-          <div className="mt-1 text-[11px] text-slate-400">
-            Score unavailable right now — shown as “—”, never a fake 0.
-          </div>
-        )}
-      </div>
+      )}
 
       {bars.length > 0 && (
         <div className="space-y-3">
