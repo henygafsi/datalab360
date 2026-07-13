@@ -86,23 +86,27 @@ function HealthItem({ health }: HealthItemProps) {
             </div>
             {/* Score Breakdown */}
             <div className="flex items-center gap-4 mt-1">
+              {/* Tooltip forwards a ref to its child; wrap the rizzui <Text>
+                  (a function component that doesn't forward refs) in a <span> so
+                  the ref lands on a DOM node — avoids the React
+                  "Function components cannot be given refs" warning. */}
               <Tooltip content="Cost Efficiency Score">
-                <Text className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500">
                   Cost: <span className="font-medium">{health.cost_score}</span>
-                </Text>
+                </span>
               </Tooltip>
               {health.activity_score != null && (
                 <Tooltip content="Activity Score">
-                  <Text className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-500">
                     Activity: <span className="font-medium">{health.activity_score}</span>
-                  </Text>
+                  </span>
                 </Tooltip>
               )}
               {health.security_score != null && (
                 <Tooltip content="Security Score">
-                  <Text className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-500">
                     Security: <span className="font-medium">{health.security_score}</span>
-                  </Text>
+                  </span>
                 </Tooltip>
               )}
             </div>
