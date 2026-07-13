@@ -29,8 +29,10 @@ import {
   FolderKanban,
   KeyRound,
   Lock,
+  RefreshCw,
   ShieldCheck,
   ShieldPlus,
+  Sparkles,
   UserPlus,
   UserX,
   Users,
@@ -38,8 +40,10 @@ import {
 import { routes } from '@/config/routes';
 import {
   countNeedsAttention,
+  getGovernanceInsight,
   type AccessReviewSummary,
   type ComplianceScore,
+  type GovernanceInsightResponse,
 } from '@/app/services/governance/posture';
 import {
   getAllUsersActivity,
@@ -726,6 +730,90 @@ const SEV_CLASS: Record<string, string> = {
   info: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
 };
 
+/**
+ * GovPostureNarrative — COCO reads the account's REAL compliance posture
+ * (masking / row-access / tagging coverage from ACCOUNT_USAGE) and narrates a
+ * what/why/where + NEXT-action briefing. Data-first skeleton; honest degrade
+ * (narrative null → the score below still carries the truth); collapsed to a
+ * preview with "Read briefing". This is the agentic insight the AI axis should
+ * lead with — not a static recommendation list.
+ */
+function GovPostureNarrative() {
+  const [ins, setIns] = useState<GovernanceInsightResponse | null | undefined>(undefined);
+  const [open, setOpen] = useState(false);
+
+  const load = React.useCallback(() => {
+    setIns(undefined);
+    getGovernanceInsight()
+      .then((r) => setIns(r))
+      .catch(() => setIns(null));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  if (ins === undefined) {
+    return (
+      <div className="rounded-lg border border-violet-100 bg-violet-50/40 p-3 dark:border-violet-900/40 dark:bg-violet-950/20" aria-busy="true">
+        <div className="mb-2 h-3 w-40 animate-pulse rounded bg-violet-100 dark:bg-violet-900/40" />
+        <div className="h-3 w-4/5 animate-pulse rounded bg-violet-100/70 dark:bg-violet-900/30" />
+      </div>
+    );
+  }
+  const narrative = ins?.narrative ?? null;
+  const preview = narrative
+    ? narrative.replace(/\s+/g, ' ').slice(0, 150) + (narrative.length > 150 ? '…' : '')
+    : null;
+
+  return (
+    <section
+      data-testid="gov-posture-insight"
+      aria-label="COCO reads your governance posture"
+      className="rounded-lg border border-violet-100 bg-violet-50/40 p-3 dark:border-violet-900/40 dark:bg-violet-950/20"
+    >
+      <header className="mb-1.5 flex items-center gap-1.5">
+        <Sparkles className="h-3.5 w-3.5 text-violet-500" aria-hidden="true" />
+        <span className="text-[11px] font-semibold text-violet-800 dark:text-violet-200">
+          COCO reads your governance posture
+        </span>
+        {ins?.model && (
+          <span className="rounded-full bg-white/70 px-1.5 py-0.5 font-mono text-[9px] font-medium text-violet-500 dark:bg-slate-900/50 dark:text-violet-300">
+            {ins.model}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={load}
+          aria-label="Refresh governance insight"
+          className="ml-auto rounded p-0.5 text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/40"
+        >
+          <RefreshCw className="h-3 w-3" />
+        </button>
+      </header>
+      {narrative ? (
+        <>
+          <p className="whitespace-pre-line text-[11.5px] leading-5 text-slate-700 dark:text-slate-200">
+            {open ? narrative : preview}
+          </p>
+          {narrative.length > 150 && (
+            <button
+              type="button"
+              onClick={() => setOpen((o) => !o)}
+              className="mt-1 text-[10.5px] font-medium text-violet-600 hover:underline dark:text-violet-300"
+            >
+              {open ? 'Show less' : 'Read briefing'}
+            </button>
+          )}
+        </>
+      ) : (
+        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+          {ins?.note
+            ? ins.note
+            : `Briefing unavailable${ins?.degraded_reason ? ` (${ins.degraded_reason.slice(0, 80)})` : ''} — the compliance score and policy tabs still carry the posture.`}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function AiAxisBody() {
   // undefined = loading · null = unavailable · ready otherwise
   const [state, setState] = useState<
@@ -755,17 +843,18 @@ export function AiAxisBody() {
     };
   }, []);
 
-  if (state === undefined) return <BodySkeleton />;
-  if (state === null) {
-    return (
+  let recoNode: React.ReactNode;
+  if (state === undefined) {
+    recoNode = <BodySkeleton />;
+  } else if (state === null) {
+    recoNode = (
       <HonestEmpty>
         AI recommendations are unavailable right now — nothing is shown rather
         than canned suggestions.
       </HonestEmpty>
     );
-  }
-  if (state.gov.length === 0) {
-    return (
+  } else if (state.gov.length === 0) {
+    recoNode = (
       <HonestEmpty>
         No governance-related recommendations right now
         {state.total > 0
@@ -773,8 +862,8 @@ export function AiAxisBody() {
           : '.'}
       </HonestEmpty>
     );
-  }
-  return (
+  } else {
+    recoNode = (
     <div className="space-y-2">
       {state.gov.map((r) => {
         const sev = (r.severity || '').toLowerCase();
@@ -812,6 +901,14 @@ export function AiAxisBody() {
       <p className="text-[10.5px] text-slate-400 dark:text-slate-500">
         Governance-related subset of the account-wide AI recommendations.
       </p>
+    </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <GovPostureNarrative />
+      {recoNode}
     </div>
   );
 }
