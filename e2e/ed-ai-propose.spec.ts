@@ -74,3 +74,46 @@ test('AI Assist: agent proposes gated actions for the selected table', async ({ 
   log(`page errors (${errors.length}): ${errors.slice(0, 5).join(' || ')}`);
   expect(errors, 'no page errors').toEqual([]);
 });
+
+test('AI Model button opens the AI tab and analyzes the whole model (no table selected)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  const log = (m: string) => console.log('AIMODEL ' + m); // eslint-disable-line no-console
+
+  await page.goto(`/explore-design?project_id=${PROJECT}&view=modeling`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(9000);
+
+  // The header "AI Model" button now opens the AI Assist right-bar tab (inline
+  // agentic analysis), matching the Workflow AI Build pattern — not a modal.
+  const aiModelBtn = page.getByRole('button', { name: /^AI Model$/ }).first();
+  await expect(aiModelBtn, 'AI Model header button present').toBeVisible({ timeout: 20_000 });
+  await aiModelBtn.click();
+  await page.waitForTimeout(1500);
+
+  // No modal wizard should appear — it's an inline tab now.
+  const wizardTitle = page.getByText(/AI-Guided Modeling/i);
+  await expect(wizardTitle, 'no modal wizard — inline tab instead').toHaveCount(0);
+
+  // Project-level analyze CTA in the AI tab.
+  const analyzeModel = page.getByRole('button', { name: /Analyze this model/i }).first();
+  await expect(analyzeModel, 'project-level Analyze this model CTA').toBeVisible({ timeout: 15_000 });
+  await analyzeModel.click();
+  log('clicked Analyze this model — waiting for proposals or unavailable');
+
+  const proposals = page.getByTestId('agent-proposals');
+  const unavailable = page.getByText(/aren't available on this backend/i);
+  await expect(proposals.or(unavailable)).toBeVisible({ timeout: 120_000 });
+
+  const gotProposals = await proposals.isVisible().catch(() => false);
+  if (gotProposals) {
+    const n = await proposals.locator('> div').count();
+    log(`model-level proposals rendered: ${n} action card(s)`);
+    expect(n, 'at least one proposed action').toBeGreaterThan(0);
+  } else {
+    log('model-level proposals unavailable (honest disabled state)');
+  }
+
+  await page.screenshot({ path: path.join(__dirname, 'night-audit-artifacts', 'ai-model-tab.png') }).catch(() => {});
+  log(`page errors (${errors.length}): ${errors.slice(0, 5).join(' || ')}`);
+  expect(errors, 'no page errors').toEqual([]);
+});

@@ -4632,22 +4632,21 @@ export default function ExploreDesignPage() {
               onResultClick={handleSearchResultClick}
             />
 
-            {/* AI-guided modeling — magic CTA that orchestrates connect →
-                detect → sample → validate → approve → deploy. */}
+            {/* AI Model — opens the AI Assist right-bar tab (inline agentic
+                analysis: PII / governance / relationships / quality), matching
+                the Workflow page's AI Build tab pattern instead of a separate
+                modal wizard (user ask 2026-07-13). The guided connect→detect→
+                sample wizard is still reachable from AI scan suggestions. */}
             <AiGuidedModelButton
               onClick={() => {
-                if (readOnlyGuard()) return;
                 if (!selectedProjectId) {
                   toast.error('Please select a project first');
                   return;
                 }
-                // Manual entry always starts clean — never inherit a scan
-                // suggestion's seed/sources left over from the deep-link path.
-                setAiModelSeed('');
-                setScanSeedTables([]);
-                setShowAiGuidedWizard(true);
+                setActiveRightTab('ai');
+                setRightBarOpen(true);
               }}
-              disabled={!selectedProjectId || isReadOnly}
+              disabled={!selectedProjectId}
             />
 
             {/* Cross-page governed access — grant/revoke roles for this page. */}

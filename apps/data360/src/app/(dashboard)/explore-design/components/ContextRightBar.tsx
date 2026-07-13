@@ -509,7 +509,14 @@ export default function ContextRightBar({
               onRunClassify={onRunClassify}
               projectId={projectId}
             />
-          ) : empty}
+          ) : (
+            // No table selected → project-level agentic analysis (PII / governance
+            // / relationships / quality), like the workflow AI Build. The AI tab is
+            // always actionable, not an empty "select a table" state.
+            <div className="p-4">
+              <AgentProposePanel projectId={projectId} />
+            </div>
+          )}
         </div>
       ),
     },
@@ -1756,7 +1763,7 @@ function ProposedActionCard({ action }: { action: ProposedAction }) {
 }
 
 function AgentProposePanel({ table, columns, classifications, projectId }: {
-  table: TableItem; columns: ColumnInfo[];
+  table?: TableItem | null; columns?: ColumnInfo[];
   classifications?: Record<string, string>;
   projectId: string | null;
 }) {
@@ -1764,22 +1771,32 @@ function AgentProposePanel({ table, columns, classifications, projectId }: {
   const [actions, setActions] = useState<ProposedAction[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
-  const fqn = `${table.database}.${table.schema}.${table.table}`;
+  const fqn = table ? `${table.database}.${table.schema}.${table.table}` : '';
 
   const analyze = async () => {
     if (!projectId || analyzing) return;
     setAnalyzing(true); setError(null); setActions(null); setUnavailable(false);
-    // Table-scope the project agent: fold the selected table's columns + AI
-    // classifications into the goal so proposals target THIS object, not the
-    // project in general.
-    const colList = columns.slice(0, 40)
-      .map((c) => `${c.name} ${c.dataType}${c.isSensitive ? ' (PII)' : ''}${c.isPrimaryKey ? ' [PK]' : ''}`)
-      .join(', ');
-    const cls = classifications && Object.keys(classifications).length
-      ? `\nAI classifications: ${Object.entries(classifications).map(([k, v]) => `${k}=${v}`).join(', ')}` : '';
-    const goal =
-      `Analyze the selected table ${fqn} and propose the highest-value next actions to improve its ` +
-      `modeling, data quality and governance. Columns: ${colList || 'unknown'}.${cls}`;
+    let goal: string;
+    if (table) {
+      // Table-scope the project agent: fold the selected table's columns + AI
+      // classifications into the goal so proposals target THIS object.
+      const colList = (columns ?? []).slice(0, 40)
+        .map((c) => `${c.name} ${c.dataType}${c.isSensitive ? ' (PII)' : ''}${c.isPrimaryKey ? ' [PK]' : ''}`)
+        .join(', ');
+      const cls = classifications && Object.keys(classifications).length
+        ? `\nAI classifications: ${Object.entries(classifications).map(([k, v]) => `${k}=${v}`).join(', ')}` : '';
+      goal =
+        `Analyze the selected table ${fqn} and propose the highest-value next actions to improve its ` +
+        `modeling, data quality and governance. Columns: ${colList || 'unknown'}.${cls}`;
+    } else {
+      // Project-level analysis (no table selected) — like the workflow AI Build:
+      // scan the whole model and propose governance (PII masking/RLS), quality
+      // and relationship actions.
+      goal =
+        'Analyze the whole project data model and propose the highest-value next actions: detect PII ' +
+        'columns and propose masking/row-access policies, surface missing primary keys and foreign-key ' +
+        'relationships, and flag data-quality gaps. Return concrete, gated actions.';
+    }
     try {
       const res = await proposeAgentActions(projectId, goal);
       if (res.error === 'LLM_UNAVAILABLE') { setUnavailable(true); return; }
@@ -1798,7 +1815,11 @@ function AgentProposePanel({ table, columns, classifications, projectId }: {
         <Brain className="h-4 w-4 text-blue-500" />
         <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Analyze &amp; propose actions</h4>
       </div>
-      <p className="text-[11px] text-slate-500">The AI reads this table + the project&apos;s context and proposes concrete, gated next actions for you to validate.</p>
+      <p className="text-[11px] text-slate-500">
+        {table
+          ? 'The AI reads this table + the project’s context and proposes concrete, gated next actions for you to validate.'
+          : 'The AI scans the whole model — PII, governance, relationships and quality — and proposes concrete, gated next actions for you to validate.'}
+      </p>
       {!projectId ? (
         <span role="status" className="flex items-center gap-1.5 text-[11px] text-slate-400"><Info className="h-3 w-3" /> Select a project to enable analysis.</span>
       ) : (
@@ -1808,7 +1829,7 @@ function AgentProposePanel({ table, columns, classifications, projectId }: {
           aria-busy={analyzing}
           className="w-full py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white transition-colors flex items-center justify-center gap-1.5"
         >
-          {analyzing ? <><Loader size="sm" className="h-3 w-3" /> Analyzing…</> : <><Sparkles className="h-3.5 w-3.5" /> Analyze this table</>}
+          {analyzing ? <><Loader size="sm" className="h-3 w-3" /> Analyzing…</> : <><Sparkles className="h-3.5 w-3.5" /> {table ? 'Analyze this table' : 'Analyze this model'}</>}
         </button>
       )}
       {unavailable && (
