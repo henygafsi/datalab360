@@ -50,6 +50,7 @@ import {
   deleteCustomDmf,
   setDmfThreshold,
   getDmfThresholds,
+  deleteDmfThreshold,
   type DmfDefinition,
   type DmfSuggestion,
   type DmfReference,
@@ -1495,6 +1496,9 @@ export default function DataQualityPage() {
   const [thrError, setThrError] = useState<string | null>(null);
   const [thrRules, setThrRules] = useState<DmfThresholdRule[] | null>(null);
   const [thrRulesLoading, setThrRulesLoading] = useState(false);
+  // Key (`${table}|${metric}`) of the threshold currently being deleted, for the
+  // per-row spinner; null when no delete is in flight.
+  const [deletingThr, setDeletingThr] = useState<string | null>(null);
 
   // ── AxisCockpit (unified right cockpit) — open/axis are controlled here so the
   // KPI cards can deep-link into an axis. Axis data is lazy (fetched on open) and
@@ -1612,6 +1616,34 @@ export default function DataQualityPage() {
       setThrRulesLoading(false);
     }
   }, []);
+
+  // Remove a persisted threshold (DELETE /data-quality/dmf/thresholds). Wires the
+  // orphaned backend delete endpoint to the UI so a saved bound — e.g. a stale one
+  // whose table was dropped — can actually be cleared, not just created.
+  const handleDeleteThreshold = useCallback(async (tableName: string, metric: string) => {
+    const key = `${tableName}|${metric}`;
+    setDeletingThr(key);
+    setThError(null);
+    try {
+      await deleteDmfThreshold(tableName, metric);
+      trackFeatureClick('dmf_threshold_delete');
+      // Optimistically drop the row, then reconcile the catalog + breaches.
+      setThrRules((prev) =>
+        (prev ?? []).filter(
+          (r) =>
+            !(
+              String(r.TABLE_NAME ?? r.table_name ?? '') === tableName &&
+              String(r.METRIC ?? r.METRIC_NAME ?? r.metric ?? '') === metric
+            ),
+        ),
+      );
+      await Promise.all([loadThresholds(), loadDmfBreaches(true)]);
+    } catch (err) {
+      setThError(err instanceof Error ? err.message : 'Failed to remove threshold');
+    } finally {
+      setDeletingThr(null);
+    }
+  }, [loadThresholds, loadDmfBreaches, trackFeatureClick]);
 
   // Load SmartRightBar data when a row is selected
   const loadRightbarData = useCallback(async (row: MetricRow) => {
@@ -4487,9 +4519,23 @@ export default function DataQualityPage() {
                       <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{met}</span>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{tbl}</p>
                     </div>
-                    {thr != null && (
-                      <span className="text-[11px] font-mono text-gray-600 dark:text-gray-300 whitespace-nowrap">{op} {Number(thr).toLocaleString()}</span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {thr != null && (
+                        <span className="text-[11px] font-mono text-gray-600 dark:text-gray-300 whitespace-nowrap">{op} {Number(thr).toLocaleString()}</span>
+                      )}
+                      {canDeleteDmf && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteThreshold(tbl, met)}
+                          disabled={deletingThr === `${tbl}|${met}`}
+                          title={`Remove the ${met} threshold on ${tbl}`}
+                          aria-label={`Remove threshold ${met} on ${tbl}`}
+                          className="rounded p-1 text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                        >
+                          {deletingThr === `${tbl}|${met}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}

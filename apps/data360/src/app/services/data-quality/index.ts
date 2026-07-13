@@ -336,6 +336,25 @@ export async function getDmfThresholds(): Promise<DmfThresholdRule[]> {
   return Array.isArray(rows) ? (rows as DmfThresholdRule[]) : [];
 }
 
+/**
+ * Delete a persisted DMF threshold rule.
+ * DELETE /data-quality/dmf/thresholds?table_name=&metric=
+ *
+ * Tombstones the (table, metric) bound so it drops out of the DMF catalog — the
+ * remove side of {@link setDmfThreshold}. The backend does no existence check
+ * (newest-wins delete event), so a stale threshold whose table was dropped can
+ * still be cleared.
+ */
+export async function deleteDmfThreshold(
+  tableName: string,
+  metric: string,
+): Promise<{ status?: string; message?: string; [key: string]: unknown }> {
+  const { data } = await apiClient.delete(API.dataQuality.dmfThresholds(), {
+    params: { table_name: tableName, metric },
+  });
+  return data?.data || data;
+}
+
 // =============================================================================
 // ACTIONS
 // =============================================================================
