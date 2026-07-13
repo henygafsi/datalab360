@@ -1,8 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import cn from '@core/utils/class-names';
 import { Text, Title, Badge } from 'rizzui';
-import { PiTimerDuotone, PiChartLineDuotone, PiCheckCircleDuotone, PiXCircleDuotone, PiDatabaseDuotone } from 'react-icons/pi';
+import { PiTimerDuotone, PiChartLineDuotone, PiCheckCircleDuotone, PiXCircleDuotone, PiDatabaseDuotone, PiExportBold, PiSpinnerGapBold } from 'react-icons/pi';
+import toast from 'react-hot-toast';
+import apiClient from '@/lib/api-client';
 import type { PerformanceMetrics, SlowQuery } from '@/app/services/observability/types';
 
 interface PerformanceMetricsCardProps {
@@ -10,6 +13,9 @@ interface PerformanceMetricsCardProps {
   slowQueries: SlowQuery[] | null;
   isLoading?: boolean;
   className?: string;
+  /** Window used for the slow-queries CSV export (mirrors the read's defaults). */
+  exportDays?: number;
+  exportThreshold?: number;
 }
 
 function formatDuration(ms: number | string | undefined | null): string {
@@ -72,7 +78,32 @@ export default function PerformanceMetricsCard({
   slowQueries,
   isLoading,
   className,
+  exportDays = 7,
+  exportThreshold = 60,
 }: PerformanceMetricsCardProps) {
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await apiClient.get('/observability/performance/slow-queries/export', {
+        params: { format: 'csv', days: exportDays, threshold_seconds: exportThreshold },
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(new Blob([res.data as BlobPart], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'slow_queries.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Slow queries exported');
+    } catch {
+      toast.error('Failed to export slow queries');
+    } finally {
+      setExporting(false);
+    }
+  };
   if (isLoading) {
     return (
       <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
@@ -216,9 +247,21 @@ export default function PerformanceMetricsCard({
             <Text className="text-sm font-medium text-gray-600 dark:text-gray-400">
               Recent Slow Queries
             </Text>
-            <Badge variant="flat" color="danger" size="sm">
-              {slowQueries.length} slow
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="flat" color="danger" size="sm">
+                {slowQueries.length} slow
+              </Badge>
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exporting}
+                title={`Export slow queries (>${exportThreshold}s, last ${exportDays}d) as CSV`}
+                className="inline-flex items-center gap-1 rounded border border-gray-200 px-1.5 py-0.5 text-[11px] font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              >
+                {exporting ? <PiSpinnerGapBold className="h-3 w-3 animate-spin" /> : <PiExportBold className="h-3 w-3" />}
+                Export
+              </button>
+            </div>
           </div>
           <div className="mt-3 space-y-2">
             {slowQueries.slice(0, 5).map((query, index) => (
