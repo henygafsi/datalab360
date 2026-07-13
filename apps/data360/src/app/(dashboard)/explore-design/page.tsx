@@ -1116,6 +1116,10 @@ export default function ExploreDesignPage() {
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
   // Slide-1 redesign: inline wizard replaces the legacy project-creation popup.
   const [showProjectWizard, setShowProjectWizard] = useState(false);
+  // Header "Manage project" dialog (rename / describe / delete) — surfaced from
+  // the header overflow so project lifecycle actions live in the header, not
+  // buried in the right bar (user ask 2026-07-13).
+  const [showProjectManage, setShowProjectManage] = useState(false);
 
   // Inline project gate: fetch the explore-design project list so the
   // empty-state can show a real picker (no modal hand-off). Shares the
@@ -4731,6 +4735,15 @@ export default function ExploreDesignPage() {
                   active: activeRightTab === 'history' && rightBarOpen,
                   activeColor: 'blue',
                 },
+                {
+                  // Project lifecycle (rename / describe / delete) in the header,
+                  // not the right bar — opens the shared ProjectCrudControls in a
+                  // small dialog (typed-name confirm on delete).
+                  label: 'Manage project',
+                  icon: FolderOpen,
+                  onClick: () => setShowProjectManage(true),
+                  disabled: !selectedProjectId,
+                },
               ]}
             />
           </div>
@@ -4771,6 +4784,61 @@ export default function ExploreDesignPage() {
             void handleProjectCreated(result);
           }}
         />
+      )}
+
+      {/* "Manage project" — header-launched dialog hosting the shared
+          ProjectCrudControls (rename / describe / delete with typed-name
+          confirm). Keeps the header minimal (one overflow item) while putting
+          project lifecycle actions in the header, per user ask. */}
+      {showProjectManage && selectedProjectId && (
+        <div
+          role="dialog"
+          aria-label="Manage project"
+          aria-modal="true"
+          className="fixed inset-0 z-[60] flex items-start justify-center bg-slate-900/40 backdrop-blur-sm p-4 pt-24"
+          onClick={() => setShowProjectManage(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowProjectManage(false); }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-white">
+                <FolderOpen className="h-4 w-4 text-blue-500" /> Manage project
+              </h2>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setShowProjectManage(false)}
+                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="pb-4">
+              <ProjectCrudControls
+                projectId={selectedProjectId}
+                projectName={selectedProjectName}
+                canWrite={!isReadOnly}
+                onRenamed={(name) => {
+                  setSelectedProjectName(name);
+                  void refetchGateProjects();
+                }}
+                onDeleted={() => {
+                  setShowProjectManage(false);
+                  setSelectedProjectId(null);
+                  setSelectedProjectName('');
+                  setSelectedTable(null);
+                  void refetchGateProjects();
+                  const params = new URLSearchParams(Array.from(searchParams.entries()));
+                  params.delete('project_id');
+                  router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
+                }}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* "Change approach" — re-opens the manual/AI/template fork for an
