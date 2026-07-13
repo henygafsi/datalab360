@@ -20,7 +20,7 @@ import {
   executeDeployment,
   listDDLActions,
 } from '@/app/services/api/exploreDesignApi';
-import { createScheduleV1, getDdlRemediation, applyDdlRemediation, type DdlFailureRemediation } from '@/app/services/explore-design';
+import { createScheduleV1, getDdlRemediation, applyDdlRemediation, getDeployCoherence, type DdlFailureRemediation, type DeployBlocker } from '@/app/services/explore-design';
 import { cocoRunSql } from '@/app/services/cortex/agent';
 import type { ExploreDeployment } from '@/app/services/api/types';
 import type { ReleaseStatus, ReleaseStepId } from './types';
@@ -189,6 +189,16 @@ export default function StepDeploy({
   // Surface any standing FAILED actions on open + whenever deployments change
   // (a just-aborted deploy leaves FAILED actions the user must remediate).
   useEffect(() => { void loadRemediation(); }, [loadRemediation, deployments]);
+  // Static coherence pre-check: incoherent PENDING DDL (e.g. an FK referencing a
+  // non-key column) must block deploy BEFORE it runs and fails.
+  const [blockers, setBlockers] = useState<DeployBlocker[]>([]);
+  const loadCoherence = useCallback(async () => {
+    try {
+      const res = await getDeployCoherence(projectId);
+      setBlockers(res.ok ? [] : (res.blockers ?? []));
+    } catch { setBlockers([]); }
+  }, [projectId]);
+  useEffect(() => { void loadCoherence(); }, [loadCoherence, deployments]);
   // Rights-aware approval fallback state: `serverDenied` flips when the
   // execute call 403s (the role gate can be stale — the server is the truth);
   // `requesting` / `requestFiled` track the scheduled-deployment request.
@@ -347,17 +357,19 @@ export default function StepDeploy({
             variant="primary"
             onClick={deployNow}
             disabled={
-              deploying || !unlocked || !approvedDeployment || !canDeploy.allowed || serverDenied
+              deploying || !unlocked || !approvedDeployment || !canDeploy.allowed || serverDenied || blockers.length > 0
             }
             title={
-              canDeploy.deniedTitle ??
-              (serverDenied
-                ? 'The server rejected the deploy (no deploy rights) — request approval below'
-                : !unlocked
-                  ? 'Complete validation and approvals first'
-                  : !approvedDeployment
-                    ? 'No approved deployment request to execute'
-                    : undefined)
+              blockers.length > 0
+                ? 'Deployment blocked — incoherent DDL actions (see below); fix them first'
+                : canDeploy.deniedTitle ??
+                  (serverDenied
+                    ? 'The server rejected the deploy (no deploy rights) — request approval below'
+                    : !unlocked
+                      ? 'Complete validation and approvals first'
+                      : !approvedDeployment
+                        ? 'No approved deployment request to execute'
+                        : undefined)
             }
           >
             <Rocket className="h-3 w-3" aria-hidden="true" />
@@ -404,6 +416,27 @@ export default function StepDeploy({
               </div>
             </div>
           )
+        )}
+
+        {/* Coherence gate: incoherent PENDING DDL blocks deploy BEFORE it runs.
+            The server enforces the same check (422 DEPLOY_INCOHERENT) — this is
+            the honest UI half so the user sees why Deploy is disabled + the fix. */}
+        {blockers.length > 0 && (
+          <div className="space-y-2 rounded-lg border border-red-200 bg-red-50/40 p-2.5 dark:border-red-800 dark:bg-red-900/10" data-testid="deploy-coherence-blockers">
+            <p className="flex items-center gap-1.5 text-[11px] font-semibold text-red-700 dark:text-red-300">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Deploy blocked — {fmtCount(blockers.length)} incoherent action(s)
+            </p>
+            {blockers.map((b) => (
+              <div key={b.event_id} className="rounded border border-red-200 bg-white/70 p-2 space-y-1 dark:border-red-800 dark:bg-slate-900/60">
+                <p className="text-[10px] font-mono text-red-600 dark:text-red-400">{b.reason}</p>
+                <p className="text-[10px] text-slate-600 dark:text-slate-300">{b.message}</p>
+                {b.suggested_fix && (
+                  <pre className="max-h-14 overflow-auto rounded bg-slate-50 p-1 text-[9px] font-mono text-slate-500 whitespace-pre-wrap dark:bg-slate-800">{b.suggested_fix}</pre>
+                )}
+              </div>
+            ))}
+          </div>
         )}
 
         {/* Deploy error → remediation. When DDL actions have failed, don't dead-end

@@ -4048,6 +4048,22 @@ export async function getDdlRemediation(projectId: string): Promise<DdlRemediati
   return (res.data?.data ?? res.data) as DdlRemediationResult;
 }
 
+export interface DeployBlocker {
+  event_id: string; ddl_type?: string; ddl_sql?: string;
+  reason: string; message: string; suggested_fix?: string;
+}
+export interface DeployCoherence {
+  project_id: string; ok: boolean; pending_actions: number; fks_checked: number;
+  blockers: DeployBlocker[];
+}
+
+/** Static coherence pre-check over PENDING DDL actions — blockers that must be
+ *  resolved before deploy (e.g. an FK referencing a non-key column). Read-only. */
+export async function getDeployCoherence(projectId: string): Promise<DeployCoherence> {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/ddl-actions/coherence`);
+  return (res.data?.data ?? res.data) as DeployCoherence;
+}
+
 /** GOVERNED apply: queue the server-derived corrective DDL for a failed action as
  *  an audited DDL action (flows through the normal dry-run → deploy/approval
  *  pipeline). Deploy-gated — a 403 means the caller should request approval. */
