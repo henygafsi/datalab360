@@ -4048,6 +4048,16 @@ export async function getDdlRemediation(projectId: string): Promise<DdlRemediati
   return (res.data?.data ?? res.data) as DdlRemediationResult;
 }
 
+/** GOVERNED apply: queue the server-derived corrective DDL for a failed action as
+ *  an audited DDL action (flows through the normal dry-run → deploy/approval
+ *  pipeline). Deploy-gated — a 403 means the caller should request approval. */
+export async function applyDdlRemediation(projectId: string, eventId: string): Promise<{
+  applied_for: string; corrective_sql: string; message: string; action?: Record<string, unknown>;
+}> {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ddl-actions/remediation/${eventId}/apply`, {});
+  return (res.data?.data ?? res.data);
+}
+
 export async function batchAddDDLActions(projectId: string, data: { actions: Array<{ ddl_sql: string; ddl_type?: string; priority?: number; target_table?: string; description?: string }> }) {
   // No backend batch route exists — only POST /{project_id}/ddl-actions (single action;
   // the `/batch` path collided with DELETE /ddl-actions/{event_id}). Submit per-action

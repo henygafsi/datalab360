@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ClipboardCopy, Clock3, Hourglass, Play, Rocket, Send, Wrench } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardCopy, Clock3, Hourglass, Play, Rocket, Send, Wrench } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { getApiErrorMessage } from '@/lib/api-client';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,7 +20,7 @@ import {
   executeDeployment,
   listDDLActions,
 } from '@/app/services/api/exploreDesignApi';
-import { createScheduleV1, getDdlRemediation, type DdlFailureRemediation } from '@/app/services/explore-design';
+import { createScheduleV1, getDdlRemediation, applyDdlRemediation, type DdlFailureRemediation } from '@/app/services/explore-design';
 import { cocoRunSql } from '@/app/services/cortex/agent';
 import type { ExploreDeployment } from '@/app/services/api/types';
 import type { ReleaseStatus, ReleaseStepId } from './types';
@@ -36,11 +36,43 @@ import {
 // The diagnostic SELECT runs inline (coco, read-only); the corrective DDL is
 // PREVIEW-ONLY (routed through the normal dry-run → deploy path, never fired
 // from here). Turns the deploy dead-end into an actionable next step.
-function RemediationCard({ item }: { item: DdlFailureRemediation }) {
+function RemediationCard({ item, projectId, canDeploy, onApplied, onRequestApproval }: {
+  item: DdlFailureRemediation;
+  projectId: string;
+  canDeploy: boolean;
+  onApplied: () => void;
+  onRequestApproval: () => void;
+}) {
   const r = item.remediation;
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ columns: string[]; rows: Record<string, unknown>[] } | null>(null);
   const [runErr, setRunErr] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState(false);
+
+  // GOVERNED apply: queue the server-derived corrective DDL as an audited action
+  // (dry-run → deploy/approval pipeline) — never raw SQL from the card. A 403
+  // means no deploy rights → route the user to the approval path.
+  const applyFix = async () => {
+    if (applying) return;
+    setApplying(true);
+    try {
+      const res = await applyDdlRemediation(projectId, item.event_id);
+      setApplied(true);
+      toast.success(res.message || 'Corrective DDL queued — deploy or request approval to apply it.');
+      onApplied();
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 403) {
+        toast.error('You lack deploy rights — file a deployment request so an approver applies the fix.');
+        onRequestApproval();
+      } else {
+        toast.error(getApiErrorMessage(err));
+      }
+    } finally {
+      setApplying(false);
+    }
+  };
 
   const runDiagnostic = async () => {
     if (!r.diagnostic_sql || running) return;
@@ -93,10 +125,30 @@ function RemediationCard({ item }: { item: DdlFailureRemediation }) {
       )}
 
       {r.corrective_sql && (
-        <div className="rounded bg-white/70 p-1.5 dark:bg-slate-900/60">
-          <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">Proposed fix (preview)</p>
+        <div className="rounded bg-white/70 p-1.5 dark:bg-slate-900/60 space-y-1.5">
+          <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">Proposed fix</p>
           <pre className="max-h-16 overflow-auto text-[9px] font-mono text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{r.corrective_sql}</pre>
-          <p className="text-[9px] italic text-slate-400">Add this via the modeling canvas, then re-deploy — not run from here.</p>
+          {applied ? (
+            <p className="flex items-center gap-1 text-[9px] font-medium text-green-600 dark:text-green-400">
+              <CheckCircle2 className="h-2.5 w-2.5" aria-hidden /> Queued as a deployment action — deploy or request approval to apply.
+            </p>
+          ) : (
+            <>
+              <button
+                onClick={applyFix}
+                disabled={applying}
+                title={canDeploy
+                  ? 'Queue this corrective DDL as a governed deployment action'
+                  : 'You lack deploy rights — this files a request for an approver'}
+                className="inline-flex items-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 px-2 py-0.5 text-[10px] font-medium text-white"
+              >
+                <Wrench className="h-2.5 w-2.5" /> {applying ? 'Queuing…' : (canDeploy ? 'Queue fix for deploy' : 'Request fix via approval')}
+              </button>
+              <p className="text-[9px] italic text-slate-400">
+                Governed: the fix enters the audited dry-run → deploy pipeline (or approval queue) — it is not run as raw SQL from here.
+              </p>
+            </>
+          )}
         </div>
       )}
       {r.can_retry && (
@@ -362,7 +414,16 @@ export default function StepDeploy({
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
               {fmtCount(remediations.length)} failed action(s) — proposed remediation
             </p>
-            {remediations.map((item) => <RemediationCard key={item.event_id} item={item} />)}
+            {remediations.map((item) => (
+              <RemediationCard
+                key={item.event_id}
+                item={item}
+                projectId={projectId}
+                canDeploy={!!canDeploy.allowed && !serverDenied}
+                onApplied={() => { onMutated(); void loadRemediation(); }}
+                onRequestApproval={() => { setServerDenied(true); }}
+              />
+            ))}
           </div>
         )}
 

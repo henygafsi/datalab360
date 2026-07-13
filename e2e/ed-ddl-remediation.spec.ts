@@ -63,6 +63,15 @@ test('deploy failure surfaces a classified remediation for the failed DDL action
   await expect(diag, 'diagnostic action offered').toBeVisible();
   log('remediation panel + FK-needs-PK fix + diagnostic present');
 
+  // Governed apply: queue the corrective DDL as an audited deployment action
+  // (owner/deployer sees "Queue fix for deploy"). Idempotent on the backend, so
+  // clicking here won't stack duplicates.
+  const queueFix = panel.getByRole('button', { name: /Queue fix for deploy|Request fix via approval/i }).first();
+  await expect(queueFix, 'governed apply-fix action offered').toBeVisible({ timeout: 10_000 });
+  await queueFix.click();
+  await expect(panel.getByText(/Queued as a deployment action/i), 'fix queued confirmation').toBeVisible({ timeout: 20_000 });
+  log('governed apply queued the corrective DDL');
+
   await page.screenshot({ path: path.join(__dirname, 'night-audit-artifacts', 'ddl-remediation.png') }).catch(() => {});
   log(`page errors (${errors.length}): ${errors.slice(0, 5).join(' || ')}`);
   expect(errors, 'no page errors').toEqual([]);
