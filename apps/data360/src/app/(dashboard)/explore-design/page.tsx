@@ -2897,7 +2897,9 @@ export default function ExploreDesignPage() {
             row_count: data.row_count,
             column_count: data.column_count,
             columns: data.columns ?? [],
-            aggregate_quality_score: (data as any).aggregate_quality_score ?? 100,
+            // Honest "—" when the profile has no quality score — NEVER a fake
+            // perfect 100 (a null score is unknown, not "100% quality").
+            aggregate_quality_score: (data as any).aggregate_quality_score ?? null,
           });
         }
       } catch (err) {
