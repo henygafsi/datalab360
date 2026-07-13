@@ -24,10 +24,12 @@ import {
   Coins,
   Info,
   ShieldCheck,
+  Download,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { cn } from '@/lib/utils';
+import apiClient from '@/lib/api-client';
 import * as workflowApi from '@/app/services/api/workflowApi';
 import type { WorkflowRun } from '@/app/services/api/types';
 import { ConfirmDestructiveDialog } from '@/components/ui/confirm-dialog';
@@ -209,6 +211,35 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   // own convention) so a slow permissions fetch never hides the control.
   const cancelPerm = useCanPerform('workflow', 'execute', pipelineId ?? undefined);
   const canCancel = cancelPerm.allowed || cancelPerm.loading;
+
+  // Export the full run history (all pages, honoring the status filter) as CSV
+  // via GET /workflow/{id}/runs/export. Fetch auth'd (can't just open the URL —
+  // it needs the bearer token), then trigger a client-side download.
+  const [exporting, setExporting] = useState(false);
+  const handleExport = useCallback(async () => {
+    if (!pipelineId) return;
+    setExporting(true);
+    try {
+      const res = await apiClient.get(`/workflow/${pipelineId}/runs/export`, {
+        params: { format: 'csv', status: statusFilter || undefined },
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data as BlobPart], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `workflow_${pipelineId}_runs.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Run history exported');
+    } catch {
+      toast.error('Failed to export run history');
+    } finally {
+      setExporting(false);
+    }
+  }, [pipelineId, statusFilter]);
 
   // Polling is paused once it runs continuously past MAX_POLL_AGE_MS for the
   // same set of running runs — guards against runs stuck in `running` forever.
@@ -795,17 +826,29 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
           ))}
         </div>
 
-        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
-          <input
-            type="checkbox"
-            className="h-3 w-3 accent-blue-500"
-            checked={hideExpected}
-            onChange={handleToggleHideExpected}
-            aria-label="Hide expected failures"
-          />
-          <ShieldCheck className="h-3 w-3" />
-          Hide expected failures ({expectedHiddenCount})
-        </label>
+        <div className="flex items-center gap-2">
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              className="h-3 w-3 accent-blue-500"
+              checked={hideExpected}
+              onChange={handleToggleHideExpected}
+              aria-label="Hide expected failures"
+            />
+            <ShieldCheck className="h-3 w-3" />
+            Hide expected failures ({expectedHiddenCount})
+          </label>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={exporting || !pipelineId || allRuns.length === 0}
+            title="Export the run history (all pages, current filter) as CSV"
+            className="inline-flex items-center gap-1.5 rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+            Export CSV
+          </button>
+        </div>
       </div>
 
       {/* Compare-mode banner */}
