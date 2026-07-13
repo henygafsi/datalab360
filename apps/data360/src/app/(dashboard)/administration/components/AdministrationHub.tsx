@@ -6,22 +6,24 @@
  * Previously `/administration` redirected straight into Access Control and the
  * remaining admin surfaces lived split across `/admin/*` and `/administration/*`
  * with no shared navigation. This hub organizes them into ONE module with 9
- * `?tab=<id>` sections (the sanctioned multi-tab pattern). It is purely additive
- * / non-destructive: every underlying route stays live and reachable — the hub
- * either embeds a self-contained panel or links into the existing page.
+ * `?tab=<id>` sections (the data360 tab-minimized cockpit pattern). Sub-pages are
+ * folded into tabs: the former `/administration/access-center` and
+ * `/administration/feature-governance` routes now redirect here and their content
+ * is EMBEDDED inline. The three heavy `/admin/*` deep-dive tools (api-health route
+ * prober, per-account performance, data360-config) stay as linked routes — each
+ * is prod/SVC-heavy or owns its own `?tab=` param, so the hub surfaces a summary
+ * panel + a link rather than embedding.
  *
- * Tab map:
- *   1. health      Platform Health   — placeholder card (backend endpoint pending) + link to Performance
- *   2. performance Performance       — links to /admin/performance (full page, prod/SVC-heavy)
- *   3. access      Access Control     — links to /administration/access-center + embeds RealAccess/RoleGrants panels
- *   4. costGov     Cost Governance   — spend visibility + real warehouse cost-limit controls
- *   5. projects    Projects           — embeds ProjectsMonitoringPanel (live unified roster) + "Manage projects" → governance.projects
- *   6. featureGov  Entitlements & Feature Governance — embeds FeatureGovernanceMatrix
- *   7. features    Feature Registry   — business-readable catalog of every feature (what/where/
- *                                       endpoints) with per-account activation via entitlements
- *   8. apiHealth   API Health         — links to /admin/api-health (live route prober)
- *   9. serverMetrics Server Metrics   — embeds ServerMetricsPanel (live in-memory ops view)
- *  10. config      Config & Settings  — embeds ConfigSummaryPanel + links to the two editor pages
+ * Tab map (9):
+ *   1. actions     Actions            — every admin capability as a governed action (catalog)
+ *   2. health      Platform Health    — ServiceHealth + PlatformHealth + Activity + ServerMetrics (folded in)
+ *   3. performance Performance        — Latency/KPI summaries + link to /admin/performance (prod/SVC-heavy)
+ *   4. access      Access Control     — the full Access Control Center EMBEDDED (AccessCenterSurface sub-tabs)
+ *   5. costGov     Cost Governance    — spend visibility + real warehouse cost-limit controls
+ *   6. projects    Projects           — embeds ProjectsMonitoringPanel (live unified roster)
+ *   7. featureGov  Entitlements & Features — FeatureGovernanceMatrix + FeatureRegistry (folded in)
+ *   8. apiHealth   API Health         — ApiCatalogPanel summary + link to /admin/api-health (live prober)
+ *   9. config      Config & Settings  — ConfigSummaryPanel + links to the two editor pages
  *
  * Navigation: vertical option rail (collapsible, icon+label, keyboard-accessible
  * role=tablist/tab + aria-selected + aria-orientation=vertical).
@@ -36,7 +38,6 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   Activity,
   ArrowRight,
-  BookOpenText,
   ChevronLeft,
   ChevronRight,
   Coins,
@@ -46,7 +47,6 @@ import {
   HeartPulse,
   KeyRound,
   Lock,
-  Server,
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
@@ -64,11 +64,13 @@ import ActivityDashboard from '../../admin/ActivityDashboard';
 import PlatformHealthPanel from './PlatformHealthPanel';
 import CostGovernancePanel from './CostGovernancePanel';
 import ProjectsMonitoringPanel from '../access-center/components/ProjectsMonitoringPanel';
+import AccessCenterSurface from '../access-center/components/AccessCenterSurface';
 import ApiCatalogPanel from './ApiCatalogPanel';
 import PerformanceKpiPanel from './PerformanceKpiPanel';
 import LatencyFreshnessPanel from './LatencyFreshnessPanel';
 import ServiceHealthPanel from './ServiceHealthPanel';
 import ConfigSummaryPanel from './ConfigSummaryPanel';
+import AccountParametersPanel from './AccountParametersPanel';
 import FeatureGovernanceMatrix from '../feature-governance/FeatureGovernanceMatrix';
 import FeatureRegistryTab from './FeatureRegistryTab';
 import RoleGrantsSamplePanel from './RoleGrantsSamplePanel';
@@ -82,9 +84,7 @@ type TabId =
   | 'costGov'
   | 'projects'
   | 'featureGov'
-  | 'features'
   | 'apiHealth'
-  | 'serverMetrics'
   | 'config';
 
 interface TabDef {
@@ -100,10 +100,8 @@ const TABS: TabDef[] = [
   { id: 'access', label: 'Access Control', icon: Lock },
   { id: 'costGov', label: 'Cost Governance', icon: Coins },
   { id: 'projects', label: 'Projects', icon: FolderKanban },
-  { id: 'featureGov', label: 'Entitlements & Feature Gov.', icon: ToggleRight },
-  { id: 'features', label: 'Feature Registry', icon: BookOpenText },
+  { id: 'featureGov', label: 'Entitlements & Features', icon: ToggleRight },
   { id: 'apiHealth', label: 'API Health', icon: Activity },
-  { id: 'serverMetrics', label: 'Server Metrics', icon: Server },
   { id: 'config', label: 'Config & Settings', icon: Settings2 },
 ];
 
@@ -330,6 +328,13 @@ export default function AdministrationHub() {
                 <ServiceHealthPanel />
                 <PlatformHealthPanel />
                 <ActivityDashboard />
+                {/* Server Metrics folded into Health — live in-process ops board
+                    (top/slowest endpoints, errors, latency percentiles, CPU/mem/uptime). */}
+                <ServerMetricsPanel />
+                <p className="-mt-2 text-[11px] text-slate-400 dark:text-slate-500">
+                  Server metrics are an in-memory ops view (not audit history): figures reflect the
+                  live server process and reset on restart. Auto-refreshes.
+                </p>
                 <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-900/40">
                   <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                     Continue in
@@ -392,7 +397,10 @@ export default function AdministrationHub() {
               </div>
             )}
 
-            {/* 3. Access Control — link to the center + embedded standalone RBAC panels */}
+            {/* 3. Access Control — the full Access Control Center embedded inline
+                (sub-page → tab), plus the standalone live-revoke + simulator panels
+                and governance cross-links. The old link-out to
+                /administration/access-center is gone; that route now redirects here. */}
             {tab === 'access' && (
               <div className="space-y-4">
                 <SectionCard
@@ -400,53 +408,49 @@ export default function AdministrationHub() {
                   title="Access Control Center"
                   description="Govern access end-to-end — module → page → tab → feature → action — with per-role grants, entitlements, roles, usage and provisioning."
                 >
-                  <div className="space-y-3">
+                  <CtaRow>
                     <OpenLink
-                      href="/administration/access-center"
+                      href={routes.governance.users}
+                      variant="secondary"
                       onClick={() =>
-                        trackFeatureClick('open_access_center', { from: 'access' })
+                        trackFeatureClick('open_governance_users', { from: 'access' })
                       }
                     >
-                      Open Access Control Center
+                      Governance · Users
                     </OpenLink>
-                    <CtaRow>
-                      <OpenLink
-                        href={routes.governance.users}
-                        variant="secondary"
-                        onClick={() =>
-                          trackFeatureClick('open_governance_users', { from: 'access' })
-                        }
-                      >
-                        Governance · Users
-                      </OpenLink>
-                      <OpenLink
-                        href={routes.governance.grants}
-                        variant="secondary"
-                        onClick={() =>
-                          trackFeatureClick('open_governance_grants', { from: 'access' })
-                        }
-                      >
-                        Governance · Grants
-                      </OpenLink>
-                      <OpenLink
-                        href={routes.governance.securityMatrix}
-                        variant="secondary"
-                        onClick={() =>
-                          trackFeatureClick('open_governance_security_matrix', { from: 'access' })
-                        }
-                      >
-                        Governance · Security Matrix
-                      </OpenLink>
-                      <OpenLink
-                        href={routes.governance.projects}
-                        variant="secondary"
-                        onClick={() => trackFeatureClick('manage_projects', { from: 'access' })}
-                      >
-                        Manage Projects
-                      </OpenLink>
-                    </CtaRow>
-                  </div>
+                    <OpenLink
+                      href={routes.governance.grants}
+                      variant="secondary"
+                      onClick={() =>
+                        trackFeatureClick('open_governance_grants', { from: 'access' })
+                      }
+                    >
+                      Governance · Grants
+                    </OpenLink>
+                    <OpenLink
+                      href={routes.governance.securityMatrix}
+                      variant="secondary"
+                      onClick={() =>
+                        trackFeatureClick('open_governance_security_matrix', { from: 'access' })
+                      }
+                    >
+                      Governance · Security Matrix
+                    </OpenLink>
+                    <OpenLink
+                      href={routes.governance.projects}
+                      variant="secondary"
+                      onClick={() => trackFeatureClick('manage_projects', { from: 'access' })}
+                    >
+                      Manage Projects
+                    </OpenLink>
+                  </CtaRow>
                 </SectionCard>
+
+                {/* Full Access Control Center, embedded. Feature Governance / Projects
+                    sub-tabs are hidden here (they exist as hub top-level tabs with the
+                    same components); Performance & Monitoring is KEPT (its PerformancePanel
+                    is a different surface from the top-level Performance tab). */}
+                <AccessCenterSurface />
 
                 <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                   <div className="mb-2 flex items-center gap-2">
@@ -593,11 +597,10 @@ export default function AdministrationHub() {
                   </CtaRow>
                 </div>
                 <FeatureGovernanceMatrix />
+                {/* Feature Registry folded in — business-readable catalog + per-account activation */}
+                <FeatureRegistryTab />
               </div>
             )}
-
-            {/* Feature Registry — business-readable catalog + per-account activation */}
-            {tab === 'features' && <FeatureRegistryTab />}
 
             {/* 6. API Health — existing page */}
             {tab === 'apiHealth' && (
@@ -618,20 +621,7 @@ export default function AdministrationHub() {
               </div>
             )}
 
-            {/* 7. Server Metrics — embed the self-contained live panel */}
-            {tab === 'serverMetrics' && (
-              <div className="space-y-3">
-                <SectionCard
-                  icon={Server}
-                  title="Server Metrics"
-                  description="Live, in-process server metrics — top & slowest endpoints, recent errors, active users, request rate, latency percentiles, memory, CPU and uptime."
-                  note="In-memory ops view (not audit history): figures reflect the live server process and reset on restart. Auto-refreshes."
-                />
-                <ServerMetricsPanel />
-              </div>
-            )}
-
-            {/* 8. Config & Settings — live config summary + the two editor pages */}
+            {/* 7. Config & Settings — live config summary + the two editor pages */}
             {tab === 'config' && (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -665,6 +655,7 @@ export default function AdministrationHub() {
                   </SectionCard>
                 </div>
                 <ConfigSummaryPanel />
+                <AccountParametersPanel />
               </div>
             )}
           </div>
