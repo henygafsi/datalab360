@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Badge, Button, Tooltip, Loader } from 'rizzui';
 import {
   X, ChevronLeft, ChevronRight, Zap, Brain, BarChart3, Clock,
-  HelpCircle, Shield, RefreshCw, Plus, Key, AlertTriangle, Eye,
+  HelpCircle, Shield, RefreshCw, Plus, Key, AlertTriangle, Eye, EyeOff,
   Sparkles, CheckCircle, FileText, GitBranch, Lock, Tag, Send,
   Rocket, Play, Search, Info, ArrowRight, ExternalLink,
   PanelRight, Ban, Coins,
@@ -1165,8 +1165,21 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-            <ActionBtn label="Exclude from model" icon={Trash2} disabled={!canApprove} onClick={() => { onNodeAction(table.id, 'exclude'); onDeselectTable?.(); }} />
+          {/* Two distinct destructive actions, side by side, so a project owner
+              can actually DELETE a table from the modeling view (not just exclude
+              it). "Remove from model" is canvas-only (table stays in Snowflake);
+              "Drop table" queues a real DROP TABLE DDL for deploy review. This is
+              the single destructive zone in modeling mode — the catalog-style
+              Danger Zone below hides its duplicate drop when onNodeAction is set. */}
+          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">Remove / delete</p>
+            <div className="flex flex-wrap gap-1.5">
+              <ActionBtn label="Remove from model" icon={EyeOff} disabled={!canWrite} onClick={() => { onNodeAction(table.id, 'exclude'); onDeselectTable?.(); }} />
+              <ActionBtn label="Drop table (DDL)" icon={Trash2} disabled={!canApprove} onClick={() => { onNodeAction(table.id, 'drop_table'); onDeselectTable?.(); }} />
+            </div>
+            {!canApprove && (
+              <p className="text-[10px] text-slate-400">Dropping a table needs approve rights — you can still remove it from the model.</p>
+            )}
           </div>
         </div>
       )}
@@ -1366,8 +1379,10 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
         </div>
       )}
 
-      {/* 5b. Danger Zone — delete/drop with approval */}
-      {canWrite && (
+      {/* 5b. Danger Zone — delete/drop with approval. CATALOG mode only: in
+          modeling (onNodeAction set) the Modeling-actions "Remove / delete" group
+          above owns both destructive actions, so this duplicate drop is hidden. */}
+      {canWrite && !onNodeAction && (
         <div className="rounded-xl border border-red-200 dark:border-red-800 p-3 space-y-2">
           <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wider">Danger Zone</p>
           <div className="flex flex-wrap gap-1.5">

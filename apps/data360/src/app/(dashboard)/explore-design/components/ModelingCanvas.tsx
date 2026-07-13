@@ -1294,7 +1294,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       'pk_config', 'fk_config', 'relation', 'duplicate',
       'dynamic_table', 'event_table', 'hybrid_table', 'stream', 'alert',
     ]);
-    const APPROVE_ACTIONS = new Set(['exclude']);
+    const APPROVE_ACTIONS = new Set(['exclude', 'drop_table']);
     if (CREATE_ACTIONS.has(action) && !canWrite) {
       toast.error('You do not have permission to modify this model');
       return;
@@ -1375,12 +1375,35 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         toast('Click another table to create a relation');
         break;
       case 'exclude':
-        // Remove node and call parent callback
+        // Model-only: drop the node from the canvas. The real Snowflake table is
+        // untouched — this just narrows the modeling scope.
         setNodes((nds) => nds.filter((n) => n.id !== nodeId));
         if (onTableExclude) {
           onTableExclude(nodeId);
         } else {
-          toast.success('Table excluded from model');
+          toast.success('Table removed from model');
+        }
+        break;
+      case 'drop_table':
+        {
+          // Real destructive DROP TABLE — queue a deployable TABLE_DROP_REQUEST
+          // event (same path ContextRightBar uses) so it lands as a pending
+          // change, reviewed on deploy and undoable. Fills the "no delete in
+          // project view" gap: a project owner can now delete a table from the
+          // modeling canvas, not just exclude it from the model.
+          if (typeof window !== 'undefined' &&
+              !window.confirm(`Drop table ${table.table}? This queues a real DROP TABLE for deploy review (undoable until deployed).`)) {
+            break;
+          }
+          addEvent({
+            type: 'TABLE_DROP_REQUEST',
+            projectId: projectId || undefined,
+            target: { database: table.database, schema: table.schema, table: table.table },
+            payload: { approval_required: true, reason: 'Drop requested from modeling canvas' },
+          });
+          // Also narrow the canvas so the dropped table stops rendering as live.
+          setNodes((nds) => nds.filter((n) => n.id !== nodeId));
+          toast.success(`Drop of "${table.table}" added to pending changes`);
         }
         break;
       case 'duplicate':
