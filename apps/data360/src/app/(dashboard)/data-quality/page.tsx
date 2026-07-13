@@ -42,6 +42,7 @@ import {
   createCustomDmf,
   associateDmf,
   setDmfSchedule,
+  unsetDmfSchedule,
   suggestDmfs,
   suggestDmfsForTable,
   getDmfReferences,
@@ -2070,6 +2071,29 @@ export default function DataQualityPage() {
     }
   }, [schedTable, schedMode, schedMinutes, schedCron, buildScheduleClause, loadTabData]);
 
+  // Remove (suspend) the table's DMF schedule — the counterpart to
+  // handleSetSchedule so a cadence set from the UI can be cleared from the UI.
+  const handleRemoveSchedule = useCallback(async () => {
+    setDmfActionError(null);
+    setDmfActionNotice(null);
+    const table = schedTable.trim();
+    if (!table) {
+      setDmfActionError('A fully-qualified table name is required.');
+      return;
+    }
+    setDmfSubmitting(true);
+    try {
+      await unsetDmfSchedule(table);
+      setDmfActionNotice(`Schedule removed on ${table} — scheduled evaluation suspended.`);
+      trackFeatureClick('dmf_unschedule');
+      setTimeout(() => loadTabData('dmf', true), 2000);
+    } catch (err) {
+      setDmfActionError(toServiceError(err, 'Failed to remove DMF schedule').message);
+    } finally {
+      setDmfSubmitting(false);
+    }
+  }, [schedTable, loadTabData, trackFeatureClick]);
+
   // Remove (disassociate) a single DMF association from a table column.
   const handleRemoveDmf = useCallback(async (ref: DmfReference) => {
     const table = mgTable.trim();
@@ -3911,6 +3935,18 @@ export default function DataQualityPage() {
           ) : (
             <>
               <Button variant="outline" size="sm" onClick={dmfPanel.close} disabled={dmfSubmitting}>Cancel</Button>
+              {dmfPanel.panel === 'schedule' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={dmfSubmitting || !schedTable.trim()}
+                  className="gap-1.5 text-amber-700 dark:text-amber-400"
+                  onClick={handleRemoveSchedule}
+                  title="Suspend scheduled DMF evaluation on this table (reversible)"
+                >
+                  Remove schedule
+                </Button>
+              )}
               <Button
                 size="sm"
                 disabled={dmfSubmitting}

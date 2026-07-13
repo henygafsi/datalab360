@@ -593,6 +593,21 @@ export async function setDmfSchedule(table_fqn: string, schedule: string): Promi
   return data;
 }
 
+/**
+ * Remove (suspend) a table's DMF evaluation schedule.
+ * DELETE /data-quality/dmf/schedule?table_fqn=
+ *
+ * ALTER TABLE <fqn> SET DATA_METRIC_SCHEDULE = '' — the remove side of
+ * {@link setDmfSchedule}. Both operate on the same table parameter, so this
+ * clears whatever cadence was set. Reversible: schedule again to resume.
+ */
+export async function unsetDmfSchedule(table_fqn: string): Promise<unknown> {
+  const { data } = await apiClient.delete(API.dataQuality.dmfSchedule(), {
+    params: { table_fqn },
+  });
+  return data;
+}
+
 /** Get DMF associations for a table. GET /gouvernance/policies/dmf/references */
 export async function getDmfReferences(table_name: string): Promise<DmfReference[]> {
   const { data } = await apiClient.get(API.gouvernance.policyDmfReferences(), {
