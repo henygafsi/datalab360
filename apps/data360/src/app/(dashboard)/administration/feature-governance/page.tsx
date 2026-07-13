@@ -1,52 +1,13 @@
-'use client';
+import { redirect } from 'next/navigation';
 
 /**
- * Feature Governance (G5) — admins govern WHO can create / run / deploy / manage
- * charts & projects, per account, from the Administration surface.
- *
- * Consumes the previously-orphaned ACCOUNTADMIN-gated backend:
- *   GET /api/administration/entitlements         (module × feature on/off matrix)
- *   PUT /api/administration/entitlements/{m}/{k}  (toggle one addon — write-back)
- *   GET /api/administration/governance-posture    (per-module rollup: roles,
- *                                                   bound policies, usage)
+ * `/administration/feature-governance` — CONSOLIDATED into the Access Control
+ * Center. The Feature Governance matrix (module × feature entitlements) is now
+ * the `featureGov` tab of the single admin access surface, so this standalone
+ * sub-page redirects there rather than rendering a duplicate. Deep-links stay
+ * valid; the matrix component itself (FeatureGovernanceMatrix.tsx) is unchanged
+ * and still imported by the access-center page.
  */
-import { ShieldCheck } from 'lucide-react';
-import { useTrackEvent } from '@/hooks/useTrackEvent';
-import AdminRouteGuard from '@/components/AdminRouteGuard';
-import FeatureGovernanceMatrix from './FeatureGovernanceMatrix';
-
-// Admin-only: gate the route itself so non-admins get an explanatory restricted
-// state instead of the full matrix shell with 403ing data calls.
-export default function FeatureGovernancePage() {
-  return (
-    <AdminRouteGuard surface="Feature Governance">
-      <FeatureGovernancePageContent />
-    </AdminRouteGuard>
-  );
-}
-
-function FeatureGovernancePageContent() {
-  // Auto-fire a PAGE_VIEW on mount. Tracking lives in this route wrapper (not the
-  // matrix) because FeatureGovernanceMatrix is also embedded in the access-center
-  // tab — tracking inside it would double-count.
-  useTrackEvent();
-  return (
-    <div className="space-y-3 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-4 w-4 text-slate-400" />
-          <div>
-            <h1 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-              Feature Governance
-            </h1>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Govern who can create, run, deploy and manage charts &amp; projects — per account.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <FeatureGovernanceMatrix />
-    </div>
-  );
+export default function FeatureGovernanceRedirect() {
+  redirect('/administration/access-center?tab=featureGov');
 }
