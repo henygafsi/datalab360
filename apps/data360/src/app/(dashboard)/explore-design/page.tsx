@@ -354,6 +354,10 @@ const CompactSourceSelector: React.FC<{
   isLoadingTables?: boolean;
   stats: { total: number; configured: number; pending: number };
   projectId: string | null;
+  /** Notifies the parent when a schema-health score is computed, so the Model
+   *  Health KPI can reflect the real aiSchemaHealth score (this component owns
+   *  the health button/state; the parent only mirrors the result for the KPI). */
+  onHealthResult?: (r: SchemaHealthResult | null) => void;
 }> = ({
   databases,
   selectedDatabase,
@@ -367,6 +371,7 @@ const CompactSourceSelector: React.FC<{
   isLoadingTables = false,
   stats,
   projectId,
+  onHealthResult,
 }) => {
   const [showSchemaDropdown, setShowSchemaDropdown] = useState(false);
   const [schemaContextMenu, setSchemaContextMenu] = useState<{ schema: string; x: number; y: number } | null>(null);
@@ -388,13 +393,14 @@ const CompactSourceSelector: React.FC<{
       });
       if (process.env.NODE_ENV === 'development') console.log('[SchemaHealth] API response:', result);
       setHealthResult(result);
+      onHealthResult?.(result);
       setHealthOpen(true);
     } catch (err: unknown) {
       toast.error('Schema health analysis failed');
     } finally {
       setHealthLoading(false);
     }
-  }, [projectId, selectedDatabase, selectedSchemas]);
+  }, [projectId, selectedDatabase, selectedSchemas, onHealthResult]);
 
   const schemaActions: Array<{
     id: string;
@@ -1949,10 +1955,26 @@ export default function ExploreDesignPage() {
     : 0;
   const kpiColumnTotal = tables.reduce((sum, t) => sum + (t.columnCount || 0), 0);
 
+  // Real Model Health = the aiSchemaHealth score, mirrored up from
+  // CompactSourceSelector (which owns the health button) via onHealthResult.
+  // null until the user runs schema health → honest "—" (never fabricated).
+  const [modelHealthResult, setModelHealthResult] = useState<SchemaHealthResult | null>(null);
+
   const modelKpis = useMemo<ModelKpis>(() => ({
-    // No clean project-level model-health / cost($/mo) / DQ% source today →
-    // honest "—" rather than inventing them (spec: never fake).
-    modelHealth: undefined,
+    // Model Health = the real aiSchemaHealth overall_score once computed (same
+    // >=80 Good / >=50 Fair / else Poor thresholds as the header pill); honest
+    // "—" until run. Cost($/mo) / DQ% still have no clean project-level source.
+    modelHealth: modelHealthResult
+      ? {
+          score: modelHealthResult.overall_score,
+          rating:
+            modelHealthResult.overall_score >= 80
+              ? 'Good'
+              : modelHealthResult.overall_score >= 50
+                ? 'Fair'
+                : 'Poor',
+        }
+      : undefined,
     // Data-first: while the catalog fetch is in flight a bare 0 would be a
     // fabricated value (the model may well have tables) → "—" until data
     // lands; a real post-load 0 still renders as 0.
@@ -1971,7 +1993,7 @@ export default function ExploreDesignPage() {
           ? 'On track'
           : undefined,
     },
-  }), [kpiTableCount, kpiRelationCount, kpiColumnTotal, piiLevel, deployBlockers, displayablePendingEvents.length, isLoadingTables]);
+  }), [kpiTableCount, kpiRelationCount, kpiColumnTotal, piiLevel, deployBlockers, displayablePendingEvents.length, isLoadingTables, modelHealthResult]);
 
   // Server-recorded project events (GET /explore-design/{id}/events) — merged
   // into the History panel below so backend-written events (e.g. recorded by
@@ -4941,6 +4963,7 @@ export default function ExploreDesignPage() {
           isLoadingTables={isLoadingTables}
           stats={stats}
           projectId={selectedProjectId}
+          onHealthResult={setModelHealthResult}
         />
       )}
 
