@@ -283,13 +283,15 @@ export const carbonMenuItems: MenuItemsType[] = [
       {
         name: 'Feature Governance',
         description: 'Per-account feature & addon enablement matrix',
-        href: '/administration/feature-governance',
+        // Deep-link into the unified Administration hub tab instead of the
+        // former standalone route (now a redirect stub) — one admin page.
+        href: '/administration?tab=featureGov',
         icon: PiShieldCheckDuotone,
       },
       {
         name: 'Access Control Center',
         description: 'Module → page → tab → feature → action grants, entitlements & usage',
-        href: '/administration/access-center',
+        href: '/administration?tab=access',
         icon: PiLockKeyDuotone,
       },
     ],
