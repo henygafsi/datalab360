@@ -302,12 +302,13 @@ export default function ContextRightBar({
   // ALWAYS shown (project-independent), so the slot itself is always defined —
   // otherwise the chip would vanish on projectless views (RightTabPanel only
   // renders the kpi slot when truthy).
-  const kpiStrip = (
-    <div className="space-y-2">
-      {roleChip}
-      {projectId ? <ProjectKpiStrip projectId={projectId} compact /> : null}
-    </div>
-  );
+  // Only the compact role chip rides on every tab now. The per-project KPI strip
+  // was removed from this always-on slot — it exactly duplicated the project
+  // HEADER KPI band (Model Health · Tables · Relations · … · Release Readiness),
+  // so repeating it above every right-bar tab wasted vertical space that the
+  // modeling actions need. The full project KPIs still live in the Impact & Cost
+  // tab body (the axis they belong to).
+  const kpiStrip = <div className="space-y-2">{roleChip}</div>;
   const quickActions: QuickAction[] = [];
   if ((canCreate.allowed || canCreate.loading) && activeTab !== 'actions') {
     quickActions.push({
