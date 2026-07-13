@@ -371,10 +371,12 @@ export async function getRLSPolicies(
   // so those advisory fields default to '(Not available)'; a caller that needs them
   // fetches per-policy via getRLSPolicyDetails on demand (avoids an N+1 on list).
   const url = POLICIES_API;
-  const params: Record<string, string> = {
-    database: database || DEFAULTS.DATABASE,
-    schema: schema || DEFAULT_GOVERNANCE_SCHEMA,
-  };
+  // ACCOUNT-WIDE by default (2026-07-13): only narrow when the caller passes a
+  // database/schema. Forcing cp_data360/gouvernance hid policies on business
+  // schemas (e.g. the showcase RLS on DRAFT_SOURCE.RETAIL_DW) from the Policies tab.
+  const params: Record<string, string> = {};
+  if (database) params.database = database;
+  if (schema) params.schema = schema;
 
   // Backend returns StandardResponse: { status, message, data: { masking, row_access, aggregation, total } }
   const response = await apiClient.get<
@@ -578,11 +580,12 @@ export async function getMaskingPolicies(
   // The backend has no GET /masking/list (405) — masking policies come from the
   // unified inventory GET /gouvernance/policies, under data.masking.
   const url = POLICIES_API;
+  // ACCOUNT-WIDE by default (2026-07-13): only narrow when a database/schema is
+  // passed — otherwise business-schema policies (e.g. the showcase masking on
+  // DRAFT_SOURCE.RETAIL_DW.DIM_CLIENTS) stay invisible in the Policies tab.
   const params: Record<string, string> = {};
   if (database) params.database = database;
-  else params.database = DEFAULTS.DATABASE;
   if (schema) params.schema = schema;
-  else params.schema = DEFAULT_GOVERNANCE_SCHEMA;
 
   // Backend returns StandardResponse: { status, message, data: { masking, row_access, aggregation, total } }
   const response = await apiClient.get<
