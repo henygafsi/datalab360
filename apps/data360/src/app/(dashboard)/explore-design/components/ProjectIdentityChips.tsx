@@ -21,7 +21,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Compass, Folder, GitBranch, Loader2, Plus, Tag, X } from 'lucide-react';
+import { Compass, Folder, GitBranch, Loader2, Pencil, Plus, Tag, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
@@ -59,11 +59,14 @@ export default function ProjectIdentityChips({
   projectId,
   readOnly = false,
   className,
+  onRenamed,
 }: {
   projectId: string;
   /** View-only sessions render the identity but cannot edit tags. */
   readOnly?: boolean;
   className?: string;
+  /** Called with the new name after a successful inline rename. */
+  onRenamed?: (name: string) => void;
 }) {
   const [project, setProject] = useState<Project | null>(null);
   const [tags, setTags] = useState<string[]>([]);
@@ -71,6 +74,12 @@ export default function ProjectIdentityChips({
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Inline project-name edit near the header (no popup) — save emits a project
+  // update event server-side (PUT /projects), so renames are drafted/audited.
+  const [nameEditing, setNameEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [nameSaving, setNameSaving] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const fetchProject = useCallback(async () => {
     try {
@@ -99,6 +108,27 @@ export default function ProjectIdentityChips({
   useEffect(() => {
     if (editing) inputRef.current?.focus();
   }, [editing]);
+
+  useEffect(() => {
+    if (nameEditing) { nameRef.current?.focus(); nameRef.current?.select(); }
+  }, [nameEditing]);
+
+  const saveName = useCallback(async () => {
+    const value = nameDraft.trim();
+    setNameEditing(false);
+    if (!value || value === project?.project_name) return;
+    setNameSaving(true);
+    try {
+      const updated = await updateProject(projectId, { project_name: value });
+      setProject(updated);
+      toast.success('Project renamed');
+      onRenamed?.(updated.project_name || value);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err)); // never fake a denied write
+    } finally {
+      setNameSaving(false);
+    }
+  }, [nameDraft, project?.project_name, projectId, onRenamed]);
 
   const displayTags = useMemo(() => getDisplayTags(tags), [tags]);
   const typeChip = useMemo(
@@ -182,6 +212,39 @@ export default function ProjectIdentityChips({
             {typeChip.label}
           </span>
         </Tooltip>
+      )}
+
+      {/* Project name — inline editable near the header (no popup). Click to
+          rename; Enter/blur saves (PUT /projects → audited event). */}
+      {nameEditing && !readOnly ? (
+        <input
+          ref={nameRef}
+          value={nameDraft}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); void saveName(); }
+            else if (e.key === 'Escape') { setNameEditing(false); }
+          }}
+          onBlur={() => void saveName()}
+          maxLength={120}
+          aria-label="Project name"
+          className="h-5 min-w-[80px] max-w-[220px] rounded border border-blue-300 bg-white px-1.5 text-[11px] font-semibold text-slate-800 outline-none focus:ring-1 focus:ring-blue-400 dark:border-blue-700 dark:bg-slate-900 dark:text-slate-200"
+        />
+      ) : (
+        <button
+          type="button"
+          disabled={readOnly || nameSaving}
+          onClick={() => { setNameDraft(project.project_name); setNameEditing(true); }}
+          title={readOnly ? 'View-only access' : 'Click to rename this project'}
+          className="group/name inline-flex max-w-[220px] shrink-0 items-center gap-1 rounded px-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-default disabled:hover:bg-transparent dark:text-slate-200 dark:hover:bg-slate-800"
+        >
+          <span className="truncate">{project.project_name}</span>
+          {nameSaving ? (
+            <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin text-slate-400" aria-hidden />
+          ) : !readOnly ? (
+            <Pencil className="h-2.5 w-2.5 shrink-0 text-slate-300 opacity-0 transition-opacity group-hover/name:opacity-100" aria-hidden />
+          ) : null}
+        </button>
       )}
 
       {/* Free-form tags — inline editable, no popup. */}

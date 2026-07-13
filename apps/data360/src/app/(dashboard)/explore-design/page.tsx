@@ -4571,6 +4571,7 @@ export default function ExploreDesignPage() {
                 projectId={selectedProjectId}
                 readOnly={isReadOnly}
                 className="max-w-[360px]"
+                onRenamed={(name) => { setSelectedProjectName(name); void refetchGateProjects(); }}
               />
             )}
             {selectedProjectId && (
