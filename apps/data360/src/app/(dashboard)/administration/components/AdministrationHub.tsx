@@ -51,6 +51,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   ToggleRight,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -71,8 +72,10 @@ import ConfigSummaryPanel from './ConfigSummaryPanel';
 import FeatureGovernanceMatrix from '../feature-governance/FeatureGovernanceMatrix';
 import FeatureRegistryTab from './FeatureRegistryTab';
 import RoleGrantsSamplePanel from './RoleGrantsSamplePanel';
+import AdminActionSurface from './AdminActionSurface';
 
 type TabId =
+  | 'actions'
   | 'health'
   | 'performance'
   | 'access'
@@ -91,6 +94,7 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
+  { id: 'actions', label: 'Actions', icon: Zap },
   { id: 'health', label: 'Platform Health', icon: HeartPulse },
   { id: 'performance', label: 'Performance', icon: Gauge },
   { id: 'access', label: 'Access Control', icon: Lock },
@@ -192,7 +196,7 @@ export default function AdministrationHub() {
 
   const initial = useMemo<TabId>(() => {
     const fromUrl = searchParams.get('tab');
-    return TAB_IDS.includes(fromUrl as TabId) ? (fromUrl as TabId) : 'health';
+    return TAB_IDS.includes(fromUrl as TabId) ? (fromUrl as TabId) : 'actions';
   }, [searchParams]);
 
   const [tab, setTab] = useState<TabId>(initial);
@@ -300,6 +304,24 @@ export default function AdministrationHub() {
         {/* Right content panel */}
         <div className="min-w-0 flex-1 overflow-auto">
           <div className="space-y-4 p-4 lg:p-6">
+            {/* 0. Actions — every admin capability as a governed action (catalog).
+                Read-only actions run inline; a mutating action jumps to the panel
+                (Cost Governance / Access Control / Config) where it's performed. */}
+            {tab === 'actions' && (
+              <AdminActionSurface
+                onOpenArea={(area) => {
+                  const map: Record<string, TabId> = {
+                    warehouse: 'costGov',
+                    cost: 'costGov',
+                    access: 'access',
+                    config: 'config',
+                    health: 'health',
+                  };
+                  onSelect(map[area] ?? 'health');
+                }}
+              />
+            )}
+
             {/* 1. Platform Health — audit-backed KPIs + granular tables + AI */}
             {tab === 'health' && (
               <div className="space-y-4">
