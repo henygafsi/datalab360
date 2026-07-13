@@ -78,14 +78,13 @@ import type { CortexSuggestion, CortexChip } from './components/CortexAssistantP
 import ModelKpiStrip, { type ModelKpis } from './components/ModelKpiStrip';
 import OverflowMenu from './components/OverflowMenu';
 import AddColumnModal from './components/AddColumnModal';
-import DeployStateButton, { deriveDeployState, type DeployState } from './components/DeployStateButton';
 import ReleasePanel from './components/release/ReleasePanel';
 import DeployedProduction from './components/release/DeployedProduction';
 import ProjectIdentityChips from './components/ProjectIdentityChips';
 import ProjectCrudControls from './components/ProjectCrudControls';
 import AiChangeAnalyst from './components/AiChangeAnalyst';
 import { useReleaseState } from './components/release/useReleaseState';
-import type { AxisSignal, ReleaseStatus } from './components/release/types';
+import type { AxisSignal } from './components/release/types';
 import { useDeploymentReadiness } from './hooks/useDeploymentReadiness';
 import { useIngestionTrace } from '@/hooks/useIngestionTrace';
 import EventTable from './components/EventTable';
@@ -2165,32 +2164,9 @@ export default function ExploreDesignPage() {
           ? 'red'
           : releaseServerState.status === 'no_changes' ? 'grey' : 'amber';
 
-  // Deploy button state — server truth first (full lifecycle incl. approval /
-  // deployed / failed phases the page can't source locally); the local
-  // pendingChanges+blockers heuristic is the degraded fallback.
-  const deployState = useMemo<DeployState>(() => {
-    if (releaseServerState && !releaseDegraded) {
-      const map: Record<ReleaseStatus, DeployState> = {
-        no_changes: 'no-changes',
-        draft_changes: 'draft',
-        checks_not_run: 'checks-not-run',
-        blocked: 'blocked',
-        ready_for_approval: 'ready-not-approved',
-        awaiting_approval: 'awaiting-approval',
-        approved: 'approved',
-        deploying: 'approved',
-        deployed: 'deployed',
-        verified: 'deployed',
-        failed: 'failed',
-        rolled_back: 'failed',
-      };
-      return map[releaseServerState.status] ?? 'draft';
-    }
-    return deriveDeployState({
-      pendingChanges: displayablePendingEvents.length,
-      blockers: deployBlockers,
-    });
-  }, [releaseServerState, releaseDegraded, displayablePendingEvents.length, deployBlockers]);
+  // (The header Deploy state-machine button was removed — the right-bar Release
+  // axis owns the deploy lifecycle, so the local DeployState derivation it fed
+  // is no longer needed here.)
 
   // Per-tab colour dots on the collapsed rail — local heuristics first, then the
   // server release-state axis_signals overlay them (server truth wins where it
@@ -4675,38 +4651,11 @@ export default function ExploreDesignPage() {
             {/* Cross-page governed access — grant/revoke roles for this page. */}
             <ManageAccessButton module="explore-design" page="explore-design" iconOnly objectLabel="Explore & Design" />
 
-            {/* Primary action: Deploy — the state-machine button whose label +
-                variant morph by project lifecycle (redesign spec §3). Keeps ALL
-                the legacy guards (read-only / no-project / conflict-check) in its
-                onClick; the state's own disabled phases are additive on top. */}
-            <DeployStateButton
-              state={deployState}
-              disabled={!selectedProjectId}
-              changeCount={displayablePendingEvents.length}
-              onClick={async () => {
-                if (!selectedProjectId) {
-                  toast.error('Please select a project first');
-                  return;
-                }
-                // Read-only users still OPEN the Release tab (deploy is the
-                // unique deployment surface): the panel reads freely, execute
-                // actions gate themselves, and an approval request is offered
-                // instead of the blocked deploy. Only writers run the
-                // conflict pre-check (it guards their own pending events).
-                if (!isReadOnly) {
-                  const eventIds = pendingEvents.map((e) => e.id);
-                  if (eventIds.length > 0) {
-                    const hasConflicts = await checkForConflicts(eventIds);
-                    if (hasConflicts) {
-                      pendingConflictAction.current = { type: 'deploy', eventIds };
-                      return;
-                    }
-                  }
-                }
-                setActiveRightTab('deploy');
-                if (!rightBarOpen) setRightBarOpen(true);
-              }}
-            />
+            {/* Deploy is NOT a header button — the dedicated right-bar Release
+                axis (rocket rail icon) owns the full deploy lifecycle stepper
+                (Changes → Readiness → Impact → Approval → Deploy), so a duplicate
+                header Deploy button was removed. The Readiness step covers the
+                conflict/blocker pre-check the old button used to run. */}
 
             {/* Overflow menu — Undo/Redo + Templates + DAG + Ingestion + AI +
                 Refresh + Import + Export + Filters + panel toggles. Replaces
