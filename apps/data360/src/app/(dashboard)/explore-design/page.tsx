@@ -6358,7 +6358,11 @@ export default function ExploreDesignPage() {
                 <span className="mx-1 hidden h-4 w-px shrink-0 bg-slate-200 dark:bg-slate-700 sm:block" aria-hidden />
                 <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-slate-400">Quick actions</span>
                 {([
-                  { label: 'Create Table', icon: Table2, onClick: openCreateGroup, title: 'Opens the Create group in the right bar' },
+                  // "Create Table" opens the create-table MODAL directly (one click →
+                  // form). It used to call openCreateGroup, which only opened the
+                  // right-bar Create section — clicking it looked like nothing happened
+                  // ("cannot click on create table"). Verified via e2e/ed-create-probe.
+                  { label: 'Create Table', icon: Table2, onClick: () => handleCreateObject('standard'), title: 'Create a standard DWH table (opens the create form)' },
                   { label: 'Create View', icon: Eye, onClick: () => handleCreateObject('dynamic_table'), title: 'Ships as a governed Dynamic Table (SQL-defined, auto-refreshed)' },
                   { label: 'Ingestion Run', icon: RefreshCw, onClick: () => { if (readOnlyGuard()) return; setShowModelingIngestionPanel(true); }, title: 'Configure & run ingestion for the model' },
                   { label: 'DAG Viewer', icon: Workflow, onClick: () => setShowDagViewer(true), title: 'Dependency graph of pending changes' },
