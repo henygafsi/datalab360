@@ -2526,6 +2526,7 @@ function CommandCenterDashboardInner() {
             {activeTabDef.id === 'account' && (
               <KpiStrip
                 items={cockpit.kpiItems}
+                loading={!!tabLoading[activeTabDef.id]}
                 className="mb-4 rounded-xl border border-slate-200 shadow-sm dark:border-slate-800"
               />
             )}

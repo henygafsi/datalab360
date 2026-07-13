@@ -536,9 +536,10 @@ export default function GovernanceLandingPage() {
             </div>
           )}
 
-          {/* KPI strip — honest "—" for anything undetermined; click → axis. */}
+          {/* KPI strip — skeletons while loading (data-first), then honest "—"
+              for anything genuinely empty; click → axis. */}
           <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm dark:border-slate-800">
-            <KpiStrip items={kpis} />
+            <KpiStrip items={kpis} loading={core.loading} />
           </div>
 
           {/* Sub-page directory — every CRUD flow ≤ 2 clicks from here. */}
