@@ -658,11 +658,14 @@ export default function ContextRightBar({
 
       <div className={cn(!isOpen && 'hidden')}>
         <RightTabPanel
-          // Honest header: with a table selected the title is its name (fqn in the
-          // subtitle); with nothing selected the panel is the project overview, not
-          // "Table actions".
-          title={selectedTable ? tableName : 'Overview'}
-          subtitle={selectedTable ? fqn : 'Project model & release'}
+          // Header shows per-OBJECT context only: with a table selected the title
+          // is its name (fqn in the subtitle). With nothing selected we DON'T
+          // repeat "Overview / Project model & release" — that lives in the
+          // project header pill already, and repeating it in every right-bar tab
+          // just stole vertical space (user ask 2026-07-13). The section label
+          // (AI ASSIST / DATA QUALITY …) still identifies the panel.
+          title={selectedTable ? tableName : ''}
+          subtitle={selectedTable ? fqn : undefined}
           accentClassName="bg-blue-500"
           kpiStrip={kpiStrip}
           quickActions={quickActions}

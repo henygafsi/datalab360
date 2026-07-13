@@ -184,9 +184,11 @@ export default function RightTabPanel({
             />
           ) : null}
         </div>
-        <h2 className="mt-1 truncate text-[15px] font-semibold leading-tight text-slate-900 dark:text-white">
-          {title}
-        </h2>
+        {title ? (
+          <h2 className="mt-1 truncate text-[15px] font-semibold leading-tight text-slate-900 dark:text-white">
+            {title}
+          </h2>
+        ) : null}
         {subtitle ? (
           <p className="mt-0.5 truncate text-xs text-slate-400 dark:text-slate-500">{subtitle}</p>
         ) : null}
