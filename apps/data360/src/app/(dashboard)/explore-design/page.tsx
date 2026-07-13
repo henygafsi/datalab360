@@ -657,12 +657,12 @@ const CompactSourceSelector: React.FC<{
 
                   {/* Raw data fallback — show all top-level keys not yet displayed */}
                   {Object.entries(healthResult)
-                    .filter(([k]) => !['overall_score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits'].includes(k))
+                    .filter(([k]) => !['overall_score', 'score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits', 'execution_time_ms'].includes(k))
                     .filter(([, v]) => v != null && typeof v !== 'object')
                     .length > 0 && (
                     <div className="border-t dark:border-slate-700 pt-2 mt-2 space-y-1">
                       {Object.entries(healthResult)
-                        .filter(([k]) => !['overall_score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits'].includes(k))
+                        .filter(([k]) => !['overall_score', 'score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits', 'execution_time_ms'].includes(k))
                         .filter(([, v]) => v != null && typeof v !== 'object')
                         .map(([k, v]) => (
                           <div key={k} className="flex items-center justify-between text-[10px]">
