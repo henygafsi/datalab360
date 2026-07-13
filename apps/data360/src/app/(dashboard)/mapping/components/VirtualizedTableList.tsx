@@ -207,6 +207,7 @@ const TableRow: React.FC<{
 
   return (
     <div
+      data-testid="source-table-row"
       className={cn(
         'flex items-start gap-2.5 px-3 py-2 cursor-pointer transition-all border-b border-slate-100 dark:border-slate-800/60',
         'hover:bg-blue-50/50 dark:hover:bg-slate-800/40',

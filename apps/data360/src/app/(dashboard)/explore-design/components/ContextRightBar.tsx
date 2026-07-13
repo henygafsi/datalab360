@@ -27,6 +27,7 @@ import GovernanceAccessPanel from './GovernanceAccessPanel';
 import AiSavingsDashboard from './AiSavingsDashboard';
 import { listIngestionRuns } from '@/app/services/api/exploreDesignApi';
 import type { IngestionRun } from '@/app/services/api/types';
+import { proposeAgentActions, cocoRunSql, type ProposedAction } from '@/app/services/cortex/agent';
 
 // Static Tailwind class maps. Interpolated classes like `text-${color}-600` are
 // invisible to the Tailwind compiler and get PURGED unless safelisted (the axis
@@ -506,6 +507,7 @@ export default function ContextRightBar({
               isClassifying={isClassifying}
               classifyUnavailable={classifyUnavailable}
               onRunClassify={onRunClassify}
+              projectId={projectId}
             />
           ) : empty}
         </div>
@@ -1626,16 +1628,220 @@ function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAd
 }
 
 // ---------------------------------------------------------------------------
+// B0. Agentic "Analyze & propose" panel
+// ---------------------------------------------------------------------------
+//
+// The AI reads the SELECTED table (fqn + columns + AI classifications) and the
+// project's 360 context, then proposes 1-5 concrete, typed, GATED next actions
+// (POST /cortex/agent/propose). Each proposal is validated by the user before
+// anything runs — nothing is auto-executed:
+//   • coco_sql  → runnable inline via the governed read-only path (SELECT-only,
+//                 masking/RLS apply as the caller) — results shown in place.
+//   • endpoint  → prefilled PREVIEW only (method · path · body); the user acts
+//                 on it from the owning surface. We never auto-fire a governed
+//                 write from a proposal card.
+// If Cortex completion is unavailable on the backend, we show an honest
+// disabled state (InsightActionButton pattern), not a loud error.
+
+const RISK_STYLE: Record<string, string> = {
+  low: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800',
+  medium: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800',
+  high: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800',
+};
+
+function ProposedActionCard({ action }: { action: ProposedAction }) {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ columns: string[]; rows: Record<string, unknown>[]; row_count: number } | null>(null);
+  const [runErr, setRunErr] = useState<string | null>(null);
+  const isSql = action.kind === 'coco_sql' && !!action.sql && !action._rejected;
+
+  const runSql = async () => {
+    if (!action.sql || running) return;
+    setRunning(true); setRunErr(null); setResult(null);
+    try {
+      const res = await cocoRunSql(action.sql, 50);
+      setResult(res);
+    } catch (err: any) {
+      setRunErr(err?.message || 'Query failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 space-y-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {isSql ? <Play className="h-3.5 w-3.5 shrink-0 text-blue-500" /> : <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
+          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{action.label}</span>
+        </div>
+        {action.risk && (
+          <span className={cn('shrink-0 rounded-full border px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide', RISK_STYLE[action.risk] ?? RISK_STYLE.low)}>
+            {action.risk}
+          </span>
+        )}
+      </div>
+      {action.rationale && <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{action.rationale}</p>}
+      {action.requires && (
+        <div className="flex items-center gap-1 text-[9px] text-slate-400">
+          <Shield className="h-2.5 w-2.5" aria-hidden />
+          <span className="font-mono">{action.requires.module} · {action.requires.action}</span>
+        </div>
+      )}
+
+      {/* coco_sql → runnable inline (read-only, governed) */}
+      {isSql && (
+        <div className="space-y-2">
+          <details className="group">
+            <summary className="cursor-pointer text-[10px] font-medium text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Show SQL</summary>
+            <pre className="mt-1 max-h-32 overflow-auto rounded bg-slate-50 dark:bg-slate-900 p-2 text-[10px] font-mono text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{action.sql}</pre>
+          </details>
+          <button
+            onClick={runSql}
+            disabled={running}
+            aria-busy={running}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 px-2.5 py-1 text-[11px] font-medium text-white transition-colors"
+          >
+            {running ? <><Loader size="sm" className="h-3 w-3" /> Running…</> : <><Play className="h-3 w-3" /> Run query</>}
+          </button>
+          {runErr && (
+            <div className="flex items-start gap-1.5 rounded border border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10 p-1.5 text-[10px] text-red-600 dark:text-red-400">
+              <AlertTriangle className="h-3 w-3 shrink-0 mt-px" /><span>{runErr}</span>
+            </div>
+          )}
+          {result && (
+            <div className="rounded border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="px-2 py-1 bg-slate-50 dark:bg-slate-900 text-[9px] font-semibold text-slate-500">{result.row_count} row{result.row_count === 1 ? '' : 's'}</div>
+              {result.row_count > 0 && (
+                <div className="max-h-40 overflow-auto">
+                  <table className="w-full text-[10px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        {result.columns.map((c) => <th key={c} className="px-2 py-1 text-left font-semibold text-slate-500 whitespace-nowrap">{c}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.rows.slice(0, 20).map((row, i) => (
+                        <tr key={i} className="border-b border-slate-50 dark:border-slate-800/50">
+                          {result.columns.map((c) => <td key={c} className="px-2 py-1 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">{String(row[c] ?? '—')}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* endpoint → prefilled PREVIEW only (never auto-executed) */}
+      {action.kind === 'endpoint' && action.endpoint && (
+        <div className="rounded bg-slate-50 dark:bg-slate-900 p-2 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <span className={cn('rounded px-1.5 py-0 text-[9px] font-bold', action.endpoint.method === 'GET' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' : 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400')}>{action.endpoint.method}</span>
+            <span className="text-[10px] font-mono text-slate-600 dark:text-slate-400 truncate">{action.endpoint.path}</span>
+          </div>
+          {action.endpoint.body && Object.keys(action.endpoint.body).length > 0 && (
+            <pre className="max-h-24 overflow-auto text-[9px] font-mono text-slate-500 whitespace-pre-wrap">{JSON.stringify(action.endpoint.body, null, 2)}</pre>
+          )}
+          <p className="text-[9px] text-slate-400 italic">Prefilled proposal — review, then run it from the owning surface.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentProposePanel({ table, columns, classifications, projectId }: {
+  table: TableItem; columns: ColumnInfo[];
+  classifications?: Record<string, string>;
+  projectId: string | null;
+}) {
+  const [analyzing, setAnalyzing] = useState(false);
+  const [actions, setActions] = useState<ProposedAction[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const fqn = `${table.database}.${table.schema}.${table.table}`;
+
+  const analyze = async () => {
+    if (!projectId || analyzing) return;
+    setAnalyzing(true); setError(null); setActions(null); setUnavailable(false);
+    // Table-scope the project agent: fold the selected table's columns + AI
+    // classifications into the goal so proposals target THIS object, not the
+    // project in general.
+    const colList = columns.slice(0, 40)
+      .map((c) => `${c.name} ${c.dataType}${c.isSensitive ? ' (PII)' : ''}${c.isPrimaryKey ? ' [PK]' : ''}`)
+      .join(', ');
+    const cls = classifications && Object.keys(classifications).length
+      ? `\nAI classifications: ${Object.entries(classifications).map(([k, v]) => `${k}=${v}`).join(', ')}` : '';
+    const goal =
+      `Analyze the selected table ${fqn} and propose the highest-value next actions to improve its ` +
+      `modeling, data quality and governance. Columns: ${colList || 'unknown'}.${cls}`;
+    try {
+      const res = await proposeAgentActions(projectId, goal);
+      if (res.error === 'LLM_UNAVAILABLE') { setUnavailable(true); return; }
+      setActions(res.actions ?? []);
+    } catch (err: any) {
+      if (isUnavailable(err)) setUnavailable(true);
+      else setError(err?.message || 'Analyze failed');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10 p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Brain className="h-4 w-4 text-blue-500" />
+        <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Analyze &amp; propose actions</h4>
+      </div>
+      <p className="text-[11px] text-slate-500">The AI reads this table + the project&apos;s context and proposes concrete, gated next actions for you to validate.</p>
+      {!projectId ? (
+        <span role="status" className="flex items-center gap-1.5 text-[11px] text-slate-400"><Info className="h-3 w-3" /> Select a project to enable analysis.</span>
+      ) : (
+        <button
+          onClick={analyze}
+          disabled={analyzing}
+          aria-busy={analyzing}
+          className="w-full py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white transition-colors flex items-center justify-center gap-1.5"
+        >
+          {analyzing ? <><Loader size="sm" className="h-3 w-3" /> Analyzing…</> : <><Sparkles className="h-3.5 w-3.5" /> Analyze this table</>}
+        </button>
+      )}
+      {unavailable && (
+        <p role="status" className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+          <Ban className="h-3 w-3" aria-hidden /> AI proposals aren&apos;t available on this backend yet
+        </p>
+      )}
+      {error && (
+        <div className="flex items-start gap-1.5 rounded-lg border border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10 p-2 text-[11px] text-red-600 dark:text-red-400">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" /><span>{error}</span>
+        </div>
+      )}
+      {actions && actions.length === 0 && !error && (
+        <p className="text-[11px] text-slate-400">No actions proposed — the model is clean or the goal was too narrow.</p>
+      )}
+      {actions && actions.length > 0 && (
+        <div className="space-y-2" data-testid="agent-proposals">
+          {actions.map((a, i) => <ProposedActionCard key={`${a.label}-${i}`} action={a} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // B. AI Assist Panel
 // ---------------------------------------------------------------------------
 
-function AIAssistPanel({ table, columns, classifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify }: {
+function AIAssistPanel({ table, columns, classifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify, projectId }: {
   table: TableItem; columns: ColumnInfo[];
   classifications?: Record<string, string>;
   classificationDetails: ClassificationResult[];
   isClassifying: boolean;
   classifyUnavailable?: boolean;
   onRunClassify: () => void;
+  projectId: string | null;
 }) {
   const [prompt, setPrompt] = useState('');
   const [asking, setAsking] = useState(false);
@@ -1684,6 +1890,10 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
 
   return (
     <div className="p-4 space-y-4">
+      {/* Agentic analyze & propose — the headline AI action: read the table +
+          project context, propose gated next actions the user validates. */}
+      <AgentProposePanel table={table} columns={columns} classifications={classifications} projectId={projectId} />
+
       {/* AI Classify CTA */}
       <div className="rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-50/30 dark:bg-purple-900/10 p-4 space-y-3">
         <div className="flex items-center gap-2">
