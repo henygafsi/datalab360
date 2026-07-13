@@ -56,8 +56,9 @@ test('deploy failure surfaces a classified remediation for the failed DDL action
   const panel = page.getByTestId('ddl-remediation');
   await expect(panel, 'remediation panel visible').toBeVisible({ timeout: 30_000 });
   await expect(panel.getByText(/failed action\(s\)/i)).toBeVisible();
-  // The FK-needs-PK classification produces an "Add a primary key" remediation.
-  await expect(panel.getByText(/Add a primary key/i), 'FK-needs-PK remediation title').toBeVisible({ timeout: 10_000 });
+  // The FK-references-a-non-key classification produces an "Add a UNIQUE key"
+  // remediation (UNIQUE coexists with an existing PK, unlike ADD PRIMARY KEY).
+  await expect(panel.getByText(/Add a UNIQUE key/i), 'FK-needs-UNIQUE remediation title').toBeVisible({ timeout: 10_000 });
   // A runnable diagnostic is offered.
   const diag = panel.getByRole('button', { name: /Run diagnostic/i }).first();
   await expect(diag, 'diagnostic action offered').toBeVisible();
