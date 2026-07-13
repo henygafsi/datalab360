@@ -1369,11 +1369,19 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         setPendingConnection({ sourceNode: nodeId, sourceColumn: '' });
         toast.success('Click target table to create foreign key link', { icon: '🔗' });
         break;
-      case 'relation':
+      case 'relation': {
+        // Seed the relation on the table's REAL primary key, not a hardcoded
+        // 'id' (RETAIL_DW tables key on ORDER_ID / CLIENT_ID / …, so 'id' seeded
+        // a column that doesn't exist). Empty when there's no PK yet — the
+        // connection flow resolves the columns on the target click, like fk_config.
+        const pkCol = columns.find((c) => c.isPrimaryKey)?.name || '';
         setRelationMode(true);
-        setPendingConnection({ sourceNode: nodeId, sourceColumn: 'id' });
-        toast('Click another table to create a relation');
+        setPendingConnection({ sourceNode: nodeId, sourceColumn: pkCol });
+        toast(pkCol
+          ? `Click another table to relate on ${pkCol}`
+          : 'Click another table to create a relation');
         break;
+      }
       case 'exclude':
         // Model-only: drop the node from the canvas. The real Snowflake table is
         // untouched — this just narrows the modeling scope.
