@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { Text, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
-import { Loader2, Maximize2, TimerReset, PowerOff } from 'lucide-react';
+import { Loader2, Maximize2, TimerReset, PowerOff, Power } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -22,6 +22,7 @@ import {
   resizeWarehouse,
   setWarehouseAutoSuspend,
   suspendWarehouse,
+  resumeWarehouse,
 } from '@/app/services/org-accounts/hooks';
 import { ActionRail } from '@/app/shared/action-rail';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -273,6 +274,10 @@ function WarehouseManagementPanel({ refreshKey }: { refreshKey: number }) {
   const [formError, setFormError] = useState<string | null>(null);
   const [suspendTarget, setSuspendTarget] = useState<Warehouse | null>(null);
   const [suspendBusy, setSuspendBusy] = useState(false);
+  // Name of the warehouse currently being resumed (per-row spinner). Resume is
+  // idempotent (RESUME IF SUSPENDED) so it runs directly — no confirm modal,
+  // unlike suspend which stops in-flight queries.
+  const [resumingWh, setResumingWh] = useState<string | null>(null);
 
   // Action-RBAC: warehouse management is an `org_accounts` update. Fail-open
   // while the allow-set loads (no flash of a disabled control).
@@ -362,6 +367,20 @@ function WarehouseManagementPanel({ refreshKey }: { refreshKey: number }) {
     }
   };
 
+  const handleResume = async (wh: Warehouse) => {
+    if (manageDenied) return;
+    setResumingWh(wh.warehouse_name);
+    try {
+      await resumeWarehouse(wh.warehouse_name);
+      toast.success(`Warehouse ${wh.warehouse_name} resumed`);
+      setLocalRefresh((v) => v + 1);
+    } catch (e) {
+      toast.error(extractApiError(e, 'Failed to resume warehouse'));
+    } finally {
+      setResumingWh(null);
+    }
+  };
+
   const secondsValid = secondsValue.trim() !== '' && Number.isInteger(Number(secondsValue)) && Number(secondsValue) >= 0;
 
   return (
@@ -375,7 +394,7 @@ function WarehouseManagementPanel({ refreshKey }: { refreshKey: number }) {
           )}
         </div>
         <Text className="text-xs text-gray-500 mt-1">
-          Resize, set auto-suspend, or suspend warehouses on the connected account.
+          Resize, set auto-suspend, or suspend/resume warehouses on the connected account.
         </Text>
       </div>
 
@@ -478,6 +497,21 @@ function WarehouseManagementPanel({ refreshKey }: { refreshKey: number }) {
                           className="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-amber-600 transition-colors hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
                         >
                           <PowerOff className="h-3.5 w-3.5" /> Suspend
+                        </button>
+                        <button
+                          type="button"
+                          disabled={manageDenied || running || resumingWh === wh.warehouse_name}
+                          onClick={() => handleResume(wh)}
+                          title={
+                            manageDenied
+                              ? 'You lack the "update" permission on Client Accounts. Ask an administrator to grant it.'
+                              : running
+                                ? 'Warehouse is already running'
+                                : 'Resume warehouse'
+                          }
+                          className="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                        >
+                          {resumingWh === wh.warehouse_name ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />} Resume
                         </button>
                       </div>
                     </td>

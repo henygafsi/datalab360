@@ -466,6 +466,18 @@ export async function suspendWarehouse(warehouse: string): Promise<WarehouseMuta
   return data;
 }
 
+/** POST /org-accounts/warehouses/{wh}/resume — ALTER WAREHOUSE RESUME IF SUSPENDED
+ *  (idempotent: a no-op if the warehouse is already running). The symmetric
+ *  counterpart to {@link suspendWarehouse}. */
+export async function resumeWarehouse(warehouse: string): Promise<WarehouseMutationResponse> {
+  const { data } = await apiClient.post<WarehouseMutationResponse>(
+    `${BASE_URL}/warehouses/${encodeURIComponent(warehouse)}/resume`,
+    null,
+    { timeout: 60000 }
+  );
+  return data;
+}
+
 // =============================================================================
 // LOGINS (Premium Views)
 // =============================================================================
