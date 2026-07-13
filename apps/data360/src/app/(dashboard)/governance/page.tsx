@@ -28,6 +28,7 @@ import {
   Eye,
   Fingerprint,
   FolderKanban,
+  Zap,
   Gauge,
   Grid3x3,
   History,
@@ -109,6 +110,7 @@ const DIRECTORY: {
   { href: routes.governance.securityMatrix, icon: Fingerprint, title: 'Security matrix', desc: 'Row-level axes, enterprise identities, posture' },
   { href: routes.governance.oauth, icon: Lock, title: 'Authentication', desc: 'SSO integrations, network policies, service keys' },
   { href: routes.governance.projects, icon: FolderKanban, title: 'Project governance', desc: 'Owners, contributors, versions, deployments' },
+  { href: routes.governance.actions, icon: Zap, title: 'All actions', desc: 'Every governance capability as a governed action — search, run, verify' },
 ];
 
 export default function GovernanceLandingPage() {

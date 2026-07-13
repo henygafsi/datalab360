@@ -40,6 +40,8 @@ export const routes = {
     securityMatrix: '/governance/security-matrix',
     oauth: '/governance/oauth',
     projects: '/governance/projects',
+    /** Every governance capability as a governed action (registry-in-tables). */
+    actions: '/governance/actions',
     /**
      * G8 shareable deep-link to the Projects page with a project panel expanded
      * (`?project=<id>`) and, optionally, the active filter tab (`?tab=`). Read on
