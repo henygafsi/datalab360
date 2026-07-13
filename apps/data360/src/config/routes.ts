@@ -112,6 +112,8 @@ export const routes = {
 
   project: {
     dashboard: '/project',
+    /** Every project-lifecycle capability as a governed action (registry-in-tables). */
+    actions: '/project/actions',
   },
   forms: {
     profileSettings: '/forms/profile-settings',
