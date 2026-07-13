@@ -128,7 +128,6 @@ import IngestionConfigPanel from './components/IngestionConfigPanel';
 import TemplateLibrary from './components/TemplateLibrary';
 import SqlDiffViewer from './components/SqlDiffViewer';
 import IngestionResultsPanel from './components/IngestionResultsPanel';
-import DagViewer from './components/DagViewer';
 import CascadeConfirmModal from './components/CascadeConfirmModal';
 import WhereClauseBuilder from './components/WhereClauseBuilder';
 import QualityGatesPanel from './components/QualityGatesPanel';
@@ -1382,7 +1381,6 @@ export default function ExploreDesignPage() {
   const [modelingIngestionMode, setModelingIngestionMode] = useState<IngestionMode>('full_refresh');
 
   // Phase 2-6 panels
-  const [showDagViewer, setShowDagViewer] = useState(false);
   const [showImpactAnalysis, setShowImpactAnalysis] = useState(false);
   const [showDryRun, setShowDryRun] = useState(false);
   const [showPreChecks, setShowPreChecks] = useState(false);
@@ -4712,13 +4710,6 @@ export default function ExploreDesignPage() {
                   onClick: () => setShowTemplateLibrary(true),
                 },
                 {
-                  label: 'DAG Viewer',
-                  icon: Workflow,
-                  onClick: () => setShowDagViewer(!showDagViewer),
-                  active: showDagViewer,
-                  activeColor: 'violet',
-                },
-                {
                   label: 'Ingestion Runs',
                   icon: BarChart3,
                   onClick: () => setShowIngestionResults(!showIngestionResults),
@@ -6365,7 +6356,8 @@ export default function ExploreDesignPage() {
                   { label: 'Create Table', icon: Table2, onClick: () => handleCreateObject('standard'), title: 'Create a standard DWH table (opens the create form)' },
                   { label: 'Create View', icon: Eye, onClick: () => handleCreateObject('dynamic_table'), title: 'Ships as a governed Dynamic Table (SQL-defined, auto-refreshed)' },
                   { label: 'Ingestion Run', icon: RefreshCw, onClick: () => { if (readOnlyGuard()) return; setShowModelingIngestionPanel(true); }, title: 'Configure & run ingestion for the model' },
-                  { label: 'DAG Viewer', icon: Workflow, onClick: () => setShowDagViewer(true), title: 'Dependency graph of pending changes' },
+                  // DAG Viewer removed — lineage is shown per table via the right-bar
+                  // Lineage axis (click a table → Lineage), not a separate pending-DAG modal.
                   { label: 'AI Recommendations', icon: Sparkles, onClick: () => { setActiveRightTab('ai'); setRightBarOpen(true); }, title: 'Open the AI Assist section' },
                 ] as { label: string; icon: React.ElementType; onClick: () => void; title: string }[]).map(({ label, icon: Icon, onClick, title }) => (
                   <button
@@ -6624,29 +6616,6 @@ export default function ExploreDesignPage() {
             <Button variant="outline" onClick={() => setShowRelationsModal(false)}>
               Cancel
             </Button>
-          </div>
-        </div>
-      )}
-
-      {/* DAG Dependency Graph — right-side panel (non-blocking, zero-popup) */}
-      {showDagViewer && selectedProjectId && (
-        <div
-          role="dialog"
-          aria-modal="false"
-          aria-label="Dependency Graph (DAG)"
-          className="fixed inset-y-0 right-0 z-40 flex w-full max-w-5xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        >
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Workflow className="h-5 w-5 text-violet-600" />
-              Dependency Graph (DAG)
-            </h3>
-            <button aria-label="Close dependency graph panel" onClick={() => setShowDagViewer(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
-              <X className="h-4 w-4 text-slate-500" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-auto p-4">
-            <DagViewer projectId={selectedProjectId} className="h-full min-h-[70vh]" />
           </div>
         </div>
       )}

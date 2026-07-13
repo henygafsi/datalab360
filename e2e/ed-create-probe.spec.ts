@@ -54,3 +54,21 @@ test('probe: create-table flow in E&D modeling', async ({ page }) => {
   log(`page errors (${errors.length}): ${errors.slice(0, 5).join(' || ')}`);
   expect(errors, 'no page/console errors').toEqual([]);
 });
+
+test('DAG Viewer removed from modeling; quick actions + Lineage intact', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await page.goto(`/explore-design?project_id=${PROJECT}&view=modeling`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(8000);
+
+  const quick = page.getByTestId('modeling-quick-actions');
+  await expect(quick).toBeVisible({ timeout: 30_000 });
+  // DAG Viewer is gone; the remaining quick actions are intact.
+  await expect(quick.getByRole('button', { name: /DAG Viewer/i })).toHaveCount(0);
+  await expect(quick.getByRole('button', { name: /^Create Table$/ })).toBeVisible();
+  await expect(quick.getByRole('button', { name: /Ingestion Run/i })).toBeVisible();
+  await expect(quick.getByRole('button', { name: /AI Recommendations/i })).toBeVisible();
+  // eslint-disable-next-line no-console
+  console.log('DAGREMOVE quick actions intact, DAG Viewer button count = 0');
+  expect(errors, 'no page errors').toEqual([]);
+});
