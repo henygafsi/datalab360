@@ -71,6 +71,7 @@ import LatencyFreshnessPanel from './LatencyFreshnessPanel';
 import ServiceHealthPanel from './ServiceHealthPanel';
 import ConfigSummaryPanel from './ConfigSummaryPanel';
 import AccountParametersPanel from './AccountParametersPanel';
+import ObjectAccessMatrixPanel from './ObjectAccessMatrixPanel';
 import FeatureGovernanceMatrix from '../feature-governance/FeatureGovernanceMatrix';
 import FeatureRegistryTab from './FeatureRegistryTab';
 import RoleGrantsSamplePanel from './RoleGrantsSamplePanel';
@@ -451,6 +452,10 @@ export default function AdministrationHub() {
                     same components); Performance & Monitoring is KEPT (its PerformancePanel
                     is a different surface from the top-level Performance tab). */}
                 <AccessCenterSurface />
+
+                {/* Real Snowflake object-level access — who can touch each object,
+                    with the honest configured-not-enforced banner. */}
+                <ObjectAccessMatrixPanel />
 
                 <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                   <div className="mb-2 flex items-center gap-2">
