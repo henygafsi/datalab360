@@ -60,5 +60,8 @@ export async function verifyGovernanceActions(): Promise<GovernanceActionVerifyR
 /** True when a verify stamp reflects a healthy contract (2xx or honest 4xx). */
 export function isGovernanceActionVerified(status?: string | null): boolean {
   if (!status) return false;
-  return status.startsWith('2') || status.startsWith('4') || status.includes('honest');
+  // 2xx/4xx = live-probed OK/honest; 'contract-ok' = mutation whose route is
+  // registered but is not auto-run (verified by contract, not execution).
+  return status.startsWith('2') || status.startsWith('4')
+    || status.includes('honest') || status.includes('contract-ok');
 }
