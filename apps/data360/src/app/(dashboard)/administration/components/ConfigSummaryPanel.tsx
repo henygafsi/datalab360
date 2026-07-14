@@ -36,8 +36,23 @@ export default function ConfigSummaryPanel() {
       // Live envelope is {configs, total, categories}; the typed contract said
       // {config} — accept both so the panel doesn't report "0 entries" against
       // a provisioned store.
-      const raw = res as unknown as { config?: PlatformConfigEntry[]; configs?: PlatformConfigEntry[] };
-      setEntries(raw.configs ?? raw.config ?? []);
+      const raw = res as unknown as {
+        config?: PlatformConfigEntry[];
+        configs?: PlatformConfigEntry[] | Record<string, PlatformConfigEntry[]>;
+      };
+      // The live envelope ships `configs` as a DICT keyed by category
+      // ({ ai: [...], cache: [...], ... }), not a flat array — feeding that
+      // straight to `.forEach` threw and blanked the whole Config tab. Accept
+      // all three shapes: flat `configs` array, dict-by-category, or `config`.
+      let list: PlatformConfigEntry[] = [];
+      if (Array.isArray(raw.configs)) {
+        list = raw.configs;
+      } else if (raw.configs && typeof raw.configs === 'object') {
+        list = Object.values(raw.configs).flat();
+      } else if (Array.isArray(raw.config)) {
+        list = raw.config;
+      }
+      setEntries(list);
     } catch (err) {
       setError(getApiErrorMessage(err));
       setEntries(null);
