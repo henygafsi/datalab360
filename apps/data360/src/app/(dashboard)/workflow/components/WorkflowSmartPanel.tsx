@@ -117,7 +117,7 @@ import {
 // ContextBar). They join THIS single icon rail as the Usage / Cost / Governance
 // sections so the builder shows ONE right-tab, not two. Reused verbatim (same
 // listRuns/cost-summary/scorecards getters) — no logic duplicated.
-import { UsageTab, CostTab, GovernanceTab } from './WorkflowProjectBar';
+import { UsageTab, CostTab, GovernanceTab, type OutputTableRef } from './WorkflowProjectBar';
 
 // ---------------------------------------------------------------------------
 // Section identifiers — the rail order
@@ -1491,6 +1491,18 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
     legacyBodies,
   } = props;
 
+  // The selected block's OUTPUT table (destination blocks carry target_*), fed to
+  // the Governance tab's Data Access section ("who can read this output").
+  const selectedOutputTable = useMemo<OutputTableRef | null>(() => {
+    const d = selectedNode?.data as Record<string, unknown> | undefined;
+    const cfg = ((d?.config as Record<string, unknown>) ?? d ?? {}) as Record<string, unknown>;
+    const db = cfg.target_database, sc = cfg.target_schema, tb = cfg.target_table;
+    if (typeof db === 'string' && typeof sc === 'string' && typeof tb === 'string' && db && sc && tb) {
+      return { database: db, schema: sc, table: tb };
+    }
+    return null;
+  }, [selectedNode]);
+
   const active = RAIL.find((r) => r.id === activeSection) ?? RAIL[0];
 
   // Collapse the always-on actions strip (lazy init from storage; functional
@@ -1662,7 +1674,11 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
                 <CostTab workflowId={activeWorkflowId} enabled={activeSection === 'cost'} />
               )}
               {activeSection === 'governance' && activeWorkflowId && (
-                <GovernanceTab workflowId={activeWorkflowId} enabled={activeSection === 'governance'} />
+                <GovernanceTab
+                  workflowId={activeWorkflowId}
+                  enabled={activeSection === 'governance'}
+                  output={selectedOutputTable}
+                />
               )}
               {activeSection === 'block' && (
                 blockSlot ?? (
