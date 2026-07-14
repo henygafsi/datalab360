@@ -468,6 +468,7 @@ function DataAccessSection({ output, enabled }: { output: OutputTableRef | null;
 
   const a = data;
   const viewers = a?.viewer_roles ?? [];
+  const users = a?.viewer_users ?? [];
   const policies = a?.policies ?? [];
   return (
     <div className="rounded-lg border border-slate-200 px-2.5 py-2 dark:border-slate-700">
@@ -498,14 +499,34 @@ function DataAccessSection({ output, enabled }: { output: OutputTableRef | null;
               <span
                 key={v.role}
                 className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
-                title={`${v.privilege} on ${a?.table}`}
+                title={`${v.privilege} on ${a?.table}${v.members?.length ? ' · members: ' + v.members.join(', ') : ''}`}
               >
                 <Users className="h-2.5 w-2.5" /> {v.role}
+                {v.member_count ? <span className="opacity-60">·{v.member_count}</span> : null}
               </span>
             ))}
           </div>
         )}
       </div>
+
+      {users.length > 0 && (
+        <div className="mt-1.5">
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+            Users with access ({users.length})
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {users.map((u) => (
+              <span
+                key={u.user}
+                className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                title={`via role ${u.via_role}`}
+              >
+                {u.user}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-1.5">
         <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">

@@ -17,6 +17,12 @@ export interface OutputGrant {
 export interface OutputViewerRole {
   role: string;
   privilege: string;
+  members?: string[];
+  member_count?: number;
+}
+export interface OutputViewerUser {
+  user: string;
+  via_role: string;
 }
 export interface OutputPolicy {
   policy_name: string;
@@ -27,9 +33,11 @@ export interface OutputAccess {
   table: string;
   grants: OutputGrant[];
   viewer_roles: OutputViewerRole[];
+  viewer_users: OutputViewerUser[];
   owner: string | null;
   policies: OutputPolicy[];
   viewer_role_count: number;
+  viewer_user_count: number;
   policy_count: number;
   degraded: boolean;
   degraded_reasons: string[];
