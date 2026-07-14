@@ -346,6 +346,7 @@ const CompactSourceSelector: React.FC<{
   schemas: string[];
   selectedSchemas: Map<string, string>; // Map<schemaName, databaseName>
   onSchemaToggle: (schema: string) => void;
+  onSelectAllSchemas?: () => void;
   onSchemaAction: (schema: string, action: string) => void;
   isLoadingDatabases: boolean;
   isLoadingSchemas: boolean;
@@ -364,6 +365,7 @@ const CompactSourceSelector: React.FC<{
   schemas,
   selectedSchemas,
   onSchemaToggle,
+  onSelectAllSchemas,
   onSchemaAction,
   isLoadingDatabases,
   isLoadingSchemas,
@@ -476,7 +478,22 @@ const CompactSourceSelector: React.FC<{
                 ) : schemas.length === 0 ? (
                   <div className="py-2 px-3 text-xs text-slate-500">No schemas</div>
                 ) : (
-                  schemas.map((schema) => (
+                  <>
+                  {/* "All schemas" — one click to see ALL products (every schema's
+                      tables) instead of drilling into one schema at a time. */}
+                  {onSelectAllSchemas && schemas.length > 1 && (() => {
+                    const allSelected = schemas.every((s) => selectedSchemas.has(s));
+                    return (
+                      <button
+                        className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50 dark:border-slate-700 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                        onClick={() => onSelectAllSchemas()}
+                      >
+                        {allSelected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+                        {allSelected ? 'Clear all schemas' : 'All schemas (all products)'}
+                      </button>
+                    );
+                  })()}
+                  {schemas.map((schema) => (
                     <div
                       key={schema}
                       className={cn(
@@ -507,7 +524,8 @@ const CompactSourceSelector: React.FC<{
                         <Settings className="h-3 w-3 text-slate-500" />
                       </button>
                     </div>
-                  ))
+                  ))}
+                  </>
                 )}
               </div>
             </>
@@ -3016,6 +3034,20 @@ export default function ExploreDesignPage() {
     });
   }, [selectedProjectId, selectedDatabase, addEvent]);
 
+  // "All schemas (all products)" — select every schema at once so the catalog
+  // shows all products, not just one schema. Toggles off (clears) when all are
+  // already selected. The table loader already fans out over every selected
+  // schema, so this genuinely surfaces the full source catalog.
+  const handleSelectAllSchemas = useCallback(() => {
+    if (readOnlyGuard()) return;
+    const db = selectedDatabase;
+    setSelectedSchemas(prev => {
+      const allSelected = schemas.length > 0 && schemas.every(s => prev.has(s));
+      if (allSelected) return new Map();
+      return new Map(schemas.map(s => [s, db] as [string, string]));
+    });
+  }, [schemas, selectedDatabase, readOnlyGuard]);
+
   const handleTableSelection = useCallback((tableId: string, selected: boolean) => {
     setSelectedTables(prev => {
       const next = new Set(prev);
@@ -4976,6 +5008,7 @@ export default function ExploreDesignPage() {
           schemas={schemas}
           selectedSchemas={selectedSchemas}
           onSchemaToggle={handleSchemaToggle}
+          onSelectAllSchemas={handleSelectAllSchemas}
           onSchemaAction={handleSchemaAction}
           isLoadingDatabases={isLoadingDatabases}
           isLoadingSchemas={isLoadingSchemas}
