@@ -1491,15 +1491,29 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
     legacyBodies,
   } = props;
 
-  // The selected block's OUTPUT table (destination blocks carry target_*), fed to
-  // the Governance tab's Data Access section ("who can read this output").
+  // The selected block's OUTPUT table, fed to the Governance tab's Data Access
+  // section ("who can read this output"). Block configs disagree on key names:
+  //   • copy_into / cdc_merge …  → target_database / target_schema / target_table
+  //   • destination / source …   → database(_name) / schema(_name) / table(_name)
+  // and `table` is sometimes a full DB.SCHEMA.TABLE FQN. Handle them all.
   const selectedOutputTable = useMemo<OutputTableRef | null>(() => {
     const d = selectedNode?.data as Record<string, unknown> | undefined;
     const cfg = ((d?.config as Record<string, unknown>) ?? d ?? {}) as Record<string, unknown>;
-    const db = cfg.target_database, sc = cfg.target_schema, tb = cfg.target_table;
-    if (typeof db === 'string' && typeof sc === 'string' && typeof tb === 'string' && db && sc && tb) {
-      return { database: db, schema: sc, table: tb };
+    const pick = (...keys: string[]) => {
+      for (const k of keys) { const v = cfg[k]; if (typeof v === 'string' && v.trim()) return v.trim(); }
+      return undefined;
+    };
+    let db = pick('target_database', 'database', 'database_name');
+    let sc = pick('target_schema', 'schema', 'schema_name');
+    let tb = pick('target_table', 'table', 'table_name');
+    // `table` may already be a qualified DB.SCHEMA.TABLE — split and backfill.
+    if (tb && tb.includes('.')) {
+      const parts = tb.split('.');
+      tb = parts.pop();
+      if (parts.length >= 2) { sc = sc ?? parts.pop(); db = db ?? parts.pop(); }
+      else if (parts.length === 1) { sc = sc ?? parts.pop(); }
     }
+    if (db && sc && tb) return { database: db, schema: sc, table: tb };
     return null;
   }, [selectedNode]);
 
