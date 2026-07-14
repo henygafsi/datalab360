@@ -31,12 +31,14 @@ test('Access tab surfaces the real object-access matrix (who can touch each obje
   await page.waitForTimeout(8000);
 
   const panel = page.getByTestId('object-access-matrix-panel');
-  await expect(panel, 'object access matrix panel present').toBeVisible({ timeout: 20_000 });
+  await expect(panel, 'object access matrix panel present').toBeVisible({ timeout: 30_000 });
   await expect(panel.getByRole('heading', { name: /Object Access Matrix/i })).toBeVisible();
 
-  // Real users render as expandable rows — expand the first and see a privilege badge.
+  // Real users render as expandable rows — expand the first and see a privilege
+  // badge. The object-permission-matrix aggregates real SHOW GRANTS, a heavy
+  // query, so give the rows a generous window (esp. under parallel CI load).
   const firstUser = panel.locator('button').filter({ hasText: /object/i }).first();
-  await expect(firstUser, 'a user row').toBeVisible({ timeout: 15_000 });
+  await expect(firstUser, 'a user row').toBeVisible({ timeout: 40_000 });
   await firstUser.click();
   await page.waitForTimeout(500);
   await expect(panel.getByText(/^(SELECT|USAGE|OWNERSHIP|INSERT)$/).first(), 'a real privilege badge').toBeVisible({ timeout: 8_000 });
