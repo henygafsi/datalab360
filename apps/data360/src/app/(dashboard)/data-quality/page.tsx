@@ -375,13 +375,18 @@ function CacheAgeBadge({ cacheInfo }: { cacheInfo: CacheInfo | null }) {
 
   return (
     <Tooltip content={tip}>
-      <Badge
-        variant="flat"
-        color={cacheInfo.fromCache ? 'warning' : 'success'}
-        className="text-[10px] cursor-default"
-      >
-        {text}
-      </Badge>
+      {/* rizzui Badge is a function component without forwardRef; Tooltip passes
+          a ref to its trigger, so wrap in a ref-accepting <span> to avoid the
+          "Function components cannot be given refs" warning. */}
+      <span className="inline-flex">
+        <Badge
+          variant="flat"
+          color={cacheInfo.fromCache ? 'warning' : 'success'}
+          className="text-[10px] cursor-default"
+        >
+          {text}
+        </Badge>
+      </span>
     </Tooltip>
   );
 }

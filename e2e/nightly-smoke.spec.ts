@@ -37,6 +37,9 @@ const PAGES = [
   '/client-accounts',
   '/explore-design',
   '/explore-design?view=catalog',
+  // Modeling view WITH a project — the source-rail/virtualizer path that crashed
+  // into the error boundary on schema switch (fixed 8b34f9d5). Keep it covered.
+  '/explore-design?project_id=proj_01c59ad751d8&view=modeling',
   '/workflow',
   '/governance',
   '/bi-dashboard',
