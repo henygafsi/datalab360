@@ -2221,6 +2221,67 @@ export function QualityPanel({ table, columns, projectId, profileData, onAddEven
 // D. History Panel
 // ---------------------------------------------------------------------------
 
+// Agentic COCO: instead of scanning a raw event list, ask Cortex to narrate what
+// recently happened on the project — call out failures first. One button, one
+// paragraph; honest disabled state when completion isn't available.
+function HistoryAiSummary({ events }: { events: HistoryEvent[] }) {
+  const [summary, setSummary] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+
+  const summarize = async () => {
+    if (loading || events.length === 0) return;
+    setLoading(true); setError(null); setSummary(null); setUnavailable(false);
+    try {
+      const { generateCompletion } = await import('@/app/services/cortex');
+      const digest = events.slice(0, 25)
+        .map((e) => `${e.type} [${e.status}] ${e.object || ''}${e.message && e.status === 'error' ? ` — ${e.message.slice(0, 80)}` : ''}`)
+        .join('\n');
+      const prompt =
+        'You are a data-platform copilot. In 2-3 short sentences, summarize what recently happened on this ' +
+        'data project from its event log. Call out any FAILURES or errors first and what they were about, ' +
+        'then the main successful changes. Be concrete and brief.\n\nEvent log (newest first):\n' + digest;
+      const res = await generateCompletion({ prompt });
+      setSummary(res.response || 'No summary returned.');
+    } catch (err: any) {
+      if (isUnavailable(err)) setUnavailable(true);
+      else setError(err?.message || 'Summarize failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (events.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+          <Sparkles className="h-3.5 w-3.5 text-blue-500" /> Activity summary
+        </span>
+        <button
+          onClick={summarize}
+          disabled={loading || unavailable}
+          aria-busy={loading}
+          className="inline-flex items-center gap-1 rounded-md bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 px-2 py-0.5 text-[11px] font-medium text-white"
+        >
+          {loading ? <><Loader size="sm" className="h-3 w-3" /> Summarizing…</> : <><Sparkles className="h-3 w-3" /> Summarize activity</>}
+        </button>
+      </div>
+      {unavailable && (
+        <p role="status" className="flex items-center gap-1.5 text-[11px] text-slate-400"><Ban className="h-3 w-3" /> AI summary isn&apos;t available on this backend yet</p>
+      )}
+      {error && (
+        <div className="flex items-start gap-1.5 text-[11px] text-red-600 dark:text-red-400"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" /><span>{error}</span></div>
+      )}
+      {summary && (
+        <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{summary}</p>
+      )}
+    </div>
+  );
+}
+
 // Exported: reused full-width by the catalog page (Insights view / History
 // sub-tab). The HistoryEvent shape below is exported alongside.
 export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
@@ -2260,9 +2321,11 @@ export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
           <p className="text-xs">No history yet</p>
         </div>
       ) : (
-        // Density: only the most recent day is expanded; older days collapse
-        // into <details> with the day as summary.
-        Object.entries(grouped).map(([day, items], idx) => (
+        <>
+        <HistoryAiSummary events={events} />
+        {/* Density: only the most recent day is expanded; older days collapse
+            into <details> with the day as summary. */}
+        {Object.entries(grouped).map(([day, items], idx) => (
           idx === 0 ? (
             <div key={day}>
               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">{day}</p>
@@ -2277,7 +2340,8 @@ export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
               {renderItems(items)}
             </details>
           )
-        ))
+        ))}
+        </>
       )}
     </div>
   );
