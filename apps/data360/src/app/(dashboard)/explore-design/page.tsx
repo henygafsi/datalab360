@@ -6233,12 +6233,37 @@ export default function ExploreDesignPage() {
                   <PanelLeft className="h-4 w-4" />
                 </button>
               )}
+              {/* Data-first: while the saved model (ERD) is still hydrating for
+                  the selected project, show a skeleton — never flash the
+                  "Start Modeling" chooser over a model that is about to load.
+                  erdRehydratedFor === selectedProjectId once the GET /erd load
+                  has settled (set in the effect's finally, even for an empty
+                  model), so this cleanly separates "still loading" from
+                  "genuinely empty". User-reported: chooser shown on an
+                  already-selected project during its slow load. */}
+              {selectedProjectId && erdRehydratedFor !== selectedProjectId
+                && modelingTableIds.size === 0 && tables.length === 0 && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-sm dark:bg-slate-900/60">
+                  <div className="w-[440px] max-w-[90%] rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                    <div className="mx-auto mb-4 h-12 w-12 animate-pulse rounded-xl bg-slate-200 dark:bg-slate-700" />
+                    <div className="mx-auto mb-2 h-4 w-40 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+                    <div className="mx-auto mb-6 h-3 w-56 animate-pulse rounded bg-slate-100 dark:bg-slate-700/60" />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="h-28 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-700/60" />
+                      <div className="h-28 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-700/60" />
+                    </div>
+                    <p className="mt-4 text-center text-xs text-slate-400 dark:text-slate-500">Loading model…</p>
+                  </div>
+                </div>
+              )}
               {/* Inline onboarding (no popup): choose DWH template or scratch
                   directly on the canvas. Only shown for a genuinely empty,
-                  not-yet-started model — never overlay a populated canvas: if
-                  the project already has tables loaded (in scope OR on the
-                  canvas), the canvas itself must show. */}
-              {!modelingChoice && modelingTableIds.size === 0 && tables.length === 0 && (
+                  not-yet-started model whose ERD load has SETTLED — never overlay
+                  a populated canvas nor flash during hydration: if the project
+                  already has tables loaded (in scope OR on the canvas), the
+                  canvas itself must show. */}
+              {!modelingChoice && modelingTableIds.size === 0 && tables.length === 0
+                && !(selectedProjectId && erdRehydratedFor !== selectedProjectId) && (
                 <ModelingTemplateModal
                   inline
                   isOpen
