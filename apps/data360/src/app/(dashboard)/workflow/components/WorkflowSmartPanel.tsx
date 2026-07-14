@@ -1378,7 +1378,6 @@ const RAIL: RailItem[] = [
   { id: 'deploy', icon: HistoryIcon, label: 'Deployments & versions' },
   { id: 'block', icon: Box, label: 'Block details' },
   { id: 'ai', icon: Sparkles, label: 'AI build' },
-  { id: 'results', icon: Eye, label: 'Results' },
   { id: 'runs', icon: ListChecks, label: 'Run history' },
   // Operational sections folded in from the former WorkflowProjectBar rail.
   { id: 'usage', icon: BarChart3, label: 'Usage' },

@@ -1419,7 +1419,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       // deselects a node — only auto-route away from the block-detail view.
       if (current !== 'block') return current;
       if (nodes.length === 0) return 'ai';
-      if (lastExecution) return 'results';
+      if (lastExecution) return 'runs';
       return 'runs';
     });
   }, [nodes.length, lastExecution, collapseSourcePanel]);
@@ -2083,14 +2083,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       // No destination configured — show execution summary only
       setPreviewData(null);
       setPreviewError(null);
-      setActiveTab('results');
+      setActiveTab('runs');
       setShowRightPanel(true);
       return;
     }
 
     setPreviewLoading(true);
     setPreviewError(null);
-    setActiveTab('results');
+    setActiveTab('runs');
     setShowRightPanel(true);
 
     try {
@@ -2289,7 +2289,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       const result = await workflowApi.runCloneDataTests(activeWorkflowId, cloneTestConnectorIds);
       setCloneTestResult(result);
       setShowRightPanel(true);
-      setActiveTab('results');
+      setActiveTab('runs');
       if (!result.reports || result.reports.length === 0) {
         setPhase('cloneTest', { phase: 'empty', message: 'No tables were tested on the clone' });
         toast('Clone test ran but produced no results');
@@ -4065,7 +4065,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           }
           legacyBodies={
           <>
-            {activeTab === 'results' && (
+            {/* Latest-run detail (clone test + execution summary + per-step +
+                output preview) now renders at the TOP of the Run history tab —
+                the standalone "Results" rail tab was removed as redundant with
+                Run history (one execution axis, not two). */}
+            {activeTab === 'runs' && (
               <div className="space-y-3 -mx-4 -mt-4">
                 {/* Clone-data test report — "test real-life via clone" results.
                     Shows the per-connector pass/fail of the run against the
