@@ -43,7 +43,10 @@ for (const route of PAGES) {
     page.on('console', (m) => { if (m.type() === 'error') errors.push('console:' + m.text().slice(0, 140)); });
 
     await page.goto(route, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(7000);
+    // These are the heaviest governance pages (oauth ~1.8k L, security-matrix
+    // ~1.4k L); under parallel load a 6-7s fixed wait occasionally clipped the
+    // content check. 9s absorbs the load so the nightly harness stays reliable.
+    await page.waitForTimeout(9000);
 
     // Stayed on the page (not bounced to signin / 404).
     expect(page.url(), `${route} not redirected to signin`).not.toContain('/signin');
