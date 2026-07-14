@@ -9,6 +9,7 @@ import { siteConfig } from '@/config/site.config';
 import { inter, lexendDeca } from '@/app/fonts';
 import cn from '@core/utils/class-names';
 import NextProgress from '@core/components/next-progress';
+import ChunkErrorReloader from '@/app/shared/chunk-error-reloader';
 
 // styles
 import 'swiper/css';
@@ -40,6 +41,7 @@ export default async function RootLayout({
       >
         <AuthProvider session={session}>
           <ThemeProvider>
+            <ChunkErrorReloader />
             <NextProgress />
             <JotaiProvider>
               {children}
