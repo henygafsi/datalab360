@@ -357,15 +357,19 @@ export default function ContextRightBar({
           {/* Project CRUD (rename / description / delete) — Overview header
               area only (no table selected); the page gates it by role. */}
           {!selectedTable && projectCrudSlot}
-          {/* Addendum #66 — the right bar owns object creation: one governed
-              "Create" group at the top of the Actions section. Collapsed when a
-              table is selected so its actions stay above the fold. */}
-          {onCreateObject && (
+          {/* Addendum #66 / clarity pass — the right bar owns object creation.
+              On the project OVERVIEW (no table) the Create group leads, open.
+              When a table IS selected it moved BELOW the table inspector (see
+              after ActionsPanel) so the panel opens on the table you picked, not
+              a "Create" box — user feedback: the leading Create read as a
+              mystery tab. #66's goal (table actions above the fold) is better
+              served this way. */}
+          {onCreateObject && !selectedTable && (
             <CreateObjectsGroup
               onCreate={onCreateObject}
               canCreate={canCreate.allowed || canCreate.loading}
-              hasTable={!!selectedTable}
-              defaultOpen={!selectedTable}
+              hasTable={false}
+              defaultOpen
             />
           )}
           {selectedTable ? (
@@ -469,6 +473,18 @@ export default function ContextRightBar({
             onNodeAction={onNodeAction}
             onGoToTab={(t) => onTabChange(t)}
           />
+
+          {/* Create a NEW object — secondary here (a table is selected), so it
+              sits at the bottom, collapsed and clearly labelled, rather than
+              leading the table inspector. */}
+          {onCreateObject && (
+            <CreateObjectsGroup
+              onCreate={onCreateObject}
+              canCreate={canCreate.allowed || canCreate.loading}
+              hasTable
+              defaultOpen={false}
+            />
+          )}
         </>
           )}
         </>
@@ -827,7 +843,7 @@ function CreateObjectsGroup({ onCreate, canCreate, hasTable, defaultOpen }: {
       >
         <summary className="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
           <Plus className="h-3.5 w-3.5 text-blue-500" />
-          Create
+          {hasTable ? 'Create new object' : 'Create'}
           {!canCreate && (
             <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-slate-400">
               <Lock className="h-2.5 w-2.5" /> needs create access
