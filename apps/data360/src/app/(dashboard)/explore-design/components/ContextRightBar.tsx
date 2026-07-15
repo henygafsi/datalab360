@@ -3284,7 +3284,13 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
       <div className="flex gap-2">
         <ActionBtn label={`Mask ${selectedCols.size || piiCount} col${(selectedCols.size || piiCount) > 1 ? 's' : ''}`} icon={Lock} disabled={!canWrite || (selectedCols.size === 0 && piiCount === 0)} onClick={() => {
           const cols = selectedCols.size > 0 ? [...selectedCols] : columns.filter((c) => c.isSensitive).map((c) => c.name);
-          cols.forEach((col) => onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { column: col, policyType } }));
+          if (cols.length === 0) { toast.error('Select at least one column to mask'); return; }
+          // ONE event carrying all columns — the significance guard requires
+          // policyName + a non-empty columns[]; a per-column loop both fails that
+          // guard (payload had only {column}) AND would merge-collapse (same-type,
+          // same-target events last-win) to a single column. Fixed: masking now
+          // reliably records as a traced, deployable change.
+          onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { policyName: `mask_${policyType.toLowerCase()}_${table.table.toLowerCase()}`, columns: cols, policyType } });
           toast.success(`${policyType} masking drafted for ${cols.length} column(s)`);
         }} />
         <ActionBtn label="Add RLS" icon={Shield} disabled={!canWrite} onClick={() => {
@@ -3302,7 +3308,16 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
               <p className="font-medium text-slate-700 dark:text-slate-300">{sp.policy_name}</p>
               <p className="text-slate-500 text-[9px] mt-0.5">{sp.label} · {sp.affected_columns?.length || 0} columns</p>
               <button onClick={() => {
-                (sp.affected_columns || []).forEach((c: any) => onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: c.table || table.table }, payload: { column: c.column, policyType: sp.pii_type, policyName: sp.policy_name } }));
+                // Group the suggested policy's columns by table → one guard-valid
+                // event per table (policyName + columns[]), instead of a
+                // per-column loop that fails the significance guard / merge-collapses.
+                const byTable = new Map<string, string[]>();
+                (sp.affected_columns || []).forEach((c: any) => {
+                  const t = c.table || table.table;
+                  byTable.set(t, [...(byTable.get(t) || []), c.column]);
+                });
+                if (byTable.size === 0) { toast.error('No columns to apply this policy to'); return; }
+                byTable.forEach((cols, t) => onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: t }, payload: { policyName: sp.policy_name, columns: cols, policyType: sp.pii_type } }));
                 toast.success(`Policy "${sp.policy_name}" applied to draft`);
               }} className="mt-1 text-[9px] font-semibold text-purple-600 dark:text-purple-400 hover:underline">
                 Apply to draft →

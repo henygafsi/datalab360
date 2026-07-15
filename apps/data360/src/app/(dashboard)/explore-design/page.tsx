@@ -1500,8 +1500,50 @@ export default function ExploreDesignPage() {
     loadProjectEvents,
     saveProjectEvents,
     getEventsByProject,
-    updateEventStatus
+    updateEventStatus,
+    markEventSynced
   } = useEventStore(selectedProjectId);
+
+  // ── Auto-trace every action ────────────────────────────────────────────────
+  // Right-bar tab actions (masking, RLS, PK, quality gates, ingestion …) go
+  // through addEvent → the LOCAL event store only; previously they reached the
+  // backend PROJECT_EVENTS log solely on a project SWITCH, so the Release
+  // "Changes" list + History (which read the backend) showed "no changes" right
+  // after an action — the user's report. Debounced single-flight sync persists
+  // every unsynced pending event and marks it synced. Exactly-once matters:
+  // backend log_event is a blind INSERT (no entity_id dedupe), so a synced event
+  // is never re-sent. Canvas actions that already addProjectEvent() directly are
+  // untouched (they set no local event or are separately handled).
+  const eventSyncingRef = useRef(false);
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    const unsynced = pendingEvents.filter((e) => e.projectId === selectedProjectId && !e.synced);
+    if (unsynced.length === 0) return;
+    const handle = setTimeout(async () => {
+      if (eventSyncingRef.current) return;
+      eventSyncingRef.current = true;
+      try {
+        for (const e of unsynced) {
+          try {
+            const res: any = await addProjectEvent(selectedProjectId, {
+              module_name: 'EXPLORE_DESIGN',
+              event_type: e.type,
+              status: e.status || 'pending',
+              details: { target: e.target, payload: e.payload },
+              entity_id: e.id,
+              entity_type: 'design_event',
+            });
+            markEventSynced({ localId: e.id, backendId: res?.event_id || res?.data?.event_id || e.id });
+          } catch {
+            // Leave unsynced — retried on the next event change or project switch.
+          }
+        }
+      } finally {
+        eventSyncingRef.current = false;
+      }
+    }, 1200);
+    return () => clearTimeout(handle);
+  }, [selectedProjectId, pendingEvents, markEventSynced]);
 
   // AI analysis — runs analyzers against events when toggles/events change
   useAiAnalysis(events);
