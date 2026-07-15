@@ -3176,6 +3176,13 @@ const OverviewTab = memo(function OverviewTab({
   // capped at a scrollable summary rather than a full-page wall of lists.
   const [aiRecosOpen, setAiRecosOpen] = useState(true);
 
+  // Details "2nd page" — the heavy detail cards (Recent activity · Storage ·
+  // Module health · Tasks) converge behind ONE button-tab bar so page 1 stays a
+  // compact cockpit (KPIs + hero + maturity + recos) and each detail opens on
+  // demand instead of stacking into a long scroll. Mirrors the governance
+  // one-pager's deep-dive button-tabs.
+  const [detailView, setDetailView] = useState<'activity' | 'storage' | 'health' | 'tasks'>('activity');
+
   // Sync hero range picker to the global Time Range whenever the parent
   // changes it. Without this, the user clicks "7d" in the global filter
   // bar, summary/module-health refetch with days=7, but the KPI cache
@@ -3703,7 +3710,37 @@ const OverviewTab = memo(function OverviewTab({
       </section>
 
         </GridCell>
-        <GridCell className="xl:col-span-6">
+        <GridCell>
+      {/* ── Details "2nd page": ONE button-tab bar. Only the selected detail
+          renders below, so the cockpit above stays a compact one-pager instead
+          of a long scroll of stacked cards. ── */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
+        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
+        {([
+          { id: 'activity', label: 'Recent activity' },
+          { id: 'storage', label: 'Storage' },
+          { id: 'health', label: 'Module health' },
+          { id: 'tasks', label: 'Tasks' },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setDetailView(t.id)}
+            aria-pressed={detailView === t.id}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              detailView === t.id
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+        </GridCell>
+        {detailView === 'storage' && (
+        <GridCell className="xl:col-span-12">
       {/* Storage breakdown (database/total vs stage vs failsafe) — from the
           cached KPI payload; shows "—" until OVERVIEW_KPIS is provisioned. */}
       <SectionCard title="Storage Breakdown">
@@ -3738,7 +3775,9 @@ const OverviewTab = memo(function OverviewTab({
       </SectionCard>
 
         </GridCell>
-        <GridCell className="xl:col-span-6">
+        )}
+        {detailView === 'health' && (
+        <GridCell className="xl:col-span-12">
       {/* Module Health Grid */}
       {moduleHealth && Array.isArray(moduleHealth.modules) && moduleHealth.modules.length > 0 && (
         <SectionCard title="Module Health">
@@ -3829,6 +3868,7 @@ const OverviewTab = memo(function OverviewTab({
       )}
 
         </GridCell>
+        )}
         {/* The workspace/account composite is the one block that cannot fit
             the grid at small sizes — folded behind an in-grid More drawer. */}
         <MoreDrawer label="Workspace & account composite">
@@ -4126,12 +4166,15 @@ const OverviewTab = memo(function OverviewTab({
       })()}
 
         </MoreDrawer>
-        <GridCell className="xl:col-span-6">
+        {detailView === 'tasks' && (
+        <GridCell className="xl:col-span-12">
       {/* Snowflake Tasks Quick View */}
       <TasksQuickWidget />
 
         </GridCell>
-        <GridCell>
+        )}
+        {detailView === 'activity' && (
+        <GridCell className="xl:col-span-12">
       {/* Recent Activity — radar widget removed (obsKpis was dead state) */}
       <div className="grid grid-cols-1 gap-6">
         <SectionCard title="Recent Activity">
@@ -4169,6 +4212,7 @@ const OverviewTab = memo(function OverviewTab({
         </SectionCard>
       </div>
         </GridCell>
+        )}
       </Board>
     </TabGrid>
   );
