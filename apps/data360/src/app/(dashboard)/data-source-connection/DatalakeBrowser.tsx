@@ -25,6 +25,7 @@ import {
   deleteStageFile,
   uploadStageFile,
   getStageGrants,
+  dropStage,
   type StageFilePreviewResponse
 } from './connectionServices';
 
@@ -96,12 +97,13 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
   const [grantsLoading, setGrantsLoading] = useState(false);
   const [grantsError, setGrantsError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
-    type: 'delete' | 'bulk-delete' | 'overwrite';
+    type: 'delete' | 'bulk-delete' | 'overwrite' | 'drop-stage';
     file?: StageItem;
     fileNames?: string[];
     fileList?: FileList;
     uploadToastId?: string;
     inputRef?: HTMLInputElement;
+    stageName?: string;
   } | null>(null);
 
   const loadStages = useCallback(async () => {
@@ -299,6 +301,30 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     } catch (error: any) {
       toast.error(`Failed to delete: ${error.message}`);
       console.error('Delete error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Drop the whole stage object (DELETE /connect/stages/{stage}), not its files.
+  const handleDropStage = () => {
+    if (!currentStage) return;
+    setConfirmAction({ type: 'drop-stage', stageName: currentStage });
+  };
+
+  const executeDropStage = async (stageName: string) => {
+    setConfirmAction(null);
+    setLoading(true);
+    try {
+      await dropStage(stageName);
+      toast.success(`Dropped stage: ${stageName}`);
+      // The dropped stage is gone; reset selection and re-list from the API.
+      setCurrentStage(null);
+      setFiles([]);
+      await loadStages();
+    } catch (error: any) {
+      toast.error(`Failed to drop stage: ${error.message}`);
+      console.error('Drop stage error:', error);
     } finally {
       setLoading(false);
     }
@@ -635,6 +661,17 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                   />
                   {/*Sync stages*/}
                 </Button>
+                {currentStage && canDeleteFiles && (
+                  <Button
+                    onClick={handleDropStage}
+                    disabled={loading}
+                    className="bg-white hover:bg-red-50 dark:bg-slate-700 dark:hover:bg-red-900/30 border border-slate-300 dark:border-slate-600 text-sm"
+                    title={deletePerm.allowed ? 'Drop this stage (the object, not just its files)' : deleteDeniedReason}
+                    aria-label="Drop stage"
+                  >
+                    <HiOutlineTrash className="h-4 w-4 text-red-600 dark:text-red-400" />
+                  </Button>
+                )}
                 <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                   {files.length} files
                 </Badge>
@@ -749,6 +786,9 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
             {confirmAction.type === 'overwrite' && (
               <>One or more files already exist. Overwrite them?</>
             )}
+            {confirmAction.type === 'drop-stage' && confirmAction.stageName && (
+              <>This drops the whole stage &quot;{confirmAction.stageName}&quot; and every file in it. Irreversible. Continue?</>
+            )}
           </Text>
           <div className="flex items-center space-x-2 ml-4">
             <Button
@@ -774,6 +814,8 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                   executeBulkDelete(confirmAction.fileNames);
                 } else if (confirmAction.type === 'overwrite') {
                   executeOverwrite();
+                } else if (confirmAction.type === 'drop-stage' && confirmAction.stageName) {
+                  executeDropStage(confirmAction.stageName);
                 }
               }}
               className={
@@ -782,7 +824,11 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                   : 'bg-red-600 hover:bg-red-700 text-white'
               }
             >
-              {confirmAction.type === 'overwrite' ? 'Yes, Overwrite' : 'Confirm Delete'}
+              {confirmAction.type === 'overwrite'
+                ? 'Yes, Overwrite'
+                : confirmAction.type === 'drop-stage'
+                ? 'Yes, Drop Stage'
+                : 'Confirm Delete'}
             </Button>
           </div>
         </div>

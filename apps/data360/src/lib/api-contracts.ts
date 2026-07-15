@@ -67,6 +67,8 @@ export const API = {
     syncConnector: (id: string) => `/connect/connectors/${enc(id)}/sync`,
     createInternalStage: () => '/connect/stages/internal',
     listStages: () => '/connect/stages',
+    /** DELETE /connect/stages/{stage} — drop the stage itself. */
+    dropStage: (stage: string) => `/connect/stages/${enc(stage)}`,
     createAwsStage: () => '/connect/aws/stage',
     createGcsStage: () => '/connect/gcs/stage',
     /** POST /connect/stages/{stage}/upload (multipart). */

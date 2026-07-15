@@ -473,6 +473,16 @@ export async function deleteStageFile(
     }
 }
 
+/** Drop a stage (the object itself, not its files) — DELETE /connect/stages/{stage}. */
+export async function dropStage(stageName: string): Promise<any> {
+    try {
+        const response = await apiClient.delete(API.connect.dropStage(stageName));
+        return response.data;
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Failed to drop stage'));
+    }
+}
+
 // ============================================================================
 // Standardized connectors API
 // ============================================================================
