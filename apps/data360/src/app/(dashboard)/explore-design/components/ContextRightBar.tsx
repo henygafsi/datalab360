@@ -1359,7 +1359,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
               } catch (e: any) { toast.error(toServiceError(e, 'DDL diff not available — no pending changes').message); } finally { setLoadingDdl(false); }
             }} />
             <ActionBtn label="Refresh view" icon={RefreshCw} disabled={!canExecute} onClick={() => {
-              onAddEvent({ type: 'VIEW_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
+              onAddEvent({ type: 'VIEW_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { operation: 'refresh' } });
               toast.success('View refresh added — review in Deploy tab');
             }} />
             {canWrite && <ActionBtn label="Alter view" icon={Plus} onClick={() => onFocusAction('add_column')} />}
@@ -1375,11 +1375,11 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
           </div>
           <div className="flex flex-wrap gap-2">
             <ActionBtn label="Refresh" icon={RefreshCw} disabled={!canExecute} onClick={() => {
-              onAddEvent({ type: 'DYNAMIC_TABLE_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
+              onAddEvent({ type: 'DYNAMIC_TABLE_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { operation: 'refresh' } });
               toast.success('Dynamic table refresh added to deployment draft');
             }} />
             <ActionBtn label="Suspend" icon={AlertTriangle} disabled={!canWrite} onClick={() => {
-              onAddEvent({ type: 'DYNAMIC_TABLE_SUSPEND', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
+              onAddEvent({ type: 'DYNAMIC_TABLE_SUSPEND', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { operation: 'suspend' } });
               toast.success('Dynamic table suspend added to deployment draft');
             }} />
           </div>

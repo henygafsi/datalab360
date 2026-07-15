@@ -4080,7 +4080,7 @@ export default function ExploreDesignPage() {
       type: 'TABLE_CREATED',
       projectId: selectedProjectId || undefined,
       target: { database: db, schema, table: tableName },
-      payload: { tableId, tableName, mode: 'empty', columns: 0 },
+      payload: { tableId, tableName, mode: 'empty', columns: [] },
     });
     setSelectedTable(newTable);
     handleOpenContextBar(newTable);

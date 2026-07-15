@@ -2155,6 +2155,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           if (canRename) {
             addEvent({
               type: 'TABLE_RENAMED',
+              projectId: projectId || undefined,
               target: { database: table.database, schema: table.schema, table: table.table },
               payload: { newName: trimmed },
             });
@@ -2226,6 +2227,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                   if (selected) {
                     addEvent({
                       type: 'PRIMARY_KEY_SET',
+                      projectId: projectId || undefined,
                       target: { database: table.database, schema: table.schema, table: table.table },
                       payload: { columns: [selected] },
                     });
