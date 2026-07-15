@@ -344,11 +344,26 @@ export function generateSnowflakeSQL(event: DesignEvent): { sql: string; rollbac
     case 'COLUMN_INCLUDED':
       return { sql: `-- Column ${tableRef}.${event.target.column} included in data model` };
 
-    case 'RLS_POLICY_APPLIED':
+    case 'RLS_POLICY_APPLIED': {
+      // A row-access policy is custom per table, so it must be CREATED inline
+      // before ADD (the old DDL did only ADD → the policy never existed → deploy
+      // failed). Uses the rich payload from the Add-RLS config (column + type +
+      // expression). Policy is co-located with the table so ADD resolves it.
+      const rlsCol = event.payload.column || event.payload.policyColumn || event.payload.filterColumn;
+      if (!rlsCol) {
+        return { sql: `-- RLS ${event.payload.policyName}: no filter column captured — reconfigure via Add RLS` };
+      }
+      const rlsType = event.payload.columnType || 'VARCHAR';
+      const rlsExpr = event.payload.expression || 'CURRENT_ROLE() IS NOT NULL';
+      const policyFqn = `${event.target.database}.${event.target.schema}.${event.payload.policyName}`;
       return {
-        sql: `ALTER TABLE ${tableRef} ADD ROW ACCESS POLICY ${event.payload.policyName} ON (${event.payload.policyColumn || event.payload.filterColumn || '*'});`,
-        rollbackSql: `ALTER TABLE ${tableRef} DROP ROW ACCESS POLICY ${event.payload.policyName};`,
+        sql: [
+          `CREATE OR REPLACE ROW ACCESS POLICY ${policyFqn} AS (${rlsCol} ${rlsType}) RETURNS BOOLEAN -> ${rlsExpr};`,
+          `ALTER TABLE ${tableRef} ADD ROW ACCESS POLICY ${policyFqn} ON (${rlsCol});`,
+        ].join('\n'),
+        rollbackSql: `ALTER TABLE ${tableRef} DROP ROW ACCESS POLICY ${policyFqn};`,
       };
+    }
     case 'RLS_POLICY_REMOVED':
       return { sql: `ALTER TABLE ${tableRef} DROP ROW ACCESS POLICY ${event.payload.policyName};` };
     case 'AGGREGATION_POLICY_APPLIED':
