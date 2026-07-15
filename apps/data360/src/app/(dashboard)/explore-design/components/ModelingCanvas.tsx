@@ -35,7 +35,7 @@ import PolicyAssignmentPanel, { PolicyCategory } from './PolicyAssignmentPanel';
 import AddColumnModal, { ComputedColumn } from './AddColumnModal';
 import ColumnMappingModal from './ColumnMappingModal';
 import MappingSummaryPanel from './MappingSummaryPanel';
-import OverflowMenu from './OverflowMenu';
+import OverflowMenu, { type OverflowItem } from './OverflowMenu';
 // TableOptionsSidebar (T1 — RETIRED as a separate panel): the modeling view no
 // longer floats it; its actions now live in the unified ContextRightBar cockpit.
 // The component file is retained (it backs other surfaces) but is not rendered here.
@@ -1711,15 +1711,15 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                   active: showMinimap,
                   activeColor: 'blue',
                 },
-                {
-                  label: columnMappingsList.length > 0
-                    ? `Mapping summary (${columnMappingsList.length})`
-                    : 'Mapping summary',
+                // Mapping summary is only offered when there ARE column mappings —
+                // an empty "0 mappings" panel was pure clutter on fresh projects.
+                ...(columnMappingsList.length > 0 ? ([{
+                  label: `Mapping summary (${columnMappingsList.length})`,
                   icon: List,
                   onClick: () => setShowMappingSummary(!showMappingSummary),
                   active: showMappingSummary,
                   activeColor: 'blue',
-                },
+                }] as OverflowItem[]) : []),
                 { label: 'Export model', icon: Download, onClick: handleExport },
               ]}
             />
@@ -2008,8 +2008,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         }}
       />
 
-      {/* Mapping Summary Slide-out Panel */}
-      {showMappingSummary && (
+      {/* Mapping Summary Slide-out Panel — only when mappings exist */}
+      {showMappingSummary && columnMappingsList.length > 0 && (
         <div className="absolute right-0 top-0 h-full w-96 z-50 shadow-xl">
           <MappingSummaryPanel
             isOpen={showMappingSummary}

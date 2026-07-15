@@ -125,6 +125,12 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
 }) => {
   const { addEvent } = useEventStore();
   const [saving, setSaving] = useState(false);
+  // Latest quality-gate config lifted from QualityGatesPanel — persisted on Save
+  // so the configured gates + snapshot validation land in History and become a
+  // deployable change (coherent with the AI check / release flow).
+  const [qualityGates, setQualityGates] = useState<Array<{
+    id: string; type: string; name: string; threshold: number | string; enabled: boolean; column?: string;
+  }>>([]);
   const { isEnabled } = useAiFeatures();
   const [activeTab, setActiveTab] = useState<TabType>('mode');
   const [expandedSection, setExpandedSection] = useState<string | null>('scd');
@@ -238,10 +244,33 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
         ingestionMode,
         isScd ? scdConfig : undefined
       ));
+      // Persist the quality-gate / snapshot-validation config as a deployable
+      // design change. One QUALITY_GATE_SET event carries the full enabled-gate
+      // set (same-target events merge last-wins, so a re-save replaces the prior
+      // config). Shows in History (EventTable) + counts as a pending change.
+      const enabledGates = qualityGates.filter((g) => g.enabled);
+      if (enabledGates.length > 0) {
+        addEvent({
+          type: 'QUALITY_GATE_SET',
+          projectId: projectId || undefined,
+          target: { database: table.database, schema: table.schema, table: table.table },
+          payload: {
+            gates: enabledGates.map((g) => ({
+              type: g.type, name: g.name, threshold: g.threshold, column: g.column,
+            })),
+            count: enabledGates.length,
+            blockOnFail: true,
+            source: 'ingestion_snapshot_validation',
+          },
+        });
+      }
+      const gatesNote = enabledGates.length > 0
+        ? ` + ${enabledGates.length} quality gate${enabledGates.length > 1 ? 's' : ''}`
+        : '';
       toast.success(
         isScd
-          ? `Ingestion mode "${ingestionMode}" + SCD settings saved — applies on next deploy`
-          : `Ingestion mode "${ingestionMode}" saved — applies on next deploy`
+          ? `Ingestion mode "${ingestionMode}" + SCD settings${gatesNote} saved — applies on next deploy`
+          : `Ingestion mode "${ingestionMode}"${gatesNote} saved — applies on next deploy`
       );
       onSave?.();
     } catch (err: any) {
@@ -249,7 +278,7 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [table, ingestionMode, scdConfig, addEvent, onSave]);
+  }, [table, ingestionMode, scdConfig, qualityGates, projectId, addEvent, onSave]);
 
   // Add condition
   const addCondition = useCallback((type: ConditionConfig['type']) => {
@@ -1023,6 +1052,7 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
           database={sourceTable?.database || table?.database}
           schemaName={sourceTable?.schema || table?.schema}
           tableName={sourceTable?.table || table?.table}
+          onGatesChange={setQualityGates}
           blockOnFail={true}
         />
       </div>
