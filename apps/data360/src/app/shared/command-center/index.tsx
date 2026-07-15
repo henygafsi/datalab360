@@ -7831,6 +7831,9 @@ const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
   //   Semantic models → GET semantic models list (listSemanticModels)
   const [edModels, setEdModels] = useState<number | null>(null);
   const [semanticModels, setSemanticModels] = useState<number | null>(null);
+  // Bookmark-tabs: access-insights evidence tables vs the full catalog explorer,
+  // so the tab is a no-scroll one-pager (KPIs on top; one detail renders below).
+  const [dobjTab, setDobjTab] = useState<'insights' | 'catalog'>('insights');
   // Tasks failed (7d) — the count isn't in any existing payload, so it is
   // derived client-side from the SAME TASK_HISTORY rows the tab's
   // "Tasks & Pipelines" sub-table renders (sum of per-task `failed`).
@@ -7968,6 +7971,32 @@ const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
         </div>
       </KpiZone>
       <Board>
+        <GridCell>
+      {/* ── Details bookmark-tabs — only the selected group renders below. ── */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
+        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
+        {([
+          { id: 'insights', label: 'Access insights' },
+          { id: 'catalog', label: 'Catalog explorer' },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setDobjTab(t.id)}
+            aria-pressed={dobjTab === t.id}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              dobjTab === t.id
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+        </GridCell>
+        {dobjTab === 'insights' && (<>
         {/* Top accessed objects — Excel-grade evidence table. */}
         <GridCell className="xl:col-span-7">
           {insightsStatus === 'loading' ? (
@@ -8066,12 +8095,15 @@ const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
             </p>
           </SectionCard>
         </GridCell>
+        </>)}
 
         {/* Full Data Catalog Explorer (the former 'Data Objects' tab —
             sub-tabs, KPI grid, AI discovery, object detail; unchanged). */}
+        {dobjTab === 'catalog' && (
         <GridCell>
           <SnowflakeObjectsTab />
         </GridCell>
+        )}
       </Board>
     </TabGrid>
   );
