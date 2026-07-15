@@ -121,16 +121,29 @@ interface TableNodeData {
 // ---------------------------------------------------------------------------
 // Reusable presentational bits (module scope — stable identity).
 // ---------------------------------------------------------------------------
+// Per-type color for the classification chip — the "color each" axis: SOURCE
+// = sky, PRODUCT = violet, PROJECT = amber (zone labels inherit their type's
+// color via ZONE_TO_TYPE); anything else falls to slate.
+function tagTone(tag: string): string {
+  const t = tag.toUpperCase();
+  const type: SchemaType | null =
+    ZONE_TO_TYPE[tag] ?? (t === 'SOURCE' || t === 'PRODUCT' || t === 'PROJECT' ? (t as SchemaType) : null);
+  if (type === 'SOURCE') return 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300';
+  if (type === 'PRODUCT') return 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300';
+  if (type === 'PROJECT') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300';
+  return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300';
+}
+
 function TagChip({ tag }: { tag: string | null }) {
   return (
     <span
       className={cn(
         'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium',
         tag
-          ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
+          ? tagTone(tag)
           : 'bg-slate-100 text-slate-400 dark:bg-slate-700/60 dark:text-slate-400 italic',
       )}
-      title={tag ? `Source type: ${tag} (local)` : 'Click to classify (local)'}
+      title={tag ? `Classification: ${tag} (governed · event-traced)` : 'Click to classify'}
     >
       <TagIcon className="h-2.5 w-2.5" />
       {tag ?? 'untagged'}
