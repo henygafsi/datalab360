@@ -3181,7 +3181,7 @@ const OverviewTab = memo(function OverviewTab({
   // compact cockpit (KPIs + hero + maturity + recos) and each detail opens on
   // demand instead of stacking into a long scroll. Mirrors the governance
   // one-pager's deep-dive button-tabs.
-  const [detailView, setDetailView] = useState<'activity' | 'storage' | 'health' | 'tasks'>('activity');
+  const [detailView, setDetailView] = useState<'activity' | 'storage' | 'health' | 'tasks' | 'composition'>('activity');
 
   // Sync hero range picker to the global Time Range whenever the parent
   // changes it. Without this, the user clicks "7d" in the global filter
@@ -3721,6 +3721,7 @@ const OverviewTab = memo(function OverviewTab({
           { id: 'storage', label: 'Storage' },
           { id: 'health', label: 'Module health' },
           { id: 'tasks', label: 'Tasks' },
+          { id: 'composition', label: 'Composition' },
         ] as const).map((t) => (
           <button
             key={t.id}
@@ -3869,9 +3870,12 @@ const OverviewTab = memo(function OverviewTab({
 
         </GridCell>
         )}
-        {/* The workspace/account composite is the one block that cannot fit
-            the grid at small sizes — folded behind an in-grid More drawer. */}
-        <MoreDrawer label="Workspace & account composite">
+        {/* The workspace/account composite (project-mix + module-usage charts)
+            is the 'Composition' detail tab — gated so it only shows under its
+            own button-tab instead of floating between the tab bar and the
+            active detail. Still an in-grid drawer (its content is oversized). */}
+        {detailView === 'composition' && (
+        <MoreDrawer label="Workspace & account composite" inline>
       {/* ── Workspace Overview composite + Snowflake Account Overview rail ── */}
       {(() => {
         const projectsByType =
@@ -4166,6 +4170,7 @@ const OverviewTab = memo(function OverviewTab({
       })()}
 
         </MoreDrawer>
+        )}
         {detailView === 'tasks' && (
         <GridCell className="xl:col-span-12">
       {/* Snowflake Tasks Quick View */}

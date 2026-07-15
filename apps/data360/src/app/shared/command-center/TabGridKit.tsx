@@ -107,14 +107,32 @@ export function MoreDrawer({
   count,
   children,
   className,
+  inline = false,
 }: {
   label: string;
   /** Optional count badge (e.g. number of folded panels). */
   count?: number;
   children: ReactNode;
   className?: string;
+  /** Render expanded inline (titled card, no collapse button / overlay) —
+   * for when the drawer is already gated behind a tab/section that owns its
+   * visibility, so the frame-covering overlay would be wrong. */
+  inline?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  // Inline mode: the caller controls visibility (e.g. a detail button-tab),
+  // so render the content directly in a bordered card — no toggle, no overlay.
+  if (inline) {
+    return (
+      <div className={cn('col-span-12 min-w-0 rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900', className)}>
+        <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
+          <LayoutGrid className="h-4 w-4 text-slate-400" aria-hidden />
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{label}</h3>
+        </div>
+        <div className="space-y-4 p-4">{children}</div>
+      </div>
+    );
+  }
   return (
     <div className={cn('col-span-12 min-w-0', className)}>
       <button
