@@ -239,18 +239,38 @@ export function generateSnowflakeSQL(event: DesignEvent): { sql: string; rollbac
     }
 
     case 'MASKING_POLICY_APPLIED': {
-      const maskColumns = event.payload.columns || [];
-      // Fully qualified policy reference: CP_DATA360.GOUVERNANCE.<policy_name>
-      const policyDb = event.payload.policyDatabase || 'CP_DATA360';
-      const policySchema = event.payload.policySchema || 'GOUVERNANCE';
-      const policyFQN = `${policyDb}.${policySchema}.${event.payload.policyName}`;
+      // Custom per-column masking policies must be CREATED inline before SET —
+      // the old DDL referenced CP_DATA360.GOUVERNANCE.<name> which never existed
+      // (only semantic MASK_EMAIL/… policies live there), so masking deploy
+      // failed. Create a typed, role-conditioned policy per column (RETURNS type
+      // must equal the column type → text columns only; others are skipped with
+      // an honest comment). docs.snowflake.com/.../create-masking-policy.
+      const maskColumns: string[] = event.payload.columns || [];
+      const colTypes: Record<string, string> = event.payload.columnTypes || {};
+      const revealRoles: string[] = (event.payload.revealRoles?.length ? event.payload.revealRoles : ['ACCOUNTADMIN']);
+      const roleList = revealRoles.map((r) => `'${String(r).toUpperCase()}'`).join(', ');
+      const pt = event.payload.policyType || 'FULL_MASK';
+      const isText = (t: string) => /^(VARCHAR|CHAR|CHARACTER|STRING|TEXT|NVARCHAR|NCHAR)/i.test(String(t || ''));
+      const maskBody = pt === 'SHA2_MASK' ? 'SHA2(val)'
+        : pt === 'PARTIAL_MASK' ? "REGEXP_REPLACE(val, '.', '*', 1, GREATEST(LENGTH(val)-4,0))"
+        : "'***MASKED***'";
+      const stmts: string[] = [];
+      const rollback: string[] = [];
+      for (const col of maskColumns) {
+        const rawType = colTypes[col] || 'VARCHAR';
+        if (!isText(rawType)) { stmts.push(`-- Masking skipped for ${col} (${rawType}): supported on text columns`); continue; }
+        const baseType = String(rawType).split('(')[0].toUpperCase().trim();
+        const pName = `${event.payload.policyName}_${col.toLowerCase()}`;
+        const pFqn = `${event.target.database}.${event.target.schema}.${pName}`;
+        stmts.push(
+          `CREATE OR REPLACE MASKING POLICY ${pFqn} AS (val ${baseType}) RETURNS ${baseType} -> CASE WHEN CURRENT_ROLE() IN (${roleList}) THEN val ELSE ${maskBody} END;`,
+          `ALTER TABLE ${tableRef} MODIFY COLUMN ${col} SET MASKING POLICY ${pFqn};`,
+        );
+        rollback.push(`ALTER TABLE ${tableRef} MODIFY COLUMN ${col} UNSET MASKING POLICY;`);
+      }
       return {
-        sql: maskColumns.map((col: string) =>
-          `ALTER TABLE ${tableRef} MODIFY COLUMN ${col} SET MASKING POLICY ${policyFQN};`
-        ).join('\n'),
-        rollbackSql: maskColumns.map((col: string) =>
-          `ALTER TABLE ${tableRef} MODIFY COLUMN ${col} UNSET MASKING POLICY;`
-        ).join('\n'),
+        sql: stmts.join('\n') || `-- No text columns to mask`,
+        rollbackSql: rollback.join('\n'),
       };
     }
 

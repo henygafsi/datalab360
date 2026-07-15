@@ -3235,6 +3235,9 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
   const [scanResult, setScanResult] = useState<any>(null);
   const [selectedCols, setSelectedCols] = useState<Set<string>>(new Set());
   const [policyType, setPolicyType] = useState<'SHA2_MASK' | 'PARTIAL_MASK' | 'FULL_MASK' | 'CUSTOM'>('SHA2_MASK');
+  // Roles that see the UNMASKED value (the masking policy reveals to these, masks
+  // for everyone else). Empty → ACCOUNTADMIN default.
+  const [maskRoles, setMaskRoles] = useState('');
   const piiCount = columns.filter((c) => c.isSensitive).length;
   // Row-access policy (RLS) config — replaces the old blind "Add RLS" button:
   // pick the filter column + the rule (role allowlist or a custom predicate).
@@ -3344,6 +3347,12 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
               </button>
             ))}
           </div>
+          <input
+            value={maskRoles}
+            onChange={(e) => setMaskRoles(e.target.value)}
+            placeholder="Reveal unmasked to roles — default ACCOUNTADMIN"
+            className="w-full px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+          />
         </div>
       )}
 
@@ -3357,7 +3366,9 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
           // guard (payload had only {column}) AND would merge-collapse (same-type,
           // same-target events last-win) to a single column. Fixed: masking now
           // reliably records as a traced, deployable change.
-          onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { policyName: `mask_${policyType.toLowerCase()}_${table.table.toLowerCase()}`, columns: cols, policyType } });
+          const columnTypes = Object.fromEntries(cols.map((c) => [c, columns.find((x) => x.name === c)?.dataType || 'VARCHAR']));
+          const revealRoles = maskRoles.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean);
+          onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { policyName: `mask_${policyType.toLowerCase()}_${table.table.toLowerCase()}`, columns: cols, columnTypes, policyType, revealRoles: revealRoles.length ? revealRoles : undefined } });
           toast.success(`${policyType} masking drafted for ${cols.length} column(s)`);
         }} />
         <ActionBtn label={rlsOpen ? 'Cancel RLS' : 'Add RLS'} icon={Shield} disabled={!canWrite} onClick={() => setRlsOpen((v) => !v)} />
@@ -3465,7 +3476,10 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
                   byTable.set(t, [...(byTable.get(t) || []), c.column]);
                 });
                 if (byTable.size === 0) { toast.error('No columns to apply this policy to'); return; }
-                byTable.forEach((cols, t) => onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: t }, payload: { policyName: sp.policy_name, columns: cols, policyType: sp.pii_type } }));
+                byTable.forEach((cols, t) => {
+                  const columnTypes = Object.fromEntries(cols.map((c) => [c, (t === table.table ? columns.find((x) => x.name === c)?.dataType : undefined) || 'VARCHAR']));
+                  onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: t }, payload: { policyName: sp.policy_name, columns: cols, columnTypes, policyType: sp.pii_type } });
+                });
                 toast.success(`Policy "${sp.policy_name}" applied to draft`);
               }} className="mt-1 text-[9px] font-semibold text-purple-600 dark:text-purple-400 hover:underline">
                 Apply to draft →
