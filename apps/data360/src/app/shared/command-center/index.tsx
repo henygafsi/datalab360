@@ -5315,6 +5315,11 @@ const CostTab = memo(function CostTab({
   infraLoading?: boolean;
 }) {
   const periodDays = days ?? 30;
+  // Details "2nd page" bookmark-tabs — converge the board's detail cells behind
+  // ONE button-tab bar so the tab is a no-scroll one-pager (KPIs + hero trend
+  // stay on top; only the selected detail group renders). Mirrors the account
+  // tab's DETAILS bar.
+  const [finopsTab, setFinopsTab] = useState<'breakdown' | 'serverless' | 'monitors' | 'infra'>('breakdown');
   const categoryPieData = useMemo(() => {
     const byCategory = data?.by_category || {};
     return Object.entries(byCategory)
@@ -5578,6 +5583,36 @@ const CostTab = memo(function CostTab({
       </SectionCard>
 
         </GridCell>
+        <GridCell>
+      {/* ── Details "2nd page": ONE bookmark-tab bar. Only the selected detail
+          group renders below, so the tab is a no-scroll one-pager (KPIs + hero
+          Daily Credit Trend stay on top). ── */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
+        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
+        {([
+          { id: 'breakdown', label: 'Cost breakdown' },
+          { id: 'serverless', label: 'Serverless & compute' },
+          { id: 'monitors', label: 'Budgets & anomalies' },
+          { id: 'infra', label: 'Infrastructure' },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setFinopsTab(t.id)}
+            aria-pressed={finopsTab === t.id}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              finopsTab === t.id
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+        </GridCell>
+        {finopsTab === 'serverless' && (<>
         <GridCell className="xl:col-span-6">
       {/* P0 surfacing — FinOps/governance KPIs the backend already computes but
           the UI never showed (cost-by-warehouse/service, clustering, pipe,
@@ -5687,6 +5722,8 @@ const CostTab = memo(function CostTab({
       </div>
 
         </GridCell>
+        </>)}
+        {finopsTab === 'breakdown' && (<>
         <GridCell>
       {/* Category Pie + Top Warehouses */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -5818,6 +5855,8 @@ const CostTab = memo(function CostTab({
       </div>
 
         </GridCell>
+        </>)}
+        {finopsTab === 'monitors' && (
         <GridCell>
       {/* Iter 4 — Budgets & Resource Monitors + Cost Anomalies */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -5920,10 +5959,13 @@ const CostTab = memo(function CostTab({
         </SectionCard>
       </div>
         </GridCell>
+        )}
 
         {/* Compute & infrastructure cells (folded from the dead ComputeTab):
             warehouse credits, warehouse details, replication, tasks & pipes. */}
+        {finopsTab === 'infra' && (
         <ComputeTab data={infra} loading={infraLoading} zone="board" />
+        )}
       </Board>
     </TabGrid>
   );
