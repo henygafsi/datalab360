@@ -3236,6 +3236,19 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
   const [selectedCols, setSelectedCols] = useState<Set<string>>(new Set());
   const [policyType, setPolicyType] = useState<'SHA2_MASK' | 'PARTIAL_MASK' | 'FULL_MASK' | 'CUSTOM'>('SHA2_MASK');
   const piiCount = columns.filter((c) => c.isSensitive).length;
+  // Row-access policy (RLS) config — replaces the old blind "Add RLS" button:
+  // pick the filter column + the rule (role allowlist or a custom predicate).
+  const [rlsOpen, setRlsOpen] = useState(false);
+  const [rlsColumn, setRlsColumn] = useState('');
+  const [rlsKind, setRlsKind] = useState<'roles' | 'custom'>('roles');
+  const [rlsRoles, setRlsRoles] = useState('');
+  const [rlsExpr, setRlsExpr] = useState('');
+  const rlsColType = columns.find((c) => c.name === rlsColumn)?.dataType || 'VARCHAR';
+  const rlsBuiltExpr = rlsKind === 'roles'
+    ? `CURRENT_ROLE() IN (${rlsRoles.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean).map((r) => `'${r}'`).join(', ')})`
+    : rlsExpr.trim();
+  const rlsPolicyName = `rls_${table.table.toLowerCase()}`;
+  const rlsValid = !!rlsColumn && (rlsKind === 'roles' ? !!rlsRoles.trim() : !!rlsExpr.trim());
 
   const runPiiScan = useCallback(async () => {
     if (scanning) return; // double-submit guard
@@ -3347,11 +3360,92 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
           onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { policyName: `mask_${policyType.toLowerCase()}_${table.table.toLowerCase()}`, columns: cols, policyType } });
           toast.success(`${policyType} masking drafted for ${cols.length} column(s)`);
         }} />
-        <ActionBtn label="Add RLS" icon={Shield} disabled={!canWrite} onClick={() => {
-          onAddEvent({ type: 'RLS_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { policyName: `rls_${table.table.toLowerCase()}`, roleColumn: 'CURRENT_ROLE()' } });
-          toast.success('RLS policy added to deployment draft');
-        }} />
+        <ActionBtn label={rlsOpen ? 'Cancel RLS' : 'Add RLS'} icon={Shield} disabled={!canWrite} onClick={() => setRlsOpen((v) => !v)} />
       </div>
+
+      {/* Row-access policy config — the filter column + rule must be chosen; no
+          blind one-click. Emits a rich RLS_POLICY_APPLIED (column + expression)
+          that the governance deploy path materializes as CREATE ROW ACCESS
+          POLICY … ON (col) (docs.snowflake.com/.../create-row-access-policy). */}
+      {rlsOpen && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10 p-2.5 space-y-2">
+          <p className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">Row-access policy</p>
+          <div>
+            <label className="text-[9px] font-medium uppercase tracking-wide text-slate-400">Filter column</label>
+            <select
+              value={rlsColumn}
+              onChange={(e) => setRlsColumn(e.target.value)}
+              className="w-full mt-0.5 px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+            >
+              <option value="">Select a column…</option>
+              {columns.map((c) => <option key={c.name} value={c.name}>{c.name} ({c.dataType})</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[9px] font-medium uppercase tracking-wide text-slate-400">Rule</label>
+            <div className="flex gap-1.5 mt-0.5">
+              {(['roles', 'custom'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setRlsKind(k)}
+                  className={cn('px-2 py-1 rounded-lg text-[10px] font-medium border transition-colors',
+                    rlsKind === k
+                      ? 'border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800')}
+                >
+                  {k === 'roles' ? 'Role allowlist' : 'Custom predicate'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {rlsKind === 'roles' ? (
+            <input
+              value={rlsRoles}
+              onChange={(e) => setRlsRoles(e.target.value)}
+              placeholder="Roles that see all rows — e.g. ACCOUNTADMIN, ANALYST"
+              className="w-full px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+            />
+          ) : (
+            <input
+              value={rlsExpr}
+              onChange={(e) => setRlsExpr(e.target.value)}
+              placeholder="Boolean predicate — e.g. COUNTRY = CURRENT_REGION()"
+              className="w-full px-2 py-1 text-[11px] font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+            />
+          )}
+          {rlsValid && (
+            <div className="p-2 rounded-lg bg-slate-900 text-green-400 text-[9px] font-mono break-all leading-relaxed">
+              CREATE ROW ACCESS POLICY {rlsPolicyName} AS ({rlsColumn.toLowerCase()} {rlsColType}) RETURNS BOOLEAN -&gt; {rlsBuiltExpr};
+              <br />ALTER TABLE {table.table} ADD ROW ACCESS POLICY {rlsPolicyName} ON ({rlsColumn});
+            </div>
+          )}
+          <ActionBtn
+            label="Apply RLS to draft"
+            icon={Shield}
+            primary
+            disabled={!canWrite || !rlsValid}
+            onClick={() => {
+              onAddEvent({
+                type: 'RLS_POLICY_APPLIED',
+                projectId,
+                target: { database: table.database, schema: table.schema, table: table.table },
+                payload: {
+                  policyName: rlsPolicyName,
+                  column: rlsColumn,
+                  columnType: rlsColType,
+                  expression: rlsBuiltExpr,
+                  ruleKind: rlsKind,
+                  roles: rlsKind === 'roles' ? rlsRoles.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean) : undefined,
+                  roleColumn: 'CURRENT_ROLE()',
+                },
+              });
+              toast.success(`RLS on ${rlsColumn} added to deployment draft`);
+              setRlsOpen(false); setRlsColumn(''); setRlsRoles(''); setRlsExpr('');
+            }}
+          />
+        </div>
+      )}
 
       {/* Suggested policies from AI scan */}
       {suggested.length > 0 && (
