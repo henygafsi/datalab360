@@ -2077,11 +2077,15 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
 function IngestionCostPanel({ table, trace }: { table: TableItem; trace: IngestionTraceEntry | null }) {
   const [credits, setCredits] = useState<number | null>(null);
   const [costLoaded, setCostLoaded] = useState(false);
+  // Ingestion sourcing detection (COPY_HISTORY-derived): where the table is fed
+  // FROM, by what mechanism, and at what cadence.
+  const [sourcing, setSourcing] = useState<import('@/app/services/catalog/rightbar').TableIngestion | null>(null);
 
   useEffect(() => {
     let alive = true;
     setCredits(null);
     setCostLoaded(false);
+    setSourcing(null);
     // Reuse the catalog rightbar service — same per-table context the SmartRightBar
     // uses. avg_cost_credits is best-effort warehouse credits (null when absent).
     void (async () => {
@@ -2090,8 +2094,9 @@ function IngestionCostPanel({ table, trace }: { table: TableItem; trace: Ingesti
         const ing = await getTableIngestion(table.database, table.schema, table.table);
         if (!alive) return;
         setCredits(typeof ing?.avg_cost_credits === 'number' ? ing.avg_cost_credits : null);
+        setSourcing(ing ?? null);
       } catch {
-        if (alive) setCredits(null);
+        if (alive) { setCredits(null); setSourcing(null); }
       } finally {
         if (alive) setCostLoaded(true);
       }
@@ -2138,9 +2143,49 @@ function IngestionCostPanel({ table, trace }: { table: TableItem; trace: Ingesti
           <p className="font-medium text-slate-700 dark:text-slate-300">{creditsLabel}</p>
         </div>
       </div>
+
+      {/* Ingestion sourcing detection — how the table is fed, from where, how often */}
+      {sourcing && (sourcing.ingestion_type || sourcing.cadence) && (() => {
+        const t = sourcing.ingestion_type;
+        const typeLabel = t === 'SNOWPIPE' ? 'Snowpipe' : t === 'COPY' ? 'Bulk COPY' : t === 'TASK' ? 'Task' : t === 'STREAM' ? 'Stream' : t === 'MANUAL' ? 'Manual / not stage-loaded' : '—';
+        const from = sourcing.source_name
+          ? (sourcing.source_name.startsWith('stages/') ? 'Internal stage' : sourcing.source_name)
+          : (t === 'MANUAL' ? '—' : '—');
+        const cad = sourcing.cadence;
+        const cadLabel = cad === 'one_shot' ? 'One-shot' : cad === 'daily' ? 'Daily' : cad === 'weekly' ? 'Weekly' : cad === 'monthly' ? 'Monthly' : cad === 'stale' ? 'Stale' : cad === 'irregular' ? 'Irregular' : '—';
+        const idle = sourcing.days_since_last_load;
+        const warn = sourcing.is_one_shot === true || cad === 'stale';
+        return (
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-2 space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <RefreshCw className="h-3 w-3 text-blue-500" aria-hidden />
+              <span className="text-[10px] font-semibold text-slate-700 dark:text-slate-300">Sourcing</span>
+              {cad && (
+                <span className={cn('ml-auto rounded-full px-1.5 py-0.5 text-[9px] font-semibold',
+                  warn ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                       : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400')}>
+                  {cadLabel}{cad === 'stale' && typeof idle === 'number' ? ` · ${idle}d idle` : ''}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+              <div><span className="text-slate-400">Type</span><p className="font-medium text-slate-700 dark:text-slate-300">{typeLabel}</p></div>
+              <div><span className="text-slate-400">From</span><p className="font-medium truncate text-slate-700 dark:text-slate-300" title={sourcing.source_name || ''}>{from}</p></div>
+              {typeof sourcing.load_count === 'number' && (
+                <div><span className="text-slate-400">Loads (365d)</span><p className="font-medium text-slate-700 dark:text-slate-300">{sourcing.load_count}</p></div>
+              )}
+              {typeof idle === 'number' && (
+                <div><span className="text-slate-400">Last load</span><p className="font-medium text-slate-700 dark:text-slate-300">{idle === 0 ? 'today' : `${idle}d ago`}</p></div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       <MoreDetails>
         Source-load activity (Snowpipe &amp; COPY) over the last 7 days and
-        best-effort warehouse credits. &quot;—&quot; = no data recorded.
+        best-effort warehouse credits. Sourcing = detected ingestion mechanism,
+        origin and cadence from COPY_HISTORY (365d). &quot;—&quot; = no data recorded.
       </MoreDetails>
     </div>
   );
