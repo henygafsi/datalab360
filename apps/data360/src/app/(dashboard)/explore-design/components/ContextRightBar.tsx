@@ -2345,6 +2345,15 @@ function HistoryAiSummary({ events }: { events: HistoryEvent[] }) {
 
 // Exported: reused full-width by the catalog page (Insights view / History
 // sub-tab). The HistoryEvent shape below is exported alongside.
+// Turn a raw event type into a readable label, preserving data acronyms —
+// 'RLS_POLICY_APPLIED' → 'RLS Policy Applied', 'PRIMARY_KEY_SET' → 'Primary Key
+// Set'. History showed the raw SHOUTING_SNAKE token before.
+const HISTORY_ACRONYMS = new Set(['RLS', 'PK', 'FK', 'SCD', 'AI', 'DDL', 'SQL', 'ETL', 'DQ', 'PII']);
+const prettyEventType = (t: string): string =>
+  String(t).split('_').filter(Boolean)
+    .map((w) => (HISTORY_ACRONYMS.has(w.toUpperCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join(' ');
+
 export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
   const grouped = events.reduce<Record<string, HistoryEvent[]>>((acc, e) => {
     const day = new Date(e.timestamp).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -2360,7 +2369,7 @@ export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
         <div key={e.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg border border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
           <HistoryStatusIcon status={e.status} />
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-slate-800 dark:text-slate-200">{e.type}</p>
+            <p className="text-xs font-medium text-slate-800 dark:text-slate-200">{prettyEventType(e.type)}</p>
             <p className="text-[10px] text-slate-500 truncate">{e.actor} · {e.object}</p>
             {e.message && e.status === 'error' && (
               <p className="text-[10px] text-red-500 mt-0.5 line-clamp-1">{e.message}</p>
