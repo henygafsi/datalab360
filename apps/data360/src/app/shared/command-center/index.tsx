@@ -7762,6 +7762,10 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
   ops: DataOperationsOverviewResponse | null;
   opsLoading: boolean;
 }) {
+  // Bookmark-tabs so the tab is a no-scroll one-pager: KPIs stay on top; the
+  // three heavy board lanes (query performance · warehouse efficiency · data
+  // operations) each open on demand instead of stacking.
+  const [usageTab, setUsageTab] = useState<'performance' | 'efficiency' | 'operations'>('performance');
   return (
     <TabGrid>
       <KpiZone>
@@ -7771,13 +7775,45 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
         <DataOperationsTab data={ops} loading={opsLoading} zone="kpis" />
       </KpiZone>
       <Board>
+        <GridCell>
+      {/* ── Details bookmark-tabs — only the selected lane renders below. ── */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
+        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
+        {([
+          { id: 'performance', label: 'Query performance' },
+          { id: 'efficiency', label: 'Warehouse efficiency' },
+          { id: 'operations', label: 'Data operations' },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setUsageTab(t.id)}
+            aria-pressed={usageTab === t.id}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              usageTab === t.id
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+        </GridCell>
+        {usageTab === 'performance' && (
         <PerformanceTab data={perf} loading={perfLoading} zone="board" />
+        )}
         {/* Compute-efficiency axis — surfaces the warehouse-efficiency endpoint
             (queue/spill/misconfig flags) that previously had NO UI consumer. */}
+        {usageTab === 'efficiency' && (
         <GridCell>
           <WarehouseEfficiencyCard days={30} />
         </GridCell>
+        )}
+        {usageTab === 'operations' && (
         <DataOperationsTab data={ops} loading={opsLoading} zone="board" />
+        )}
       </Board>
     </TabGrid>
   );
