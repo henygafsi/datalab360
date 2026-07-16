@@ -26,6 +26,8 @@ import {
   PiCloudArrowUp,
   PiVectorThree,
   PiMagnifyingGlass,
+  PiSquaresFour,
+  PiCaretDown,
 } from 'react-icons/pi';
 import { HiOutlineRefresh } from 'react-icons/hi';
 import KPICard from '@/components/analytics/KPICard';
@@ -35,6 +37,7 @@ import FullscreenPanel, { FullscreenExpandButton } from '@/components/ui/Fullscr
 import { usePagedRows, TablePager } from '@/components/ui/TablePager';
 import IntelligentCockpit, { IntelligentKpiStrip } from './components/IntelligentCockpit';
 import AskLanding from './components/AskLanding';
+import IntelligentActionSurface from './components/IntelligentActionSurface';
 
 // Import content components
 import SemanticModelsContent from './semantic-models-content';
@@ -47,7 +50,7 @@ import SnowparkServicesContent from './snowpark-services-content';
 import AiAdvisorContent from './ai-advisor-content';
 import AiPromptConsoleContent from './ai-prompt-console-content';
 
-type TabType = 'semantic-models' | 'ai-console' | 'cortex-chat' | 'ml-features' | 'advanced-ml' | 'query-analytics' | 'local-analytics' | 'snowpark-services' | 'cortex-agents' | 'semantic-views' | 'vector-search' | 'ai-advisor';
+type TabType = 'actions' | 'semantic-models' | 'ai-console' | 'cortex-chat' | 'ml-features' | 'advanced-ml' | 'query-analytics' | 'local-analytics' | 'snowpark-services' | 'cortex-agents' | 'semantic-views' | 'vector-search' | 'ai-advisor';
 
 // ── Response shapes for the inline Cortex tabs (no dedicated service types
 // exist for these read-only listing endpoints, so they are declared here). ──
@@ -171,13 +174,16 @@ export default function IntelligentPage() {
   const searchParams = useSearchParams();
   // Fullscreen deep-dive of the main content card (nav + active tab panel).
   const [contentFull, setContentFull] = useState(false);
+  // Tab-minimization: the 12 workbench tabs collapse behind one toggle so the
+  // primary surfaces (Ask · Actions) lead. Auto-open when a workbench tab is active.
+  const [showWorkbenches, setShowWorkbenches] = useState(false);
   // useTrackEvent auto-fires PAGE_VIEW on mount via pathname; call trackTabSwitch on tab changes.
   const { trackTabSwitch } = useTrackEvent();
   // Deep-links preserved: every historical ?tab= id still renders its tab.
   // No (or an unknown) ?tab= lands on the chat-first "Ask AI" home instead.
   const activeTab = useMemo<TabType | 'home'>(() => {
     const t = searchParams.get('tab');
-    if (t === 'ml-features' || t === 'semantic-models' || t === 'ai-console' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services' || t === 'cortex-agents' || t === 'semantic-views' || t === 'vector-search' || t === 'ai-advisor') return t as TabType;
+    if (t === 'actions' || t === 'ml-features' || t === 'semantic-models' || t === 'ai-console' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services' || t === 'cortex-agents' || t === 'semantic-views' || t === 'vector-search' || t === 'ai-advisor') return t as TabType;
     return 'home';
   }, [searchParams]);
 
@@ -259,6 +265,7 @@ export default function IntelligentPage() {
   // Human label of the active tab (fullscreen overlay title).
   const activeTabLabel = useMemo(() => {
     if (activeTab === 'home') return 'Ask AI';
+    if (activeTab === 'actions') return 'Actions';
     for (const g of NAV_GROUPS) {
       const hit = g.items.find((i) => i.id === activeTab);
       if (hit) return hit.name;
@@ -404,12 +411,13 @@ export default function IntelligentPage() {
         onOpenChange={setContentFull}
       >
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-muted dark:border-gray-700 shadow-sm overflow-hidden">
-        {/* Compact grouped secondary nav — replaces the old wall of tab cards.
-            Two purposeful groups; every historical tab id keeps working. */}
+        {/* Tab-minimized nav — two primary surfaces (Ask · Actions) lead; the 12
+            workbench tabs collapse behind one "Workbenches" toggle. Every
+            historical ?tab= id still resolves, so deep-links keep working. */}
         <nav
           role="tablist"
           aria-label="Intelligent Analytics sections"
-          className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-muted bg-gray-50/50 px-4 py-2.5 dark:border-gray-700 dark:bg-gray-800/50"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-muted bg-gray-50/50 px-4 py-2.5 dark:border-gray-700 dark:bg-gray-800/50"
         >
           <button
             role="tab"
@@ -421,32 +429,27 @@ export default function IntelligentPage() {
             <PiChatCircleDots className="h-3.5 w-3.5" aria-hidden />
             Ask AI
           </button>
-          {NAV_GROUPS.map((group) => (
-            <div key={group.label} className="flex flex-wrap items-center gap-1">
-              <span
-                role="presentation"
-                className="mr-0.5 select-none border-l border-gray-200 pl-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:border-gray-700 dark:text-gray-500"
-              >
-                {group.label}
-              </span>
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.id}
-                    role="tab"
-                    aria-selected={activeTab === item.id}
-                    title={item.hint}
-                    onClick={() => goTo(item.id)}
-                    className={navPillClass(activeTab === item.id)}
-                  >
-                    <Icon className="h-3.5 w-3.5" aria-hidden />
-                    {item.name}
-                  </button>
-                );
-              })}
-            </div>
-          ))}
+          <button
+            role="tab"
+            aria-selected={activeTab === 'actions'}
+            title="Every AI capability as a governed action — read-only runs inline, changes open their workbench"
+            onClick={() => goTo('actions')}
+            className={navPillClass(activeTab === 'actions')}
+          >
+            <PiSquaresFour className="h-3.5 w-3.5" aria-hidden />
+            Actions
+          </button>
+          <span className="mx-1 h-4 w-px bg-gray-200 dark:bg-gray-700" aria-hidden />
+          <button
+            type="button"
+            aria-expanded={showWorkbenches}
+            title={showWorkbenches ? 'Hide workbenches' : 'Show the 12 workbench tabs'}
+            onClick={() => setShowWorkbenches((v) => !v)}
+            className={navPillClass(false)}
+          >
+            <PiCaretDown className={`h-3.5 w-3.5 transition-transform ${showWorkbenches ? 'rotate-180' : ''}`} aria-hidden />
+            Workbenches
+          </button>
           {/* Fullscreen deep-dive of the active section (not a tab). */}
           <span className="ml-auto">
             <FullscreenExpandButton
@@ -454,12 +457,46 @@ export default function IntelligentPage() {
               label={`Expand ${activeTabLabel} to fullscreen`}
             />
           </span>
+          {/* Collapsible workbench pills — hidden by default (auto-shown when a
+              workbench tab is the active one, so the current tab is never orphaned). */}
+          {(showWorkbenches || (activeTab !== 'home' && activeTab !== 'actions')) && (
+            <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-1.5 pt-1.5">
+              {NAV_GROUPS.map((group) => (
+                <div key={group.label} className="flex flex-wrap items-center gap-1">
+                  <span
+                    role="presentation"
+                    className="mr-0.5 select-none text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500"
+                  >
+                    {group.label}
+                  </span>
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.id}
+                        role="tab"
+                        aria-selected={activeTab === item.id}
+                        title={item.hint}
+                        onClick={() => goTo(item.id)}
+                        className={navPillClass(activeTab === item.id)}
+                      >
+                        <Icon className="h-3.5 w-3.5" aria-hidden />
+                        {item.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
         </nav>
 
         {/* Tab Content */}
         <div role="tabpanel" className="p-6">
           {/* Chat-first home: persisted AI chat + data-aware suggestions */}
           {activeTab === 'home' && <AskLanding />}
+          {/* Agentic command surface: all AI capabilities as governed actions */}
+          {activeTab === 'actions' && <IntelligentActionSurface />}
           {activeTab === 'semantic-models' && <SemanticModelsContent />}
           {activeTab === 'ai-console' && <AiPromptConsoleContent />}
           {activeTab === 'cortex-chat' && <CortexChatContent />}

@@ -325,10 +325,16 @@ export default function RLSPoliciesContent() {
 
   // EnrichedPolicy carries no active/inactive state, so surface real signals
   // from the data instead of always-zero placeholders.
+  // Data-first: during the initial load the counts are UNKNOWN, not zero. The
+  // cache-aware query seeds `policies` with `[]` (initialData), so a length check
+  // alone reads "0" while the fetch is still in flight — use the `loading` flag
+  // to keep the counts null (rendered "—") until real data lands, instead of a
+  // fabricated 0 that flashes to the real count.
+  const pendingInitial = loading && (policies?.length ?? 0) === 0;
   const stats = {
-    total: policies?.length || 0,
-    grantedObjects: policies?.reduce((sum, p) => sum + (p?.granted_objects_count || 0), 0) || 0,
-    grantedRoles: new Set(policies?.flatMap(p => p?.granted_roles || [])).size || 0,
+    total: pendingInitial ? null : (policies?.length ?? 0),
+    grantedObjects: pendingInitial ? null : (policies?.reduce((sum, p) => sum + (p?.granted_objects_count || 0), 0) ?? 0),
+    grantedRoles: pendingInitial ? null : new Set(policies?.flatMap(p => p?.granted_roles || [])).size,
   };
 
   return (
@@ -352,7 +358,7 @@ export default function RLSPoliciesContent() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">Total Policies</p>
-              <p className="text-3xl font-bold text-slate-900 dark:text-white">{stats.total}</p>
+              <p className="text-3xl font-bold text-slate-900 dark:text-white">{stats.total ?? '—'}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-900/30 dark:to-indigo-900/30 flex items-center justify-center">
               <HiOutlineLockClosed className="w-6 h-6 text-purple-600 dark:text-purple-400" />
@@ -364,7 +370,7 @@ export default function RLSPoliciesContent() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">Granted Objects</p>
-              <p className="text-3xl font-bold text-green-600 dark:text-green-400">{stats.grantedObjects}</p>
+              <p className="text-3xl font-bold text-green-600 dark:text-green-400">{stats.grantedObjects ?? '—'}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-100 to-emerald-100 dark:from-green-900/30 dark:to-emerald-900/30 flex items-center justify-center">
               <HiOutlineCircleStack className="w-6 h-6 text-green-600 dark:text-green-400" />
@@ -376,7 +382,7 @@ export default function RLSPoliciesContent() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600 dark:text-slate-400">Granted Roles</p>
-              <p className="text-3xl font-bold text-slate-600 dark:text-slate-200">{stats.grantedRoles}</p>
+              <p className="text-3xl font-bold text-slate-600 dark:text-slate-200">{stats.grantedRoles ?? '—'}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center">
               <HiOutlineUserGroup className="w-6 h-6 text-slate-600 dark:text-slate-400" />
@@ -398,7 +404,7 @@ export default function RLSPoliciesContent() {
             )}
           </div>
           <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
-            {policies == null ? '—' : policies.length} policies
+            {pendingInitial ? '—' : (policies?.length ?? 0)} policies
           </Badge>
         </div>
 

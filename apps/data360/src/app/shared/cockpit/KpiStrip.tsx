@@ -40,14 +40,24 @@ export interface KpiItem {
   /** Optional click-through (deep-link to the owning axis/tab). */
   onClick?: () => void;
   title?: string;
+  /** Per-item loading override; falls back to the strip-level `loading`. */
+  loading?: boolean;
 }
 
 export default function KpiStrip({
   items,
   className = '',
+  loading = false,
 }: {
   items: KpiItem[];
   className?: string;
+  /**
+   * Data-first rendering: while the KPI data is still loading, show a skeleton
+   * shimmer for each value instead of "—". "—" then means an HONEST empty
+   * (loaded, no value) — not "still fetching". Pages pass their fetch's loading
+   * flag; without it, behaviour is unchanged (back-compatible).
+   */
+  loading?: boolean;
 }) {
   if (!items.length) return null;
   return (
@@ -88,22 +98,39 @@ export default function KpiStrip({
               )}
             </div>
             <div className="mt-0.5 flex items-baseline gap-1.5">
-              {k.dot && (
-                <span
-                  aria-hidden
-                  className={`inline-block h-2 w-2 shrink-0 self-center rounded-full ${DOT[k.dot]}`}
-                />
-              )}
-              <span className="text-lg font-bold leading-tight text-slate-900 dark:text-white">
-                {k.value === null || k.value === undefined || k.value === '' ? '—' : k.value}
-              </span>
-              {k.delta && (
-                <span
-                  className={`text-[11px] font-bold ${DELTA_TONE[k.delta.tone ?? 'muted']}`}
-                >
-                  {k.delta.text}
-                </span>
-              )}
+              {(() => {
+                const empty = k.value === null || k.value === undefined || k.value === '';
+                const isLoading = (k.loading ?? loading) && empty;
+                if (isLoading) {
+                  // Skeleton while data is still in flight (data-first rendering).
+                  return (
+                    <span
+                      aria-hidden
+                      className="my-0.5 inline-block h-5 w-14 animate-pulse rounded bg-slate-200 dark:bg-slate-700"
+                    />
+                  );
+                }
+                return (
+                  <>
+                    {k.dot && (
+                      <span
+                        aria-hidden
+                        className={`inline-block h-2 w-2 shrink-0 self-center rounded-full ${DOT[k.dot]}`}
+                      />
+                    )}
+                    <span className="text-lg font-bold leading-tight text-slate-900 dark:text-white">
+                      {empty ? '—' : k.value}
+                    </span>
+                    {k.delta && (
+                      <span
+                        className={`text-[11px] font-bold ${DELTA_TONE[k.delta.tone ?? 'muted']}`}
+                      >
+                        {k.delta.text}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
             </div>
             {k.sub && (
               <div className="mt-0.5 text-[10.5px] text-slate-400 dark:text-slate-500">{k.sub}</div>

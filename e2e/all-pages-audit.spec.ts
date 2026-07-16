@@ -24,6 +24,31 @@ const PAGES = [
   '/observability',
   '/administration',
   '/data-source-connection',
+  // Governance sub-routes — /governance/access-matrix is where a ChunkLoadError
+  // crash hid because the audit didn't cover it (fixed dd272166). Cover them all
+  // so a sub-route crash can never slip through again.
+  '/governance/access-matrix',
+  '/governance/grants',
+  '/governance/policies',
+  '/governance/roles',
+  '/governance/users',
+  '/governance/security-matrix',
+  '/governance/projects',
+  '/governance/actions',
+  '/governance/oauth',
+  // Observability sub-routes
+  '/observability/alerts',
+  '/observability/budget',
+  '/observability/dependencies',
+  '/observability/freshness',
+  '/observability/lineage',
+  '/observability/slo',
+  '/observability/trust-center',
+  // Misc feature routes
+  '/data-products',
+  '/mapping',
+  '/sources',
+  '/data-source-config',
 ];
 
 async function signIn(page: Page) {

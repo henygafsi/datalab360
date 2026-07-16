@@ -336,6 +336,25 @@ export async function getDmfThresholds(): Promise<DmfThresholdRule[]> {
   return Array.isArray(rows) ? (rows as DmfThresholdRule[]) : [];
 }
 
+/**
+ * Delete a persisted DMF threshold rule.
+ * DELETE /data-quality/dmf/thresholds?table_name=&metric=
+ *
+ * Tombstones the (table, metric) bound so it drops out of the DMF catalog — the
+ * remove side of {@link setDmfThreshold}. The backend does no existence check
+ * (newest-wins delete event), so a stale threshold whose table was dropped can
+ * still be cleared.
+ */
+export async function deleteDmfThreshold(
+  tableName: string,
+  metric: string,
+): Promise<{ status?: string; message?: string; [key: string]: unknown }> {
+  const { data } = await apiClient.delete(API.dataQuality.dmfThresholds(), {
+    params: { table_name: tableName, metric },
+  });
+  return data?.data || data;
+}
+
 // =============================================================================
 // ACTIONS
 // =============================================================================
@@ -570,6 +589,21 @@ export async function disassociateDmf(params: {
 export async function setDmfSchedule(table_fqn: string, schedule: string): Promise<unknown> {
   const { data } = await apiClient.post(API.gouvernance.policyDmfSchedule(), null, {
     params: { table_fqn, schedule },
+  });
+  return data;
+}
+
+/**
+ * Remove (suspend) a table's DMF evaluation schedule.
+ * DELETE /data-quality/dmf/schedule?table_fqn=
+ *
+ * ALTER TABLE <fqn> SET DATA_METRIC_SCHEDULE = '' — the remove side of
+ * {@link setDmfSchedule}. Both operate on the same table parameter, so this
+ * clears whatever cadence was set. Reversible: schedule again to resume.
+ */
+export async function unsetDmfSchedule(table_fqn: string): Promise<unknown> {
+  const { data } = await apiClient.delete(API.dataQuality.dmfSchedule(), {
+    params: { table_fqn },
   });
   return data;
 }

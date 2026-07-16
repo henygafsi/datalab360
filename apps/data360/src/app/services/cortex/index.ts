@@ -143,6 +143,10 @@ export type {
 export { proposeAgentActions, cocoRunSql } from './agent';
 export type { ProposedAction, ProposedActionKind, AgentProposeResult, CocoRunResult } from './agent';
 
+// AI Action Catalog — "all capabilities as actions" (GET /cortex/actions, /verify)
+export { getCortexActions, verifyCortexActions, isActionVerified } from './actions';
+export type { AiAction, AiActionParam, AiActionCatalog, AiActionVerifyResult } from './actions';
+
 // COCO Drafts — JSON proposal drafts tested on real data (POST /cortex/coco/draft)
 export { cocoDraft } from './draft';
 export type {

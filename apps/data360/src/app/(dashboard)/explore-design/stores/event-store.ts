@@ -35,6 +35,7 @@ export type EventType =
   | 'COLUMN_MAPPING_CREATED'  // ETL: Source column → Target column mapping
   | 'COLUMN_MAPPING_REMOVED'  // ETL: Remove a column mapping
   | 'TABLE_EXCLUDED'
+  | 'TABLE_DROP_REQUEST'
   | 'TABLE_INCLUDED'
   | 'COLUMN_EXCLUDED'
   | 'COLUMN_INCLUDED'

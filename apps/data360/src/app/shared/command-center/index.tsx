@@ -2526,6 +2526,7 @@ function CommandCenterDashboardInner() {
             {activeTabDef.id === 'account' && (
               <KpiStrip
                 items={cockpit.kpiItems}
+                loading={!!tabLoading[activeTabDef.id]}
                 className="mb-4 rounded-xl border border-slate-200 shadow-sm dark:border-slate-800"
               />
             )}
@@ -3649,8 +3650,13 @@ const OverviewTab = memo(function OverviewTab({
         </GridCell>
         <GridCell>
       {/* ── Executive overview: real cross-tab Data360 × Snowflake summary
-             (live endpoints; replaces the cards gated on the dead KPI cache) ── */}
-      <ExecutiveOverview days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
+             (live endpoints; replaces the cards gated on the dead KPI cache).
+             Collapsed into the "down-bar" one-pager idiom — its top cards
+             (active users · projects · credits · alerts · modules) restate the
+             hero KPI strip, so it opens on demand rather than adding scroll. ── */}
+      <MoreDrawer label="Executive cross-module summary">
+        <ExecutiveOverview days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
+      </MoreDrawer>
 
         </GridCell>
         <GridCell className="xl:col-span-6">

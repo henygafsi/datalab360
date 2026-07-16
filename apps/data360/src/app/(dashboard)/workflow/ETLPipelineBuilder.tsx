@@ -445,19 +445,34 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
     };
   });
 
+  // step_id → nodeId map: API/AI/seed-created steps reference their upstream by
+  // STEP_ID in payload.inputs (e.g. inputs:['step_abc']), but nodes are keyed by
+  // payload.nodeId (e.g. 'n2'). Without this resolution every inferred edge
+  // pointed at a non-existent node id and ReactFlow silently dropped it → the
+  // canvas showed disconnected nodes (AI-build / seeded workflows). Frontend-
+  // saved workflows already put nodeIds in inputs, so those pass through the
+  // fallback unchanged.
+  const stepIdToNodeId: Record<string, string> = {};
+  steps.forEach((step) => {
+    stepIdToNodeId[step.step_id] = (step.payload?.nodeId as string) || step.step_id;
+  });
+
   const edges: Edge[] = [];
   steps.forEach((step) => {
     const payload = step.payload || {};
     const nodeId = (payload.nodeId as string) || step.step_id;
     const blockDef = getBlockByType(step.action_type);
 
-    // Method 1: Frontend-saved format — payload.inputs = [nodeId1, nodeId2]
+    // Method 1: payload.inputs = [upstreamRef, …] where upstreamRef is a step_id
+    // (API/AI/seed format) or already a nodeId (frontend-saved format). Resolve
+    // step_id → nodeId so the edge's source matches a real node.
     const inputs = (payload.inputs as string[]) || [];
     if (inputs.length > 0) {
       inputs.forEach((inputId, index) => {
+        const source = stepIdToNodeId[inputId] || inputId;
         edges.push({
-          id: `${inputId}-${nodeId}`,
-          source: inputId,
+          id: `${source}-${nodeId}`,
+          source,
           target: nodeId,
           targetHandle: blockDef?.maxInputs === 2 ? `input${index + 1}` : undefined,
           markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
@@ -468,15 +483,23 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
       return;
     }
 
-    // Method 2: API-created format — left_step/right_step (join) or input_step (others)
+    // Method 2: API-created format — left_step/right_step (join) or input_step
+    // (others). The ref can be a step_ORDER (legacy) or a step_ID (AI/seed);
+    // resolve through both maps so the edge source matches a real node.
     const leftStep = payload.left_step as string;
     const rightStep = payload.right_step as string;
     const inputStep = payload.input_step as string;
+    const resolveRef = (ref: string): string | undefined =>
+      orderToNodeId[ref] || stepIdToNodeId[ref];
 
-    if (leftStep && orderToNodeId[leftStep]) {
+    const leftNode = leftStep ? resolveRef(leftStep) : undefined;
+    const rightNode = rightStep ? resolveRef(rightStep) : undefined;
+    const inputNode = inputStep ? resolveRef(inputStep) : undefined;
+
+    if (leftNode) {
       edges.push({
-        id: `${orderToNodeId[leftStep]}-${nodeId}-L`,
-        source: orderToNodeId[leftStep],
+        id: `${leftNode}-${nodeId}-L`,
+        source: leftNode,
         target: nodeId,
         targetHandle: 'input1',
         markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
@@ -484,10 +507,10 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
         animated: false,
       });
     }
-    if (rightStep && orderToNodeId[rightStep]) {
+    if (rightNode) {
       edges.push({
-        id: `${orderToNodeId[rightStep]}-${nodeId}-R`,
-        source: orderToNodeId[rightStep],
+        id: `${rightNode}-${nodeId}-R`,
+        source: rightNode,
         target: nodeId,
         targetHandle: 'input2',
         markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
@@ -495,10 +518,10 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
         animated: false,
       });
     }
-    if (inputStep && orderToNodeId[inputStep] && !leftStep) {
+    if (inputNode && !leftStep) {
       edges.push({
-        id: `${orderToNodeId[inputStep]}-${nodeId}`,
-        source: orderToNodeId[inputStep],
+        id: `${inputNode}-${nodeId}`,
+        source: inputNode,
         target: nodeId,
         markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
         style: { strokeWidth: 2, stroke: '#10B981' },
@@ -1396,7 +1419,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       // deselects a node — only auto-route away from the block-detail view.
       if (current !== 'block') return current;
       if (nodes.length === 0) return 'ai';
-      if (lastExecution) return 'results';
+      if (lastExecution) return 'runs';
       return 'runs';
     });
   }, [nodes.length, lastExecution, collapseSourcePanel]);
@@ -2060,14 +2083,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       // No destination configured — show execution summary only
       setPreviewData(null);
       setPreviewError(null);
-      setActiveTab('results');
+      setActiveTab('runs');
       setShowRightPanel(true);
       return;
     }
 
     setPreviewLoading(true);
     setPreviewError(null);
-    setActiveTab('results');
+    setActiveTab('runs');
     setShowRightPanel(true);
 
     try {
@@ -2266,7 +2289,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       const result = await workflowApi.runCloneDataTests(activeWorkflowId, cloneTestConnectorIds);
       setCloneTestResult(result);
       setShowRightPanel(true);
-      setActiveTab('results');
+      setActiveTab('runs');
       if (!result.reports || result.reports.length === 0) {
         setPhase('cloneTest', { phase: 'empty', message: 'No tables were tested on the clone' });
         toast('Clone test ran but produced no results');
@@ -4042,7 +4065,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           }
           legacyBodies={
           <>
-            {activeTab === 'results' && (
+            {/* Latest-run detail (clone test + execution summary + per-step +
+                output preview) now renders at the TOP of the Run history tab —
+                the standalone "Results" rail tab was removed as redundant with
+                Run history (one execution axis, not two). */}
+            {activeTab === 'runs' && (
               <div className="space-y-3 -mx-4 -mt-4">
                 {/* Clone-data test report — "test real-life via clone" results.
                     Shows the per-connector pass/fail of the run against the

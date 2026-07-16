@@ -1995,6 +1995,10 @@ export interface IngestionDryRunResult {
   target: string;
   ingestion_mode: string;
   target_exists?: boolean;
+  /** 'live' = real sample rows read from the source; 'design' = source not created yet. */
+  preview_source?: 'live' | 'design';
+  /** Honest reason there is no live sample (e.g. source table does not exist yet). */
+  preview_note?: string;
 }
 
 // --- Quality Gates ---

@@ -78,14 +78,13 @@ import type { CortexSuggestion, CortexChip } from './components/CortexAssistantP
 import ModelKpiStrip, { type ModelKpis } from './components/ModelKpiStrip';
 import OverflowMenu from './components/OverflowMenu';
 import AddColumnModal from './components/AddColumnModal';
-import DeployStateButton, { deriveDeployState, type DeployState } from './components/DeployStateButton';
 import ReleasePanel from './components/release/ReleasePanel';
 import DeployedProduction from './components/release/DeployedProduction';
 import ProjectIdentityChips from './components/ProjectIdentityChips';
 import ProjectCrudControls from './components/ProjectCrudControls';
 import AiChangeAnalyst from './components/AiChangeAnalyst';
 import { useReleaseState } from './components/release/useReleaseState';
-import type { AxisSignal, ReleaseStatus } from './components/release/types';
+import type { AxisSignal } from './components/release/types';
 import { useDeploymentReadiness } from './hooks/useDeploymentReadiness';
 import { useIngestionTrace } from '@/hooks/useIngestionTrace';
 import EventTable from './components/EventTable';
@@ -128,7 +127,6 @@ import IngestionConfigPanel from './components/IngestionConfigPanel';
 import TemplateLibrary from './components/TemplateLibrary';
 import SqlDiffViewer from './components/SqlDiffViewer';
 import IngestionResultsPanel from './components/IngestionResultsPanel';
-import DagViewer from './components/DagViewer';
 import CascadeConfirmModal from './components/CascadeConfirmModal';
 import WhereClauseBuilder from './components/WhereClauseBuilder';
 import QualityGatesPanel from './components/QualityGatesPanel';
@@ -348,6 +346,7 @@ const CompactSourceSelector: React.FC<{
   schemas: string[];
   selectedSchemas: Map<string, string>; // Map<schemaName, databaseName>
   onSchemaToggle: (schema: string) => void;
+  onSelectAllSchemas?: () => void;
   onSchemaAction: (schema: string, action: string) => void;
   isLoadingDatabases: boolean;
   isLoadingSchemas: boolean;
@@ -355,6 +354,10 @@ const CompactSourceSelector: React.FC<{
   isLoadingTables?: boolean;
   stats: { total: number; configured: number; pending: number };
   projectId: string | null;
+  /** Notifies the parent when a schema-health score is computed, so the Model
+   *  Health KPI can reflect the real aiSchemaHealth score (this component owns
+   *  the health button/state; the parent only mirrors the result for the KPI). */
+  onHealthResult?: (r: SchemaHealthResult | null) => void;
 }> = ({
   databases,
   selectedDatabase,
@@ -362,12 +365,14 @@ const CompactSourceSelector: React.FC<{
   schemas,
   selectedSchemas,
   onSchemaToggle,
+  onSelectAllSchemas,
   onSchemaAction,
   isLoadingDatabases,
   isLoadingSchemas,
   isLoadingTables = false,
   stats,
   projectId,
+  onHealthResult,
 }) => {
   const [showSchemaDropdown, setShowSchemaDropdown] = useState(false);
   const [schemaContextMenu, setSchemaContextMenu] = useState<{ schema: string; x: number; y: number } | null>(null);
@@ -389,13 +394,14 @@ const CompactSourceSelector: React.FC<{
       });
       if (process.env.NODE_ENV === 'development') console.log('[SchemaHealth] API response:', result);
       setHealthResult(result);
+      onHealthResult?.(result);
       setHealthOpen(true);
     } catch (err: unknown) {
       toast.error('Schema health analysis failed');
     } finally {
       setHealthLoading(false);
     }
-  }, [projectId, selectedDatabase, selectedSchemas]);
+  }, [projectId, selectedDatabase, selectedSchemas, onHealthResult]);
 
   const schemaActions: Array<{
     id: string;
@@ -472,7 +478,22 @@ const CompactSourceSelector: React.FC<{
                 ) : schemas.length === 0 ? (
                   <div className="py-2 px-3 text-xs text-slate-500">No schemas</div>
                 ) : (
-                  schemas.map((schema) => (
+                  <>
+                  {/* "All schemas" — one click to see ALL products (every schema's
+                      tables) instead of drilling into one schema at a time. */}
+                  {onSelectAllSchemas && schemas.length > 1 && (() => {
+                    const allSelected = schemas.every((s) => selectedSchemas.has(s));
+                    return (
+                      <button
+                        className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50 dark:border-slate-700 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                        onClick={() => onSelectAllSchemas()}
+                      >
+                        {allSelected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+                        {allSelected ? 'Clear all schemas' : 'All schemas (all products)'}
+                      </button>
+                    );
+                  })()}
+                  {schemas.map((schema) => (
                     <div
                       key={schema}
                       className={cn(
@@ -503,7 +524,8 @@ const CompactSourceSelector: React.FC<{
                         <Settings className="h-3 w-3 text-slate-500" />
                       </button>
                     </div>
-                  ))
+                  ))}
+                  </>
                 )}
               </div>
             </>
@@ -652,12 +674,12 @@ const CompactSourceSelector: React.FC<{
 
                   {/* Raw data fallback — show all top-level keys not yet displayed */}
                   {Object.entries(healthResult)
-                    .filter(([k]) => !['overall_score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits'].includes(k))
+                    .filter(([k]) => !['overall_score', 'score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits', 'execution_time_ms'].includes(k))
                     .filter(([, v]) => v != null && typeof v !== 'object')
                     .length > 0 && (
                     <div className="border-t dark:border-slate-700 pt-2 mt-2 space-y-1">
                       {Object.entries(healthResult)
-                        .filter(([k]) => !['overall_score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits'].includes(k))
+                        .filter(([k]) => !['overall_score', 'score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits', 'execution_time_ms'].includes(k))
                         .filter(([, v]) => v != null && typeof v !== 'object')
                         .map(([k, v]) => (
                           <div key={k} className="flex items-center justify-between text-[10px]">
@@ -1112,6 +1134,10 @@ export default function ExploreDesignPage() {
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
   // Slide-1 redesign: inline wizard replaces the legacy project-creation popup.
   const [showProjectWizard, setShowProjectWizard] = useState(false);
+  // Header "Manage project" dialog (rename / describe / delete) — surfaced from
+  // the header overflow so project lifecycle actions live in the header, not
+  // buried in the right bar (user ask 2026-07-13).
+  const [showProjectManage, setShowProjectManage] = useState(false);
 
   // Inline project gate: fetch the explore-design project list so the
   // empty-state can show a real picker (no modal hand-off). Shares the
@@ -1382,7 +1408,6 @@ export default function ExploreDesignPage() {
   const [modelingIngestionMode, setModelingIngestionMode] = useState<IngestionMode>('full_refresh');
 
   // Phase 2-6 panels
-  const [showDagViewer, setShowDagViewer] = useState(false);
   const [showImpactAnalysis, setShowImpactAnalysis] = useState(false);
   const [showDryRun, setShowDryRun] = useState(false);
   const [showPreChecks, setShowPreChecks] = useState(false);
@@ -1951,10 +1976,26 @@ export default function ExploreDesignPage() {
     : 0;
   const kpiColumnTotal = tables.reduce((sum, t) => sum + (t.columnCount || 0), 0);
 
+  // Real Model Health = the aiSchemaHealth score, mirrored up from
+  // CompactSourceSelector (which owns the health button) via onHealthResult.
+  // null until the user runs schema health → honest "—" (never fabricated).
+  const [modelHealthResult, setModelHealthResult] = useState<SchemaHealthResult | null>(null);
+
   const modelKpis = useMemo<ModelKpis>(() => ({
-    // No clean project-level model-health / cost($/mo) / DQ% source today →
-    // honest "—" rather than inventing them (spec: never fake).
-    modelHealth: undefined,
+    // Model Health = the real aiSchemaHealth overall_score once computed (same
+    // >=80 Good / >=50 Fair / else Poor thresholds as the header pill); honest
+    // "—" until run. Cost($/mo) / DQ% still have no clean project-level source.
+    modelHealth: modelHealthResult
+      ? {
+          score: modelHealthResult.overall_score,
+          rating:
+            modelHealthResult.overall_score >= 80
+              ? 'Good'
+              : modelHealthResult.overall_score >= 50
+                ? 'Fair'
+                : 'Poor',
+        }
+      : undefined,
     // Data-first: while the catalog fetch is in flight a bare 0 would be a
     // fabricated value (the model may well have tables) → "—" until data
     // lands; a real post-load 0 still renders as 0.
@@ -1973,7 +2014,7 @@ export default function ExploreDesignPage() {
           ? 'On track'
           : undefined,
     },
-  }), [kpiTableCount, kpiRelationCount, kpiColumnTotal, piiLevel, deployBlockers, displayablePendingEvents.length, isLoadingTables]);
+  }), [kpiTableCount, kpiRelationCount, kpiColumnTotal, piiLevel, deployBlockers, displayablePendingEvents.length, isLoadingTables, modelHealthResult]);
 
   // Server-recorded project events (GET /explore-design/{id}/events) — merged
   // into the History panel below so backend-written events (e.g. recorded by
@@ -2145,32 +2186,9 @@ export default function ExploreDesignPage() {
           ? 'red'
           : releaseServerState.status === 'no_changes' ? 'grey' : 'amber';
 
-  // Deploy button state — server truth first (full lifecycle incl. approval /
-  // deployed / failed phases the page can't source locally); the local
-  // pendingChanges+blockers heuristic is the degraded fallback.
-  const deployState = useMemo<DeployState>(() => {
-    if (releaseServerState && !releaseDegraded) {
-      const map: Record<ReleaseStatus, DeployState> = {
-        no_changes: 'no-changes',
-        draft_changes: 'draft',
-        checks_not_run: 'checks-not-run',
-        blocked: 'blocked',
-        ready_for_approval: 'ready-not-approved',
-        awaiting_approval: 'awaiting-approval',
-        approved: 'approved',
-        deploying: 'approved',
-        deployed: 'deployed',
-        verified: 'deployed',
-        failed: 'failed',
-        rolled_back: 'failed',
-      };
-      return map[releaseServerState.status] ?? 'draft';
-    }
-    return deriveDeployState({
-      pendingChanges: displayablePendingEvents.length,
-      blockers: deployBlockers,
-    });
-  }, [releaseServerState, releaseDegraded, displayablePendingEvents.length, deployBlockers]);
+  // (The header Deploy state-machine button was removed — the right-bar Release
+  // axis owns the deploy lifecycle, so the local DeployState derivation it fed
+  // is no longer needed here.)
 
   // Per-tab colour dots on the collapsed rail — local heuristics first, then the
   // server release-state axis_signals overlay them (server truth wins where it
@@ -2901,7 +2919,9 @@ export default function ExploreDesignPage() {
             row_count: data.row_count,
             column_count: data.column_count,
             columns: data.columns ?? [],
-            aggregate_quality_score: (data as any).aggregate_quality_score ?? 100,
+            // Honest "—" when the profile has no quality score — NEVER a fake
+            // perfect 100 (a null score is unknown, not "100% quality").
+            aggregate_quality_score: (data as any).aggregate_quality_score ?? null,
           });
         }
       } catch (err) {
@@ -3013,6 +3033,20 @@ export default function ExploreDesignPage() {
       return next;
     });
   }, [selectedProjectId, selectedDatabase, addEvent]);
+
+  // "All schemas (all products)" — select every schema at once so the catalog
+  // shows all products, not just one schema. Toggles off (clears) when all are
+  // already selected. The table loader already fans out over every selected
+  // schema, so this genuinely surfaces the full source catalog.
+  const handleSelectAllSchemas = useCallback(() => {
+    if (readOnlyGuard()) return;
+    const db = selectedDatabase;
+    setSelectedSchemas(prev => {
+      const allSelected = schemas.length > 0 && schemas.every(s => prev.has(s));
+      if (allSelected) return new Map();
+      return new Map(schemas.map(s => [s, db] as [string, string]));
+    });
+  }, [schemas, selectedDatabase, readOnlyGuard]);
 
   const handleTableSelection = useCallback((tableId: string, selected: boolean) => {
     setSelectedTables(prev => {
@@ -4569,6 +4603,7 @@ export default function ExploreDesignPage() {
                 projectId={selectedProjectId}
                 readOnly={isReadOnly}
                 className="max-w-[360px]"
+                onRenamed={(name) => { setSelectedProjectName(name); void refetchGateProjects(); }}
               />
             )}
             {selectedProjectId && (
@@ -4634,59 +4669,31 @@ export default function ExploreDesignPage() {
               onResultClick={handleSearchResultClick}
             />
 
-            {/* AI-guided modeling — magic CTA that orchestrates connect →
-                detect → sample → validate → approve → deploy. */}
+            {/* AI Model — opens the AI Assist right-bar tab (inline agentic
+                analysis: PII / governance / relationships / quality), matching
+                the Workflow page's AI Build tab pattern instead of a separate
+                modal wizard (user ask 2026-07-13). The guided connect→detect→
+                sample wizard is still reachable from AI scan suggestions. */}
             <AiGuidedModelButton
               onClick={() => {
-                if (readOnlyGuard()) return;
                 if (!selectedProjectId) {
                   toast.error('Please select a project first');
                   return;
                 }
-                // Manual entry always starts clean — never inherit a scan
-                // suggestion's seed/sources left over from the deep-link path.
-                setAiModelSeed('');
-                setScanSeedTables([]);
-                setShowAiGuidedWizard(true);
+                setActiveRightTab('ai');
+                setRightBarOpen(true);
               }}
-              disabled={!selectedProjectId || isReadOnly}
+              disabled={!selectedProjectId}
             />
 
             {/* Cross-page governed access — grant/revoke roles for this page. */}
             <ManageAccessButton module="explore-design" page="explore-design" iconOnly objectLabel="Explore & Design" />
 
-            {/* Primary action: Deploy — the state-machine button whose label +
-                variant morph by project lifecycle (redesign spec §3). Keeps ALL
-                the legacy guards (read-only / no-project / conflict-check) in its
-                onClick; the state's own disabled phases are additive on top. */}
-            <DeployStateButton
-              state={deployState}
-              disabled={!selectedProjectId}
-              changeCount={displayablePendingEvents.length}
-              onClick={async () => {
-                if (!selectedProjectId) {
-                  toast.error('Please select a project first');
-                  return;
-                }
-                // Read-only users still OPEN the Release tab (deploy is the
-                // unique deployment surface): the panel reads freely, execute
-                // actions gate themselves, and an approval request is offered
-                // instead of the blocked deploy. Only writers run the
-                // conflict pre-check (it guards their own pending events).
-                if (!isReadOnly) {
-                  const eventIds = pendingEvents.map((e) => e.id);
-                  if (eventIds.length > 0) {
-                    const hasConflicts = await checkForConflicts(eventIds);
-                    if (hasConflicts) {
-                      pendingConflictAction.current = { type: 'deploy', eventIds };
-                      return;
-                    }
-                  }
-                }
-                setActiveRightTab('deploy');
-                if (!rightBarOpen) setRightBarOpen(true);
-              }}
-            />
+            {/* Deploy is NOT a header button — the dedicated right-bar Release
+                axis (rocket rail icon) owns the full deploy lifecycle stepper
+                (Changes → Readiness → Impact → Approval → Deploy), so a duplicate
+                header Deploy button was removed. The Readiness step covers the
+                conflict/blocker pre-check the old button used to run. */}
 
             {/* Overflow menu — Undo/Redo + Templates + DAG + Ingestion + AI +
                 Refresh + Import + Export + Filters + panel toggles. Replaces
@@ -4710,13 +4717,6 @@ export default function ExploreDesignPage() {
                   label: 'Event Templates',
                   icon: BookTemplate,
                   onClick: () => setShowTemplateLibrary(true),
-                },
-                {
-                  label: 'DAG Viewer',
-                  icon: Workflow,
-                  onClick: () => setShowDagViewer(!showDagViewer),
-                  active: showDagViewer,
-                  activeColor: 'violet',
                 },
                 {
                   label: 'Ingestion Runs',
@@ -4768,6 +4768,15 @@ export default function ExploreDesignPage() {
                   active: activeRightTab === 'history' && rightBarOpen,
                   activeColor: 'blue',
                 },
+                {
+                  // Project lifecycle (rename / describe / delete) in the header,
+                  // not the right bar — opens the shared ProjectCrudControls in a
+                  // small dialog (typed-name confirm on delete).
+                  label: 'Manage project',
+                  icon: FolderOpen,
+                  onClick: () => setShowProjectManage(true),
+                  disabled: !selectedProjectId,
+                },
               ]}
             />
           </div>
@@ -4808,6 +4817,61 @@ export default function ExploreDesignPage() {
             void handleProjectCreated(result);
           }}
         />
+      )}
+
+      {/* "Manage project" — header-launched dialog hosting the shared
+          ProjectCrudControls (rename / describe / delete with typed-name
+          confirm). Keeps the header minimal (one overflow item) while putting
+          project lifecycle actions in the header, per user ask. */}
+      {showProjectManage && selectedProjectId && (
+        <div
+          role="dialog"
+          aria-label="Manage project"
+          aria-modal="true"
+          className="fixed inset-0 z-[60] flex items-start justify-center bg-slate-900/40 backdrop-blur-sm p-4 pt-24"
+          onClick={() => setShowProjectManage(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowProjectManage(false); }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-white">
+                <FolderOpen className="h-4 w-4 text-blue-500" /> Manage project
+              </h2>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setShowProjectManage(false)}
+                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="pb-4">
+              <ProjectCrudControls
+                projectId={selectedProjectId}
+                projectName={selectedProjectName}
+                canWrite={!isReadOnly}
+                onRenamed={(name) => {
+                  setSelectedProjectName(name);
+                  void refetchGateProjects();
+                }}
+                onDeleted={() => {
+                  setShowProjectManage(false);
+                  setSelectedProjectId(null);
+                  setSelectedProjectName('');
+                  setSelectedTable(null);
+                  void refetchGateProjects();
+                  const params = new URLSearchParams(Array.from(searchParams.entries()));
+                  params.delete('project_id');
+                  router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
+                }}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* "Change approach" — re-opens the manual/AI/template fork for an
@@ -4944,12 +5008,14 @@ export default function ExploreDesignPage() {
           schemas={schemas}
           selectedSchemas={selectedSchemas}
           onSchemaToggle={handleSchemaToggle}
+          onSelectAllSchemas={handleSelectAllSchemas}
           onSchemaAction={handleSchemaAction}
           isLoadingDatabases={isLoadingDatabases}
           isLoadingSchemas={isLoadingSchemas}
           isLoadingTables={isLoadingTables}
           stats={stats}
           projectId={selectedProjectId}
+          onHealthResult={setModelHealthResult}
         />
       )}
 
@@ -6167,12 +6233,37 @@ export default function ExploreDesignPage() {
                   <PanelLeft className="h-4 w-4" />
                 </button>
               )}
+              {/* Data-first: while the saved model (ERD) is still hydrating for
+                  the selected project, show a skeleton — never flash the
+                  "Start Modeling" chooser over a model that is about to load.
+                  erdRehydratedFor === selectedProjectId once the GET /erd load
+                  has settled (set in the effect's finally, even for an empty
+                  model), so this cleanly separates "still loading" from
+                  "genuinely empty". User-reported: chooser shown on an
+                  already-selected project during its slow load. */}
+              {selectedProjectId && erdRehydratedFor !== selectedProjectId
+                && modelingTableIds.size === 0 && tables.length === 0 && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/60 backdrop-blur-sm dark:bg-slate-900/60">
+                  <div className="w-[440px] max-w-[90%] rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                    <div className="mx-auto mb-4 h-12 w-12 animate-pulse rounded-xl bg-slate-200 dark:bg-slate-700" />
+                    <div className="mx-auto mb-2 h-4 w-40 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+                    <div className="mx-auto mb-6 h-3 w-56 animate-pulse rounded bg-slate-100 dark:bg-slate-700/60" />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="h-28 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-700/60" />
+                      <div className="h-28 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-700/60" />
+                    </div>
+                    <p className="mt-4 text-center text-xs text-slate-400 dark:text-slate-500">Loading model…</p>
+                  </div>
+                </div>
+              )}
               {/* Inline onboarding (no popup): choose DWH template or scratch
                   directly on the canvas. Only shown for a genuinely empty,
-                  not-yet-started model — never overlay a populated canvas: if
-                  the project already has tables loaded (in scope OR on the
-                  canvas), the canvas itself must show. */}
-              {!modelingChoice && modelingTableIds.size === 0 && tables.length === 0 && (
+                  not-yet-started model whose ERD load has SETTLED — never overlay
+                  a populated canvas nor flash during hydration: if the project
+                  already has tables loaded (in scope OR on the canvas), the
+                  canvas itself must show. */}
+              {!modelingChoice && modelingTableIds.size === 0 && tables.length === 0
+                && !(selectedProjectId && erdRehydratedFor !== selectedProjectId) && (
                 <ModelingTemplateModal
                   inline
                   isOpen
@@ -6355,26 +6446,11 @@ export default function ExploreDesignPage() {
                   <GitBranch className="h-3 w-3" />
                   {kpiRelationCount} relations
                 </span>
-                <span className="mx-1 hidden h-4 w-px shrink-0 bg-slate-200 dark:bg-slate-700 sm:block" aria-hidden />
-                <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-slate-400">Quick actions</span>
-                {([
-                  { label: 'Create Table', icon: Table2, onClick: openCreateGroup, title: 'Opens the Create group in the right bar' },
-                  { label: 'Create View', icon: Eye, onClick: () => handleCreateObject('dynamic_table'), title: 'Ships as a governed Dynamic Table (SQL-defined, auto-refreshed)' },
-                  { label: 'Ingestion Run', icon: RefreshCw, onClick: () => { if (readOnlyGuard()) return; setShowModelingIngestionPanel(true); }, title: 'Configure & run ingestion for the model' },
-                  { label: 'DAG Viewer', icon: Workflow, onClick: () => setShowDagViewer(true), title: 'Dependency graph of pending changes' },
-                  { label: 'AI Recommendations', icon: Sparkles, onClick: () => { setActiveRightTab('ai'); setRightBarOpen(true); }, title: 'Open the AI Assist section' },
-                ] as { label: string; icon: React.ElementType; onClick: () => void; title: string }[]).map(({ label, icon: Icon, onClick, title }) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={onClick}
-                    title={title}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
-                  >
-                    <Icon className="h-3 w-3" />
-                    {label}
-                  </button>
-                ))}
+                {/* Quick-actions removed — Create Table / Create View / Ingestion Run
+                    / AI Recommendations are the SAME actions the right-bar cockpit
+                    (Create group · AI axis) and the toolbar "Add table" already own,
+                    so this floor strip duplicated them. It now shows only the model
+                    counts, per the "one right-bar surface" direction. */}
               </div>
             </div>
 
@@ -6620,29 +6696,6 @@ export default function ExploreDesignPage() {
             <Button variant="outline" onClick={() => setShowRelationsModal(false)}>
               Cancel
             </Button>
-          </div>
-        </div>
-      )}
-
-      {/* DAG Dependency Graph — right-side panel (non-blocking, zero-popup) */}
-      {showDagViewer && selectedProjectId && (
-        <div
-          role="dialog"
-          aria-modal="false"
-          aria-label="Dependency Graph (DAG)"
-          className="fixed inset-y-0 right-0 z-40 flex w-full max-w-5xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        >
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <Workflow className="h-5 w-5 text-violet-600" />
-              Dependency Graph (DAG)
-            </h3>
-            <button aria-label="Close dependency graph panel" onClick={() => setShowDagViewer(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
-              <X className="h-4 w-4 text-slate-500" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-auto p-4">
-            <DagViewer projectId={selectedProjectId} className="h-full min-h-[70vh]" />
           </div>
         </div>
       )}

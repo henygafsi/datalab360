@@ -26,6 +26,13 @@ interface ColumnProfile {
   min_value?: any;
   max_value?: any;
   avg_value?: number;
+  // Numeric distribution (sampled) — median/percentiles/stddev are what a
+  // profiler user reaches for; the backend already computes them (numeric_stats).
+  stddev?: number;
+  p25?: number;
+  median?: number;
+  p95?: number;
+  p99?: number;
   min_length?: number;
   max_length?: number;
   avg_length?: number;
@@ -140,6 +147,9 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
           count: tv.count,
           percentage: totalRows > 0 ? (tv.count / totalRows) * 100 : 0,
         }));
+        // Deep stats the backend already computes but the modal used to drop.
+        const ns = (profileResp as { numeric_stats?: Record<string, number | null> }).numeric_stats ?? undefined;
+        const ss = (profileResp as { string_stats?: Record<string, number | null> }).string_stats ?? undefined;
         setProfileData({
           total_rows: totalRows,
           null_count: nullCount,
@@ -148,6 +158,14 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
           distinct_percentage: distinctPct,
           min_value: profileResp.min_value,
           max_value: profileResp.max_value,
+          avg_value: ns?.avg ?? undefined,
+          stddev: ns?.stddev ?? undefined,
+          p25: ns?.p25 ?? undefined,
+          median: ns?.p50 ?? undefined,
+          p95: ns?.p95 ?? undefined,
+          p99: ns?.p99 ?? undefined,
+          avg_length: ss?.avg_length ?? undefined,
+          min_length: ss?.min_length ?? undefined,
           data_quality_score: profileResp.quality_score ?? null,
           is_unique: distinctCount === totalRows && totalRows > 0,
           has_nulls: nullCount > 0,
@@ -431,6 +449,32 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
                       )}
                     </div>
                   </div>
+
+                  {/* Distribution — median / percentiles / stddev (sampled).
+                      Computed by the backend (numeric_stats); previously dropped. */}
+                  {profileData.median != null && (
+                    <div className="p-4 border dark:border-slate-700 rounded-lg">
+                      <h4 className="text-sm font-medium mb-3">
+                        Distribution <span className="text-[10px] font-normal text-slate-400">· sampled</span>
+                      </h4>
+                      <div className="grid grid-cols-5 gap-3 text-center">
+                        {([
+                          ['p25', profileData.p25],
+                          ['Median', profileData.median],
+                          ['p95', profileData.p95],
+                          ['p99', profileData.p99],
+                          ['Std dev', profileData.stddev],
+                        ] as Array<[string, number | undefined]>).map(([label, val]) => (
+                          <div key={label}>
+                            <p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p>
+                            <p className="text-sm font-mono font-medium tabular-nums">
+                              {val != null ? val.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Most Frequent Values */}
                   {profileData.most_frequent && profileData.most_frequent.length > 0 && (

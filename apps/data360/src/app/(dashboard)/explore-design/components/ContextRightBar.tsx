@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Badge, Button, Tooltip, Loader } from 'rizzui';
 import {
   X, ChevronLeft, ChevronRight, Zap, Brain, BarChart3, Clock,
-  HelpCircle, Shield, RefreshCw, Plus, Key, AlertTriangle, Eye,
+  HelpCircle, Shield, RefreshCw, Plus, Key, AlertTriangle, Eye, EyeOff,
   Sparkles, CheckCircle, FileText, GitBranch, Lock, Tag, Send,
   Rocket, Play, Search, Info, ArrowRight, ExternalLink,
   PanelRight, Ban, Coins,
@@ -27,6 +27,7 @@ import GovernanceAccessPanel from './GovernanceAccessPanel';
 import AiSavingsDashboard from './AiSavingsDashboard';
 import { listIngestionRuns } from '@/app/services/api/exploreDesignApi';
 import type { IngestionRun } from '@/app/services/api/types';
+import { proposeAgentActions, cocoRunSql, type ProposedAction } from '@/app/services/cortex/agent';
 
 // Static Tailwind class maps. Interpolated classes like `text-${color}-600` are
 // invisible to the Tailwind compiler and get PURGED unless safelisted (the axis
@@ -302,12 +303,13 @@ export default function ContextRightBar({
   // ALWAYS shown (project-independent), so the slot itself is always defined —
   // otherwise the chip would vanish on projectless views (RightTabPanel only
   // renders the kpi slot when truthy).
-  const kpiStrip = (
-    <div className="space-y-2">
-      {roleChip}
-      {projectId ? <ProjectKpiStrip projectId={projectId} compact /> : null}
-    </div>
-  );
+  // Only the compact role chip rides on every tab now. The per-project KPI strip
+  // was removed from this always-on slot — it exactly duplicated the project
+  // HEADER KPI band (Model Health · Tables · Relations · … · Release Readiness),
+  // so repeating it above every right-bar tab wasted vertical space that the
+  // modeling actions need. The full project KPIs still live in the Impact & Cost
+  // tab body (the axis they belong to).
+  const kpiStrip = <div className="space-y-2">{roleChip}</div>;
   const quickActions: QuickAction[] = [];
   if ((canCreate.allowed || canCreate.loading) && activeTab !== 'actions') {
     quickActions.push({
@@ -505,8 +507,16 @@ export default function ContextRightBar({
               isClassifying={isClassifying}
               classifyUnavailable={classifyUnavailable}
               onRunClassify={onRunClassify}
+              projectId={projectId}
             />
-          ) : empty}
+          ) : (
+            // No table selected → project-level agentic analysis (PII / governance
+            // / relationships / quality), like the workflow AI Build. The AI tab is
+            // always actionable, not an empty "select a table" state.
+            <div className="p-4">
+              <AgentProposePanel projectId={projectId} />
+            </div>
+          )}
         </div>
       ),
     },
@@ -655,11 +665,14 @@ export default function ContextRightBar({
 
       <div className={cn(!isOpen && 'hidden')}>
         <RightTabPanel
-          // Honest header: with a table selected the title is its name (fqn in the
-          // subtitle); with nothing selected the panel is the project overview, not
-          // "Table actions".
-          title={selectedTable ? tableName : 'Overview'}
-          subtitle={selectedTable ? fqn : 'Project model & release'}
+          // Header shows per-OBJECT context only: with a table selected the title
+          // is its name (fqn in the subtitle). With nothing selected we DON'T
+          // repeat "Overview / Project model & release" — that lives in the
+          // project header pill already, and repeating it in every right-bar tab
+          // just stole vertical space (user ask 2026-07-13). The section label
+          // (AI ASSIST / DATA QUALITY …) still identifies the panel.
+          title={selectedTable ? tableName : ''}
+          subtitle={selectedTable ? fqn : undefined}
           accentClassName="bg-blue-500"
           kpiStrip={kpiStrip}
           quickActions={quickActions}
@@ -1165,8 +1178,21 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-            <ActionBtn label="Exclude from model" icon={Trash2} disabled={!canApprove} onClick={() => { onNodeAction(table.id, 'exclude'); onDeselectTable?.(); }} />
+          {/* Two distinct destructive actions, side by side, so a project owner
+              can actually DELETE a table from the modeling view (not just exclude
+              it). "Remove from model" is canvas-only (table stays in Snowflake);
+              "Drop table" queues a real DROP TABLE DDL for deploy review. This is
+              the single destructive zone in modeling mode — the catalog-style
+              Danger Zone below hides its duplicate drop when onNodeAction is set. */}
+          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">Remove / delete</p>
+            <div className="flex flex-wrap gap-1.5">
+              <ActionBtn label="Remove from model" icon={EyeOff} disabled={!canWrite} onClick={() => { onNodeAction(table.id, 'exclude'); onDeselectTable?.(); }} />
+              <ActionBtn label="Drop table (DDL)" icon={Trash2} disabled={!canApprove} onClick={() => { onNodeAction(table.id, 'drop_table'); onDeselectTable?.(); }} />
+            </div>
+            {!canApprove && (
+              <p className="text-[10px] text-slate-400">Dropping a table needs approve rights — you can still remove it from the model.</p>
+            )}
           </div>
         </div>
       )}
@@ -1366,8 +1392,10 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
         </div>
       )}
 
-      {/* 5b. Danger Zone — delete/drop with approval */}
-      {canWrite && (
+      {/* 5b. Danger Zone — delete/drop with approval. CATALOG mode only: in
+          modeling (onNodeAction set) the Modeling-actions "Remove / delete" group
+          above owns both destructive actions, so this duplicate drop is hidden. */}
+      {canWrite && !onNodeAction && (
         <div className="rounded-xl border border-red-200 dark:border-red-800 p-3 space-y-2">
           <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wider">Danger Zone</p>
           <div className="flex flex-wrap gap-1.5">
@@ -1610,16 +1638,234 @@ function ReadOnlyActions({ table, columns, projectId, userRole, canExecute, onAd
 }
 
 // ---------------------------------------------------------------------------
+// B0. Agentic "Analyze & propose" panel
+// ---------------------------------------------------------------------------
+//
+// The AI reads the SELECTED table (fqn + columns + AI classifications) and the
+// project's 360 context, then proposes 1-5 concrete, typed, GATED next actions
+// (POST /cortex/agent/propose). Each proposal is validated by the user before
+// anything runs — nothing is auto-executed:
+//   • coco_sql  → runnable inline via the governed read-only path (SELECT-only,
+//                 masking/RLS apply as the caller) — results shown in place.
+//   • endpoint  → prefilled PREVIEW only (method · path · body); the user acts
+//                 on it from the owning surface. We never auto-fire a governed
+//                 write from a proposal card.
+// If Cortex completion is unavailable on the backend, we show an honest
+// disabled state (InsightActionButton pattern), not a loud error.
+
+const RISK_STYLE: Record<string, string> = {
+  low: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800',
+  medium: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800',
+  high: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800',
+};
+
+function ProposedActionCard({ action }: { action: ProposedAction }) {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ columns: string[]; rows: Record<string, unknown>[]; row_count: number } | null>(null);
+  const [runErr, setRunErr] = useState<string | null>(null);
+  const isSql = action.kind === 'coco_sql' && !!action.sql && !action._rejected;
+
+  const runSql = async () => {
+    if (!action.sql || running) return;
+    setRunning(true); setRunErr(null); setResult(null);
+    try {
+      const res = await cocoRunSql(action.sql, 50);
+      setResult(res);
+    } catch (err: any) {
+      setRunErr(err?.message || 'Query failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3 space-y-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {isSql ? <Play className="h-3.5 w-3.5 shrink-0 text-blue-500" /> : <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />}
+          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">{action.label}</span>
+        </div>
+        {action.risk && (
+          <span className={cn('shrink-0 rounded-full border px-1.5 py-0 text-[9px] font-semibold uppercase tracking-wide', RISK_STYLE[action.risk] ?? RISK_STYLE.low)}>
+            {action.risk}
+          </span>
+        )}
+      </div>
+      {action.rationale && <p className="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{action.rationale}</p>}
+      {action.requires && (
+        <div className="flex items-center gap-1 text-[9px] text-slate-400">
+          <Shield className="h-2.5 w-2.5" aria-hidden />
+          <span className="font-mono">{action.requires.module} · {action.requires.action}</span>
+        </div>
+      )}
+
+      {/* coco_sql → runnable inline (read-only, governed) */}
+      {isSql && (
+        <div className="space-y-2">
+          <details className="group">
+            <summary className="cursor-pointer text-[10px] font-medium text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Show SQL</summary>
+            <pre className="mt-1 max-h-32 overflow-auto rounded bg-slate-50 dark:bg-slate-900 p-2 text-[10px] font-mono text-slate-600 dark:text-slate-400 whitespace-pre-wrap">{action.sql}</pre>
+          </details>
+          <button
+            onClick={runSql}
+            disabled={running}
+            aria-busy={running}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 px-2.5 py-1 text-[11px] font-medium text-white transition-colors"
+          >
+            {running ? <><Loader size="sm" className="h-3 w-3" /> Running…</> : <><Play className="h-3 w-3" /> Run query</>}
+          </button>
+          {runErr && (
+            <div className="flex items-start gap-1.5 rounded border border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10 p-1.5 text-[10px] text-red-600 dark:text-red-400">
+              <AlertTriangle className="h-3 w-3 shrink-0 mt-px" /><span>{runErr}</span>
+            </div>
+          )}
+          {result && (
+            <div className="rounded border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div className="px-2 py-1 bg-slate-50 dark:bg-slate-900 text-[9px] font-semibold text-slate-500">{result.row_count} row{result.row_count === 1 ? '' : 's'}</div>
+              {result.row_count > 0 && (
+                <div className="max-h-40 overflow-auto">
+                  <table className="w-full text-[10px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800">
+                        {result.columns.map((c) => <th key={c} className="px-2 py-1 text-left font-semibold text-slate-500 whitespace-nowrap">{c}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.rows.slice(0, 20).map((row, i) => (
+                        <tr key={i} className="border-b border-slate-50 dark:border-slate-800/50">
+                          {result.columns.map((c) => <td key={c} className="px-2 py-1 font-mono text-slate-600 dark:text-slate-400 whitespace-nowrap">{String(row[c] ?? '—')}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* endpoint → prefilled PREVIEW only (never auto-executed) */}
+      {action.kind === 'endpoint' && action.endpoint && (
+        <div className="rounded bg-slate-50 dark:bg-slate-900 p-2 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <span className={cn('rounded px-1.5 py-0 text-[9px] font-bold', action.endpoint.method === 'GET' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' : 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400')}>{action.endpoint.method}</span>
+            <span className="text-[10px] font-mono text-slate-600 dark:text-slate-400 truncate">{action.endpoint.path}</span>
+          </div>
+          {action.endpoint.body && Object.keys(action.endpoint.body).length > 0 && (
+            <pre className="max-h-24 overflow-auto text-[9px] font-mono text-slate-500 whitespace-pre-wrap">{JSON.stringify(action.endpoint.body, null, 2)}</pre>
+          )}
+          <p className="text-[9px] text-slate-400 italic">Prefilled proposal — review, then run it from the owning surface.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentProposePanel({ table, columns, classifications, projectId }: {
+  table?: TableItem | null; columns?: ColumnInfo[];
+  classifications?: Record<string, string>;
+  projectId: string | null;
+}) {
+  const [analyzing, setAnalyzing] = useState(false);
+  const [actions, setActions] = useState<ProposedAction[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const fqn = table ? `${table.database}.${table.schema}.${table.table}` : '';
+
+  const analyze = async () => {
+    if (!projectId || analyzing) return;
+    setAnalyzing(true); setError(null); setActions(null); setUnavailable(false);
+    let goal: string;
+    if (table) {
+      // Table-scope the project agent: fold the selected table's columns + AI
+      // classifications into the goal so proposals target THIS object.
+      const colList = (columns ?? []).slice(0, 40)
+        .map((c) => `${c.name} ${c.dataType}${c.isSensitive ? ' (PII)' : ''}${c.isPrimaryKey ? ' [PK]' : ''}`)
+        .join(', ');
+      const cls = classifications && Object.keys(classifications).length
+        ? `\nAI classifications: ${Object.entries(classifications).map(([k, v]) => `${k}=${v}`).join(', ')}` : '';
+      goal =
+        `Analyze the selected table ${fqn} and propose the highest-value next actions to improve its ` +
+        `modeling, data quality and governance. Columns: ${colList || 'unknown'}.${cls}`;
+    } else {
+      // Project-level analysis (no table selected) — like the workflow AI Build:
+      // scan the whole model and propose governance (PII masking/RLS), quality
+      // and relationship actions.
+      goal =
+        'Analyze the whole project data model and propose the highest-value next actions: detect PII ' +
+        'columns and propose masking/row-access policies, surface missing primary keys and foreign-key ' +
+        'relationships, and flag data-quality gaps. Return concrete, gated actions.';
+    }
+    try {
+      const res = await proposeAgentActions(projectId, goal);
+      if (res.error === 'LLM_UNAVAILABLE') { setUnavailable(true); return; }
+      setActions(res.actions ?? []);
+    } catch (err: any) {
+      if (isUnavailable(err)) setUnavailable(true);
+      else setError(err?.message || 'Analyze failed');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10 p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <Brain className="h-4 w-4 text-blue-500" />
+        <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Analyze &amp; propose actions</h4>
+      </div>
+      <p className="text-[11px] text-slate-500">
+        {table
+          ? 'The AI reads this table + the project’s context and proposes concrete, gated next actions for you to validate.'
+          : 'The AI scans the whole model — PII, governance, relationships and quality — and proposes concrete, gated next actions for you to validate.'}
+      </p>
+      {!projectId ? (
+        <span role="status" className="flex items-center gap-1.5 text-[11px] text-slate-400"><Info className="h-3 w-3" /> Select a project to enable analysis.</span>
+      ) : (
+        <button
+          onClick={analyze}
+          disabled={analyzing}
+          aria-busy={analyzing}
+          className="w-full py-2 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white transition-colors flex items-center justify-center gap-1.5"
+        >
+          {analyzing ? <><Loader size="sm" className="h-3 w-3" /> Analyzing…</> : <><Sparkles className="h-3.5 w-3.5" /> {table ? 'Analyze this table' : 'Analyze this model'}</>}
+        </button>
+      )}
+      {unavailable && (
+        <p role="status" className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+          <Ban className="h-3 w-3" aria-hidden /> AI proposals aren&apos;t available on this backend yet
+        </p>
+      )}
+      {error && (
+        <div className="flex items-start gap-1.5 rounded-lg border border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10 p-2 text-[11px] text-red-600 dark:text-red-400">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" /><span>{error}</span>
+        </div>
+      )}
+      {actions && actions.length === 0 && !error && (
+        <p className="text-[11px] text-slate-400">No actions proposed — the model is clean or the goal was too narrow.</p>
+      )}
+      {actions && actions.length > 0 && (
+        <div className="space-y-2" data-testid="agent-proposals">
+          {actions.map((a, i) => <ProposedActionCard key={`${a.label}-${i}`} action={a} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // B. AI Assist Panel
 // ---------------------------------------------------------------------------
 
-function AIAssistPanel({ table, columns, classifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify }: {
+function AIAssistPanel({ table, columns, classifications, classificationDetails, isClassifying, classifyUnavailable, onRunClassify, projectId }: {
   table: TableItem; columns: ColumnInfo[];
   classifications?: Record<string, string>;
   classificationDetails: ClassificationResult[];
   isClassifying: boolean;
   classifyUnavailable?: boolean;
   onRunClassify: () => void;
+  projectId: string | null;
 }) {
   const [prompt, setPrompt] = useState('');
   const [asking, setAsking] = useState(false);
@@ -1668,6 +1914,10 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
 
   return (
     <div className="p-4 space-y-4">
+      {/* Agentic analyze & propose — the headline AI action: read the table +
+          project context, propose gated next actions the user validates. */}
+      <AgentProposePanel table={table} columns={columns} classifications={classifications} projectId={projectId} />
+
       {/* AI Classify CTA */}
       <div className="rounded-xl border border-purple-200 dark:border-purple-800 bg-purple-50/30 dark:bg-purple-900/10 p-4 space-y-3">
         <div className="flex items-center gap-2">
@@ -1971,6 +2221,67 @@ export function QualityPanel({ table, columns, projectId, profileData, onAddEven
 // D. History Panel
 // ---------------------------------------------------------------------------
 
+// Agentic COCO: instead of scanning a raw event list, ask Cortex to narrate what
+// recently happened on the project — call out failures first. One button, one
+// paragraph; honest disabled state when completion isn't available.
+function HistoryAiSummary({ events }: { events: HistoryEvent[] }) {
+  const [summary, setSummary] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+
+  const summarize = async () => {
+    if (loading || events.length === 0) return;
+    setLoading(true); setError(null); setSummary(null); setUnavailable(false);
+    try {
+      const { generateCompletion } = await import('@/app/services/cortex');
+      const digest = events.slice(0, 25)
+        .map((e) => `${e.type} [${e.status}] ${e.object || ''}${e.message && e.status === 'error' ? ` — ${e.message.slice(0, 80)}` : ''}`)
+        .join('\n');
+      const prompt =
+        'You are a data-platform copilot. In 2-3 short sentences, summarize what recently happened on this ' +
+        'data project from its event log. Call out any FAILURES or errors first and what they were about, ' +
+        'then the main successful changes. Be concrete and brief.\n\nEvent log (newest first):\n' + digest;
+      const res = await generateCompletion({ prompt });
+      setSummary(res.response || 'No summary returned.');
+    } catch (err: any) {
+      if (isUnavailable(err)) setUnavailable(true);
+      else setError(err?.message || 'Summarize failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (events.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+          <Sparkles className="h-3.5 w-3.5 text-blue-500" /> Activity summary
+        </span>
+        <button
+          onClick={summarize}
+          disabled={loading || unavailable}
+          aria-busy={loading}
+          className="inline-flex items-center gap-1 rounded-md bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 px-2 py-0.5 text-[11px] font-medium text-white"
+        >
+          {loading ? <><Loader size="sm" className="h-3 w-3" /> Summarizing…</> : <><Sparkles className="h-3 w-3" /> Summarize activity</>}
+        </button>
+      </div>
+      {unavailable && (
+        <p role="status" className="flex items-center gap-1.5 text-[11px] text-slate-400"><Ban className="h-3 w-3" /> AI summary isn&apos;t available on this backend yet</p>
+      )}
+      {error && (
+        <div className="flex items-start gap-1.5 text-[11px] text-red-600 dark:text-red-400"><AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" /><span>{error}</span></div>
+      )}
+      {summary && (
+        <p className="text-[11px] leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{summary}</p>
+      )}
+    </div>
+  );
+}
+
 // Exported: reused full-width by the catalog page (Insights view / History
 // sub-tab). The HistoryEvent shape below is exported alongside.
 export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
@@ -2010,9 +2321,11 @@ export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
           <p className="text-xs">No history yet</p>
         </div>
       ) : (
-        // Density: only the most recent day is expanded; older days collapse
-        // into <details> with the day as summary.
-        Object.entries(grouped).map(([day, items], idx) => (
+        <>
+        <HistoryAiSummary events={events} />
+        {/* Density: only the most recent day is expanded; older days collapse
+            into <details> with the day as summary. */}
+        {Object.entries(grouped).map(([day, items], idx) => (
           idx === 0 ? (
             <div key={day}>
               <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">{day}</p>
@@ -2027,7 +2340,8 @@ export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
               {renderItems(items)}
             </details>
           )
-        ))
+        ))}
+        </>
       )}
     </div>
   );

@@ -17,7 +17,6 @@ import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { createDashboard, updateDashboard, deleteDashboard } from '@/app/services/api/biDashboardApi';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
 import ActionRail from '@/app/shared/action-rail/ActionRail';
-import ScoreCards from '@/app/shared/score-cards/ScoreCards';
 import AiBuildLaunchRail from './components/AiBuildLaunchRail';
 import CloneDashboardButton from './components/CloneDashboardButton';
 import { BiLandingCockpit, BiLandingKpis, useBiLandingSignals } from './components/LandingCockpit';
@@ -838,16 +837,11 @@ function BIDashboardPage() {
         >
           {tab === 'dashboards' && (
             <div className="mx-auto max-w-5xl p-6">
-              {/* Cross-module health score cards (Data360 G6). A `?project=` deep-link
-                  scopes them to that project; otherwise account-wide. We exclude the
-                  not-yet-backed PREVISION placeholder so no "coming soon" tile ships
-                  on the flagship landing (the project path never returns it anyway). */}
-              <div className="mb-6">
-                <ScoreCards
-                  projectId={urlProjectId ?? undefined}
-                  dimensions={['dq', 'cost', 'perf', 'gov']}
-                />
-              </div>
+              {/* Cross-module DQ/COST/PERF/GOV health score cards were removed from
+                  the BI landing: those axes are the province of Observability and
+                  Account Overview (where they already live with history + drill-in).
+                  The BI landing focuses on business reporting — the dashboard
+                  inventory + AI chart building — not cross-module health. */}
               {/* Distinct error state — never collapse a fetch failure into the
                   "no dashboards yet" empty state. */}
               {!projectsLoading && projectsError && (

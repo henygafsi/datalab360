@@ -1,0 +1,22 @@
+import { test, expect } from '@playwright/test';
+const PASS = process.env.D360_PASS ?? '';
+test.use({ viewport: { width: 1600, height: 950 } });
+test('workflow nodes are connected by edges (AI/seed step_id → nodeId resolution)', async ({ page }) => {
+  const errs:string[]=[]; page.on('pageerror',e=>errs.push(String(e)));
+  await page.goto('/signin');
+  await page.locator('input[name="account_name"], input#account_name').first().fill('uchsfvb-HAHA').catch(()=>{});
+  await page.locator('input[name="username"], input#username').first().fill('HAHA').catch(()=>{});
+  await page.locator('input[type="password"]').first().fill(PASS);
+  await page.locator('button[type="submit"]').first().click();
+  await page.waitForURL((u)=>!u.pathname.includes('/signin'), { timeout: 90_000 });
+  await page.goto('/workflow?project=proj_bf6e32758ab5');
+  await page.waitForSelector('.react-flow__node', { timeout: 60_000 });
+  await page.waitForTimeout(6000);
+  const nodeCount = await page.locator('.react-flow__node').count();
+  const edgeCount = await page.locator('.react-flow__edge').count();
+  console.log('NODES=', nodeCount, 'EDGES=', edgeCount, 'ERRS=', errs.length);
+  await page.screenshot({ path: 'e2e/wf-edges-artifacts/edges.png' }).catch(()=>{});
+  expect(nodeCount, 'seed workflow should have its 4 nodes').toBeGreaterThanOrEqual(4);
+  expect(edgeCount, 'nodes must be connected (was 0 before the step_id→nodeId fix)').toBeGreaterThanOrEqual(3);
+  expect(errs, `page errors: ${errs.join(';')}`).toHaveLength(0);
+});

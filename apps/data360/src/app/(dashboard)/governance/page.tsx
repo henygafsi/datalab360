@@ -28,6 +28,7 @@ import {
   Eye,
   Fingerprint,
   FolderKanban,
+  Zap,
   Gauge,
   Grid3x3,
   History,
@@ -109,6 +110,7 @@ const DIRECTORY: {
   { href: routes.governance.securityMatrix, icon: Fingerprint, title: 'Security matrix', desc: 'Row-level axes, enterprise identities, posture' },
   { href: routes.governance.oauth, icon: Lock, title: 'Authentication', desc: 'SSO integrations, network policies, service keys' },
   { href: routes.governance.projects, icon: FolderKanban, title: 'Project governance', desc: 'Owners, contributors, versions, deployments' },
+  { href: routes.governance.actions, icon: Zap, title: 'All actions', desc: 'Every governance capability as a governed action — search, run, verify' },
 ];
 
 export default function GovernanceLandingPage() {
@@ -536,9 +538,10 @@ export default function GovernanceLandingPage() {
             </div>
           )}
 
-          {/* KPI strip — honest "—" for anything undetermined; click → axis. */}
+          {/* KPI strip — skeletons while loading (data-first), then honest "—"
+              for anything genuinely empty; click → axis. */}
           <div className="overflow-hidden rounded-2xl border border-slate-200 shadow-sm dark:border-slate-800">
-            <KpiStrip items={kpis} />
+            <KpiStrip items={kpis} loading={core.loading} />
           </div>
 
           {/* Sub-page directory — every CRUD flow ≤ 2 clicks from here. */}

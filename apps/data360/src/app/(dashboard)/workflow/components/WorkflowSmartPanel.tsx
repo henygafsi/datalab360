@@ -117,7 +117,7 @@ import {
 // ContextBar). They join THIS single icon rail as the Usage / Cost / Governance
 // sections so the builder shows ONE right-tab, not two. Reused verbatim (same
 // listRuns/cost-summary/scorecards getters) — no logic duplicated.
-import { UsageTab, CostTab, GovernanceTab } from './WorkflowProjectBar';
+import { UsageTab, CostTab, GovernanceTab, type OutputTableRef } from './WorkflowProjectBar';
 
 // ---------------------------------------------------------------------------
 // Section identifiers — the rail order
@@ -1378,7 +1378,6 @@ const RAIL: RailItem[] = [
   { id: 'deploy', icon: HistoryIcon, label: 'Deployments & versions' },
   { id: 'block', icon: Box, label: 'Block details' },
   { id: 'ai', icon: Sparkles, label: 'AI build' },
-  { id: 'results', icon: Eye, label: 'Results' },
   { id: 'runs', icon: ListChecks, label: 'Run history' },
   // Operational sections folded in from the former WorkflowProjectBar rail.
   { id: 'usage', icon: BarChart3, label: 'Usage' },
@@ -1466,6 +1465,37 @@ const WORKFLOW_INVALIDATION_KEYS = new Set<string>([
 // Main panel
 // ---------------------------------------------------------------------------
 
+/**
+ * Capability tier chip — Owner / Editor / Viewer — mirroring the Explore & Design
+ * right bar's RoleContextChip so both cockpits surface "what can I do here" the
+ * same way. Built from the fail-open action-RBAC booleans the builder already
+ * resolves (canDeploy → Owner, create/edit → Editor, else Viewer); display-only.
+ */
+function WorkflowRoleChip({ canCreate, canEdit, canDeploy, canExecute }: {
+  canCreate: boolean; canEdit: boolean; canDeploy: boolean; canExecute: boolean;
+}) {
+  const write = canCreate || canEdit;
+  const tier = canDeploy ? 'Owner' : write ? 'Editor' : 'Viewer';
+  const verb = canDeploy ? 'can deploy' : write ? 'can edit' : 'read-only';
+  const tone = canDeploy
+    ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+    : write
+    ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
+    : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
+  const TierIcon = canDeploy ? ShieldCheck : write ? Shield : Eye;
+  const label =
+    `${tier} · ${verb} — Create/edit: ${write ? 'yes' : 'no'}, ` +
+    `Deploy: ${canDeploy ? 'yes' : 'no'}, Run: ${canExecute ? 'yes' : 'no'}`;
+  return (
+    <Tooltip side="bottom" label={label}>
+      <span className={cn('mt-1 inline-flex w-fit items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold cursor-default', tone)}>
+        <TierIcon className="h-2.5 w-2.5" aria-hidden />
+        {tier} · {verb}
+      </span>
+    </Tooltip>
+  );
+}
+
 export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
   const {
     activeWorkflowId,
@@ -1477,7 +1507,10 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
     isDirty,
     selectedNode,
     isReadOnly,
+    canCreate,
+    canEdit,
     canDeploy,
+    canExecute,
     hasConnectorSource,
     onValidate,
     onDryRun,
@@ -1490,6 +1523,32 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
     aiSlot,
     legacyBodies,
   } = props;
+
+  // The selected block's OUTPUT table, fed to the Governance tab's Data Access
+  // section ("who can read this output"). Block configs disagree on key names:
+  //   • copy_into / cdc_merge …  → target_database / target_schema / target_table
+  //   • destination / source …   → database(_name) / schema(_name) / table(_name)
+  // and `table` is sometimes a full DB.SCHEMA.TABLE FQN. Handle them all.
+  const selectedOutputTable = useMemo<OutputTableRef | null>(() => {
+    const d = selectedNode?.data as Record<string, unknown> | undefined;
+    const cfg = ((d?.config as Record<string, unknown>) ?? d ?? {}) as Record<string, unknown>;
+    const pick = (...keys: string[]) => {
+      for (const k of keys) { const v = cfg[k]; if (typeof v === 'string' && v.trim()) return v.trim(); }
+      return undefined;
+    };
+    let db = pick('target_database', 'database', 'database_name');
+    let sc = pick('target_schema', 'schema', 'schema_name');
+    let tb = pick('target_table', 'table', 'table_name');
+    // `table` may already be a qualified DB.SCHEMA.TABLE — split and backfill.
+    if (tb && tb.includes('.')) {
+      const parts = tb.split('.');
+      tb = parts.pop();
+      if (parts.length >= 2) { sc = sc ?? parts.pop(); db = db ?? parts.pop(); }
+      else if (parts.length === 1) { sc = sc ?? parts.pop(); }
+    }
+    if (db && sc && tb) return { database: db, schema: sc, table: tb };
+    return null;
+  }, [selectedNode]);
 
   const active = RAIL.find((r) => r.id === activeSection) ?? RAIL[0];
 
@@ -1567,6 +1626,12 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
             <h2 className="truncate text-sm font-bold text-gray-900 dark:text-white">
               {activeWorkflowName || 'New workflow'}
             </h2>
+            <WorkflowRoleChip
+              canCreate={canCreate}
+              canEdit={canEdit}
+              canDeploy={canDeploy}
+              canExecute={canExecute}
+            />
           </div>
           <button
             type="button"
@@ -1662,7 +1727,11 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
                 <CostTab workflowId={activeWorkflowId} enabled={activeSection === 'cost'} />
               )}
               {activeSection === 'governance' && activeWorkflowId && (
-                <GovernanceTab workflowId={activeWorkflowId} enabled={activeSection === 'governance'} />
+                <GovernanceTab
+                  workflowId={activeWorkflowId}
+                  enabled={activeSection === 'governance'}
+                  output={selectedOutputTable}
+                />
               )}
               {activeSection === 'block' && (
                 blockSlot ?? (

@@ -207,6 +207,7 @@ const TableRow: React.FC<{
 
   return (
     <div
+      data-testid="source-table-row"
       className={cn(
         'flex items-start gap-2.5 px-3 py-2 cursor-pointer transition-all border-b border-slate-100 dark:border-slate-800/60',
         'hover:bg-blue-50/50 dark:hover:bg-slate-800/40',
@@ -487,6 +488,12 @@ export const VirtualizedTableList: React.FC<VirtualizedTableListProps> = ({
       >
         {rowVirtualizer.getVirtualItems().map((virtualItem) => {
           const item = flatItems[virtualItem.index];
+          // Virtualizer race: when the selected schema changes, flatItems can
+          // shrink between the virtualizer's last measurement and this paint, so
+          // an index may point past the end. Skip the stale row instead of
+          // throwing on `item.type` (which crashed the modeling view into the
+          // "Something went wrong" error boundary on schema switch).
+          if (!item) return null;
           const itemKey = item.type === 'schema'
             ? `schema-${item.schema}`
             : `table-${item.data.id}`;

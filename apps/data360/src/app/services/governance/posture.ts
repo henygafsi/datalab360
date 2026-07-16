@@ -138,3 +138,33 @@ export async function getAccessReviewSummary(): Promise<AccessReviewSummary> {
 export function countNeedsAttention(s: AccessReviewSummary): number {
   return s.mfa_gaps.length + s.expiring_policies.length + s.orphan_grants.length;
 }
+
+// ---------------------------------------------------------------------------
+// COCO governance-posture insight (GET /gouvernance/posture/insight)
+// Cortex narrates the real compliance breakdown (masking / row-access / tagging
+// coverage) into a what/why/where + NEXT-action CDO briefing. Honest contract:
+// narrative is null (never fabricated) when Cortex is unavailable, and `basis`
+// echoes exactly the score payload the model saw (auditable).
+// ---------------------------------------------------------------------------
+
+export interface GovernanceInsightResponse {
+  period_days: number;
+  /** null when Cortex is unavailable — never a fabricated posture summary. */
+  narrative: string | null;
+  model?: string;
+  /** The exact compliance facts the model saw — auditable. */
+  basis: Record<string, unknown>;
+  degraded_reason?: string | null;
+  /** Present only on the honest empty path (posture unreadable). */
+  note?: string;
+  execution_time_ms: number;
+}
+
+/** GET /gouvernance/posture/insight — Cortex briefing over the compliance posture. */
+export async function getGovernanceInsight(days = 30): Promise<GovernanceInsightResponse> {
+  // Cortex inference over an ACCOUNT_USAGE posture read; endpoint caches 15 min.
+  const { data } = await apiClient.get<GovernanceInsightResponse>(
+    '/gouvernance/posture/insight', { params: { days }, timeout: 180000 },
+  );
+  return data;
+}

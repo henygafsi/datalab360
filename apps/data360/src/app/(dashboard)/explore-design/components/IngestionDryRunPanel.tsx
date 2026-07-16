@@ -154,7 +154,8 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
           sqlPreview: apiResult.sql_preview || undefined,
           errors: [],
           warnings: isDesignPhase
-            ? ['Tables not yet deployed — SQL preview shows the planned query']
+            ? [apiResult.preview_note
+                || 'Source table not created yet — the SQL preview shows the planned query; live sample rows appear once the source exists.']
             : [],
         };
       } else {

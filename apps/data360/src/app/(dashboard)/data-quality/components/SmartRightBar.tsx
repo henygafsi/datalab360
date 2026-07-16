@@ -142,8 +142,6 @@ export default function SmartRightBar({
   if (!selectedRow || !tableName) {
     const pct = (v: number | null | undefined) =>
       v === null || v === undefined ? '—' : `${Math.round(v)}%`;
-    const int = (v: number | null | undefined) =>
-      v === null || v === undefined ? '—' : new Intl.NumberFormat('en-US').format(v);
     const overviewSection: RightTabSection = {
       id: 'overview',
       icon: Gauge,
@@ -152,31 +150,15 @@ export default function SmartRightBar({
       render: () => (
         <div className="space-y-3">
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            Monitor and improve the quality of your data. Select a table to see its
-            score, run checks and review its metric history.
+            Monitor and improve the quality of your data. The headline KPIs
+            (tables monitored, health score, pass rate, checks run) live in the
+            quality cockpit on the right — pick a table below to drill into its
+            score, run checks and review its metric history here.
           </p>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400">Tables monitored</p>
-              <p className="text-lg font-bold text-gray-900 dark:text-white">{int(overview?.total_tables)}</p>
-            </div>
-            <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400">Health score</p>
-              <p className={cn('text-lg font-bold',
-                (overview?.health_score === null || overview?.health_score === undefined) ? 'text-gray-400' :
-                (overview?.health_score ?? 0) >= 80 ? 'text-green-600 dark:text-green-400' :
-                (overview?.health_score ?? 0) >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
-              )}>{pct(overview?.health_score)}</p>
-            </div>
-            <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400">DMF pass rate</p>
-              <p className="text-lg font-bold text-gray-900 dark:text-white">{pct(overview?.dmf_pass_rate)}</p>
-            </div>
-            <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
-              <p className="text-[10px] text-gray-500 dark:text-gray-400">Checks run (30d)</p>
-              <p className="text-lg font-bold text-gray-900 dark:text-white">{int(overview?.checks_run_30d)}</p>
-            </div>
-          </div>
+          {/* NOTE: the summary KPI cards were removed from this panel — they are
+              owned by the AxisCockpit (outer right column) to avoid rendering the
+              same 4 stats twice side-by-side. This panel now stays a
+              select-a-table context + axis navigation surface. */}
           <div className="flex items-center gap-2 text-[10px] text-gray-500 dark:text-gray-400">
             <ShieldCheck className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
             Classification coverage: {pct(overview?.classification_coverage)}

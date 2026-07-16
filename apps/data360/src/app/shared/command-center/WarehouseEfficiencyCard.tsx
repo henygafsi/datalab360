@@ -21,9 +21,11 @@ import { useSession } from 'next-auth/react';
 import { cn } from '@/lib/utils';
 import {
   getWarehouseEfficiency,
+  getWarehouseInsight,
   type WarehouseEfficiencyResponse,
 } from '@/app/services/org-accounts/hooks';
 import { invalidateCacheSurface } from '@/app/services/cache/admin';
+import FinopsInsightBlock from './FinopsInsightBlock';
 
 function formatBytes(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0 B';
@@ -114,6 +116,16 @@ export default function WarehouseEfficiencyCard({ days = 30 }: { days?: number }
         >
           <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} /> Refresh axis
         </button>
+      </div>
+
+      {/* COCO reads this axis first — one actionable briefing over the raw spill/credit rows. */}
+      <div className="mb-3">
+        <FinopsInsightBlock
+          fetcher={getWarehouseInsight}
+          days={data.period_days}
+          title="COCO reads your warehouses"
+          data-testid="warehouse-insight"
+        />
       </div>
 
       {/* Misconfig flags — each names the exact setting and the honest cost */}

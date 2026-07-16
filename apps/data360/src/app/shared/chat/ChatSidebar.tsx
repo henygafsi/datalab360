@@ -287,6 +287,17 @@ export default function ChatSidebar() {
     } catch (err) { console.error('Send failed:', err); }
   };
 
+  // Soft-delete one of your own messages (DELETE /chat/conversations/{id}/messages/{mid}).
+  // The backend enforces ownership; we optimistically drop it from the thread.
+  const handleDeleteMessage = async (messageId: string) => {
+    const convId = activeConversation?.conversation_id;
+    if (!convId) return;
+    try {
+      await apiClient.delete(`/chat/conversations/${convId}/messages/${encodeURIComponent(messageId)}`);
+      setMessages(prev => prev.filter(m => m.message_id !== messageId));
+    } catch (err) { console.error('Delete failed:', err); }
+  };
+
   // Ask Cortex AI — sends question to /cortex/complete and posts response in chat
   const askCortexAI = async () => {
     if (!newMessage.trim()) return;
@@ -560,7 +571,23 @@ export default function ChatSidebar() {
                         }`}>
                           {(!isMine || isAI) && <p className="mb-0.5 text-[10px] font-medium opacity-60">{isAI ? '✨ Data360 AI' : msg.sender}</p>}
                           <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                          <p className={`mt-0.5 text-[10px] ${isMine && !isAI ? 'text-blue-200' : 'opacity-40'}`}>{formatTime(msg.created_at)}</p>
+                          <div className="mt-0.5 flex items-center justify-end gap-2">
+                            <p className={`text-[10px] ${isMine && !isAI ? 'text-blue-200' : 'opacity-40'}`}>{formatTime(msg.created_at)}</p>
+                            {/* Delete is only offered on your own persisted messages —
+                                never on AI replies or optimistic local_/ai_/err_ ids
+                                (which have no server row); the backend re-checks ownership. */}
+                            {isMine && !isAI && !/^(local_|ai_|err_)/.test(msg.message_id) && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMessage(msg.message_id)}
+                                title="Delete your message"
+                                aria-label="Delete your message"
+                                className="text-[10px] text-blue-200 underline transition hover:text-white"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

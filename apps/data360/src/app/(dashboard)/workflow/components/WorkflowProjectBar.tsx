@@ -24,6 +24,9 @@ import {
   GitBranch,
   History,
   Shield,
+  Users,
+  Lock,
+  Crown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
@@ -46,6 +49,10 @@ import {
   getProjectScoreCards,
   type ScoreCard,
 } from '@/app/services/command-center/score-cards';
+import {
+  getWorkflowOutputAccess,
+  type OutputAccess,
+} from '@/app/services/workflow/output-access';
 import CostSummaryCard from '@/app/shared/score-cards/CostSummaryCard';
 import { useWorkflowSectionQuery } from './useWorkflowSectionCache';
 
@@ -416,30 +423,174 @@ function ScopeBadge({ scope }: { scope: 'project' | 'account' }) {
   );
 }
 
-export function GovernanceTab({ workflowId, enabled }: { workflowId: string; enabled: boolean }) {
+export interface OutputTableRef {
+  database: string;
+  schema: string;
+  table: string;
+}
+
+const POLICY_LABEL: Record<string, string> = {
+  MASKING_POLICY: 'Masking',
+  ROW_ACCESS_POLICY: 'Row access (RLS)',
+  AGGREGATION_POLICY: 'Aggregation',
+  PROJECTION_POLICY: 'Projection',
+};
+
+/**
+ * Data Access — who can read this workflow's OUTPUT table and under what
+ * governance. Real SHOW GRANTS + POLICY_REFERENCES via /workflow/output-access.
+ * Answers the "governance of data viewers of outputs" question in-context.
+ */
+function DataAccessSection({ output, enabled }: { output: OutputTableRef | null; enabled: boolean }) {
+  const key = output ? `${output.database}.${output.schema}.${output.table}` : null;
+  const { state, data, error, reload } = useFetch<OutputAccess>(
+    () => getWorkflowOutputAccess(output!.database, output!.schema, output!.table),
+    enabled && !!output,
+    key ? `wf:outaccess:${key}` : null,
+  );
+
+  if (!output) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 px-2.5 py-2 dark:border-slate-700">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+          <Users className="h-3.5 w-3.5" /> Data Access
+        </div>
+        <p className="mt-0.5 text-[10px] text-slate-400">
+          Select an output (destination) block to see which roles can read its data and the policies governing it.
+        </p>
+      </div>
+    );
+  }
+  if (state === 'running' || state === 'idle') return <Loading />;
+  if (state === 'error') {
+    return <ErrorRow message={error ?? 'Failed to load data access'} onRetry={reload} />;
+  }
+
+  const a = data;
+  const viewers = a?.viewer_roles ?? [];
+  const users = a?.viewer_users ?? [];
+  const policies = a?.policies ?? [];
+  return (
+    <div className="rounded-lg border border-slate-200 px-2.5 py-2 dark:border-slate-700">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+          <Users className="h-3.5 w-3.5" /> Data Access
+        </span>
+        <span className="truncate text-[9px] text-slate-400" title={a?.table}>{output.table}</span>
+      </div>
+
+      {a?.owner && (
+        <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+          <Crown className="h-3 w-3 text-amber-500" /> Owner: <span className="font-medium">{a.owner}</span>
+        </div>
+      )}
+
+      <div className="mt-1.5">
+        <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+          Viewer roles ({viewers.length})
+        </div>
+        {viewers.length === 0 ? (
+          <p className="mt-0.5 text-[10px] italic text-slate-400">
+            No roles granted read access yet — only the owner can see this output.
+          </p>
+        ) : (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {viewers.map((v) => (
+              <span
+                key={v.role}
+                className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                title={`${v.privilege} on ${a?.table}${v.members?.length ? ' · members: ' + v.members.join(', ') : ''}`}
+              >
+                <Users className="h-2.5 w-2.5" /> {v.role}
+                {v.member_count ? <span className="opacity-60">·{v.member_count}</span> : null}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {users.length > 0 && (
+        <div className="mt-1.5">
+          <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+            Users with access ({users.length})
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {users.map((u) => (
+              <span
+                key={u.user}
+                className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                title={`via role ${u.via_role}`}
+              >
+                {u.user}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-1.5">
+        <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+          Governing policies ({policies.length})
+        </div>
+        {policies.length === 0 ? (
+          <p className="mt-0.5 text-[10px] italic text-slate-400">No masking / RLS / aggregation policy on this output.</p>
+        ) : (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {policies.map((p, i) => (
+              <span
+                key={`${p.policy_name}-${i}`}
+                className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                title={`${p.policy_name}${p.column ? ' on ' + p.column : ''}`}
+              >
+                <Lock className="h-2.5 w-2.5" /> {POLICY_LABEL[p.policy_kind] ?? p.policy_kind}
+                {p.column ? `: ${p.column}` : ''}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      {a?.degraded && (
+        <p className="mt-1 text-[9px] italic text-amber-500">Partial: {a.degraded_reasons.join(', ')}</p>
+      )}
+    </div>
+  );
+}
+
+export function GovernanceTab({
+  workflowId,
+  enabled,
+  output = null,
+}: {
+  workflowId: string;
+  enabled: boolean;
+  output?: OutputTableRef | null;
+}) {
   const { state, data, error, errorStatus, reload } = useFetch<ScoreCard[]>(
     () => getProjectScoreCards(workflowId),
     enabled,
     `wf:${workflowId}:scores`,
   );
-  if (state === 'running' || state === 'idle') return <Loading />;
-  if (state === 'error') {
-    if (isUnavailable(errorStatus)) {
-      return (
-        <BackendGap
-          title="Project scorecards coming soon"
-          note="Per-project DQ / Cost / Performance / Governance scores aren't deployed on this environment yet. They'll appear here automatically once the endpoint ships."
-        />
-      );
-    }
-    return <ErrorRow message={error ?? 'Failed to load project scores'} onRetry={reload} />;
-  }
+  // Data Access renders independently of the scorecard fetch state — always show
+  // "who can read this output + its governance" when an output block is selected.
   const cards = data ?? [];
-  if (cards.length === 0) return <EmptyState icon={Shield} compact title="No scores yet" />;
-
-  return (
-    <div className="space-y-1.5">
-      {cards.map((card) => (
+  let scoresBody: React.ReactNode;
+  if (state === 'running' || state === 'idle') {
+    scoresBody = <Loading />;
+  } else if (state === 'error') {
+    scoresBody = isUnavailable(errorStatus) ? (
+      <BackendGap
+        title="Project scorecards coming soon"
+        note="Per-project DQ / Cost / Performance / Governance scores aren't deployed on this environment yet. They'll appear here automatically once the endpoint ships."
+      />
+    ) : (
+      <ErrorRow message={error ?? 'Failed to load project scores'} onRetry={reload} />
+    );
+  } else if (cards.length === 0) {
+    scoresBody = <EmptyState icon={Shield} compact title="No scores yet" />;
+  } else {
+    scoresBody = (
+      <div className="space-y-1.5">
+        {cards.map((card) => (
         <div
           key={card.dimension}
           className="rounded-lg border border-slate-200 px-2.5 py-2 dark:border-slate-700"
@@ -476,10 +627,18 @@ export function GovernanceTab({ workflowId, enabled }: { workflowId: string; ena
           )}
         </div>
       ))}
-      <p className="text-[10px] text-slate-400">
-        “account-level” = no per-project attribution for that dimension yet — shown
-        honestly, never as project data.
-      </p>
+        <p className="text-[10px] text-slate-400">
+          “account-level” = no per-project attribution for that dimension yet — shown
+          honestly, never as project data.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <DataAccessSection output={output} enabled={enabled} />
+      {scoresBody}
     </div>
   );
 }

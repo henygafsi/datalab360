@@ -93,16 +93,20 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
   const [renameValue, setRenameValue] = useState(data.displayName || data.table);
 
   const displayName = data.displayName || data.table;
-  const visibleColumns = isExpanded ? data.columns : data.columns.slice(0, 5);
-  const hasMoreColumns = data.columns.length > 5;
+  // A freshly-created/unhydrated node can reach the canvas before its columns
+  // array is populated — normalize so .slice/.length/.map never throw into the
+  // error boundary.
+  const columns = Array.isArray(data.columns) ? data.columns : [];
+  const visibleColumns = isExpanded ? columns : columns.slice(0, 5);
+  const hasMoreColumns = columns.length > 5;
 
   // Calculate unmapped columns count for target tables
   const mappedColumnsSet = data.mappedColumns || new Set<string>();
   const unmappedCount = data.isTargetTable
-    ? data.columns.filter(col => !mappedColumnsSet.has(col.name)).length
+    ? columns.filter(col => !mappedColumnsSet.has(col.name)).length
     : 0;
   const mappedCount = data.isTargetTable
-    ? data.columns.filter(col => mappedColumnsSet.has(col.name)).length
+    ? columns.filter(col => mappedColumnsSet.has(col.name)).length
     : 0;
 
   // Handle click on more button - opens sidebar panel in parent
@@ -330,7 +334,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
               ) : (
                 <>
                   <ChevronRight className="h-3 w-3" />
-                  +{data.columns.length - 5} more columns
+                  +{columns.length - 5} more columns
                 </>
               )}
             </button>
@@ -339,7 +343,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
 
         {/* Footer */}
         <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 rounded-b-md border-t dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
-          <span><span className="font-semibold">{data.columns.length}</span> columns</span>
+          <span><span className="font-semibold">{columns.length}</span> columns</span>
           <div className="flex items-center gap-2">
             {/* Mapping status for target tables */}
             {data.isTargetTable && mappedCount > 0 && (

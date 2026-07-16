@@ -39,6 +39,7 @@ const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label
   RELATION_CREATED: { icon: Link2, label: 'Relation Created', color: 'bg-purple-100 text-purple-600' },
   RELATION_REMOVED: { icon: Link2, label: 'Relation Removed', color: 'bg-purple-100 text-purple-600' },
   TABLE_EXCLUDED: { icon: Trash2, label: 'Table Excluded', color: 'bg-red-100 text-red-600' },
+  TABLE_DROP_REQUEST: { icon: Trash2, label: 'Drop Table (DDL)', color: 'bg-red-100 text-red-700' },
   TABLE_INCLUDED: { icon: Check, label: 'Table Included', color: 'bg-green-100 text-green-600' },
   COLUMN_EXCLUDED: { icon: Trash2, label: 'Column Excluded', color: 'bg-red-100 text-red-600' },
   COLUMN_INCLUDED: { icon: Check, label: 'Column Included', color: 'bg-green-100 text-green-600' },
