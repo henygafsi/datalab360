@@ -209,12 +209,13 @@ export default function DrillThroughPanel({
   // Legacy portal overlay — kept for any caller still rendering it as an overlay.
   return (
     <div
-      className="fixed inset-y-0 right-0 z-[70] flex"
+      className="fixed inset-0 z-[70] flex bg-slate-900/40"
       role="dialog"
-      aria-modal="false"
+      aria-modal="true"
       aria-label="Drill-through details"
+      onClick={onClose}
     >
-      <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col">
+      <div onClick={(e) => e.stopPropagation()} className="ml-auto w-full max-w-2xl bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col">
         {content}
       </div>
     </div>
