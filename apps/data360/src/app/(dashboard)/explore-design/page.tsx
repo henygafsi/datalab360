@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredVa
 import { toMessage } from '@/lib/error-messages';
 import PermissionGate from '@/components/ui/PermissionGate';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import IngestionTaskMonitor from './components/IngestionTaskMonitor';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom, useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
@@ -6759,7 +6760,11 @@ export default function ExploreDesignPage() {
               <X className="h-4 w-4 text-slate-500" />
             </button>
           </div>
-          <div className="flex-1 overflow-auto p-4">
+          <div className="flex-1 overflow-auto p-4 space-y-4">
+            {/* Scheduled-task monitor: state · last/next run · pause/resume/run-now */}
+            <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+              <IngestionTaskMonitor projectId={selectedProjectId} />
+            </div>
             <IngestionResultsPanel projectId={selectedProjectId} className="overflow-auto" />
           </div>
         </div>

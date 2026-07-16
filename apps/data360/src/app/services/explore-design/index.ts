@@ -2841,6 +2841,54 @@ export async function draftPolicy(
   return data;
 }
 
+// ── Ingestion task monitor (state · last run · next run · pause/resume/run-now) ──
+export interface IngestionTask {
+  name: string;
+  fqn: string;
+  kind: 'ingestion' | 'deployment';
+  state: string;                 // 'started' | 'suspended' | ''
+  schedule: string | null;
+  warehouse: string | null;
+  owner: string | null;
+  last_suspended_reason: string | null;
+  last_run: {
+    state: string;
+    scheduled_time: string | null;
+    completed_time: string | null;
+    error_code: string | null;
+    error_message: string | null;
+  } | null;
+  next_run: string | null;
+}
+
+export interface IngestionTaskMonitor {
+  project_id: string;
+  tasks: IngestionTask[];
+  count: number;
+  operate_gate: string;
+}
+
+export async function getIngestionTaskMonitor(projectId: string): Promise<IngestionTaskMonitor> {
+  const { data } = await apiClient.get(`${ED}/${projectId}/ingestion/tasks`);
+  return data;
+}
+
+/** Pause the project's scheduled ingestion task (rights-gated). */
+export async function suspendIngestionTask(projectId: string) {
+  const { data } = await apiClient.post(`${ED}/${projectId}/ingestion/tasks/suspend`, {});
+  return data;
+}
+/** Resume the project's scheduled ingestion task (rights-gated). */
+export async function resumeIngestionTask(projectId: string) {
+  const { data } = await apiClient.post(`${ED}/${projectId}/ingestion/tasks/resume`, {});
+  return data;
+}
+/** Run the project's ingestion task immediately (EXECUTE TASK). */
+export async function runIngestionTaskNow(projectId: string) {
+  const { data } = await apiClient.post(`${ED}/${projectId}/ingestion/tasks/run-now`, {});
+  return data;
+}
+
 /** Apply pending declarations as real Snowflake policies. POST …/masking-configs/apply */
 export async function applyMaskingConfigs(projectId: string):
   Promise<{ project_id: string; pending: number; applied: number; failed: number;
