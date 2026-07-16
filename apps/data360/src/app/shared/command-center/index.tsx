@@ -143,7 +143,6 @@ import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
-import AxisCockpit from '@/app/shared/cockpit/AxisCockpit';
 import KpiStrip from '@/app/shared/cockpit/KpiStrip';
 import { useCommandCenterCockpit } from './CommandCenterCockpit';
 import SectionRail from './SectionRail';
@@ -163,10 +162,13 @@ const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
 const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
 const SnowflakeAccountsAuditSection = lazy(() => import('./SnowflakeAccountsAuditSection'));
 const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
+const OrganizationCockpit = lazy(() => import('./OrganizationCockpit'));
 const DwhActionPlanTab = lazy(() => import('./dwh-action-plan-tab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
 import { useSession } from 'next-auth/react';
 import ServerlessFinOpsCards from './serverless-finops-cards';
+import StorageSplitCard from './StorageSplitCard';
+import WarehouseEfficiencyCard from './WarehouseEfficiencyCard';
 import TopProblemsPanel from './TopProblemsPanel';
 import WhatChangedCard from './WhatChangedCard';
 import ActivityDigestCard from './ActivityDigestCard';
@@ -176,6 +178,7 @@ import AiAdvisor from './AiAdvisor';
 import SnowflakeInsightsAdvisor from './SnowflakeInsightsAdvisor';
 import SecurityMap from './SecurityMap';
 import GovernanceCockpit from './GovernanceCockpit';
+import GovernanceOnePager from './GovernanceOnePager';
 import ObjectStorageAudit from './ObjectStorageAudit';
 import SnowflakeObjectsTab from './SnowflakeObjectsTab';
 import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
@@ -1496,14 +1499,13 @@ function CommandCenterDashboardInner() {
   const [filterOptions, setFilterOptions] =
     useState<FilterOptionsResponse | null>(null);
 
-  // Unified Axis Cockpit (shared right-edge primitive) + KPI strip. Reuses the
-  // shell-fetched state above (summary / module-health / activity-feed / cost)
-  // and lazily fetches an axis's data only the first time it is opened.
+  // KPI strip source (the docked AxisCockpit overlay was deleted 2026-07-12 —
+  // it duplicated tab content behind a second navigation; every strip tile now
+  // deep-links to its owning section's audit tables instead).
   const cockpit = useCommandCenterCockpit({
     days: filters.days,
     summary,
     moduleHealth,
-    activityFeed,
     costData,
     onNavigateTab: goToTab,
   });
@@ -1529,6 +1531,35 @@ function CommandCenterDashboardInner() {
   // this so the tab renders an inline error + Retry instead of an infinite
   // skeleton (CostTab/SecurityAdvTab fall to <LoadingSection/> on `!data`).
   const [tabError, setTabError] = useState<Record<string, string | null>>({});
+
+  // Bounded auto-retry for cold-start-shaped failures. A single failed fetch
+  // used to brick the whole tab into TabErrorState until a MANUAL retry —
+  // live-reproduced (night-3): backend restarting → connection refused →
+  // FinOps stuck on "Erreur serveur" while the backend was healthy 15s later.
+  // Retryable = the backend/cache is coming up (network refusal, 5xx from the
+  // gateway, CACHE_NOT_READY). Bare 500 included: the Next rewrite proxy
+  // (/api-proxy) masks an unreachable upstream as 500 "Internal Server Error"
+  // (verified live). At most TWO retries per tab per mount, 10s apart — spans
+  // a realistic ~15-20s backend boot; a persistent failure lands in the normal
+  // error state (this is not a poll loop).
+  const coldRetryCount = useRef<Record<string, number>>({});
+  const scheduleColdRetry = useCallback((tab: string, retry: () => void, err: unknown): boolean => {
+    const ax = err as {
+      code?: string;
+      response?: { status?: number; data?: { detail?: { error_code?: string } } };
+    };
+    const status = ax?.response?.status;
+    const retryable =
+      ax?.code === 'ERR_NETWORK' ||
+      ax?.code === 'ECONNABORTED' ||
+      status === 500 || status === 502 || status === 503 || status === 504 ||
+      ax?.response?.data?.detail?.error_code === 'CACHE_NOT_READY';
+    const used = coldRetryCount.current[tab] ?? 0;
+    if (!retryable || used >= 2) return false;
+    coldRetryCount.current[tab] = used + 1;
+    window.setTimeout(retry, 10000);
+    return true;
+  }, []);
 
   // ── Fetchers ─────────────────────────────────────────────────────────────
 
@@ -1673,6 +1704,7 @@ function CommandCenterDashboardInner() {
   }, [filters]);
 
   const fetchProjects = useCallback(async () => {
+    let retryPending = false;
     setTabLoading((p) => ({ ...p, projects: true }));
     setTabError((p) => ({ ...p, projects: null }));
     try {
@@ -1686,15 +1718,20 @@ function CommandCenterDashboardInner() {
       setLastUpdated(new Date());
       tabDataCache.current['projects'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
-      const msg = getApiErrorMessage(err) || 'Failed to load projects data';
-      toast.error(msg);
-      setTabError((p) => ({ ...p, projects: msg }));
+      retryPending = scheduleColdRetry('projects', () => void fetchProjects(), err);
+      if (!retryPending) {
+        const msg = getApiErrorMessage(err) || 'Failed to load projects data';
+        toast.error(msg);
+        setTabError((p) => ({ ...p, projects: msg }));
+      }
     } finally {
-      setTabLoading((p) => ({ ...p, projects: false }));
+      // Keep the skeleton up while the one-shot cold retry is in flight.
+      if (!retryPending) setTabLoading((p) => ({ ...p, projects: false }));
     }
-  }, [filters]);
+  }, [filters, scheduleColdRetry]);
 
   const fetchSecurityAdv = useCallback(async () => {
+    let retryPending = false;
     setTabLoading((p) => ({ ...p, security: true }));
     setTabError((p) => ({ ...p, security: null }));
     try {
@@ -1712,13 +1749,16 @@ function CommandCenterDashboardInner() {
         filtersKey: buildFiltersKey(filters),
       };
     } catch (err) {
-      const msg = getApiErrorMessage(err) || 'Failed to load security data';
-      toast.error(msg);
-      setTabError((p) => ({ ...p, security: msg }));
+      retryPending = scheduleColdRetry('security', () => void fetchSecurityAdv(), err);
+      if (!retryPending) {
+        const msg = getApiErrorMessage(err) || 'Failed to load security data';
+        toast.error(msg);
+        setTabError((p) => ({ ...p, security: msg }));
+      }
     } finally {
-      setTabLoading((p) => ({ ...p, security: false }));
+      if (!retryPending) setTabLoading((p) => ({ ...p, security: false }));
     }
-  }, [filters]);
+  }, [filters, scheduleColdRetry]);
 
   const fetchGovGrants = useCallback(async () => {
     setTabLoading((p) => ({ ...p, 'governance-grants': true }));
@@ -1787,6 +1827,7 @@ function CommandCenterDashboardInner() {
   }, [filters]);
 
   const fetchCost = useCallback(async () => {
+    let retryPending = false;
     setTabLoading((p) => ({ ...p, finops: true }));
     setTabError((p) => ({ ...p, finops: null }));
     try {
@@ -1822,13 +1863,16 @@ function CommandCenterDashboardInner() {
       setLastUpdated(new Date());
       tabDataCache.current['finops'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
-      const msg = getApiErrorMessage(err) || 'Failed to load cost data';
-      toast.error(msg);
-      setTabError((p) => ({ ...p, finops: msg }));
+      retryPending = scheduleColdRetry('finops', () => void fetchCost(), err);
+      if (!retryPending) {
+        const msg = getApiErrorMessage(err) || 'Failed to load cost data';
+        toast.error(msg);
+        setTabError((p) => ({ ...p, finops: msg }));
+      }
     } finally {
-      setTabLoading((p) => ({ ...p, finops: false }));
+      if (!retryPending) setTabLoading((p) => ({ ...p, finops: false }));
     }
-  }, [filters]);
+  }, [filters, scheduleColdRetry]);
 
   const fetchCompute = useCallback(async () => {
     setTabLoading((p) => ({ ...p, compute: true }));
@@ -2123,12 +2167,14 @@ function CommandCenterDashboardInner() {
   };
   const onSectionRefresh = sectionRefresh[activeTabDef.id];
 
-  // Rail axis chips → the docked cockpit axis that owns that dimension.
-  const DIMENSION_TO_AXIS: Record<KpiDimension, string> = {
-    dq: 'quality',
-    gov: 'governance',
-    cost: 'cost',
-    perf: 'perf',
+  // Rail axis chips → the SECTION whose audit tables own that dimension
+  // (the docked cockpit-axis overlay was deleted — metrics drill into real
+  // data, causes and actions live in the sections' audit tables).
+  const DIMENSION_TO_SECTION: Record<KpiDimension, string> = {
+    dq: 'data-quality',
+    gov: 'security',
+    cost: 'finops',
+    perf: 'usage-performance',
   };
 
   // ONLY the active section's body is computed + rendered. All 9 sections'
@@ -2242,77 +2288,86 @@ function CommandCenterDashboardInner() {
            No popups, no page scroll. */
         return (
           <div className="flex h-full min-h-0 flex-col gap-3">
-            {/* The Governance cockpit is now the SOLE default surface — compact
-                KPI strip + segmented Overview/Audit/Timeline + contextual right
-                bar, consuming /account-overview/governance/intelligence. It
-                fills the frame (one screen, no page scroll). The legacy
-                SecurityAdvTab charts/tables and the grants/access/map surfaces
-                move BEHIND collapsed drawers below (hidable/displayable, one
-                scroll each) — killing the old 5-screen stack (user 2026-07-12). */}
+            {/* Governance ONE-PAGER (2026-07-13 refactor): compact executive
+                cockpit — header (score · health · freshness) · KPI strip ·
+                findings audit (server-paginated) + score breakdown + events ·
+                expandable bottom deep-dive (timeline / recommendations) ·
+                contextual right bar — powered by the single role-scoped
+                /account-overview/governance/intelligence aggregate. Mirrors the
+                Organization one-pager. The previous GovernanceCockpit and the
+                legacy SecurityAdvTab / grants / access / map surfaces move
+                BEHIND a collapsed disclosure so no evidence disappears. */}
             <div className="min-h-0 flex-1">
-              <GovernanceCockpit filters={filters} />
+              <GovernanceOnePager />
             </div>
-            <div className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-4">
-              <MoreDrawer label="Detailed security audit" className="col-span-2 md:col-span-1">
-                {tabError.security && !tabLoading['security'] ? (
-                  <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
-                ) : (
-                  <SecurityAdvTab
-                    data={securityData}
-                    loading={tabLoading['security']}
-                    onNavigateTab={goToTab}
-                  />
-                )}
-              </MoreDrawer>
-              <MoreDrawer label="Governance & grants" className="col-span-2 md:col-span-1">
-                <GovernanceGrantsTab
-                  data={govGrantsData}
-                  loading={tabLoading['governance-grants']}
-                />
-              </MoreDrawer>
-              <MoreDrawer label="Access requests" className="md:col-span-1">
-                <AccessRequestsCard />
-              </MoreDrawer>
-              <MoreDrawer label="Security map" className="md:col-span-1">
-                <SecurityMap days={filters.days} />
-              </MoreDrawer>
-            </div>
+            <details className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-700">
+              <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+                Detailed panels (governance cockpit · security audit · grants · access · map)
+              </summary>
+              <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+                <div className="mb-3 min-h-0 xl:h-[640px] xl:overflow-y-auto">
+                  <GovernanceCockpit filters={filters} />
+                </div>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <MoreDrawer label="Detailed security audit" className="col-span-2 md:col-span-1">
+                    {tabError.security && !tabLoading['security'] ? (
+                      <TabErrorState message={tabError.security} onRetry={fetchSecurityAdv} />
+                    ) : (
+                      <SecurityAdvTab
+                        data={securityData}
+                        loading={tabLoading['security']}
+                        onNavigateTab={goToTab}
+                      />
+                    )}
+                  </MoreDrawer>
+                  <MoreDrawer label="Governance & grants" className="col-span-2 md:col-span-1">
+                    <GovernanceGrantsTab
+                      data={govGrantsData}
+                      loading={tabLoading['governance-grants']}
+                    />
+                  </MoreDrawer>
+                  <MoreDrawer label="Access requests" className="md:col-span-1">
+                    <AccessRequestsCard />
+                  </MoreDrawer>
+                  <MoreDrawer label="Security map" className="md:col-span-1">
+                    <SecurityMap days={filters.days} />
+                  </MoreDrawer>
+                </div>
+              </div>
+            </details>
           </div>
         );
       case 'organization':
-        /* Merged Organization section: org summary + ORGADMIN-gated org
-           accounts + Snowflake accounts honest-empty states, stacked. Each
-           child owns its own ORGADMIN gating + honest empty messaging. */
+        /* Organization ONE-PAGER (2026-07-12 refactor): a compact executive
+           cockpit — header · KPI strip · portfolio+health · events · expandable
+           bottom deep-dive (audit tables + charts) — powered by the single
+           role-scoped /account-overview/organization/intelligence aggregate and
+           its L2 detail endpoints. Replaces the old long-scroll 2×2 grid, which
+           now lives behind a collapsed disclosure so no evidence disappears. */
         return (
           <Suspense fallback={<LoadingSection />}>
-            {/* 2×2 dashboard grid — each quadrant is a self-contained
-                component with INTERNAL scroll (they own their fetches and
-                ORGADMIN gating). Below xl the grid stacks and the tab's zone
-                scrolls internally; the page never scrolls. */}
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              <div className="min-h-0 xl:overflow-y-auto">
-                {/* Self-contained: owns its own date-range + role/module/account
-                    filters; does NOT consume the parent global filter bar. */}
-                <OrgSummaryTab />
-              </div>
-              <div className="min-h-0 xl:overflow-y-auto">
-                <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Org accounts
-                </h3>
-                <OrgAccountsTab onNavigateTab={goToTab} />
-              </div>
-              <div className="min-h-0 xl:overflow-y-auto">
-                <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Connected Accounts
-                </h3>
-                <SnowflakeAccountsTab onNavigateTab={goToTab} />
-              </div>
-              <div className="min-h-0 xl:overflow-y-auto">
-                <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Accounts &amp; audit
-                </h3>
-                <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
-              </div>
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              <OrganizationCockpit />
+              <details className="rounded-xl border border-slate-200 dark:border-slate-700">
+                <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+                  Detailed panels (org summary · accounts · connected-account audit)
+                </summary>
+                <div className="grid grid-cols-1 gap-3 border-t border-slate-200 p-3 dark:border-slate-700 xl:grid-cols-2">
+                  <div className="min-h-0 xl:overflow-y-auto"><OrgSummaryTab /></div>
+                  <div className="min-h-0 xl:overflow-y-auto">
+                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Org accounts</h3>
+                    <OrgAccountsTab onNavigateTab={goToTab} />
+                  </div>
+                  <div className="min-h-0 xl:overflow-y-auto">
+                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connected Accounts</h3>
+                    <SnowflakeAccountsTab onNavigateTab={goToTab} />
+                  </div>
+                  <div className="min-h-0 xl:overflow-y-auto">
+                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Accounts &amp; audit</h3>
+                    <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
+                  </div>
+                </div>
+              </details>
             </div>
           </Suspense>
         );
@@ -2480,24 +2535,7 @@ function CommandCenterDashboardInner() {
         </div>
 
         {/* Actions right-bar removed (spec §3) — contextual actions live in the
-            Axis Cockpit / GovernanceCockpit right bar below. */}
-
-        {/* ── Docked Axis Cockpit panel — opened from KPI-strip tiles and the
-            rail's axis chips; nothing renders while closed (the SectionRail
-            is the resting right edge). Zero popups, everything docked. ── */}
-        {cockpit.open && (
-          <div className="hidden min-h-0 shrink-0 self-stretch overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900 md:block">
-            <AxisCockpit
-              railMode="header"
-              axes={cockpit.axes}
-              open={cockpit.open}
-              activeAxis={cockpit.activeAxis}
-              onOpenAxis={cockpit.openAxis}
-              onClose={cockpit.close}
-              className="h-full"
-            />
-          </div>
-        )}
+            GovernanceCockpit right bar / section audit tables. */}
 
         {/* ── SectionRail: overview by axis + the section navigation ── */}
         <SectionRail
@@ -2505,7 +2543,7 @@ function CommandCenterDashboardInner() {
           activeId={activeTabDef.id}
           onSelect={goToTab}
           days={filters.days}
-          onOpenDimension={(dim) => cockpit.openAxis(DIMENSION_TO_AXIS[dim])}
+          onOpenDimension={(dim) => goToTab(DIMENSION_TO_SECTION[dim])}
           // #69/#70: the page scrolls (growth contract) — the rail must
           // FOLLOW or its column reads as a giant dead zone when scrolled.
           className="order-first md:order-last md:sticky md:top-4 md:max-h-[calc(100dvh-2rem)] md:self-start md:overflow-y-auto"
@@ -5492,6 +5530,12 @@ const CostTab = memo(function CostTab({
       <ServerlessFinOpsCards days={30} />
 
         </GridCell>
+        <GridCell className="xl:col-span-6">
+      {/* Storage-split axis — active vs time-travel/failsafe/stage with history
+          + per-axis refresh (FINAL-TAB-DISPLAY-SPEC storage-split KPI). */}
+      <StorageSplitCard days={30} />
+
+        </GridCell>
         <GridCell>
       {/* Iter 4 — Compute vs Storage stacked area + Optimization Recommendations rail */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
@@ -7631,6 +7675,11 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
       </KpiZone>
       <Board>
         <PerformanceTab data={perf} loading={perfLoading} zone="board" />
+        {/* Compute-efficiency axis — surfaces the warehouse-efficiency endpoint
+            (queue/spill/misconfig flags) that previously had NO UI consumer. */}
+        <GridCell>
+          <WarehouseEfficiencyCard days={30} />
+        </GridCell>
         <DataOperationsTab data={ops} loading={opsLoading} zone="board" />
       </Board>
     </TabGrid>

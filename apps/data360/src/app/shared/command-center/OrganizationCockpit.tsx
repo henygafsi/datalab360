@@ -1,0 +1,763 @@
+'use client';
+
+/**
+ * OrganizationCockpit — the Account Overview › Organization ONE-PAGER.
+ *
+ * Replaces the old long-scroll 2×2 grid (OrgSummary + OrgAccounts + Snowflake
+ * accounts stacked) with an executive cockpit that fits ~1–1.5 viewports:
+ *
+ *   A. Compact header  — org · accounts · D360 coverage · health · freshness
+ *   C. Compact KPI strip (kpi_cards; click → opens the matching deep-dive)
+ *   D. Cockpit body    — Account Portfolio matrix  +  Health components
+ *   E. Critical findings / AI priorities (timeline + score contributors)
+ *   F. Bottom deep-dive tab bar → EXPANDABLE panel (audit table + chart)
+ *
+ * Everything is powered by ONE role-scoped aggregate
+ * (GET /account-overview/organization/intelligence) plus its server-paginated
+ * L2 detail endpoints (…/intelligence/{accounts|cost|security|adoption|events}).
+ * No Snowflake queries from the client; honest freshness (ORGANIZATION_USAGE is
+ * ≤24h latent, never "live"); data-first skeletons; no fabricated values.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from 'recharts';
+import {
+  AlertTriangle, Building2, ChevronDown, Database, Gauge, RefreshCw,
+  ShieldCheck, Sparkles, Users,
+} from 'lucide-react';
+import toast from 'react-hot-toast';
+import { cn } from '@/lib/utils';
+import {
+  getOrganizationIntelligence,
+  getOrganizationDetail,
+  type OrgIntelResponse,
+  type OrgDetailResponse,
+  type OrgDetailTab,
+  type OrgAccountRow,
+} from '@/app/services/command-center';
+import {
+  getAccountMetadata,
+  updateAccountMetadata,
+  type AccountMetadata,
+} from '@/app/services/org-accounts/hooks';
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+function relTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '—';
+  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+function toneClass(tone: string | null | undefined): string {
+  switch (tone) {
+    case 'red': return 'text-rose-600 dark:text-rose-400';
+    case 'amber': return 'text-amber-600 dark:text-amber-400';
+    case 'green': return 'text-emerald-600 dark:text-emerald-400';
+    default: return 'text-slate-800 dark:text-slate-100';
+  }
+}
+function healthColor(v: number | null): string {
+  if (v == null) return 'bg-slate-200 dark:bg-slate-700';
+  if (v < 40) return 'bg-rose-500';
+  if (v < 70) return 'bg-amber-400';
+  return 'bg-emerald-500';
+}
+function num(v: unknown): number | null {
+  const n = typeof v === 'string' ? Number(v) : (v as number);
+  return typeof n === 'number' && Number.isFinite(n) ? n : null;
+}
+function fmt(v: unknown): string {
+  const n = num(v);
+  if (n == null) return String(v ?? '—');
+  return n.toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+// KPI id → which bottom deep-dive it drills into.
+const KPI_TO_TAB: Record<string, OrgDetailTab> = {
+  health: 'accounts', accounts: 'accounts', connected: 'accounts',
+  credits: 'cost', cost: 'cost', spend: 'cost',
+  adoption: 'adoption', users: 'adoption',
+  security: 'security', failed_logins: 'security',
+};
+
+const DEEP_TABS: { id: OrgDetailTab; label: string }[] = [
+  { id: 'accounts', label: 'Accounts' },
+  { id: 'cost', label: 'Cost & Capacity' },
+  { id: 'adoption', label: 'Data360 Adoption' },
+  { id: 'security', label: 'Security & Access' },
+  { id: 'events', label: 'Events & Recos' },
+];
+
+// ── component ────────────────────────────────────────────────────────────────
+export default function OrganizationCockpit() {
+  const [data, setData] = useState<OrgIntelResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [days, setDays] = useState(30);
+  const [openTab, setOpenTab] = useState<OrgDetailTab | null>(null);
+  // Dynamic right bar: the selected account (click a portfolio row).
+  const [selAccount, setSelAccount] = useState<OrgAccountRow | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const d = await getOrganizationIntelligence({ days });
+    setData(d);
+    setLoading(false);
+  }, [days]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }, [load]);
+
+  const ctx = data?.org_context;
+  const score = num(data?.score_summary?.score);
+  const connected = useMemo(
+    () => (data?.account_portfolio ?? []).filter((a) => a.d360_connected).length,
+    [data],
+  );
+  const coverage = useMemo(() => {
+    const tot = data?.account_portfolio?.length ?? 0;
+    return tot ? Math.round((connected / tot) * 100) : null;
+  }, [data, connected]);
+
+  // Score contributors → critical findings (the deterministic backend value;
+  // COCO never calculates it). Lowest-scoring components bubble up first.
+  const contributors = useMemo(() => {
+    const comps = (data?.score_summary as { components?: Array<Record<string, unknown>> } | undefined)?.components ?? [];
+    return [...comps]
+      .map((c) => ({
+        name: String(c.name ?? c.component ?? c.key ?? 'component'),
+        score: num(c.normalized ?? c.score ?? c.normalized_score),
+        weight: num(c.weight),
+        excluded: Boolean(c.excluded),
+      }))
+      .filter((c) => !c.excluded && c.score != null)
+      .sort((a, b) => (a.score ?? 0) - (b.score ?? 0))
+      .slice(0, 5);
+  }, [data]);
+
+  if (loading && !data) return <CockpitSkeleton />;
+  if (!data) {
+    return (
+      <div className="rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+        Organization intelligence unavailable. This account may not have ORGADMIN visibility.
+        <button type="button" onClick={() => void load()} className="ml-2 underline">retry</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {/* ── A. Compact header ── */}
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm dark:border-slate-700 dark:bg-slate-900">
+        <span className="flex items-center gap-1.5 font-semibold text-slate-900 dark:text-white">
+          <Building2 className="h-4 w-4 text-blue-500" />
+          Organization {ctx?.organization ?? '—'}
+        </span>
+        <span className="text-slate-500 dark:text-slate-400">
+          {ctx?.visible_accounts ?? data.account_portfolio.length} accounts
+        </span>
+        <span className="text-slate-500 dark:text-slate-400">
+          D360 coverage {coverage != null ? `${coverage}%` : '—'} ({connected} connected)
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className={cn('h-2 w-2 rounded-full', healthColor(score))} />
+          <span className="font-medium">Health {score != null ? `${score}/100` : '—'}</span>
+        </span>
+        <span className="ml-auto flex items-center gap-3 text-xs text-slate-400">
+          <span title="ORGANIZATION_USAGE is ≤24h latent — never live">
+            Snapshot {relTime(data.freshness?.snowflake_org_usage)}
+          </span>
+          <span>Events {relTime(data.freshness?.event_store)}</span>
+          <button
+            type="button" onClick={() => void refresh()} disabled={refreshing}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} /> Refresh
+          </button>
+          <select
+            value={days} onChange={(e) => setDays(Number(e.target.value))}
+            className="rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+          >
+            {[7, 30, 90].map((d) => <option key={d} value={d}>{d}d</option>)}
+          </select>
+        </span>
+      </header>
+
+      {/* ── C. Compact KPI strip ── */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+        {data.kpi_cards.map((k) => {
+          const tab = KPI_TO_TAB[k.id];
+          const interactive = !!tab;
+          return (
+            <button
+              key={k.id}
+              type="button"
+              disabled={!interactive}
+              onClick={interactive ? () => setOpenTab(tab) : undefined}
+              className={cn(
+                'rounded-xl border border-slate-200 bg-white p-2.5 text-left dark:border-slate-700 dark:bg-slate-900',
+                interactive && 'cursor-pointer transition hover:border-blue-400 hover:shadow-sm',
+              )}
+              title={interactive ? `Open ${tab} deep-dive` : undefined}
+            >
+              <div className="truncate text-[10px] uppercase tracking-wide text-slate-400" title={k.label}>{k.label}</div>
+              <div className={cn('mt-0.5 text-lg font-semibold tabular-nums', toneClass(k.tone))}>
+                {k.value == null ? '—' : fmt(k.value)}<span className="text-xs font-normal text-slate-400">{k.unit ?? ''}</span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── D. Cockpit body: portfolio (left) + health/findings (right) ── */}
+      <div className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-3">
+        {/* Account Portfolio matrix */}
+        <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900 xl:col-span-2">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+              <Database className="h-4 w-4 text-slate-400" /> Account portfolio
+            </h3>
+            <button type="button" onClick={() => setOpenTab('accounts')} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
+              Open full audit →
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-400 dark:border-slate-700">
+                  <th className="py-1.5 pr-2 font-medium">Account</th>
+                  <th className="py-1.5 pr-2 font-medium">Region</th>
+                  <th className="py-1.5 pr-2 font-medium">Edition</th>
+                  <th className="py-1.5 pr-2 font-medium">D360</th>
+                  <th className="py-1.5 pr-2 text-right font-medium">Cost</th>
+                  <th className="py-1.5 pr-2 text-right font-medium">Users</th>
+                  <th className="py-1.5 font-medium">Health</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.account_portfolio.map((a) => {
+                  const h = num(a.health);
+                  return (
+                    <tr
+                      key={String(a.account)}
+                      onClick={() => setSelAccount(a)}
+                      className={cn(
+                        'cursor-pointer border-b border-slate-100 last:border-0 hover:bg-blue-50/60 dark:border-slate-800 dark:hover:bg-blue-950/20',
+                        selAccount?.account === a.account && 'bg-blue-50 dark:bg-blue-950/30',
+                      )}
+                      title="Open account investigation"
+                    >
+                      <td className="py-1.5 pr-2 font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                        <span className="flex items-center gap-1.5">
+                          {a.account}
+                          {typeof a.classification === 'string' && a.classification && (
+                            <span
+                              className={cn(
+                                'rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide',
+                                a.classification === 'restricted' || a.classification === 'confidential'
+                                  ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+                                  : 'bg-slate-100 text-slate-500 dark:bg-slate-800',
+                              )}
+                              title={`Classification: ${a.classification}${typeof a.owner === 'string' && a.owner ? ` · Owner: ${a.owner}` : ''}`}
+                            >
+                              {a.classification}
+                            </span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="py-1.5 pr-2 text-slate-500">{a.region}</td>
+                      <td className="py-1.5 pr-2 text-slate-500">{a.edition}</td>
+                      <td className="py-1.5 pr-2">
+                        {a.d360_connected
+                          ? <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">connected</span>
+                          : <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800">not connected</span>}
+                      </td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums text-slate-600 dark:text-slate-300">{a.cost != null ? fmt(a.cost) : '—'}</td>
+                      <td className="py-1.5 pr-2 text-right tabular-nums text-slate-600 dark:text-slate-300">{a.active_users ?? '—'}</td>
+                      <td className="py-1.5">
+                        <span className="flex items-center gap-1.5">
+                          <span className={cn('h-2 w-2 rounded-full', healthColor(h))} />
+                          <span className="tabular-nums text-slate-600 dark:text-slate-300">{h != null ? h : '—'}</span>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* Health components + critical findings */}
+        <section className="flex min-h-0 flex-col gap-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+              <Gauge className="h-4 w-4 text-slate-400" /> Health contributors
+            </h3>
+            {contributors.length === 0 ? (
+              <p className="text-xs text-slate-400">No scored components available.</p>
+            ) : (
+              <ul className="space-y-2">
+                {contributors.map((c) => (
+                  <li key={c.name}>
+                    <div className="mb-0.5 flex items-center justify-between text-xs">
+                      <span className="capitalize text-slate-600 dark:text-slate-300">{c.name.replace(/_/g, ' ')}</span>
+                      <span className="tabular-nums text-slate-500">{c.score}/100</span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div className={cn('h-full rounded-full', healthColor(c.score))} style={{ width: `${Math.max(3, c.score ?? 0)}%` }} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="min-h-0 flex-1 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+              <AlertTriangle className="h-4 w-4 text-amber-500" /> Recent events
+            </h3>
+            {data.timeline.length === 0 ? (
+              <p className="text-xs text-slate-400">No recent organization events.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {data.timeline.slice(0, 6).map((e, i) => (
+                  <li key={i} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="min-w-0 truncate text-slate-600 dark:text-slate-300" title={`${e.event_type ?? ''} · ${e.actor ?? ''}`}>
+                      <span className="text-slate-400">{e.module ?? '—'}</span> {e.event_type ?? '—'}
+                    </span>
+                    <span className={cn('shrink-0', e.status === 'FAILED' || e.status === 'ERROR' ? 'text-rose-500' : 'text-slate-400')}>
+                      {e.status ?? ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button type="button" onClick={() => setOpenTab('events')} className="mt-2 text-xs text-blue-600 hover:underline dark:text-blue-400">
+              Open events audit →
+            </button>
+          </div>
+        </section>
+      </div>
+
+      {/* ── F. Bottom deep-dive tab bar ── */}
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 dark:border-slate-700 dark:bg-slate-900">
+        <span className="px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Deep-dive</span>
+        {DEEP_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setOpenTab(openTab === t.id ? null : t.id)}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition',
+              openTab === t.id
+                ? 'bg-blue-600 text-white'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+            )}
+          >
+            {t.label}
+            {openTab === t.id && <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Expandable deep-dive panel ── */}
+      {openTab && <OrgDeepDive tab={openTab} days={days} onClose={() => setOpenTab(null)} />}
+
+      {/* ── Dynamic right bar: selected-account investigation ── */}
+      {selAccount && (
+        <AccountRightBar
+          account={selAccount}
+          currency={data.org_context?.currency ?? 'USD'}
+          actions={data.allowed_actions?.account ?? []}
+          onClose={() => setSelAccount(null)}
+          onOpenTab={(t) => { setSelAccount(null); setOpenTab(t); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Dynamic right bar for a selected account ─────────────────────────────────
+function AccountRightBar({
+  account, currency, actions, onClose, onOpenTab,
+}: {
+  account: OrgAccountRow;
+  currency: string;
+  actions: string[];
+  onClose: () => void;
+  onOpenTab: (tab: OrgDetailTab) => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const h = num(account.health);
+  const facts: Array<[string, string]> = [
+    ['Locator', String(account.locator ?? '—')],
+    ['Region', String(account.region ?? '—')],
+    ['Cloud', String(account.cloud ?? '—')],
+    ['Edition', String(account.edition ?? '—')],
+    ['Lifecycle', String(account.lifecycle ?? '—')],
+    ['ORGADMIN', account.orgadmin ? 'yes' : 'no'],
+    ['Reader account', account.reader ? 'yes' : 'no'],
+    ['SVC health', String(account.svc_health ?? '—')],
+  ];
+  const ACTION_LABEL: Record<string, string> = {
+    connect_svc: 'Connect service account',
+    rotate_svc: 'Rotate service-account key',
+    review_lifecycle: 'Review account lifecycle',
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={`Account ${account.account}`}>
+      <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-[1px]" onClick={onClose} />
+      <aside className="relative flex h-full w-full max-w-[460px] flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <header className="flex items-start justify-between gap-2 border-b border-slate-200 p-4 dark:border-slate-700">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className={cn('h-2.5 w-2.5 rounded-full', healthColor(h))} />
+              <h3 className="truncate font-mono text-sm font-semibold text-slate-900 dark:text-white">{account.account}</h3>
+              {account.d360_connected
+                ? <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">D360 connected</span>
+                : <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800">not connected</span>}
+            </div>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Health {h != null ? `${h}/100` : '—'} · {account.region}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="flex-shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {/* Cost / usage summary */}
+          <div className="grid grid-cols-3 gap-2 border-b border-slate-200 p-4 dark:border-slate-700">
+            {[
+              ['Cost', account.cost != null ? `${fmt(account.cost)} ${account.cost_currency ?? currency}` : '—'],
+              ['Active users', account.active_users != null ? fmt(account.active_users) : '—'],
+              ['Failed logins', account.login_failed != null ? fmt(account.login_failed) : '—'],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <div className="text-[10px] uppercase tracking-wide text-slate-400">{k}</div>
+                <div className="mt-0.5 text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">{v}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Identity facts */}
+          <div className="border-b border-slate-200 p-4 dark:border-slate-700">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Identity</p>
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+              {facts.map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-2">
+                  <dt className="text-slate-400">{k}</dt>
+                  <dd className="truncate font-medium text-slate-700 dark:text-slate-300" title={v}>{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          {/* Drill-downs into the deep-dive tables */}
+          <div className="border-b border-slate-200 p-4 dark:border-slate-700">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Investigate</p>
+            <div className="flex flex-wrap gap-2">
+              {([['cost', 'Cost & capacity'], ['adoption', 'Adoption'], ['security', 'Security']] as [OrgDetailTab, string][]).map(([t, label]) => (
+                <button key={t} type="button" onClick={() => onOpenTab(t)}
+                  className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:border-blue-400 hover:text-blue-600 dark:border-slate-700 dark:text-slate-300">
+                  {label} audit →
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Governed edit: Data360 account metadata (owner/classification/
+              monitoring/tags) → persists + emits an audit event. */}
+          <AccountMetadataEditor account={String(account.account)} />
+
+          {/* Backend-authorized actions (allowed_actions.account) */}
+          {actions.length > 0 && (
+            <div className="p-4">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Actions</p>
+              <div className="flex flex-col gap-2">
+                {actions.map((a) => (
+                  <button key={a} type="button"
+                    className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-left text-xs font-medium text-slate-700 hover:border-blue-400 hover:bg-blue-50/50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-blue-950/20">
+                    {ACTION_LABEL[a] ?? a.replace(/_/g, ' ')}
+                    <span className="text-slate-400">→</span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] text-slate-400">Actions are backend-authorized for your role.</p>
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+// ── Governed account-metadata editor (right-bar Edit workflow) ───────────────
+const CLASSIFICATIONS = ['public', 'internal', 'confidential', 'restricted'];
+const MONITORING_LEVELS = ['minimal', 'standard', 'enhanced'];
+
+function AccountMetadataEditor({ account }: { account: string }) {
+  const [meta, setMeta] = useState<AccountMetadata | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [owner, setOwner] = useState('');
+  const [classification, setClassification] = useState('');
+  const [monitoring, setMonitoring] = useState('');
+  const [tags, setTags] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const m = await getAccountMetadata(account);
+      setMeta(m);
+      setOwner(m.owner ?? '');
+      setClassification(m.classification ?? '');
+      setMonitoring(m.monitoring_level ?? '');
+      setTags((m.tags ?? []).join(', '));
+    } catch {
+      setMeta(null);
+    }
+  }, [account]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const save = useCallback(async () => {
+    setSaving(true);
+    try {
+      const updated = await updateAccountMetadata(account, {
+        owner: owner.trim() || undefined,
+        classification: classification || undefined,
+        monitoring_level: monitoring || undefined,
+        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+      });
+      setMeta(updated);
+      setEditing(false);
+      toast.success(`Saved · governance metadata updated for ${account}`);
+    } catch (e) {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(typeof msg === 'string' ? msg : 'Save failed (not authorized?)');
+    } finally {
+      setSaving(false);
+    }
+  }, [account, owner, classification, monitoring, tags]);
+
+  return (
+    <div className="border-b border-slate-200 p-4 dark:border-slate-700">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Governance metadata</p>
+        {!editing && (
+          <button type="button" onClick={() => setEditing(true)}
+            className="text-xs text-blue-600 hover:underline dark:text-blue-400">Edit</button>
+        )}
+      </div>
+
+      {!editing ? (
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+          {[
+            ['Owner', meta?.owner],
+            ['Classification', meta?.classification],
+            ['Monitoring', meta?.monitoring_level],
+            ['Tags', (meta?.tags ?? []).join(', ') || null],
+          ].map(([k, v]) => (
+            <div key={k as string} className="flex items-center justify-between gap-2">
+              <dt className="text-slate-400">{k}</dt>
+              <dd className="truncate font-medium text-slate-700 dark:text-slate-300" title={String(v ?? '')}>
+                {v ? String(v) : <span className="text-slate-400">— not set</span>}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <div className="space-y-2">
+          <label className="block text-[11px] text-slate-500">Owner
+            <input value={owner} onChange={(e) => setOwner(e.target.value)}
+              className="mt-0.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800" placeholder="team or person" />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block text-[11px] text-slate-500">Classification
+              <select value={classification} onChange={(e) => setClassification(e.target.value)}
+                className="mt-0.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800">
+                <option value="">—</option>
+                {CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </label>
+            <label className="block text-[11px] text-slate-500">Monitoring
+              <select value={monitoring} onChange={(e) => setMonitoring(e.target.value)}
+                className="mt-0.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800">
+                <option value="">—</option>
+                {MONITORING_LEVELS.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="block text-[11px] text-slate-500">Tags (comma-separated)
+            <input value={tags} onChange={(e) => setTags(e.target.value)}
+              className="mt-0.5 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800" placeholder="retail, pii, demo" />
+          </label>
+          <div className="flex items-center gap-2 pt-1">
+            <button type="button" disabled={saving} onClick={() => void save()}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" disabled={saving} onClick={() => { setEditing(false); void load(); }}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300">
+              Cancel
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-400">Persisted to Data360 · emits an audit event · backend-authorized.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Expandable deep-dive: contextual chart + paginated audit table ───────────
+function OrgDeepDive({ tab, days, onClose }: { tab: OrgDetailTab; days: number; onClose: () => void }) {
+  const [detail, setDetail] = useState<OrgDetailResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [q, setQ] = useState('');
+
+  useEffect(() => { setPage(1); }, [tab]);
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    getOrganizationDetail(tab, { days, page, page_size: pageSize, q: q || undefined }).then((d) => {
+      if (alive) { setDetail(d); setLoading(false); }
+    });
+    return () => { alive = false; };
+  }, [tab, days, page, pageSize, q]);
+
+  const rows = detail?.rows ?? [];
+  const columns = detail?.columns ?? (rows[0] ? Object.keys(rows[0]) : []);
+
+  // A small contextual chart for the axes that have a natural numeric series.
+  const chart = useMemo(() => {
+    if (tab === 'cost') {
+      return rows.slice(0, 12).map((r) => ({
+        label: String(r.account_name ?? r.service_type ?? ''),
+        value: num(r.total_credits) ?? 0,
+      }));
+    }
+    if (tab === 'adoption') {
+      return rows.slice(0, 12).map((r) => ({
+        label: String(r.module ?? r.action ?? ''),
+        value: num(r.count) ?? 0,
+      }));
+    }
+    return null;
+  }, [tab, rows]);
+
+  return (
+    <section className="rounded-xl border border-blue-200 bg-white shadow-sm dark:border-blue-900/40 dark:bg-slate-900">
+      <header className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-slate-700">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold capitalize text-slate-800 dark:text-slate-100">
+          <Sparkles className="h-4 w-4 text-blue-500" /> {tab.replace(/_/g, ' ')} — audit
+          <span className="ml-1 text-xs font-normal text-slate-400">
+            {detail ? `${detail.total_rows} rows` : ''}
+          </span>
+        </h3>
+        <div className="flex items-center gap-2">
+          <input
+            value={q} onChange={(e) => { setPage(1); setQ(e.target.value); }}
+            placeholder="Search…"
+            className="w-40 rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800"
+          />
+          <button type="button" onClick={onClose} aria-label="Close deep-dive" className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
+        </div>
+      </header>
+
+      {chart && chart.length > 0 && (
+        <div className="h-40 border-b border-slate-200 p-3 dark:border-slate-700">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chart}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} interval={0} angle={-20} textAnchor="end" height={50} />
+              <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
+              <Tooltip />
+              <Bar dataKey="value" fill="#3b82f6" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      <div className="max-h-[340px] overflow-auto">
+        {loading && !detail ? (
+          <div className="p-6 text-center text-xs text-slate-400">Loading…</div>
+        ) : rows.length === 0 ? (
+          <div className="p-6 text-center text-xs text-slate-400">
+            No rows for this axis at the current scope / freshness.
+          </div>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/80">
+              <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
+                {columns.map((c) => <th key={c} className="whitespace-nowrap px-3 py-2 font-medium">{c.replace(/_/g, ' ')}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                  {columns.map((c) => (
+                    <td key={c} className="max-w-[220px] truncate px-3 py-1.5 text-slate-600 dark:text-slate-300" title={String(r[c] ?? '')}>
+                      {typeof r[c] === 'number' ? fmt(r[c]) : String(r[c] ?? '—')}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* pagination */}
+      {detail && detail.total_rows > 0 && (
+        <footer className="flex items-center justify-between gap-2 border-t border-slate-200 px-4 py-2 text-xs text-slate-500 dark:border-slate-700">
+          <span>Page {detail.page} · {detail.filtered_rows ?? detail.total_rows} rows</span>
+          <div className="flex items-center gap-2">
+            <select
+              value={pageSize} onChange={(e) => { setPage(1); setPageSize(Number(e.target.value)); }}
+              className="rounded border border-slate-200 px-1.5 py-0.5 dark:border-slate-700 dark:bg-slate-800"
+            >
+              {[25, 50, 100, 250].map((s) => <option key={s} value={s}>{s}/page</option>)}
+            </select>
+            <button type="button" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded border border-slate-200 px-2 py-0.5 disabled:opacity-40 dark:border-slate-700">Prev</button>
+            <button type="button" disabled={!detail.has_next} onClick={() => setPage((p) => p + 1)} className="rounded border border-slate-200 px-2 py-0.5 disabled:opacity-40 dark:border-slate-700">Next</button>
+          </div>
+        </footer>
+      )}
+    </section>
+  );
+}
+
+// ── skeleton ─────────────────────────────────────────────────────────────────
+function CockpitSkeleton() {
+  return (
+    <div className="flex flex-col gap-3" aria-busy="true">
+      <div className="h-11 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+        {Array.from({ length: 7 }).map((_, i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />)}
+      </div>
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+        <div className="h-64 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800 xl:col-span-2" />
+        <div className="h-64 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+      </div>
+    </div>
+  );
+}

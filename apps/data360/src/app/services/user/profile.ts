@@ -120,6 +120,11 @@ export const changePassword = async (passwordData: ChangePasswordData): Promise<
 export interface UserRoles {
   current_role: string;
   available_roles: string[];
+  /** Set by the role-switch endpoint only: the fresh role-scoped bearer the
+   *  client MUST adopt (the backend keys role-scoped caches off the JWT role). */
+  access_token?: string;
+  /** Module entitlements recomputed for the new role (switch endpoint only). */
+  items?: unknown[];
 }
 
 export const getUserRoles = async (): Promise<UserRoles> => {

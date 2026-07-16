@@ -1,104 +1,61 @@
 'use client';
 
 /**
- * CommandCenterCockpit — Account Overview's adoption of the shared cockpit
- * primitives (`AxisCockpit` + `KpiStrip`, 2026-07-02 unified redesign).
+ * useCommandCenterCockpit — the Account tab's hero KPI-strip source.
  *
- * One hook — `useCommandCenterCockpit` — owns:
- *   - the cockpit `open` / `activeAxis` state (controlled, deep-linkable),
- *   - a lazy per-axis data cache: an axis fetches ONLY the first time it is
- *     opened, and shell-fetched state (summary / module-health / activity-feed
- *     / cost-breakdown) is REUSED instead of refetched when already loaded,
- *   - the KPI-strip items (honest "—" for anything not yet known — never fake
- *     zeros; each KPI deep-links into its owning axis).
+ * 2026-07-12 rationalization (user directive): the docked AxisCockpit overlay
+ * (Overview/Cost/Perf/Quality/Ingest… side panel) is DELETED. It duplicated
+ * the tabs' own content behind a second navigation and re-fetched data the
+ * shell already had. The KPI strip stays; every tile now deep-links straight
+ * to the OWNING SECTION whose audit tables explain the number and host the
+ * actions — never a popup.
  *
- * Every read goes through already-wired command-center service fns — no new
- * endpoint strings. This is a read-only surface (stats + navigation links),
- * so no `useCanPerform` gating is needed; failures toast + render an inline
- * Retry. Zero popups: everything docked.
+ * The hook keeps exactly two eager fetches of its own (silent, once per time
+ * window): overview-kpis (Open alerts) and warehouse-performance (Query
+ * fail % / p95) — the two strip figures no shell fetch covers. Everything
+ * else reuses the shell-fetched summary / module-health / cost payloads.
+ * Honest "—" for anything unknown — never fake zeros.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import {
-  DollarSign,
-  Gauge,
-  HeartPulse,
-  History,
-  LayoutDashboard,
-  Lock,
-  RefreshCw,
-  Sparkles,
-  UploadCloud,
-} from 'lucide-react';
 
 import { getApiErrorMessage } from '@/lib/api-client';
-import { routes } from '@/config/routes';
 import {
-  getActivityFeed,
-  getCostBreakdown,
-  getModuleHealth,
   getOverviewKpis,
-  getSecurityAudit,
   getWarehousePerformance,
   type OverviewKpiPayload,
   type OverviewRange,
 } from '@/app/services/command-center';
 import type {
-  ActivityFeedResponse,
   CostBreakdownResponse,
   ModuleHealthResponse,
-  SecurityAuditResponse,
   SummaryResponse,
   WarehousePerformanceResponse,
 } from '@/app/services/command-center/types';
-import {
-  getCommandCenterRecommendations,
-  type CommandCenterRecommendations,
-  type RecommendationSeverity,
-} from '@/app/services/command-center/recommendations';
-import type { AxisDef, AxisSeverity } from '@/app/shared/cockpit/AxisCockpit';
+import type { AxisSeverity } from '@/app/shared/cockpit/AxisCockpit';
 import type { KpiItem } from '@/app/shared/cockpit/KpiStrip';
-
-// Access-requests review surface (same target the Access Requests widget on
-// the account-overview page links to; not in the typed route registry yet).
-const ACCESS_REVIEW_ROUTE = '/administration/access-center';
 
 // ─── Small helpers (honest formatting: null/unknown → "—", real 0 kept) ─────
 
 function num(v: unknown): number | null {
-  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  const n = typeof v === 'string' ? Number(v) : (v as number);
+  return typeof n === 'number' && Number.isFinite(n) ? n : null;
 }
 
 function fmtNum(v: number | null | undefined, digits = 0): string {
-  return v == null
-    ? '—'
-    : v.toLocaleString(undefined, { maximumFractionDigits: digits });
-}
-
-function fmtPct(v: number | null | undefined): string {
-  return v == null ? '—' : `${Math.round(v)}%`;
+  if (v == null) return '—';
+  return v.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
 }
 
 function fmtMs(v: number | null | undefined): string {
   if (v == null) return '—';
-  if (v >= 60_000) return `${(v / 60_000).toFixed(1)} min`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(1)} s`;
-  return `${Math.round(v)} ms`;
-}
-
-function relativeTime(ts: string | null | undefined): string {
-  if (!ts) return '—';
-  const diff = Date.now() - new Date(ts).getTime();
-  if (!Number.isFinite(diff)) return '—';
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  if (v >= 60_000) return `${(v / 60_000).toFixed(1)}m`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}s`;
+  return `${Math.round(v)}ms`;
 }
 
 function daysToRange(d: number): OverviewRange {
@@ -108,630 +65,29 @@ function daysToRange(d: number): OverviewRange {
   return '90d';
 }
 
-// Purge-safe literal class maps (never build class names dynamically).
-const MODULE_STATUS_DOT: Record<string, string> = {
-  healthy: 'bg-emerald-500',
-  degraded: 'bg-amber-500',
-  warning: 'bg-amber-500',
-  critical: 'bg-red-500',
-  needs_setup: 'bg-slate-300 dark:bg-slate-600',
-  inactive: 'bg-slate-300 dark:bg-slate-600',
-};
-const NEUTRAL_DOT = 'bg-slate-300 dark:bg-slate-600';
-
-function moduleStatusDot(status: string | undefined): string {
-  return MODULE_STATUS_DOT[(status ?? '').toLowerCase()] ?? NEUTRAL_DOT;
-}
-
-function eventStatusDot(status: string | undefined): string {
-  const s = (status ?? '').toUpperCase();
-  if (s.includes('FAIL') || s.includes('ERROR') || s === 'DENIED') {
-    return 'bg-red-500';
-  }
-  if (s.includes('SUCCESS') || s === 'OK' || s === 'COMPLETED') {
-    return 'bg-emerald-500';
-  }
-  return NEUTRAL_DOT;
-}
-
-const SEVERITY_RANK: Record<RecommendationSeverity, number> = {
-  critical: 0,
-  high: 1,
-  warning: 2,
-  info: 3,
-};
-const SEVERITY_DOT: Record<RecommendationSeverity, string> = {
-  critical: 'bg-red-500',
-  high: 'bg-amber-500',
-  warning: 'bg-amber-400',
-  info: 'bg-blue-500',
-};
-
-// ─── Lazy per-axis fetch state ───────────────────────────────────────────────
+// ─── Lazy fetch plumbing (kept for the two strip-only sources) ───────────────
 
 type AxisFetchStatus = 'idle' | 'loading' | 'ready' | 'error';
-
 interface AxisFetchState<T> {
   status: AxisFetchStatus;
   data: T | null;
 }
-
 const IDLE = { status: 'idle', data: null } as const;
-
-// ─── Shared body building blocks ─────────────────────────────────────────────
-
-function AxisSkeleton() {
-  return (
-    <div className="space-y-2" role="status" aria-label="Loading axis data">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div
-          key={`axis-skeleton-${i}`}
-          className="h-6 animate-pulse rounded bg-slate-100 dark:bg-slate-800"
-        />
-      ))}
-    </div>
-  );
-}
-
-function AxisError({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div role="alert" className="flex flex-col items-center gap-2 py-8 text-center">
-      <p className="text-xs text-slate-500 dark:text-slate-400">
-        Couldn&apos;t load this data right now.
-      </p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-      >
-        <RefreshCw className="h-3 w-3" aria-hidden />
-        Retry
-      </button>
-    </div>
-  );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <h4 className="mb-1.5 mt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-400 first:mt-0 dark:text-slate-500">
-      {children}
-    </h4>
-  );
-}
-
-function StatRow({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: React.ReactNode;
-  tone?: 'warn' | 'blocker';
-}) {
-  const toneCls =
-    tone === 'blocker'
-      ? 'text-red-600 dark:text-red-400'
-      : tone === 'warn'
-        ? 'text-amber-600 dark:text-amber-400'
-        : 'text-slate-900 dark:text-white';
-  return (
-    <div className="flex items-baseline justify-between gap-3 py-1">
-      <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
-      <span className={`text-xs font-semibold ${toneCls}`}>{value}</span>
-    </div>
-  );
-}
-
-function PillLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-    >
-      {children}
-    </Link>
-  );
-}
-
-// ─── Axis bodies ─────────────────────────────────────────────────────────────
-
-function OverviewAxisBody({
-  state,
-  summary,
-  onRetry,
-}: {
-  state: AxisFetchState<OverviewKpiPayload>;
-  summary: SummaryResponse | null;
-  onRetry: () => void;
-}) {
-  if (state.status === 'loading' && !state.data) return <AxisSkeleton />;
-  // Hard failure with no rollup fallback either → inline retry.
-  if (state.status === 'error' && !state.data && !summary) {
-    return <AxisError onRetry={onRetry} />;
-  }
-  // `_provisioned === false` is the synthetic empty payload — don't read
-  // fabricated zeros from it; fall back to the live summary rollup.
-  const k = state.data && state.data._provisioned !== false ? state.data : null;
-  const openAlerts = num(k?.open_alerts);
-  return (
-    <div>
-      {state.data?._provisioned === false && (
-        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300">
-          The overview KPI cache isn&apos;t provisioned yet — showing the live
-          rollup instead.
-        </p>
-      )}
-      <SectionLabel>Scores</SectionLabel>
-      <StatRow
-        label="Workspace health"
-        value={fmtPct(num(k?.workspace_health_pct) ?? num(summary?.quality?.health_score))}
-      />
-      <StatRow label="Data warehouse health" value={fmtPct(num(k?.snowflake_health_pct))} />
-      <StatRow label="Optimization score" value={fmtPct(num(k?.optimization_score_pct))} />
-      <StatRow
-        label="Open alerts"
-        value={fmtNum(openAlerts)}
-        tone={(openAlerts ?? 0) > 0 ? 'warn' : undefined}
-      />
-      <SectionLabel>Account</SectionLabel>
-      <StatRow
-        label="Users"
-        value={fmtNum(num(k?.data360_users) ?? num(summary?.platform?.total_users))}
-      />
-      <StatRow
-        label="Active projects"
-        value={fmtNum(num(k?.active_projects) ?? num(summary?.platform?.total_projects))}
-      />
-      <StatRow
-        label="Modules active"
-        value={
-          k
-            ? `${fmtNum(num(k.modules_active))} / ${fmtNum(num(k.modules_total))}`
-            : '—'
-        }
-      />
-      <StatRow
-        label="Credits used"
-        value={fmtNum(num(k?.credits_used) ?? num(summary?.cost?.credits_30d), 1)}
-      />
-      {k?.computed_at && (
-        <p className="mt-3 text-[10px] text-slate-400 dark:text-slate-500">
-          Computed {relativeTime(k.computed_at)}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function CostAxisBody({
-  eff,
-  state,
-  days,
-  onRetry,
-}: {
-  eff: CostBreakdownResponse | null;
-  state: AxisFetchState<CostBreakdownResponse>;
-  days: number;
-  onRetry: () => void;
-}) {
-  if (!eff) {
-    if (state.status === 'error') return <AxisError onRetry={onRetry} />;
-    return <AxisSkeleton />;
-  }
-  const trend = num(eff.credit_trend_pct);
-  const top = (eff.top_warehouses ?? []).slice(0, 5);
-  return (
-    <div>
-      <SectionLabel>Total spend ({days}d)</SectionLabel>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span className="text-2xl font-bold leading-tight text-slate-900 dark:text-white">
-          {fmtNum(num(eff.total_credits), 1)}
-        </span>
-        <span className="text-xs text-slate-400 dark:text-slate-500">credits</span>
-        {trend != null && (
-          <span
-            className={`text-[11px] font-bold ${
-              trend > 0
-                ? 'text-amber-600 dark:text-amber-400'
-                : 'text-emerald-600 dark:text-emerald-400'
-            }`}
-          >
-            {trend > 0 ? '+' : ''}
-            {trend.toFixed(1)}% vs previous
-          </span>
-        )}
-      </div>
-      <SectionLabel>Top warehouses</SectionLabel>
-      {top.length === 0 ? (
-        <p className="text-xs text-slate-400 dark:text-slate-500">
-          No warehouse spend in this window.
-        </p>
-      ) : (
-        <ul className="space-y-1.5">
-          {top.map((w) => (
-            <li
-              key={w.name}
-              className="flex items-baseline justify-between gap-3 text-xs"
-            >
-              <span
-                className="min-w-0 truncate font-mono text-[11px] text-slate-600 dark:text-slate-300"
-                title={w.name}
-              >
-                {w.name}
-              </span>
-              <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
-                {fmtNum(num(w.credits), 1)} cr
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function IngestionAxisBody() {
-  // Self-contained (fetches on first mount) — the 8th standardized axis.
-  // Binds the SAME data-operations overview the Usage & Performance tab uses.
-  const [state, setState] = useState<{ status: 'loading' | 'ready' | 'error'; summary?: Record<string, unknown> }>({ status: 'loading' });
-  const load = useCallback(() => {
-    setState({ status: 'loading' });
-    import('@/app/services/org-accounts/hooks')
-      .then((m) => m.getDataOperationsOverview({ days: 30 }))
-      .then((d: any) => setState({ status: 'ready', summary: d?.summary ?? {} }))
-      .catch(() => setState({ status: 'error' }));
-  }, []);
-  useEffect(() => { load(); }, [load]);
-  if (state.status === 'loading') return <AxisSkeleton />;
-  if (state.status === 'error') return <AxisError onRetry={load} />;
-  const g = (k: string) => num((state.summary as any)?.[k]);
-  return (
-    <div>
-      <SectionLabel>Loading (30d)</SectionLabel>
-      <StatRow label="Files loaded" value={fmtNum(g('total_files_loaded'))} />
-      <StatRow label="Rows loaded" value={fmtNum(g('total_rows_loaded'))} />
-      <StatRow label="Load success" value={g('load_success_rate') != null ? `${g('load_success_rate')}%` : '—'} />
-      <StatRow label="Load errors" value={fmtNum(g('load_error_count'))} />
-      <SectionLabel>Automation</SectionLabel>
-      <StatRow label="Task runs" value={fmtNum(g('total_task_runs'))} />
-      <StatRow label="Task failures" value={fmtNum(g('task_failure_count'))} />
-      <StatRow label="Active tasks" value={fmtNum(g('active_tasks'))} />
-      <StatRow label="Pipes" value={fmtNum(g('pipe_count'))} />
-      <StatRow label="Dynamic tables" value={fmtNum(g('dynamic_tables'))} />
-    </div>
-  );
-}
-
-function PerfAxisBody({
-  state,
-  onRetry,
-}: {
-  state: AxisFetchState<WarehousePerformanceResponse>;
-  onRetry: () => void;
-}) {
-  const eff = state.data;
-  if (!eff) {
-    if (state.status === 'error') return <AxisError onRetry={onRetry} />;
-    return <AxisSkeleton />;
-  }
-  const qp = eff.query_performance;
-  const failed = num(qp?.failed_queries_7d);
-  const topWh = [...(eff.warehouses ?? [])]
-    .sort((a, b) => (num(b.utilization_pct) ?? 0) - (num(a.utilization_pct) ?? 0))
-    .slice(0, 5);
-  return (
-    <div>
-      <SectionLabel>Queries (7d)</SectionLabel>
-      <StatRow label="Total queries" value={fmtNum(num(qp?.total_queries_7d))} />
-      <StatRow label="Avg execution" value={fmtMs(num(qp?.avg_execution_ms))} />
-      <StatRow label="p95 execution" value={fmtMs(num(qp?.p95_execution_ms))} />
-      <StatRow
-        label="Failed"
-        value={fmtNum(failed)}
-        tone={(failed ?? 0) > 0 ? 'warn' : undefined}
-      />
-      <StatRow label="Queued" value={fmtNum(num(qp?.queued_queries_7d))} />
-      <SectionLabel>Busiest warehouses</SectionLabel>
-      {topWh.length === 0 ? (
-        <p className="text-xs text-slate-400 dark:text-slate-500">
-          No warehouse activity in this window.
-        </p>
-      ) : (
-        <ul className="space-y-1.5">
-          {topWh.map((w) => (
-            <li key={w.name} className="flex items-baseline gap-3 text-xs">
-              <span
-                className="min-w-0 flex-1 truncate font-mono text-[11px] text-slate-600 dark:text-slate-300"
-                title={w.name}
-              >
-                {w.name}
-              </span>
-              <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">
-                {fmtNum(num(w.credits_used), 1)} cr
-              </span>
-              <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
-                {fmtPct(num(w.utilization_pct))}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function QualityAxisBody({
-  summary,
-  eff,
-  state,
-  onRetry,
-}: {
-  summary: SummaryResponse | null;
-  eff: ModuleHealthResponse | null;
-  state: AxisFetchState<ModuleHealthResponse>;
-  onRetry: () => void;
-}) {
-  const q = summary?.quality;
-  if (!eff && !q) {
-    if (state.status === 'error') return <AxisError onRetry={onRetry} />;
-    return <AxisSkeleton />;
-  }
-  const freshness = num(q?.freshness_violations);
-  const mods = eff?.modules ?? [];
-  return (
-    <div>
-      <SectionLabel>Data quality</SectionLabel>
-      <StatRow label="Health score" value={fmtPct(num(q?.health_score))} />
-      <StatRow
-        label="Freshness violations"
-        value={fmtNum(freshness)}
-        tone={(freshness ?? 0) > 0 ? 'warn' : undefined}
-      />
-      <StatRow label="Tables monitored" value={fmtNum(num(q?.total_tables))} />
-      <SectionLabel>Module health</SectionLabel>
-      {mods.length === 0 ? (
-        <p className="text-xs text-slate-400 dark:text-slate-500">
-          {state.status === 'loading'
-            ? 'Loading module health…'
-            : 'Module health data is unavailable right now.'}
-        </p>
-      ) : (
-        <ul className="space-y-1.5">
-          {mods.slice(0, 12).map((m) => (
-            <li
-              key={m.module_key || m.module}
-              className="flex items-center gap-2 text-xs"
-            >
-              <span
-                className={`h-1.5 w-1.5 shrink-0 rounded-full ${moduleStatusDot(m.status)}`}
-                aria-hidden
-              />
-              <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
-                {m.module || '—'}
-              </span>
-              <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                {m.status || '—'}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function AiAxisBody({
-  state,
-  onOpenPlan,
-  onRetry,
-}: {
-  state: AxisFetchState<CommandCenterRecommendations>;
-  onOpenPlan: () => void;
-  onRetry: () => void;
-}) {
-  const eff = state.data;
-  if (!eff) {
-    if (state.status === 'error') return <AxisError onRetry={onRetry} />;
-    return <AxisSkeleton />;
-  }
-  const critical = num(eff.total_critical);
-  const top = [...(eff.recommendations ?? [])]
-    .sort(
-      (a, b) => (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9),
-    )
-    .slice(0, 3);
-  return (
-    <div>
-      <SectionLabel>Recommendations</SectionLabel>
-      <StatRow label="Open" value={fmtNum(num(eff.total_open))} />
-      <StatRow
-        label="Critical"
-        value={fmtNum(critical)}
-        tone={(critical ?? 0) > 0 ? 'warn' : undefined}
-      />
-      <SectionLabel>Top 3</SectionLabel>
-      {top.length === 0 ? (
-        <p className="text-xs text-slate-400 dark:text-slate-500">
-          No open recommendations — nothing to fix right now.
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {top.map((r) => (
-            <li
-              key={r.id}
-              className="rounded-lg border border-slate-200 p-2.5 dark:border-slate-800"
-            >
-              <div className="flex items-start gap-2">
-                <span
-                  className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${SEVERITY_DOT[r.severity] ?? NEUTRAL_DOT}`}
-                  aria-hidden
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium leading-snug text-slate-800 dark:text-slate-200">
-                    {r.title}
-                  </p>
-                  {r.detail && (
-                    <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">
-                      {r.detail}
-                    </p>
-                  )}
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                    {r.cta?.action === 'navigate' && r.cta.target?.startsWith('/') ? (
-                      <Link
-                        href={r.cta.target}
-                        className="text-[11px] font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
-                      >
-                        {r.cta.label || 'Open'}
-                      </Link>
-                    ) : (
-                      // install/refresh CTAs are mutations — they stay on the
-                      // gated DWH Action Plan surface; deep-link there instead.
-                      <button
-                        type="button"
-                        onClick={onOpenPlan}
-                        className="text-[11px] font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
-                      >
-                        Open action plan
-                      </button>
-                    )}
-                    {r.roi?.estimate && (
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400">
-                        {r.roi.estimate}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function GovernanceAxisBody({
-  state,
-  onRetry,
-}: {
-  state: AxisFetchState<SecurityAuditResponse>;
-  onRetry: () => void;
-}) {
-  const eff = state.data;
-  if (!eff) {
-    if (state.status === 'error') return <AxisError onRetry={onRetry} />;
-    return <AxisSkeleton />;
-  }
-  const ls = eff.login_summary;
-  const pc = eff.policy_coverage;
-  const sd = eff.sensitive_data;
-  const failed = num(ls?.failed_logins_7d);
-  const unmasked = num(sd?.unmasked_pct);
-  return (
-    <div>
-      <SectionLabel>Logins (7d)</SectionLabel>
-      <StatRow label="Total logins" value={fmtNum(num(ls?.total_logins_7d))} />
-      <StatRow
-        label="Failed logins"
-        value={fmtNum(failed)}
-        tone={(failed ?? 0) > 0 ? 'blocker' : undefined}
-      />
-      <StatRow label="Unique users" value={fmtNum(num(ls?.unique_users_7d))} />
-      <StatRow label="MFA coverage" value={fmtPct(num(ls?.mfa_enabled_pct))} />
-      <SectionLabel>Policy coverage</SectionLabel>
-      <StatRow label="Masking policies" value={fmtNum(num(pc?.masking_policies))} />
-      <StatRow label="Row-access policies" value={fmtNum(num(pc?.rls_policies))} />
-      <StatRow label="Tables covered" value={fmtPct(num(pc?.coverage_pct))} />
-      <SectionLabel>Sensitive data</SectionLabel>
-      <StatRow
-        label="PII columns detected"
-        value={fmtNum(num(sd?.pii_columns_detected))}
-      />
-      <StatRow
-        label="Unmasked"
-        value={fmtPct(unmasked)}
-        tone={(unmasked ?? 0) > 0 ? 'warn' : undefined}
-      />
-      <SectionLabel>Manage</SectionLabel>
-      <div className="flex flex-wrap gap-1.5">
-        <PillLink href={ACCESS_REVIEW_ROUTE}>Access review</PillLink>
-        <PillLink href={routes.governance.users}>Users</PillLink>
-        <PillLink href={routes.governance.roles}>Roles</PillLink>
-        <PillLink href={routes.governance.accessMatrix}>Access matrix</PillLink>
-      </div>
-    </div>
-  );
-}
-
-function HistoryAxisBody({
-  eff,
-  state,
-  onRetry,
-}: {
-  eff: ActivityFeedResponse | null;
-  state: AxisFetchState<ActivityFeedResponse>;
-  onRetry: () => void;
-}) {
-  if (!eff) {
-    if (state.status === 'error') return <AxisError onRetry={onRetry} />;
-    return <AxisSkeleton />;
-  }
-  const events = (eff.events ?? []).slice(0, 8);
-  if (events.length === 0) {
-    return (
-      <p className="text-xs text-slate-400 dark:text-slate-500">
-        No recent activity in this window.
-      </p>
-    );
-  }
-  return (
-    <ul className="space-y-2.5">
-      {events.map((e, i) => (
-        <li
-          key={`${e.timestamp ?? 'ts'}-${e.event_type ?? 'evt'}-${i}`}
-          className="flex items-start gap-2 text-xs"
-        >
-          <span
-            className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${eventStatusDot(e.status)}`}
-            aria-hidden
-          />
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-medium text-slate-700 dark:text-slate-200">
-              {e.event_type || '—'}
-            </p>
-            <p className="truncate text-[11px] text-slate-400 dark:text-slate-500">
-              {e.username || '—'} · {e.module || '—'}
-            </p>
-          </div>
-          <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">
-            {relativeTime(e.timestamp)}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
 
 // ─── The hook ────────────────────────────────────────────────────────────────
 
 export interface CommandCenterCockpitArgs {
-  /** Global time window (days) driving every axis fetch. */
+  /** Global time window (days) driving the strip's own fetches. */
   days: number;
   /** Shell-fetched state — reused instead of refetched when available. */
   summary: SummaryResponse | null;
   moduleHealth: ModuleHealthResponse | null;
-  activityFeed: ActivityFeedResponse | null;
   costData: CostBreakdownResponse | null;
-  /** In-page tab navigation (goToTab) for deep-links into owning tabs. */
+  /** In-page tab navigation (goToTab) — every tile deep-links to its owner. */
   onNavigateTab: (tabId: string) => void;
 }
 
 export interface CommandCenterCockpit {
-  axes: AxisDef[];
-  open: boolean;
-  activeAxis: string | null;
-  openAxis: (id: string) => void;
-  close: () => void;
   kpiItems: KpiItem[];
 }
 
@@ -739,36 +95,15 @@ export function useCommandCenterCockpit({
   days,
   summary,
   moduleHealth,
-  activityFeed,
   costData,
   onNavigateTab,
 }: CommandCenterCockpitArgs): CommandCenterCockpit {
-  const router = useRouter();
-
-  const [open, setOpen] = useState(false);
-  const [activeAxis, setActiveAxis] = useState<string | null>(null);
-
-  const openAxis = useCallback((id: string) => {
-    setActiveAxis(id);
-    setOpen(true);
-  }, []);
-  const close = useCallback(() => setOpen(false), []);
-
-  // Lazy per-axis caches — populated the first time an axis is opened.
+  // Strip-only sources: overview-kpis (Open alerts) + warehouse performance
+  // (Query fail % / p95). Silent eager pre-load, once per time window.
   const [overviewState, setOverviewState] =
     useState<AxisFetchState<OverviewKpiPayload>>(IDLE);
-  const [costState, setCostState] =
-    useState<AxisFetchState<CostBreakdownResponse>>(IDLE);
   const [perfState, setPerfState] =
     useState<AxisFetchState<WarehousePerformanceResponse>>(IDLE);
-  const [qualityState, setQualityState] =
-    useState<AxisFetchState<ModuleHealthResponse>>(IDLE);
-  const [aiState, setAiState] =
-    useState<AxisFetchState<CommandCenterRecommendations>>(IDLE);
-  const [govState, setGovState] =
-    useState<AxisFetchState<SecurityAuditResponse>>(IDLE);
-  const [historyState, setHistoryState] =
-    useState<AxisFetchState<ActivityFeedResponse>>(IDLE);
 
   // In-flight guard (also covers React 18 StrictMode double effects in dev).
   const inFlight = useRef<Set<string>>(new Set());
@@ -779,9 +114,8 @@ export function useCommandCenterCockpit({
       setState: React.Dispatch<React.SetStateAction<AxisFetchState<T>>>,
       fn: () => Promise<T>,
       label: string,
-      /** Silent mode: degrade to "—" without a toast (eager strip pre-loads
-       *  fire on page load, where an error toast without a user action is
-       *  noise — the honest "—" on the tile is the signal). */
+      /** Silent mode: degrade to "—" without a toast (page-load pre-fetches
+       *  must not toast without a user action — the honest "—" is the signal). */
       silent = false,
     ) => {
       if (inFlight.current.has(key)) return;
@@ -800,159 +134,51 @@ export function useCommandCenterCockpit({
     [],
   );
 
-  // NOTE: opts is optional and read defensively (`=== true`) so these stay
-  // safe to pass directly as onRetry/onClick handlers (a DOM event arg must
-  // not accidentally enable silent mode).
   const loadOverview = useCallback(
-    (opts?: { silent?: boolean }) =>
+    () =>
       runFetch(
         'overview',
         setOverviewState,
         () => getOverviewKpis(daysToRange(days)),
         'the overview KPIs',
-        opts?.silent === true,
+        true,
       ),
     [days, runFetch],
   );
-  const loadCost = useCallback(
-    () =>
-      runFetch('cost', setCostState, () => getCostBreakdown(days), 'the cost breakdown'),
-    [days, runFetch],
-  );
   const loadPerf = useCallback(
-    (opts?: { silent?: boolean }) =>
+    () =>
       runFetch(
         'perf',
         setPerfState,
         () => getWarehousePerformance({ days }),
         'warehouse performance',
-        opts?.silent === true,
-      ),
-    [days, runFetch],
-  );
-  const loadQuality = useCallback(
-    () =>
-      runFetch('quality', setQualityState, () => getModuleHealth({ days }), 'module health'),
-    [days, runFetch],
-  );
-  const loadAi = useCallback(
-    () =>
-      runFetch(
-        'ai',
-        setAiState,
-        () => getCommandCenterRecommendations(days),
-        'AI recommendations',
-      ),
-    [days, runFetch],
-  );
-  const loadGov = useCallback(
-    () =>
-      runFetch('gov', setGovState, () => getSecurityAudit({ days }), 'the security audit'),
-    [days, runFetch],
-  );
-  const loadHistory = useCallback(
-    () =>
-      runFetch(
-        'history',
-        setHistoryState,
-        () => getActivityFeed(8, { days }),
-        'the activity feed',
+        true,
       ),
     [days, runFetch],
   );
 
-  // Time-window change invalidates every lazy cache (refetched on next open).
+  // Time-window change invalidates both strip caches (refetched by the eager
+  // effect below when their status returns to 'idle').
   const prevDaysRef = useRef(days);
   useEffect(() => {
     if (prevDaysRef.current === days) return;
     prevDaysRef.current = days;
     setOverviewState(IDLE);
-    setCostState(IDLE);
     setPerfState(IDLE);
-    setQualityState(IDLE);
-    setAiState(IDLE);
-    setGovState(IDLE);
-    setHistoryState(IDLE);
   }, [days]);
 
-  // Lazy trigger: fetch an axis's data ONLY when it is opened, and only when
-  // the shell hasn't already loaded an equivalent payload.
+  // Eager pre-load. 'error' is sticky, so a failing backend is hit at most
+  // once per time window.
   useEffect(() => {
-    if (!open || !activeAxis) return;
-    switch (activeAxis) {
-      case 'overview':
-        if (overviewState.status === 'idle') void loadOverview();
-        break;
-      case 'cost':
-        if (!costData && costState.status === 'idle') void loadCost();
-        break;
-      case 'perf':
-        if (perfState.status === 'idle') void loadPerf();
-        break;
-      case 'quality':
-        if (!moduleHealth && qualityState.status === 'idle') void loadQuality();
-        break;
-      case 'ai':
-        if (aiState.status === 'idle') void loadAi();
-        break;
-      case 'governance':
-        if (govState.status === 'idle') void loadGov();
-        break;
-      case 'history':
-        if (!activityFeed && historyState.status === 'idle') void loadHistory();
-        break;
-    }
-  }, [
-    open,
-    activeAxis,
-    costData,
-    moduleHealth,
-    activityFeed,
-    overviewState.status,
-    costState.status,
-    perfState.status,
-    qualityState.status,
-    aiState.status,
-    govState.status,
-    historyState.status,
-    loadOverview,
-    loadCost,
-    loadPerf,
-    loadQuality,
-    loadAi,
-    loadGov,
-    loadHistory,
-  ]);
-
-  // Eager pre-load for the TWO hero-strip tiles whose source no shell fetch
-  // covers: Query fail % (warehouse performance) and Open alerts (the cached
-  // overview-kpis payload). Without this they'd read "—" forever unless the
-  // user happened to open the owning axis. Silent: on failure the tile keeps
-  // its honest "—" — no page-load error toast. Re-fires after the days-change
-  // reset above (states go back to 'idle'); 'error' is sticky, so a failing
-  // backend is hit at most once per window.
-  useEffect(() => {
-    if (overviewState.status === 'idle') void loadOverview({ silent: true });
-    if (perfState.status === 'idle') void loadPerf({ silent: true });
+    if (overviewState.status === 'idle') void loadOverview();
+    if (perfState.status === 'idle') void loadPerf();
   }, [overviewState.status, perfState.status, loadOverview, loadPerf]);
 
-  // Effective data: prefer what the shell already fetched.
-  const costEff = costData ?? costState.data;
-  const qualityEff = moduleHealth ?? qualityState.data;
-  const historyEff = activityFeed ?? historyState.data;
+  // ── Severity derivations (KPI dots) — shell data first ─────────────────────
 
-  // ── Cheap severity derivations (rail dots + KPI dots) ──────────────────────
-
-  const failedLogins =
-    num(govState.data?.login_summary?.failed_logins_7d) ??
-    num(summary?.security?.failed_logins_7d);
+  const failedLogins = num(summary?.security?.failed_logins_7d);
   const govSeverity: AxisSeverity =
     failedLogins == null ? 'idle' : failedLogins > 0 ? 'blocker' : 'ok';
-
-  const aiCritical = num(aiState.data?.total_critical);
-  const aiOpen = num(aiState.data?.total_open);
-  const aiSeverity: AxisSeverity =
-    aiState.data == null ? 'idle' : (aiCritical ?? 0) > 0 ? 'warn' : 'ok';
 
   let moduleCounts: {
     healthy: number;
@@ -960,7 +186,7 @@ export function useCommandCenterCockpit({
     critical: number;
     total: number;
   } | null = null;
-  const mods = qualityEff?.modules;
+  const mods = moduleHealth?.modules;
   if (mods && mods.length > 0) {
     let healthy = 0;
     let degraded = 0;
@@ -982,8 +208,9 @@ export function useCommandCenterCockpit({
         ? 'warn'
         : 'ok';
 
-  const costTrend = num(costEff?.credit_trend_pct) ?? num(summary?.cost?.credit_trend_pct);
-  const costKnown = costEff != null || summary != null;
+  const costTrend =
+    num(costData?.credit_trend_pct) ?? num(summary?.cost?.credit_trend_pct);
+  const costKnown = costData != null || summary != null;
   const costSeverity: AxisSeverity = !costKnown
     ? 'idle'
     : (costTrend ?? 0) > 25
@@ -1004,145 +231,15 @@ export function useCommandCenterCockpit({
         ? 'ok'
         : 'idle';
 
-  const historySeverity: AxisSeverity = historyEff ? 'ok' : 'idle';
-
-  // ── Axes (render bodies stay lazy: only the active axis body is rendered) ──
-
-  const axes: AxisDef[] = [
-    {
-      id: 'overview',
-      label: 'Overview',
-      railLabel: 'Overview',
-      icon: LayoutDashboard,
-      severity: overviewSeverity,
-      badge:
-        (openAlerts ?? 0) > 0 ? `${fmtNum(openAlerts)} alerts` : undefined,
-      render: () => (
-        <OverviewAxisBody state={overviewState} summary={summary} onRetry={loadOverview} />
-      ),
-    },
-    {
-      id: 'cost',
-      label: 'Cost',
-      railLabel: 'Cost',
-      icon: DollarSign,
-      severity: costSeverity,
-      render: () => (
-        <CostAxisBody eff={costEff} state={costState} days={days} onRetry={loadCost} />
-      ),
-      primaryCta: {
-        label: 'Open FinOps',
-        onClick: () => onNavigateTab('finops'),
-        tone: 'neutral',
-      },
-    },
-    {
-      id: 'perf',
-      label: 'Performance',
-      railLabel: 'Perf',
-      icon: Gauge,
-      severity: perfSeverity,
-      render: () => <PerfAxisBody state={perfState} onRetry={loadPerf} />,
-    },
-    {
-      id: 'quality',
-      label: 'Quality',
-      railLabel: 'Quality',
-      icon: HeartPulse,
-      severity: qualitySeverity,
-      badge:
-        moduleCounts && moduleCounts.critical > 0
-          ? `${moduleCounts.critical} critical`
-          : undefined,
-      render: () => (
-        <QualityAxisBody
-          summary={summary}
-          eff={qualityEff}
-          state={qualityState}
-          onRetry={loadQuality}
-        />
-      ),
-      primaryCta: {
-        label: 'Modules',
-        onClick: () => onNavigateTab('modules'),
-        tone: 'neutral',
-      },
-    },
-    {
-      id: 'ingestion',
-      label: 'Ingestion',
-      railLabel: 'Ingest',
-      icon: UploadCloud,
-      severity: 'idle',
-      render: () => <IngestionAxisBody />,
-    },
-    {
-      id: 'ai',
-      label: 'AI recommendations',
-      railLabel: 'AI',
-      icon: Sparkles,
-      severity: aiSeverity,
-      badge: aiOpen != null ? `${fmtNum(aiOpen)} open` : undefined,
-      render: () => (
-        <AiAxisBody
-          state={aiState}
-          onOpenPlan={() => onNavigateTab('dwh-plan')}
-          onRetry={loadAi}
-        />
-      ),
-      primaryCta: {
-        label: 'Action plan',
-        onClick: () => onNavigateTab('dwh-plan'),
-      },
-    },
-    {
-      id: 'governance',
-      label: 'Governance',
-      railLabel: 'Gov',
-      icon: Lock,
-      severity: govSeverity,
-      badge:
-        failedLogins != null && failedLogins > 0
-          ? `${fmtNum(failedLogins)} failed logins`
-          : undefined,
-      render: () => <GovernanceAxisBody state={govState} onRetry={loadGov} />,
-      primaryCta: {
-        label: 'Access review',
-        onClick: () => router.push(ACCESS_REVIEW_ROUTE),
-      },
-    },
-    {
-      id: 'history',
-      label: 'History',
-      railLabel: 'History',
-      icon: History,
-      severity: historySeverity,
-      render: () => (
-        <HistoryAxisBody eff={historyEff} state={historyState} onRetry={loadHistory} />
-      ),
-      primaryCta: {
-        label: 'All activity',
-        onClick: () => onNavigateTab('platform-activity'),
-        tone: 'neutral',
-      },
-    },
-  ];
-
   // ── KPI strip — the ONE hero band of the Account tab (density mandate
   //    2026-07: ≤8 tiles, a metric appears here ONCE, honest "—" via
-  //    undefined, every tile drills down into its owning axis or tab).
-  //    Everything else lives in the Overview tab's "All metrics" drawer.
-  //    Dropped from the old strip (dedup, content preserved elsewhere):
-  //      · "Users" (total) → folded into Active users' sub-line
-  //      · "p95 latency"   → folded into Query fail %'s sub-line
-  //      · "Open recos"    → the AI recommendations panel on the board
-  //                          (its count was "—" until the AI axis opened)
-  //      · "Security alerts" (= failed logins) → the Failed logins tile ──
+  //    undefined). Every tile deep-links to the SECTION whose audit tables
+  //    explain the figure — the old cockpit-axis popup is gone. ──
 
   const totalUsers = num(summary?.platform?.total_users);
   const activeUsers7d = num(summary?.platform?.active_users_7d);
   const credits =
-    num(costEff?.total_credits) ??
+    num(costData?.total_credits) ??
     (days === 30 ? num(summary?.cost?.credits_30d) : null);
   const p95 = num(perfState.data?.query_performance?.p95_execution_ms);
   const perfTotal7d = num(perfState.data?.query_performance?.total_queries_7d);
@@ -1163,8 +260,8 @@ export function useCommandCenterCockpit({
       value: activeUsers7d != null ? fmtNum(activeUsers7d) : undefined,
       dot: activeUsers7d != null ? 'ok' : 'idle',
       sub: totalUsers != null ? `of ${fmtNum(totalUsers)} total (7d)` : '7d',
-      onClick: () => openAxis('overview'),
-      title: 'Active platform users (7d) — open the Overview axis',
+      onClick: () => onNavigateTab('platform-activity'),
+      title: 'Active platform users (7d) — open Platform Activity (audit table)',
     },
     {
       label: `Credits (${days}d)`,
@@ -1178,24 +275,24 @@ export function useCommandCenterCockpit({
               tone: costTrend > 0 ? 'warn' : 'up',
             }
           : undefined,
-      onClick: () => openAxis('cost'),
-      title: 'Credit spend — open the Cost axis (deep view: FinOps tab)',
+      onClick: () => onNavigateTab('finops'),
+      title: 'Credit spend — open FinOps (cost drivers + audit tables)',
     },
     {
       label: 'Query fail %',
       value: queryFailPct != null ? `${queryFailPct.toFixed(1)}%` : undefined,
       dot: perfSeverity,
       sub: p95 != null ? `p95 ${fmtMs(p95)} (7d)` : '7d',
-      onClick: () => openAxis('perf'),
-      title: 'Failed / total queries (7d) — open the Performance axis',
+      onClick: () => onNavigateTab('usage-performance'),
+      title: 'Failed / total queries (7d) — open Usage & Performance (slowest/failed queries)',
     },
     {
       label: 'Failed logins',
       value: failedLogins != null ? fmtNum(failedLogins) : undefined,
       dot: govSeverity,
       sub: '7d',
-      onClick: () => openAxis('governance'),
-      title: 'Failed logins (7d) — open the Governance axis',
+      onClick: () => onNavigateTab('security'),
+      title: 'Failed logins (7d) — open Security & Governance (audit table)',
     },
     {
       label: 'Storage',
@@ -1210,7 +307,7 @@ export function useCommandCenterCockpit({
       dot: storageTb != null ? 'ok' : 'idle',
       sub: 'incl. time-travel & fail-safe',
       onClick: () => onNavigateTab('finops'),
-      title: 'Total storage — open the FinOps tab',
+      title: 'Total storage — open FinOps (storage split axis)',
     },
     {
       label: 'Active projects',
@@ -1235,17 +332,17 @@ export function useCommandCenterCockpit({
             ? `${moduleCounts.degraded} degraded`
             : 'all healthy'
         : undefined,
-      onClick: () => openAxis('quality'),
-      title: 'Module health — open the Quality axis',
+      onClick: () => onNavigateTab('modules'),
+      title: 'Module health — open the module health audit',
     },
     {
       label: 'Open alerts',
       value: openAlertsHonest != null ? fmtNum(openAlertsHonest) : undefined,
       dot: overviewSeverity,
       onClick: () => onNavigateTab('security'),
-      title: 'Open alerts — open the Security tab',
+      title: 'Open alerts — open Security & Governance',
     },
   ];
 
-  return { axes, open, activeAxis, openAxis, close, kpiItems };
+  return { kpiItems };
 }

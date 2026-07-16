@@ -791,3 +791,132 @@ export async function getGovernanceIntelligence(params: GovIntelParams = {}): Pr
     return null;
   }
 }
+
+// ── Organization Intelligence — the aggregate the Organization cockpit consumes ──
+// GET /account-overview/organization/intelligence (backend being built in parallel).
+// Mirrors getGovernanceIntelligence: composes org-scoped score summary + compact KPI
+// cards (no-dash) + a server-paginated Account Portfolio matrix + cost/adoption/
+// attribution summaries + timeline + per-source freshness + facets, with per-section
+// degrade. Returns the payload | null on error so the cockpit renders honest states.
+// The `{}`-shaped summary blocks (cost/adoption/attribution/facets) are typed openly
+// on purpose — the parallel backend owns their concrete keys; the cockpit reads them
+// defensively and never fabricates a value.
+
+export interface OrgIntelKpiCard {
+  id: string; label: string; value: number | string | null;
+  unit?: string; tone?: 'red' | 'amber' | 'green' | null; group?: string;
+  delta?: number | string | null;
+}
+
+export interface OrgContext {
+  organization: string | null;
+  visible_accounts: number | null;
+  orgadmin_available: boolean | null;
+  currency: string | null;
+  scope?: string | null;
+}
+
+/** Per-source last-refresh timestamps (ISO). `snowflake_org_usage` is the
+ *  ORGANIZATION_USAGE share — always ≤24h latent, NEVER "live". */
+export interface OrgFreshness {
+  snowflake_org_usage: string | null;
+  account_usage: string | null;
+  event_store: string | null;
+  last_cache_refresh: string | null;
+}
+
+export interface OrgScoreSummary {
+  score: number | null;
+  scope: string;
+  breakdown: Record<string, unknown>;
+  critical_findings: number;
+  open_recommendations: number;
+}
+
+export interface OrgAccountRow {
+  account: string | null; locator: string | null; region: string | null;
+  cloud: string | null; edition: string | null; lifecycle: string | null;
+  orgadmin: boolean | null; reader: boolean | null; d360_connected: boolean | null;
+  svc_health: string | null; cost: number | null; active_users: number | null;
+  projects: number | null; products: number | null; health: string | null;
+  [k: string]: unknown;
+}
+
+export interface OrgTimelineEvent {
+  ts: string; module: string | null; event_type: string | null;
+  status: string | null; actor: string | null; severity?: string | null;
+}
+
+export interface OrgIntelResponse {
+  generated_at?: string;
+  org_context: OrgContext;
+  freshness: OrgFreshness;
+  score_summary: OrgScoreSummary;
+  kpi_cards: OrgIntelKpiCard[];
+  more_metrics: OrgIntelKpiCard[];
+  account_portfolio: OrgAccountRow[];
+  adoption_summary: Record<string, unknown>;
+  attribution_summary: Record<string, unknown>;
+  cost_summary: Record<string, unknown>;
+  timeline: OrgTimelineEvent[];
+  recommendations: Array<Record<string, unknown>>;
+  allowed_actions: Record<string, string[]>;
+  sources: string[];
+  degraded_sources: Record<string, string>;
+  audit: {
+    rows: OrgAccountRow[]; page: number; page_size: number;
+    total_rows: number; filtered_rows: number; has_next: boolean;
+    sort_by?: string; sort_order?: string; applied_filters?: Record<string, string>;
+  };
+  facets: Record<string, Array<string | number>>;
+  cache: { ttl_seconds?: number; generated_at?: string };
+}
+
+export interface OrgIntelParams {
+  days?: number; severity?: string; kind?: string; q?: string;
+  page?: number; page_size?: number; sort_by?: string; sort_order?: string;
+}
+
+export type OrgDetailTab = 'accounts' | 'cost' | 'security' | 'queries' | 'adoption' | 'events';
+
+/** Server-paginated detail payload for the portfolio / chart-table drills. */
+export interface OrgDetailResponse<Row = Record<string, unknown>> {
+  rows: Row[];
+  page: number;
+  page_size: number;
+  total_rows: number;
+  filtered_rows: number;
+  has_next: boolean;
+  columns?: string[];
+  sort_by?: string;
+  sort_order?: string;
+}
+
+/** Fetch the organization cockpit payload. Never throws — null on error so the
+ *  cockpit renders its honest "unavailable" state instead of crashing. */
+export async function getOrganizationIntelligence(
+  params: OrgIntelParams = {},
+): Promise<OrgIntelResponse | null> {
+  try {
+    const { data } = await apiClient.get<OrgIntelResponse>(
+      '/account-overview/organization/intelligence', { params });
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch one paginated detail table (accounts | cost | security | queries |
+ *  adoption | events). Never throws — null on error (honest-unavailable). */
+export async function getOrganizationDetail<Row = Record<string, unknown>>(
+  tab: OrgDetailTab,
+  params: OrgIntelParams = {},
+): Promise<OrgDetailResponse<Row> | null> {
+  try {
+    const { data } = await apiClient.get<OrgDetailResponse<Row>>(
+      `/account-overview/organization/intelligence/${tab}`, { params });
+    return data;
+  } catch {
+    return null;
+  }
+}

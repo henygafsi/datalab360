@@ -1063,6 +1063,41 @@ export async function getAccountHealth(accountName: string): Promise<AccountHeal
   return data;
 }
 
+// ── Account metadata (Data360-side governance fields; governed edit) ──────────
+export interface AccountMetadata {
+  account: string;
+  owner: string | null;
+  classification: string | null;
+  monitoring_level: string | null;
+  tags: string[];
+  updated_by: string | null;
+  updated_at: string | null;
+  changed_fields?: string[];
+}
+export interface AccountMetadataEdit {
+  owner?: string;
+  classification?: string;
+  monitoring_level?: string;
+  tags?: string[];
+}
+
+/** GET /org-accounts/accounts/{account}/metadata — current governance metadata. */
+export async function getAccountMetadata(account: string): Promise<AccountMetadata> {
+  const { data } = await apiClient.get<AccountMetadata>(
+    `${BASE_URL}/accounts/${encodeURIComponent(account)}/metadata`);
+  return data;
+}
+
+/** POST /org-accounts/accounts/{account}/metadata — governed edit (backend-authorized;
+ *  emits an ACCOUNT_METADATA_UPDATED audit event). Only provided fields change. */
+export async function updateAccountMetadata(
+  account: string, edit: AccountMetadataEdit,
+): Promise<AccountMetadata> {
+  const { data } = await apiClient.post<AccountMetadata>(
+    `${BASE_URL}/accounts/${encodeURIComponent(account)}/metadata`, edit);
+  return data;
+}
+
 // ---------------------------------------------------------------------------
 // Errors deep-dive + COCO narrative (GET /org-accounts/errors-overview[/insight])
 // ---------------------------------------------------------------------------
@@ -1109,6 +1144,80 @@ export async function getErrorsInsight(days = 7): Promise<ErrorsInsightResponse>
   // Cortex inference: allow a generous budget, the endpoint caches for 15 min.
   const { data } = await apiClient.get<ErrorsInsightResponse>(
     `${BASE_URL}/errors-overview/insight`, { params: { days }, timeout: 180000 },
+  );
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Axis deep-dives: storage split + warehouse efficiency
+// (GET /org-accounts/storage-split · GET /org-accounts/warehouse-efficiency)
+// ---------------------------------------------------------------------------
+
+export interface StorageSplitResponse {
+  period_days: number;
+  split: {
+    active_bytes: number;
+    time_travel_bytes: number;
+    failsafe_bytes: number;
+    clone_retained_bytes: number;
+    stage_bytes: number;
+    total_bytes: number;
+    /** % of total storage that is pure retention (time-travel + failsafe). */
+    retention_share_pct: number | null;
+  };
+  by_database: Array<{
+    database: string;
+    active_bytes: number;
+    time_travel_bytes: number;
+    failsafe_bytes: number;
+  }>;
+  history: Array<{ date: string; storage_bytes: number; stage_bytes: number; failsafe_bytes: number }>;
+  top_retention_tables: Array<{
+    fqn: string;
+    active_bytes: number;
+    time_travel_bytes: number;
+    failsafe_bytes: number;
+    /** (TT+failsafe)/active — >5 is the high-churn signature. */
+    retention_ratio: number;
+  }>;
+  partial: boolean;
+  degraded_sections: string[];
+}
+
+export interface WarehouseEfficiencyResponse {
+  period_days: number;
+  summary: {
+    warehouses: number;
+    total_spilled_queries: number;
+    total_local_spill_bytes: number;
+    total_remote_spill_bytes: number;
+    misconfig_flags: number;
+  };
+  warehouses: Array<{
+    warehouse: string;
+    credits: number;
+    query_count: number;
+    credits_per_100_queries: number | null;
+    avg_queue_ms: number;
+    spilled_queries: number;
+    local_spill_bytes: number;
+    remote_spill_bytes: number;
+  }>;
+  misconfigurations: Array<{ warehouse: string; flag: string; detail: string }>;
+  partial: boolean;
+  degraded_sections: string[];
+}
+
+export async function getStorageSplit(days = 30): Promise<StorageSplitResponse> {
+  const { data } = await apiClient.get<StorageSplitResponse>(
+    `${BASE_URL}/storage-split`, { params: { days }, timeout: 120000 },
+  );
+  return data;
+}
+
+export async function getWarehouseEfficiency(days = 30): Promise<WarehouseEfficiencyResponse> {
+  const { data } = await apiClient.get<WarehouseEfficiencyResponse>(
+    `${BASE_URL}/warehouse-efficiency`, { params: { days }, timeout: 120000 },
   );
   return data;
 }
