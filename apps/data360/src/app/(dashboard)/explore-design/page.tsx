@@ -80,6 +80,7 @@ import ModelKpiStrip, { type ModelKpis } from './components/ModelKpiStrip';
 import OverflowMenu from './components/OverflowMenu';
 import AddColumnModal from './components/AddColumnModal';
 import ReleasePanel from './components/release/ReleasePanel';
+import RightSheet from './components/RightSheet';
 import DeployedProduction from './components/release/DeployedProduction';
 import ProjectIdentityChips from './components/ProjectIdentityChips';
 import ProjectCrudControls from './components/ProjectCrudControls';
@@ -4920,14 +4921,7 @@ export default function ExploreDesignPage() {
       {/* "Change approach" — re-opens the manual/AI/template fork for an
           existing project so the build choice is reversible. */}
       {showApproachFork && (
-        <div
-          role="dialog"
-          aria-label="Change approach"
-          className="fixed inset-y-0 right-0 z-[60] flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setShowApproachFork(false);
-          }}
-        >
+        <RightSheet label="Change approach" maxWidth="max-w-md" onClose={() => setShowApproachFork(false)}>
           <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-5 dark:border-slate-700">
             <div>
               <h3 className="text-base font-semibold text-slate-900 dark:text-white">
@@ -4972,7 +4966,7 @@ export default function ExploreDesignPage() {
               }}
             />
           </div>
-        </div>
+        </RightSheet>
       )}
 
       {/* Unified Project Context (Deployment / History / Grants / Errors / Recos).
@@ -6579,14 +6573,9 @@ export default function ExploreDesignPage() {
         onConfigureRelations={() => { if (readOnlyGuard()) return; setShowRelationsModal(true); }}
       />
 
-      {/* Bulk PK — right-side panel (non-blocking, page stays visible) */}
+      {/* Bulk PK — RightSheet (single focused layer, dimmed backdrop) */}
       {showBulkPKModal && (
-        <div
-          role="region"
-          aria-modal="false"
-          aria-label="Configure primary keys for selected tables"
-          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        >
+        <RightSheet label="Configure primary keys for selected tables" maxWidth="max-w-sm" onClose={() => setShowBulkPKModal(false)}>
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
             <h3 className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
               <Key className="h-4 w-4 text-amber-500" />
@@ -6632,17 +6621,12 @@ export default function ExploreDesignPage() {
               Cancel
             </Button>
           </div>
-        </div>
+        </RightSheet>
       )}
 
-      {/* Bulk Masking — right-side panel (non-blocking) */}
+      {/* Bulk Masking — RightSheet (single focused layer, dimmed backdrop) */}
       {showBulkMaskingModal && (
-        <div
-          role="region"
-          aria-modal="false"
-          aria-label="Apply masking policy to selected tables"
-          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        >
+        <RightSheet label="Apply masking policy to selected tables" maxWidth="max-w-sm" onClose={() => setShowBulkMaskingModal(false)}>
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
             <h3 className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
               <Shield className="h-4 w-4 text-green-500" />
@@ -6696,17 +6680,12 @@ export default function ExploreDesignPage() {
               Cancel
             </Button>
           </div>
-        </div>
+        </RightSheet>
       )}
 
-      {/* Relations — right-side panel (non-blocking) */}
+      {/* Relations — RightSheet (single focused layer, dimmed backdrop) */}
       {showRelationsModal && (
-        <div
-          role="region"
-          aria-modal="false"
-          aria-label="Configure relations for selected tables"
-          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        >
+        <RightSheet label="Configure relations for selected tables" maxWidth="max-w-sm" onClose={() => setShowRelationsModal(false)}>
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
             <h3 className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
               <Link2 className="h-4 w-4 text-blue-500" />
@@ -6740,17 +6719,12 @@ export default function ExploreDesignPage() {
               Cancel
             </Button>
           </div>
-        </div>
+        </RightSheet>
       )}
 
       {/* Ingestion Runs — right-side panel (non-blocking, zero-popup) */}
       {showIngestionResults && selectedProjectId && (
-        <div
-          role="dialog"
-          aria-modal="false"
-          aria-label="Ingestion Runs"
-          className="fixed inset-y-0 right-0 z-40 flex w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        >
+        <RightSheet label="Ingestion Runs" maxWidth="max-w-3xl" onClose={() => setShowIngestionResults(false)}>
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <BarChart3 className="h-5 w-5 text-teal-500" />
@@ -6767,16 +6741,12 @@ export default function ExploreDesignPage() {
             </div>
             <IngestionResultsPanel projectId={selectedProjectId} className="overflow-auto" />
           </div>
-        </div>
+        </RightSheet>
       )}
 
       {/* AI Intelligence — right-side panel (non-blocking) */}
       {showAiPanel && (
-        <div
-          role="dialog"
-          aria-label="AI intelligence settings"
-          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        >
+        <RightSheet label="AI intelligence settings" maxWidth="max-w-md" onClose={() => setShowAiPanel(false)}>
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
             <h3 className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
               <Sparkles className="h-5 w-5 text-purple-500" />
@@ -6793,7 +6763,7 @@ export default function ExploreDesignPage() {
           <div className="flex-1 overflow-auto p-5">
             <AiFeatureToggle onSuggestionAction={handleAiSuggestionAction} />
           </div>
-        </div>
+        </RightSheet>
       )}
 
 
@@ -7067,11 +7037,7 @@ export default function ExploreDesignPage() {
 
       {/* Modeling Ingestion Config — right-side panel (non-blocking) */}
       {showModelingIngestionPanel && selectedTable && (
-        <div
-          role="dialog"
-          aria-label="Ingestion configuration"
-          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-        >
+        <RightSheet label="Ingestion configuration" maxWidth="max-w-2xl" onClose={() => setShowModelingIngestionPanel(false)}>
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
             <h3 className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
               <Upload className="h-4 w-4 text-blue-500" />
@@ -7095,7 +7061,7 @@ export default function ExploreDesignPage() {
               onSave={() => setShowModelingIngestionPanel(false)}
             />
           </div>
-        </div>
+        </RightSheet>
       )}
 
       {/* Data Engineering Objects Modal */}
