@@ -55,7 +55,11 @@ import {
     oracleTest,
     oracleIngest,
     oracleSampleStage,
+    getCustomApiPresets,
+    customApiIngest,
+    type CustomApiPreset,
 } from './connectionServices';
+import ConnectorPromptBar from './ConnectorPromptBar';
 import { silentReauth } from '@/app/services/auth/silentReauth';
 
 // Assuming submitS3Form is also in the data-source-connection services folder
@@ -480,6 +484,12 @@ export default function DataSourceConnectionPage() {
       icon: '/data-sources/oracle-logo.svg',
       description: 'Oracle Autonomous Database — Always Free cloud tier',
     },
+    {
+      id: 'custom_api',
+      name: 'Custom API (Open Data)',
+      icon: '/data-sources/api-logo.svg',
+      description: 'No-code JSON API ingestion — bundled open-data presets (weather, FX rates) or any URL',
+    },
   ] as { id: string; name: string; icon: string; description: string; comingSoon?: boolean }[], []);
 
   // Memoize selected source lookup (avoids .find() on every render)
@@ -696,6 +706,15 @@ export default function DataSourceConnectionPage() {
           datalake_username: str('datalake_username', prev.datalake_username),
           datalake_password: str('datalake_password', prev.datalake_password),
           datalake_role: str('datalake_role', prev.datalake_role),
+        }));
+        break;
+      case 'custom_api':
+        setCustomApiFormData((prev) => ({
+          ...prev,
+          preset: str('preset', prev.preset),
+          url: str('url', prev.url),
+          json_path: str('json_path', prev.json_path),
+          target_table: str('target_table', prev.target_table),
         }));
         break;
       default:
@@ -1000,6 +1019,29 @@ export default function DataSourceConnectionPage() {
     wallet_password: '',
   });
   const [oracleTestResult, setOracleTestResult] = useState<{ ok?: boolean; version?: string; table_count?: number; tables?: string[]; latency_ms?: number } | null>(null);
+
+  // --- Custom API (no-code, open-data presets or any JSON URL) ---
+  const [customApiFormData, setCustomApiFormData] = useState({
+    preset: 'weather_current',
+    url: '',
+    json_path: '',
+    // Preset params (weather: lat/lon required, city is a label; fx: base).
+    lat: '48.8566',
+    lon: '2.3522',
+    city: 'Paris',
+    base: 'EUR',
+    target_database: 'CP_DATA360',
+    target_schema: 'CUSTOM_API',
+    target_table: '',
+    mode: 'append' as 'append' | 'replace',
+  });
+  const [customApiPresetList, setCustomApiPresetList] = useState<CustomApiPreset[]>([]);
+  useEffect(() => {
+    if (selectedSource !== 'custom_api' || customApiPresetList.length > 0) return;
+    getCustomApiPresets()
+      .then((r) => setCustomApiPresetList(r.presets || []))
+      .catch(() => setCustomApiPresetList([])); // honest empty — form still allows custom URL
+  }, [selectedSource, customApiPresetList.length]);
 
   const handleAwsSubmit = async (e: FormEvent) => {
       e.preventDefault();
@@ -2537,6 +2579,120 @@ export default function DataSourceConnectionPage() {
       return null;
   };
 
+  const renderCustomApiForm = () => {
+      const isCustomUrl = customApiFormData.preset === '';
+      const activePreset = customApiPresetList.find((p) => p.id === customApiFormData.preset);
+      const handleSubmit = async (e: FormEvent) => {
+          e.preventDefault();
+          if (isCustomUrl && !customApiFormData.url.trim()) {
+              toast.error('Provide the API URL');
+              return;
+          }
+          setLoading(true);
+          try {
+              const presetParams: Record<string, unknown> =
+                  customApiFormData.preset === 'weather_current'
+                      ? {
+                          lat: parseFloat(customApiFormData.lat),
+                          lon: parseFloat(customApiFormData.lon),
+                          city: customApiFormData.city.trim() || undefined,
+                      }
+                      : customApiFormData.preset === 'fx_rates_ecb'
+                          ? { base: customApiFormData.base.trim().toUpperCase() || 'EUR' }
+                          : {};
+              const res = await customApiIngest({
+                  ...(isCustomUrl
+                      ? { url: customApiFormData.url.trim(), json_path: customApiFormData.json_path.trim() || undefined }
+                      : { preset: customApiFormData.preset, params: presetParams }),
+                  target_database: customApiFormData.target_database.trim(),
+                  target_schema: customApiFormData.target_schema.trim() || 'CUSTOM_API',
+                  target_table: customApiFormData.target_table.trim(),
+                  mode: customApiFormData.mode,
+              });
+              toast.success(
+                  `API ingested — ${res.rows_loaded ?? '?'} row(s) into ${res.table ?? customApiFormData.target_table}`,
+              );
+              await loadConnections();
+              setCurrentStep(0);
+              setSelectedSource('');
+          } catch (err: any) {
+              toast.error(err?.message || 'Custom API ingest failed');
+          } finally {
+              setLoading(false);
+          }
+      };
+      const selectCls =
+          'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100';
+      return (
+          <div className="mx-auto w-full max-w-lg transform rounded-2xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl p-6 sm:p-10 shadow-xl border border-slate-200/50 dark:border-slate-700/50">
+              <div className="mb-6 flex items-center justify-between gap-3">
+                  <h3 className="text-2xl font-bold text-slate-800 dark:text-white">Custom API</h3>
+                  <Image src="/data-sources/api-logo.svg" alt="Custom API" width={56} height={56} unoptimized />
+              </div>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                  <div>
+                      <Label>Source</Label>
+                      <select
+                          className={selectCls}
+                          value={customApiFormData.preset}
+                          onChange={(e) => setCustomApiFormData((p) => ({ ...p, preset: e.target.value }))}
+                          disabled={loading}
+                          aria-label="Open-data preset or custom URL"
+                      >
+                          {customApiPresetList.map((p) => (
+                              <option key={p.id} value={p.id}>{p.label}</option>
+                          ))}
+                          <option value="">Custom URL (any JSON API)…</option>
+                      </select>
+                      {activePreset?.doc && (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{activePreset.doc}</p>
+                      )}
+                  </div>
+                  {isCustomUrl && (
+                      <>
+                          <Input label="API URL" placeholder="https://api.example.com/data.json" value={customApiFormData.url} onChange={(e) => setCustomApiFormData((p) => ({ ...p, url: e.target.value }))} required disabled={loading} />
+                          <Input label="JSON path (optional)" placeholder="e.g. results or data.items" value={customApiFormData.json_path} onChange={(e) => setCustomApiFormData((p) => ({ ...p, json_path: e.target.value }))} disabled={loading} />
+                      </>
+                  )}
+                  {customApiFormData.preset === 'weather_current' && (
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                          <Input label="Latitude" type="number" step="any" value={customApiFormData.lat} onChange={(e) => setCustomApiFormData((p) => ({ ...p, lat: e.target.value }))} required disabled={loading} />
+                          <Input label="Longitude" type="number" step="any" value={customApiFormData.lon} onChange={(e) => setCustomApiFormData((p) => ({ ...p, lon: e.target.value }))} required disabled={loading} />
+                          <Input label="City label" value={customApiFormData.city} onChange={(e) => setCustomApiFormData((p) => ({ ...p, city: e.target.value }))} disabled={loading} />
+                      </div>
+                  )}
+                  {customApiFormData.preset === 'fx_rates_ecb' && (
+                      <Input label="Base currency" value={customApiFormData.base} onChange={(e) => setCustomApiFormData((p) => ({ ...p, base: e.target.value }))} disabled={loading} />
+                  )}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <Input label="Target database" value={customApiFormData.target_database} onChange={(e) => setCustomApiFormData((p) => ({ ...p, target_database: e.target.value }))} required disabled={loading} />
+                      <Input label="Target schema" value={customApiFormData.target_schema} onChange={(e) => setCustomApiFormData((p) => ({ ...p, target_schema: e.target.value }))} disabled={loading} />
+                  </div>
+                  <Input label="Target table" placeholder="e.g. WEATHER_LIVE" value={customApiFormData.target_table} onChange={(e) => setCustomApiFormData((p) => ({ ...p, target_table: e.target.value }))} required disabled={loading} />
+                  <div>
+                      <Label>Write mode</Label>
+                      <select
+                          className={selectCls}
+                          value={customApiFormData.mode}
+                          onChange={(e) => setCustomApiFormData((p) => ({ ...p, mode: e.target.value as 'append' | 'replace' }))}
+                          disabled={loading}
+                          aria-label="Write mode"
+                      >
+                          <option value="append">Append (keep history — time series)</option>
+                          <option value="replace">Replace (latest snapshot only)</option>
+                      </select>
+                  </div>
+                  <Button type="submit" className="w-full" disabled={loading || !canIngest} title={!canIngest ? ingestDeniedReason : undefined}>
+                      {loading ? 'Ingesting…' : 'Fetch & load to Snowflake'}
+                  </Button>
+              </form>
+              <p className="text-xs text-slate-500 mt-2">
+                  Fetched server-side, landed via bulk load; the run is recorded in the project event log.
+              </p>
+          </div>
+      );
+  };
+
   const renderPostgresForm = () => {
       const handleSubmit = async (e: FormEvent) => {
           e.preventDefault();
@@ -2820,6 +2976,16 @@ export default function DataSourceConnectionPage() {
         if (currentStep === 0) {
             return (
                 <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-3xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl p-8">
+
+                    {/* Prompt-first entry — describe the source, get routed into the right
+                        stepped form. Inline (no popup), always visible, RBAC-gated. */}
+                    <div className="mb-6">
+                        <ConnectorPromptBar
+                            onUse={(pickerId, suggestion) => handleAiUseConnector(pickerId, suggestion.prefilled_config)}
+                            disabled={!canCreate}
+                            disabledReason="You need connect:create permission to add a connection"
+                        />
+                    </div>
 
                     {/* Connector health at a glance (GET /connect/connectors/health).
                         The cockpit's Ingestion axis scrolls here for per-connector Test/Sync. */}
@@ -3247,6 +3413,13 @@ export default function DataSourceConnectionPage() {
                         <div className="mx-auto max-w-2xl space-y-8">
                             <Breadcrumb onHomeClick={() => router.push(routes.home)} />
                             {renderOracleForm()}
+                        </div>
+                    );
+                case 'custom_api':
+                    return (
+                        <div className="mx-auto max-w-2xl space-y-8">
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
+                            {renderCustomApiForm()}
                         </div>
                     );
                 default:

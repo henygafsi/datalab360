@@ -907,3 +907,77 @@ export async function icebergIngest(body: {
         throw new Error(extractErrorMessage(error, 'Iceberg ingest failed'));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Agentic connector wizard + no-code Custom API (open-data) ingestion
+// ---------------------------------------------------------------------------
+
+/** One bundled open-data preset (no API key required). */
+export interface CustomApiPreset {
+    id: string;
+    label: string;
+    params: Record<string, unknown>;
+    doc?: string;
+}
+
+/** GET /connect/custom-api/presets — bundled open-data presets. */
+export async function getCustomApiPresets(): Promise<{ presets: CustomApiPreset[] }> {
+    try {
+        const response = await apiClient.get(API.connect.customApiPresets());
+        return response.data;
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Failed to load open-data presets'));
+    }
+}
+
+export interface CustomApiIngestPayload {
+    preset?: string;
+    params?: Record<string, unknown>;
+    url?: string;
+    json_path?: string;
+    headers?: Record<string, string>;
+    target_database: string;
+    target_schema?: string;
+    target_table: string;
+    mode?: 'append' | 'replace';
+}
+
+/** POST /connect/custom-api/ingest — fetch a JSON API server-side and land it as a table. */
+export async function customApiIngest(
+    payload: CustomApiIngestPayload,
+): Promise<{ status?: string; table?: string; rows_loaded?: number; source?: string;[k: string]: unknown }> {
+    try {
+        const response = await apiClient.post(API.connect.customApiIngest(), payload);
+        return response.data;
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Custom API ingest failed'));
+    }
+}
+
+/** Response of the agentic wizard: best connector + prefill + honest cost estimate. */
+export interface WizardSuggestion {
+    connector_type: string;
+    label?: string | null;
+    prefilled_config: Record<string, unknown>;
+    confidence: string;
+    reason: string;
+    missing_user_inputs: string[];
+    catalog_steps: string[];
+    cost_estimate?: {
+        est_credits_low?: number | null;
+        est_credits_high?: number | null;
+        basis?: string;
+    };
+    fallback_used?: boolean;
+    model?: string;
+}
+
+/** POST /connect/wizard/suggest — describe a source in plain language, get the best connector. */
+export async function wizardSuggestConnector(description: string): Promise<WizardSuggestion> {
+    try {
+        const response = await apiClient.post(API.connect.wizardSuggest(), { description });
+        return response.data;
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Connector suggestion failed'));
+    }
+}

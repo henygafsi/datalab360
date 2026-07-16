@@ -65,6 +65,12 @@ export const API = {
     testConnector: (id: string) => `/connect/connectors/${enc(id)}/test`,
     /** POST /connect/connectors/{id}/sync — trigger a manual sync. */
     syncConnector: (id: string) => `/connect/connectors/${enc(id)}/sync`,
+    /** GET /connect/custom-api/presets — bundled open-data presets (no key). */
+    customApiPresets: () => '/connect/custom-api/presets',
+    /** POST /connect/custom-api/ingest — JSON API → Snowflake (preset or URL). */
+    customApiIngest: () => '/connect/custom-api/ingest',
+    /** POST /connect/wizard/suggest — NL description → best connector + prefill + cost. */
+    wizardSuggest: () => '/connect/wizard/suggest',
     createInternalStage: () => '/connect/stages/internal',
     listStages: () => '/connect/stages',
     /** DELETE /connect/stages/{stage} — drop the stage itself. */
