@@ -285,8 +285,9 @@ export default function PolicyBuilderSection({
             className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
             value={column ?? ''}
             onChange={(e) => setColumn(e.target.value || null)}
+            disabled={columns.length === 0}
           >
-            <option value="">Select a column…</option>
+            <option value="">{columns.length === 0 ? 'No columns on this table' : 'Select a column…'}</option>
             {columns.map((c) => (
               <option key={c.name} value={c.name}>
                 {c.name} ({c.dataType}){c.isSensitive ? ' · sensitive' : ''}
@@ -394,7 +395,9 @@ function PolicyParamField({
             className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
             value={value ?? ''}
             onChange={(e) => onChange(e.target.value)}
+            disabled={!(input.options ?? []).length}
           >
+            {(input.options ?? []).length === 0 && <option value="">No options available</option>}
             {(input.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
           {help}
@@ -422,8 +425,9 @@ function PolicyParamField({
             className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
             value={value ?? ''}
             onChange={(e) => onChange(e.target.value || undefined)}
+            disabled={columns.length === 0}
           >
-            <option value="">Select a column…</option>
+            <option value="">{columns.length === 0 ? 'No columns on this table' : 'Select a column…'}</option>
             {columns.map((c) => (
               <option key={c.name} value={c.name}>{c.name} ({c.dataType})</option>
             ))}

@@ -529,6 +529,7 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
                             {dateColumns.map(col => (
                               <option key={col.name} value={col.name}>{col.name} ({col.type})</option>
                             ))}
+                            {dateColumns.length === 0 && <option disabled>No timestamp/date columns found</option>}
                           </select>
                         </div>
                         <div>
@@ -542,6 +543,7 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
                             {allColumns.map(col => (
                               <option key={col.name} value={col.name}>{col.name} ({col.type})</option>
                             ))}
+                            {allColumns.length === 0 && <option disabled>No columns found</option>}
                           </select>
                         </div>
                       </>
