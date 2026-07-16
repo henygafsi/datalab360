@@ -100,6 +100,25 @@ export default function StepChanges({ projectId }: { projectId: string }) {
 
   const pending = events.filter((e) => e.status === 'pending');
   const chips = diffSummary(readiness?.change_diff);
+  // Traced activity: EVERY action lands here — applied changes, policy
+  // declarations, quality-gate/pre-deploy runs (successes included), failures.
+  // DCM-style: the release surface shows the full audit trail, not only the
+  // pending plan.
+  const activity = events.filter((e) => e.status !== 'pending').slice(0, 8);
+  const activityTone: Record<string, string> = {
+    applied: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    validated: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    approved: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+    failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    rejected: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  };
+  const fmtWhen = (iso: string) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? ''
+      : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
 
   return (
     <StepSection
@@ -170,6 +189,43 @@ export default function StepChanges({ projectId }: { projectId: string }) {
                 </li>
               )}
             </ul>
+          )}
+
+          {activity.length > 0 && (
+            <div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                Traced activity
+              </p>
+              <ul className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                {activity.map((e) => (
+                  <li key={e.event_id} className="flex items-center justify-between gap-2 py-1.5">
+                    <span className="min-w-0 truncate text-[11px] text-slate-600 dark:text-slate-300">
+                      <span className="font-medium">{e.event_type}</span>
+                      {e.target?.table ? (
+                        <>
+                          {' · '}
+                          {[e.target.database, e.target.schema, e.target.table].filter(Boolean).join('.')}
+                          {e.target?.column ? `.${e.target.column}` : ''}
+                        </>
+                      ) : null}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {e.created_at && (
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500">{fmtWhen(e.created_at)}</span>
+                      )}
+                      <span
+                        className={`rounded px-1.5 py-0.5 text-[10px] ${
+                          activityTone[e.status] ??
+                          'bg-slate-100 text-slate-600 dark:bg-slate-700/60 dark:text-slate-300'
+                        }`}
+                      >
+                        {e.status}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           {showSql && (

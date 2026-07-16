@@ -1187,7 +1187,7 @@ export default function GuidedAiWorkflowWizard({
       }));
       setLiveAnnounce(`Generated ${wf.nodes.length} blocks from catalog template.`);
       toast(`AI offline — using catalog template (${reason}). Configure each block below.`, {
-        icon: '🛟', duration: 4500,
+        duration: 4500,
       });
     };
 

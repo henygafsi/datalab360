@@ -269,7 +269,7 @@ export default function ViewUserPage() {
           <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
             <Text className="text-sm text-gray-600 dark:text-gray-400 mb-1">Account Status</Text>
             <Text className="text-lg font-semibold">
-              {userData.status === 'Active' ? '🟢 Active' : '🔴 Disabled'}
+              {userData.status === 'Active' ? 'Active' : 'Disabled'}
             </Text>
           </div>
 

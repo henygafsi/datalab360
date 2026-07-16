@@ -75,12 +75,12 @@ export default function EditUserPage() {
         email: formData.email,
         display_name: formData.displayName,
       });
-      toast.success(`✅ Utilisateur ${userData.name} mis à jour avec succès`);
+      toast.success(`Utilisateur ${userData.name} mis à jour`);
       router.push('/governance/users');
     } catch (err: any) {
       console.error('Error updating user:', err);
       const errorMessage = toServiceError(err, 'Erreur lors de la mise à jour').message;
-      toast.error(`❌ ${errorMessage}`);
+      toast.error(`${errorMessage}`);
     } finally {
       setIsSaving(false);
     }

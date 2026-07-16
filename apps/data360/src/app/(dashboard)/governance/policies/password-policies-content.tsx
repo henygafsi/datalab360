@@ -108,7 +108,7 @@ export default function PasswordPoliciesContent() {
 
       await createPasswordPolicy(requestData);
 
-      toast.success('Password policy created successfully!');
+      toast.success('Password policy created');
       setShowCreatePanel(false);
       resetForm();
       refetch();

@@ -854,7 +854,7 @@ export default function DataSourceConnectionPage() {
                   azureFormData.storage_url
               );
               setAzureStorageIntegrationCreated(true);
-              toast.success('Azure Storage Integration created successfully!');
+              toast.success('Azure Storage Integration created');
               setAzureCurrentSubStep(2); // Move to Storage consent/details step (wait for user consent)
               // Use consent URL from create response so user sees it immediately without clicking "Fetch Consent Details"
               if (createResponse.azure_consent_url) {
@@ -867,7 +867,7 @@ export default function DataSourceConnectionPage() {
               setAzureStorageConsentUrl(response?.azure_consent_url || null);
               setAzureStorageMultiTenantAppName(response?.azure_multi_tenant_app_name || null);
               setAzureStorageDetailsFetched(true);
-              toast.success('Storage integration details fetched successfully!');
+              toast.success('Storage integration details fetched');
           } else if (azureCurrentSubStep === 3) { // Step 3: Handle Notification Option
               if (showAzureNotificationOption) {
                   // If notification option is ON, try to create notification integration
@@ -877,7 +877,7 @@ export default function DataSourceConnectionPage() {
                       azureFormData.queue_url
                   );
                   setAzureNotificationIntegrationCreated(true);
-                  toast.success('Azure Notification Integration created successfully!');
+                  toast.success('Azure Notification Integration created');
                   setAzureCurrentSubStep(4); // Move to Notification details
               } else {
                   // If notification option is OFF, just move to next step without API call
@@ -896,7 +896,7 @@ export default function DataSourceConnectionPage() {
                       azureFormData.auto_update,
                       notificationIntegrationParam
                   );
-                  toast.success('Azure Stage created successfully!');
+                  toast.success('Azure Stage created');
                   await loadConnections();
                   try { await silentReauth(); } catch {}
                   setConnectedProvider('snowflake');
@@ -911,7 +911,7 @@ export default function DataSourceConnectionPage() {
               setAzureConsentUrl(response?.azure_consent_url || null);
               setAzureMultiTenantAppName(response?.azure_multi_tenant_app_name || null);
               setAzureNotificationDetailsFetched(true);
-              toast.success('Notification integration details fetched successfully!');
+              toast.success('Notification integration details fetched');
                   // setAzureCurrentSubStep(5); // Move to Stage creation
               }
           } else if (azureCurrentSubStep === 5) { // Final Step when notification is ON: Create Azure Stage
@@ -927,7 +927,7 @@ export default function DataSourceConnectionPage() {
                   azureFormData.auto_update,
                   notificationIntegrationParam
               );
-              toast.success('Azure Stage created successfully!');
+              toast.success('Azure Stage created');
 
               await loadConnections();
               try { await silentReauth(); } catch {}
@@ -1017,7 +1017,7 @@ export default function DataSourceConnectionPage() {
               setAwsIntegrationCreated(true);
               setAwsIamUserArn(result.STORAGE_AWS_IAM_USER_ARN || null);
               setAwsExternalId(result.STORAGE_AWS_EXTERNAL_ID || null);
-              toast.success('AWS Storage Integration created successfully!');
+              toast.success('AWS Storage Integration created');
               setAwsCurrentSubStep(2);
           } else if (awsCurrentSubStep === 3) {
               // Patch the integration with the external_id before creating the stage
@@ -1033,7 +1033,7 @@ export default function DataSourceConnectionPage() {
                   awsFormData.load_data,
                   awsFormData.auto_update
               );
-              toast.success('AWS Stage created successfully!');
+              toast.success('AWS Stage created');
 
               await loadConnections();
               try { await silentReauth(); } catch {}
@@ -1066,7 +1066,7 @@ export default function DataSourceConnectionPage() {
               );
               setGcsIntegrationCreated(true);
               setGcsServiceAccount(result.STORAGE_GCP_SERVICE_ACCOUNT);
-              toast.success('GCS Storage Integration created successfully!');
+              toast.success('GCS Storage Integration created');
               setGcsCurrentSubStep(2); // Move to IAM guide step
           } else if (gcsCurrentSubStep === 3) {
               await createGcsStage(
@@ -1077,7 +1077,7 @@ export default function DataSourceConnectionPage() {
                   gcsFormData.auto_update,
                   gcsFormData.prefix || null
               );
-              toast.success('GCS Stage created successfully!');
+              toast.success('GCS Stage created');
 
               // Save connection
               await loadConnections();
@@ -1109,7 +1109,7 @@ export default function DataSourceConnectionPage() {
               snowflakeFormData.datalake_role
           );
           setSnowflakeConnected(true);
-          toast.success('Snowflake Datalake connected successfully!');
+          toast.success('Snowflake Datalake connected');
 
           await loadConnections();
           try { await silentReauth(); } catch {}
@@ -1632,7 +1632,7 @@ export default function DataSourceConnectionPage() {
                                                   className="shrink-0 text-xs"
                                                   onClick={() => {
                                                       navigator.clipboard.writeText(awsIamUserArn || '');
-                                                      toast.success('IAM User ARN copied!');
+                                                      toast.success('IAM User ARN copied');
                                                   }}
                                               >
                                                   Copy
@@ -1661,7 +1661,7 @@ export default function DataSourceConnectionPage() {
                                                           if (arn) {
                                                               setAwsIamUserArn(arn);
                                                               if (extId) setAwsExternalId(extId);
-                                                              toast.success('IAM details retrieved!');
+                                                              toast.success('IAM details retrieved');
                                                           } else {
                                                               toast.error('IAM User ARN not found. Check your integration in Snowflake.');
                                                           }
@@ -1697,7 +1697,7 @@ export default function DataSourceConnectionPage() {
                                                   className="shrink-0 text-xs"
                                                   onClick={() => {
                                                       navigator.clipboard.writeText(awsExternalId || '');
-                                                      toast.success('External ID copied!');
+                                                      toast.success('External ID copied');
                                                   }}
                                               >
                                                   Copy
@@ -1944,7 +1944,7 @@ export default function DataSourceConnectionPage() {
                                                   className="shrink-0 text-xs"
                                                   onClick={() => {
                                                       navigator.clipboard.writeText(gcsServiceAccount || '');
-                                                      toast.success('Service account copied!');
+                                                      toast.success('Service account copied');
                                                   }}
                                               >
                                                   Copy
@@ -1971,7 +1971,7 @@ export default function DataSourceConnectionPage() {
                                                           const sa = props.STORAGE_GCP_SERVICE_ACCOUNT ?? '';
                                                           if (sa) {
                                                               setGcsServiceAccount(sa);
-                                                              toast.success('Service account retrieved!');
+                                                              toast.success('Service account retrieved');
                                                           } else {
                                                               toast.error('Service account not found in integration properties. Please check your integration in Snowflake.');
                                                           }
@@ -2127,7 +2127,7 @@ export default function DataSourceConnectionPage() {
                                                   );
                                                   setGcsNotificationCreated(true);
                                                   setGcsPubsubServiceAccount(result.GCP_PUBSUB_SERVICE_ACCOUNT || null);
-                                                  toast.success('GCS Notification Integration created!');
+                                                  toast.success('GCS Notification Integration created');
                                               } catch (err: any) {
                                                   toast.error(err.message || 'Failed to create notification integration');
                                               } finally {
@@ -2164,7 +2164,7 @@ export default function DataSourceConnectionPage() {
                                                               className="shrink-0 text-xs"
                                                               onClick={() => {
                                                                   navigator.clipboard.writeText(gcsPubsubServiceAccount || '');
-                                                                  toast.success('Pub/Sub service account copied!');
+                                                                  toast.success('Pub/Sub service account copied');
                                                               }}
                                                           >
                                                               Copy
@@ -3133,7 +3133,7 @@ export default function DataSourceConnectionPage() {
                                         comingSoon={source.comingSoon}
                                         onClick={() => {
                                             if (source.comingSoon) {
-                                                toast('This connector will be available soon.', { icon: '🔜' });
+                                                toast('This connector will be available soon.');
                                                 return;
                                             }
                                             handleSourceSelect(source.id);

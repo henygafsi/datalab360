@@ -381,7 +381,7 @@ export default function ProjectSelector({
         }
       }
 
-      toast.success(`Project "${newProjectName}" created successfully!`);
+      toast.success(`Project "${newProjectName}" created`);
 
       onProjectSelect(response.project_id, newProjectName.trim());
       refetch();

@@ -259,7 +259,7 @@ function SemanticModelsContent() {
         yaml_content: yamlContent,
         description: modelDescription,
       });
-      toast.success('Semantic model created successfully!');
+      toast.success('Semantic model created');
       setShowCreateModal(false);
       resetCreateForm();
       loadModels();
@@ -342,7 +342,7 @@ function SemanticModelsContent() {
   const handleCopyContent = () => {
     if (modelContent?.content) {
       navigator.clipboard.writeText(editing ? editContent : modelContent.content);
-      toast.success('YAML content copied to clipboard!');
+      toast.success('YAML copied to clipboard');
     }
   };
 
@@ -363,7 +363,7 @@ function SemanticModelsContent() {
     try {
       const name = selectedModel.name.replace('.yaml', '');
       await updateSemanticModel(name, editContent);
-      toast.success('Semantic model updated successfully!');
+      toast.success('Semantic model updated');
       setEditing(false);
       // Refresh content
       const content = await getSemanticModelContent(name);

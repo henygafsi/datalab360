@@ -482,7 +482,7 @@ function ControlsSection({ onWarmed }: { onWarmed: () => void }) {
         dry_run: dryRun,
       });
       if (res.dry_run) {
-        toast(`Dry-run: ${res.patterns?.length ?? 0} pattern(s) would be evicted.`, { icon: '🔎' });
+        toast(`Dry-run: ${res.patterns?.length ?? 0} pattern(s) would be evicted.`);
       } else {
         toast.success(res.evicted != null ? `Evicted ${res.evicted} key(s).` : 'Surface invalidated.');
       }

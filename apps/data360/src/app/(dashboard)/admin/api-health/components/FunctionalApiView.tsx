@@ -189,7 +189,7 @@ const chip = (txt: string, bg: string, fg: string) => (
   <span style={{ background: bg, color: fg, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>{txt}</span>
 );
 const aiChip = (r: string) => r === 'none' ? null : chip(r.replace('ai-', 'AI:'), '#ede9fe', '#6d28d9');
-const finChip = (f: string) => f === 'none' ? null : chip(f.replace('finops-', '💲'), '#dcfce7', '#15803d');
+const finChip = (f: string) => f === 'none' ? null : chip(f.replace('finops-', 'FinOps '), '#dcfce7', '#15803d');
 const methodColor: Record<string, string> = { GET: '#2563eb', POST: '#16a34a', PUT: '#d97706', PATCH: '#d97706', DELETE: '#dc2626' };
 
 // Response-time color per spec: < 300 ms green, < 1500 ms amber, else red.
@@ -568,7 +568,7 @@ export default function FunctionalApiView({ onRunTests, sweepRunning }: Function
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span title={title} style={{ background: bg, color: fg, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', width: 'fit-content' }}>
-          🕒 {label}{zone && !isMutation && <span style={{ fontWeight: 400, opacity: 0.75 }}> · {zone}</span>}
+          {label}{zone && !isMutation && <span style={{ fontWeight: 400, opacity: 0.75 }}> · {zone}</span>}
         </span>
         {probeHit && <span style={{ fontSize: 10, color: '#9ca3af', whiteSpace: 'nowrap' }}>récupéré il y a {relTime(probeHit.at)}</span>}
       </div>
@@ -670,7 +670,7 @@ export default function FunctionalApiView({ onRunTests, sweepRunning }: Function
       <button onClick={() => setOpen(true)} style={{
         margin: '16px 0', padding: '10px 18px', borderRadius: 8, border: '1px solid #6d28d9',
         background: '#f5f3ff', color: '#6d28d9', fontWeight: 700, cursor: 'pointer', fontSize: 14,
-      }}>🧭 Ouvrir la vue fonctionnelle des APIs (toutes les routes backend · actions · temps de réponse · résultats de test)</button>
+      }}>Ouvrir la vue fonctionnelle des APIs (toutes les routes backend · actions · temps de réponse · résultats de test)</button>
     );
   }
 
@@ -678,7 +678,7 @@ export default function FunctionalApiView({ onRunTests, sweepRunning }: Function
     <section style={{ margin: '16px 0 28px', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, background: '#fff' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
         <div style={{ minWidth: 260 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>🧭 Vue fonctionnelle des APIs</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Vue fonctionnelle des APIs</h2>
           {joinStatus && <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{joinStatus}</div>}
           {onRunTests && (
             <button

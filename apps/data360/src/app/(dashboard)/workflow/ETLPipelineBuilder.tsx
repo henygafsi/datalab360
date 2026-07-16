@@ -2151,8 +2151,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             setPhase('execute', { phase: 'completed' });
             toast.success(
               response.rows_affected != null
-                ? `Executed successfully! ${response.rows_affected} rows affected`
-                : 'Executed successfully!',
+                ? `Executed — ${response.rows_affected} rows affected`
+                : 'Executed',
             );
             // Auto-load destination table preview
             loadResultsPreview();
@@ -2384,7 +2384,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         deployment_type: 'with_approval',
       });
       setPhase('deploy', { phase: 'completed' });
-      toast.success('Pipeline submitted for approval!');
+      toast.success('Pipeline submitted for approval');
       setApprovalStatus('pending');
       trackFeatureClick('workflow_deploy_requested', {
         workflow_id: activeWorkflowId,

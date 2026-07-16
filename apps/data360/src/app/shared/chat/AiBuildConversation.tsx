@@ -605,7 +605,7 @@ export default function AiBuildConversation({ initialConversation, onBack }: AiB
             </span>
           ))}
           <span className="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[9px] font-medium text-violet-600 ring-1 ring-violet-200 dark:bg-violet-900/30 dark:text-violet-300 dark:ring-violet-800">
-            ✨ AI Assistant
+            AI Assistant
           </span>
         </div>
       )}
@@ -739,7 +739,7 @@ export default function AiBuildConversation({ initialConversation, onBack }: AiB
                   >
                     {!isMine && (
                       <p className="mb-0.5 text-[10px] font-medium opacity-60">
-                        {isAi ? '✨ AI Assistant' : msg.SENDER_USERNAME}
+                        {isAi ? 'AI Assistant' : msg.SENDER_USERNAME}
                       </p>
                     )}
                     <p className="whitespace-pre-wrap break-words">{body}</p>

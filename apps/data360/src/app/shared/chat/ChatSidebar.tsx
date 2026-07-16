@@ -554,7 +554,7 @@ export default function ChatSidebar() {
                   <div className="py-8 text-center">
                     <Sparkles className="mx-auto mb-2 h-8 w-8 text-gray-300 dark:text-gray-600" />
                     <p className="text-sm text-gray-400">No messages yet</p>
-                    <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">Type a message or ask AI with ✨</p>
+                    <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">Type a message or ask the AI assistant</p>
                   </div>
                 ) : (
                   safeMessages.map((msg) => {
@@ -569,7 +569,7 @@ export default function ChatSidebar() {
                               ? 'bg-blue-600 text-white rounded-br-md'
                               : 'bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-gray-100 rounded-bl-md'
                         }`}>
-                          {(!isMine || isAI) && <p className="mb-0.5 text-[10px] font-medium opacity-60">{isAI ? '✨ Data360 AI' : msg.sender}</p>}
+                          {(!isMine || isAI) && <p className="mb-0.5 text-[10px] font-medium opacity-60">{isAI ? 'Data360 AI' : msg.sender}</p>}
                           <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                           <div className="mt-0.5 flex items-center justify-end gap-2">
                             <p className={`text-[10px] ${isMine && !isAI ? 'text-blue-200' : 'opacity-40'}`}>{formatTime(msg.created_at)}</p>

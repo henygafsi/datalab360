@@ -468,7 +468,33 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   }, [tables, tableColumns, targetTableIds, targetMappedColumns, fkColumnSet]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [edges, setEdges, onEdgesChangeBase] = useEdgesState([]);
+
+  // Trace edge removals: deleting a relation on the canvas is a design change
+  // like any other — emit RELATION_REMOVED so it reaches the synced trace and
+  // the Release tab (previously it silently mutated local state only).
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    for (const ch of changes) {
+      if (ch.type !== 'remove') continue;
+      const edge = edges.find((e) => e.id === ch.id);
+      if (!edge) continue;
+      const src = tables.find((t) => t.id === edge.source);
+      const tgt = tables.find((t) => t.id === edge.target);
+      if (!src || !tgt) continue;
+      addEventRef.current({
+        type: 'RELATION_REMOVED',
+        projectId: projectId ?? undefined,
+        target: { database: src.database, schema: src.schema, table: src.table },
+        payload: {
+          sourceColumn: String(edge.sourceHandle ?? '').split('-')[0] || edge.id,
+          targetTable: { database: tgt.database, schema: tgt.schema, table: tgt.table },
+          targetColumn: String(edge.targetHandle ?? '').split('-')[0] || edge.id,
+          relationType: 'many_to_one',
+        },
+      });
+    }
+    onEdgesChangeBase(changes);
+  }, [edges, tables, projectId, onEdgesChangeBase]);
 
   // Update nodes when data changes (tables, columns, mappings)
   // Preserve positions while updating node data
@@ -1098,7 +1124,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
       if (sourceIsTarget && !targetIsTarget) {
         // User connected backwards: DWH → Source, swap them
-        toast('Swapped direction: Source → Target (DWH)', { icon: '🔄' });
+        toast('Swapped direction: Source → Target (DWH)');
         setMappingSourceTable(targetTable);
         setMappingTargetTable(sourceTable);
         setPendingConnectionParams({
@@ -1367,7 +1393,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // Start FK linking mode
         setRelationMode(true);
         setPendingConnection({ sourceNode: nodeId, sourceColumn: '' });
-        toast.success('Click target table to create foreign key link', { icon: '🔗' });
+        toast.success('Click target table to create foreign key link');
         break;
       case 'relation': {
         // Seed the relation on the table's REAL primary key, not a hardcoded
@@ -2072,7 +2098,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 >
                   {fkPickerState.sourceCols.map(c => (
                     <option key={c.name} value={c.name}>
-                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' 🔑' : ''}
+                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' · PK' : ''}
                     </option>
                   ))}
                 </select>
@@ -2093,7 +2119,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 >
                   {fkPickerState.targetCols.map(c => (
                     <option key={c.name} value={c.name}>
-                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' 🔑' : ''}
+                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' · PK' : ''}
                     </option>
                   ))}
                 </select>

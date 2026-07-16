@@ -732,7 +732,7 @@ const SelfServeIngestionModal: React.FC<SelfServeIngestionModalProps> = ({
                             : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:border-emerald-300',
                         )}
                       >
-                        {c.isPrimaryKey && '🔑 '}{c.name}
+                        {c.isPrimaryKey && 'PK · '}{c.name}
                       </button>
                     );
                   })}

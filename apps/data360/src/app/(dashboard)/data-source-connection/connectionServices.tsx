@@ -459,6 +459,33 @@ export async function uploadStageFile(
     }
 }
 
+export interface LoadStagedFileResult {
+    status: string;
+    target: string;
+    created: boolean;
+    mode: string;
+    rows_loaded: number | null;
+    file: string;
+    stage: string;
+}
+
+/** Materialize a staged file as a table (INFER_SCHEMA -> CREATE -> COPY INTO). */
+export async function loadStagedFileAsTable(
+    stageName: string,
+    filePath: string,
+    body: { database: string; schema_name: string; table: string; mode: 'create' | 'replace' | 'append' }
+): Promise<LoadStagedFileResult> {
+    try {
+        const response = await apiClient.post(
+            API.connect.loadStageFileAsTable(stageName, filePath),
+            body,
+        );
+        return response.data;
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Failed to load file as table'));
+    }
+}
+
 export async function deleteStageFile(
     stageName: string,
     filePath: string

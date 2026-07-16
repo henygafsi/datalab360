@@ -122,7 +122,7 @@ export default function NetworkPoliciesContent() {
 
       await createNetworkPolicy(requestData);
 
-      toast.success('Network policy created successfully!');
+      toast.success('Network policy created');
       setShowCreatePanel(false);
       resetForm();
       refetch();

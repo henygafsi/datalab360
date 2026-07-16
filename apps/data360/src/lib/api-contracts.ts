@@ -118,6 +118,9 @@ export const API = {
     /** GET /connect/stages/{stage}/files/{file_path}/download */
     downloadStageFile: (stage: string, filePath: string) =>
       `/connect/stages/${enc(stage)}/files/${enc(filePath)}/download`,
+    /** POST /connect/stages/{stage}/files/{file_path}/load-table */
+    loadStageFileAsTable: (stage: string, filePath: string) =>
+      `/connect/stages/${enc(stage)}/files/${enc(filePath)}/load-table`,
 
     // --- PostgreSQL / MySQL ---
     /** POST /connect/postgres/ingest */
