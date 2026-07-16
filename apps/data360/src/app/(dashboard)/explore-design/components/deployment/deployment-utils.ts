@@ -386,13 +386,21 @@ export function generateSnowflakeSQL(event: DesignEvent): { sql: string; rollbac
     }
     case 'RLS_POLICY_REMOVED':
       return { sql: `ALTER TABLE ${tableRef} DROP ROW ACCESS POLICY ${event.payload.policyName};` };
-    case 'AGGREGATION_POLICY_APPLIED':
+    case 'AGGREGATION_POLICY_APPLIED': {
+      // Snowflake assigns an aggregation policy with SET (not ADD) and removes it
+      // with UNSET (not DROP — DROP deletes the policy object). The prior ADD/DROP
+      // was a syntax error → aggregation deploy failed. FORCE lets it re-assign
+      // over an existing one. (docs.snowflake.com/en/user-guide/aggregation-policies)
+      const aggFqn = (event.payload.policyDatabase && event.payload.policySchema)
+        ? `${event.payload.policyDatabase}.${event.payload.policySchema}.${event.payload.policyName}`
+        : event.payload.policyName;
       return {
-        sql: `ALTER TABLE ${tableRef} ADD AGGREGATION POLICY ${event.payload.policyName};`,
-        rollbackSql: `ALTER TABLE ${tableRef} DROP AGGREGATION POLICY ${event.payload.policyName};`,
+        sql: `ALTER TABLE ${tableRef} SET AGGREGATION POLICY ${aggFqn} FORCE;`,
+        rollbackSql: `ALTER TABLE ${tableRef} UNSET AGGREGATION POLICY;`,
       };
+    }
     case 'AGGREGATION_POLICY_REMOVED':
-      return { sql: `ALTER TABLE ${tableRef} DROP AGGREGATION POLICY ${event.payload.policyName};` };
+      return { sql: `ALTER TABLE ${tableRef} UNSET AGGREGATION POLICY;` };
 
     default:
       return { sql: `-- ${event.type}: ${JSON.stringify(event.payload)}` };
