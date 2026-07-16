@@ -15,8 +15,10 @@ import RoleHierarchyPanel from './components/RoleHierarchyPanel';
 import { getRoles } from '@/app/services/governance/fetch_roles';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 
-export default function RolesManagementPage() {
-  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
+/** Embeddable body (governance consolidation): KPI strip + inspector
+ *  launcher + hierarchy + table + docked inspector, no breadcrumb/PageHeader —
+ *  the "Roles" tab of GovernanceEntitySurface. */
+export function RolesSurface() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Role inspector (docked right-tab) — pick a role, inspect/edit its grants.
@@ -42,34 +44,14 @@ export default function RolesManagementPage() {
   }, []);
 
   return (
-    <ErrorBoundary>
-    <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div className="text-xs text-slate-500 dark:text-slate-400">
-        <a href="/" className="hover:text-blue-600">Home</a> / <a href="/governance" className="hover:text-blue-600">Governance</a> / <span className="text-slate-700 dark:text-slate-300">Roles</span>
+    <div className="space-y-4">
+      <div className="flex items-center justify-end gap-2">
+        <ImportButton title="Import Roles" />
+        <AddRoleButton onAddRoleSuccess={handleAddRoleSuccess} />
       </div>
-
-      <PageHeader
-        icon={<HiOutlineShieldCheck className="h-6 w-6" />}
-        title="Role Management"
-        subtitle="Define and manage user roles with specific permissions and access controls"
-        color="emerald"
-        badges={
-          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 px-3 py-1 text-sm font-medium">
-            <HiOutlineKey className="w-3 h-3 mr-1 inline" />
-            Active Roles
-          </Badge>
-        }
-        actions={
-          <>
-            <ImportButton title="Import Roles" />
-            <AddRoleButton onAddRoleSuccess={handleAddRoleSuccess} />
-          </>
-        }
-      />
-
-      {/* Per-page KPI strip — roles · D360 roles · users (honest "—"). */}
+      {/* Per-page KPI strip — roles · D360 roles · users (honest —). */}
       <GovernanceKpiStrip scope="roles" />
+
 
       {/* Role inspector launcher — pick a role and open the docked inspector. */}
       <div className="flex flex-wrap items-end gap-2 rounded-xl border border-muted bg-white px-4 py-3 dark:bg-gray-800">
@@ -127,6 +109,35 @@ export default function RolesManagementPage() {
           onMutated={() => setRefreshKey((k) => k + 1)}
         />
       </div>
+    </div>
+  );
+}
+
+export default function RolesManagementPage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
+
+  return (
+    <ErrorBoundary>
+    <div className="space-y-6">
+      {/* Breadcrumb */}
+      <div className="text-xs text-slate-500 dark:text-slate-400">
+        <a href="/" className="hover:text-blue-600">Home</a> / <a href="/governance" className="hover:text-blue-600">Governance</a> / <span className="text-slate-700 dark:text-slate-300">Roles</span>
+      </div>
+
+      <PageHeader
+        icon={<HiOutlineShieldCheck className="h-6 w-6" />}
+        title="Role Management"
+        subtitle="Define and manage user roles with specific permissions and access controls"
+        color="emerald"
+        badges={
+          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 px-3 py-1 text-sm font-medium">
+            <HiOutlineKey className="w-3 h-3 mr-1 inline" />
+            Active Roles
+          </Badge>
+        }
+      />
+
+      <RolesSurface />
     </div>
     </ErrorBoundary>
   );

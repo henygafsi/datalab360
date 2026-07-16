@@ -15,11 +15,11 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import { isAdminRole } from '@/config/constants';
 
-export default function UsersManagementPage() {
+/** Embeddable body (governance consolidation): admin gate + KPI strip +
+ *  actions + table, no breadcrumb/PageHeader — mounted as the "Users" tab of
+ *  GovernanceEntitySurface and by the standalone route below. */
+export function UsersSurface() {
   const { role } = useAuth();
-  // Fire-and-forget PAGE_VIEW on mount/route change (before the admin gate
-  // so the view is registered even when access is denied).
-  useTrackEvent();
   const [refreshKey, setRefreshKey] = useState(0);
 
   const handleAddUserSuccess = useCallback(() => {
@@ -27,19 +27,36 @@ export default function UsersManagementPage() {
   }, []);
 
   // User management is admin-only. Mirror the coarse isAdminRole pattern used
-  // across the app (AccessControlCenter, ActionsPanel, etc.) — role defaults to
-  // 'ACCOUNTADMIN' until the JWT resolves, so admins never see a flash.
+  // across the app — role defaults to 'ACCOUNTADMIN' until the JWT resolves.
   if (!isAdminRole(role)) {
     return (
-      <ErrorBoundary>
-        <EmptyState
-          icon={Lock}
-          title="Access restricted"
-          description="User management is only available to platform administrators (ACCOUNTADMIN, SYSADMIN, SECURITYADMIN). Contact your admin if you need access."
-        />
-      </ErrorBoundary>
+      <EmptyState
+        icon={Lock}
+        title="Access restricted"
+        description="User management is only available to platform administrators (ACCOUNTADMIN, SYSADMIN, SECURITYADMIN). Contact your admin if you need access."
+      />
     );
   }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-end gap-2">
+        <ImportButton title="Import Users" />
+        <AddUserButton onAddUserSuccess={handleAddUserSuccess} />
+      </div>
+      {/* Per-page KPI strip — total · active · disabled · roles (honest "—"). */}
+      <GovernanceKpiStrip scope="users" />
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
+        <UsersTable key={refreshKey} onAddUserSuccess={handleAddUserSuccess} />
+      </div>
+    </div>
+  );
+}
+
+export default function UsersManagementPage() {
+  // Fire-and-forget PAGE_VIEW on mount/route change (before the admin gate
+  // so the view is registered even when access is denied).
+  useTrackEvent();
 
   return (
     <ErrorBoundary>
@@ -59,24 +76,9 @@ export default function UsersManagementPage() {
             Active Users
           </Badge>
         }
-        actions={
-          <>
-            <ImportButton title="Import Users" />
-            <AddUserButton onAddUserSuccess={handleAddUserSuccess} />
-          </>
-        }
       />
 
-      {/* Per-page KPI strip — total · active · disabled · roles (honest "—"). */}
-      <GovernanceKpiStrip scope="users" />
-
-      {/* Main Content */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
-        <UsersTable
-          key={refreshKey}
-          onAddUserSuccess={handleAddUserSuccess}
-        />
-      </div>
+      <UsersSurface />
     </div>
     </ErrorBoundary>
   );

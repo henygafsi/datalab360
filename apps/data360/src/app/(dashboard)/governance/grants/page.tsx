@@ -601,31 +601,14 @@ function D360RolesPanel() {
   );
 }
 
-export default function GrantsManagementPage() {
-  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
+/** Embeddable body (governance consolidation): info cards + KPI strip +
+ *  5 grant sub-tabs, no breadcrumb/PageHeader — the "Grants" tab of
+ *  GovernanceEntitySurface. */
+export function GrantsSurface() {
   const [activeTab, setActiveTab] = useState<TabType>('role-grants');
 
   return (
-    <ErrorBoundary>
     <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div className="text-xs text-slate-500 dark:text-slate-400">
-        <a href="/" className="hover:text-blue-600">Home</a> / <a href="/governance" className="hover:text-blue-600">Governance</a> / <span className="text-slate-700 dark:text-slate-300">Access Control</span>
-      </div>
-
-      <PageHeader
-        icon={<HiOutlineKey className="h-6 w-6" />}
-        title="Access Control"
-        subtitle="Configure role-based access control and manage module permissions"
-        color="amber"
-        badges={
-          <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-3 py-1 text-sm font-medium">
-            <HiOutlineShieldExclamation className="w-3 h-3 mr-1 inline" />
-            Security Center
-          </Badge>
-        }
-      />
-
       {/* Info Cards — explain each grant type for business users */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-blue-50/80 dark:bg-blue-950/30 rounded-xl border border-blue-200/60 dark:border-blue-800/40 p-5">
@@ -872,6 +855,35 @@ export default function GrantsManagementPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+export default function GrantsManagementPage() {
+  useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
+
+  return (
+    <ErrorBoundary>
+    <div className="space-y-6">
+      {/* Breadcrumb */}
+      <div className="text-xs text-slate-500 dark:text-slate-400">
+        <a href="/" className="hover:text-blue-600">Home</a> / <a href="/governance" className="hover:text-blue-600">Governance</a> / <span className="text-slate-700 dark:text-slate-300">Access Control</span>
+      </div>
+
+      <PageHeader
+        icon={<HiOutlineKey className="h-6 w-6" />}
+        title="Access Control"
+        subtitle="Configure role-based access control and manage module permissions"
+        color="amber"
+        badges={
+          <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-3 py-1 text-sm font-medium">
+            <HiOutlineShieldExclamation className="w-3 h-3 mr-1 inline" />
+            Security Center
+          </Badge>
+        }
+      />
+
+      <GrantsSurface />
     </div>
     </ErrorBoundary>
   );

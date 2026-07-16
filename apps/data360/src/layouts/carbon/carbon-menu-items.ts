@@ -126,25 +126,28 @@ export const carbonMenuItems: MenuItemsType[] = [
     icon: PiUserGearDuotone,
     color: 'rose',
     menuItems: [
+      // Users/Roles/Grants/Access-matrix are embedded tabs on the governance
+      // landing since the 2026-07-16 consolidation — deep-link via ?tab=
+      // (old standalone routes still work for bookmarks).
       {
         name: 'Users',
-        href: routes.governance.users,
+        href: '/governance?tab=users',
         icon: PiUserCircleDuotone,
       },
       {
         name: 'Roles',
-        href: routes.governance.roles,
+        href: '/governance?tab=roles',
         icon: PiBriefcaseDuotone,
       },
       {
         name: 'Grants',
-        href: routes.governance.grants,
+        href: '/governance?tab=grants',
         icon: PiCurrencyDollarDuotone,
       },
       {
         name: 'Access Matrix',
         description: 'Who can reach which page, per role',
-        href: routes.governance.accessMatrix,
+        href: '/governance?tab=access',
         icon: PiShieldCheckDuotone,
       },
       {

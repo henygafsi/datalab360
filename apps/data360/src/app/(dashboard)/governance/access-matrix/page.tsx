@@ -16,22 +16,29 @@ import { isAdminRole } from '@/config/constants';
  * governance tabs manage (users · roles · effective permissions) into one
  * who-can-reach-what grid. Admin-only, mirroring the Users page gate.
  */
-export default function AccessMatrixPage() {
+/** Embeddable body (governance consolidation): admin gate + matrix, no
+ *  breadcrumb/PageHeader — the "Access matrix" tab of GovernanceEntitySurface. */
+export function AccessMatrixSurface() {
   const { role } = useAuth();
-  // Auto-emits PAGE_VIEW on mount (this is the top routed component for the route).
-  useTrackEvent();
-
   if (!isAdminRole(role)) {
     return (
-      <ErrorBoundary>
-        <EmptyState
-          icon={Lock}
-          title="Access restricted"
-          description="The access matrix is only available to platform administrators (ACCOUNTADMIN, SYSADMIN, SECURITYADMIN)."
-        />
-      </ErrorBoundary>
+      <EmptyState
+        icon={Lock}
+        title="Access restricted"
+        description="The access matrix is only available to platform administrators (ACCOUNTADMIN, SYSADMIN, SECURITYADMIN)."
+      />
     );
   }
+  return (
+    <div className="rounded-xl border border-muted bg-white p-6 dark:bg-gray-800">
+      <UserAccessMatrix />
+    </div>
+  );
+}
+
+export default function AccessMatrixPage() {
+  // Auto-emits PAGE_VIEW on mount (this is the top routed component for the route).
+  useTrackEvent();
 
   return (
     <ErrorBoundary>
@@ -49,9 +56,7 @@ export default function AccessMatrixPage() {
           color="blue"
         />
 
-        <div className="rounded-xl border border-muted bg-white p-6 dark:bg-gray-800">
-          <UserAccessMatrix />
-        </div>
+        <AccessMatrixSurface />
       </div>
     </ErrorBoundary>
   );
