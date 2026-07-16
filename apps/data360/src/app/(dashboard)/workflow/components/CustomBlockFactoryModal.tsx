@@ -315,11 +315,17 @@ const CustomBlockFactoryModal: React.FC<CustomBlockFactoryModalProps> = ({
     <>
       {open && !showSkipTestConfirm && typeof document !== 'undefined' &&
         createPortal(
+          <div
+            className="fixed inset-0 z-[70] flex bg-slate-900/40"
+            onClick={() => onOpenChange(false)}
+            aria-hidden="true"
+          >
           <aside
             role="dialog"
-            aria-modal="false"
+            aria-modal="true"
             aria-label="Create custom block"
-            className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(e) => e.stopPropagation()}
+            className="ml-auto flex h-full w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
           >
           {/* Header */}
           <div className="border-b border-slate-200 dark:border-slate-700 px-6 py-4">
@@ -500,7 +506,8 @@ const CustomBlockFactoryModal: React.FC<CustomBlockFactoryModalProps> = ({
               </div>
             )}
           </div>
-          </aside>,
+          </aside>
+          </div>,
           document.body,
         )}
 

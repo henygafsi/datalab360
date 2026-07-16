@@ -183,11 +183,17 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
   if (!open || typeof document === 'undefined') return null;
 
   return createPortal(
+    <div
+      className="fixed inset-0 z-[70] flex bg-slate-900/40"
+      onClick={() => onOpenChange(false)}
+      aria-hidden="true"
+    >
     <aside
       role="dialog"
-      aria-modal="false"
+      aria-modal="true"
       aria-label="Roll back workflow"
-      className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+      onClick={(e) => e.stopPropagation()}
+      className="ml-auto flex h-full w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-6 py-4 dark:border-slate-700">
@@ -424,7 +430,8 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
               </button>
         </div>
       )}
-    </aside>,
+    </aside>
+    </div>,
     document.body,
   );
 };

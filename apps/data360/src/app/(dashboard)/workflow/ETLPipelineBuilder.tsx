@@ -3284,8 +3284,15 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       {/* "Change approach" — re-opens the manual/AI/template fork for an
           existing workflow so the build choice is reversible. */}
       {showApproachFork && (
+        <>
+        <div
+          className="fixed inset-0 z-[60] bg-slate-900/40"
+          onClick={() => setShowApproachFork(false)}
+          aria-hidden="true"
+        />
         <div
           role="dialog"
+          aria-modal="true"
           aria-label="Change approach"
           className="fixed inset-y-0 right-0 z-[60] flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
           onKeyDown={(e) => {
@@ -3328,6 +3335,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             />
           </div>
         </div>
+        </>
       )}
 
       {/* Breadcrumb Header */}
