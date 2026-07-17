@@ -132,18 +132,33 @@ export default function StageRail() {
         )}
       </div>
 
-      {/* Stage picker — v1: the Sources step embeds the real catalog tree */}
+      {/* Stage picker — Sources embeds the real catalog tree; every step
+          offers starter prompts so the first run always succeeds. */}
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto border-t border-gray-200 pt-2 dark:border-gray-700">
-        {activeStage === 'sources' ? (
+        <div className="mb-2 space-y-1 px-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            Try at this step
+          </span>
+          {STAGE_META[activeStage].starters.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('agentic-os:prefill', { detail: { text: s } }),
+                )
+              }
+              className="block w-full rounded-md border border-dashed border-gray-200 px-2 py-1.5 text-left text-xs text-gray-500 transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-gray-700 dark:border-gray-700 dark:hover:text-gray-200"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+        {activeStage === 'sources' && (
           <SourceTree
             onSelectTable={addGrounding}
             selectedTable={grounding[grounding.length - 1]}
           />
-        ) : (
-          <p className="px-2 text-xs leading-relaxed text-gray-400">
-            {STAGE_META[activeStage].hint}. Use the prompt in the center — the
-            right rail lists exactly what this step can and cannot do.
-          </p>
         )}
       </div>
     </div>

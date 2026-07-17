@@ -301,7 +301,9 @@ export default function Header() {
   return (
     <StickyHeader
       className={cn(
-        'z-[990] border-b backdrop-blur-xl transition-all duration-200',
+        // flex-wrap: the mobile search row (md:hidden below) must wrap to its
+        // own line — as a same-row flex item it overflowed the phone viewport.
+        'z-[990] flex-wrap border-b backdrop-blur-xl transition-all duration-200',
         isScrolled
           ? 'bg-white/85 shadow-sm shadow-slate-900/5 border-slate-200/60 dark:bg-slate-900/85 dark:border-slate-700/60 dark:shadow-black/10'
           : 'bg-white/60 border-slate-200/40 dark:bg-slate-900/60 dark:border-slate-700/40'
@@ -336,8 +338,8 @@ export default function Header() {
         </div>
       </div>
 
-      {/* Mobile search */}
-      <div className="mt-3 md:hidden">
+      {/* Mobile search — w-full so it wraps to its own header line */}
+      <div className="mt-3 w-full md:hidden">
         <SearchBar />
       </div>
     </StickyHeader>

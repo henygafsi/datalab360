@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSession } from 'next-auth/react';
 import Header from '@/layouts/carbon/carbon-header';
@@ -8,6 +9,7 @@ import { CarbonSidebar } from './carbon-sidebar';
 import ChatSidebar from '@/app/shared/chat/ChatSidebar';
 import StatusPill from '@/components/layout/status-pill';
 import { useSidebarCollapsed } from '@/store/sidebar-store';
+import { useMedia } from '@core/hooks/use-media';
 import cn from '@core/utils/class-names';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -19,6 +21,14 @@ export default function CarbonLayout({
 }) {
   const { status } = useSession();
   const { collapsed: sidebarCollapsed } = useSidebarCollapsed();
+  // The sidebar only exists at xl+ (`fixed hidden xl:block`). The margin/width
+  // animation below uses INLINE styles, which would override the responsive
+  // classes on phones and shove every page 280px right — gate it on xl.
+  const isXl = useMedia('(min-width: 1280px)', true);
+  const pathname = usePathname();
+  // /intelligent is the Agentic OS — it carries its own discussion + validation
+  // chat, so the floating global chat would be a competing second chat there.
+  const hideGlobalChat = pathname?.startsWith('/intelligent') ?? false;
 
   if (status === 'loading') {
     return (
@@ -58,12 +68,16 @@ export default function CarbonLayout({
           'flex w-full flex-col relative z-10 transition-all duration-300',
           'xl:ms-[280px] xl:w-[calc(100%-280px)]'
         )}
-        animate={{
-          marginLeft: sidebarCollapsed ? 64 : 280,
-          width: sidebarCollapsed ? 'calc(100% - 64px)' : 'calc(100% - 280px)',
-        }}
+        animate={
+          isXl
+            ? {
+                marginLeft: sidebarCollapsed ? 64 : 280,
+                width: sidebarCollapsed ? 'calc(100% - 64px)' : 'calc(100% - 280px)',
+              }
+            : { marginLeft: 0, width: '100%' }
+        }
         transition={{ duration: 0.3, ease: 'easeInOut' }}
-        style={{ marginLeft: sidebarCollapsed ? 64 : 280 }}
+        style={isXl ? { marginLeft: sidebarCollapsed ? 64 : 280 } : { marginLeft: 0 }}
       >
         <Header />
 
@@ -105,8 +119,9 @@ export default function CarbonLayout({
         </footer>
       </motion.div>
 
-      {/* Global Chat Sidebar — visible on all pages */}
-      <ChatSidebar />
+      {/* Global Chat Sidebar — all pages except the Agentic OS (/intelligent),
+          which has its own discussion + validation chat. */}
+      {!hideGlobalChat && <ChatSidebar />}
     </div>
   );
 }

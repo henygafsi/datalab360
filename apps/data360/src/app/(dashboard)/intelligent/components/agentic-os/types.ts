@@ -90,14 +90,72 @@ export interface AgentMessage {
 export interface StageMetaEntry {
   label: string;
   hint: string;
+  /** Starter prompts — a successful first run per step (onboarding-by-agent). */
+  starters: string[];
 }
 
 export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
-  sources: { label: 'Sources', hint: 'Pick the data objects that ground the agent' },
-  models: { label: 'Models', hint: 'Semantic & data models over the selection' },
-  ingestion: { label: 'Ingestion', hint: 'Load, sync and watermark the sources' },
-  workflow: { label: 'Workflow', hint: 'Draft and govern ETL pipelines' },
-  dashboards: { label: 'Dashboards', hint: 'Charts and boards, tested on real data' },
-  questions: { label: 'Questions', hint: 'Ask anything — SQL drafted and verified' },
-  dependencies: { label: 'Dependencies', hint: 'Lineage and impact of the selection' },
+  sources: {
+    label: 'Sources',
+    hint: 'Pick the data objects that ground the agent',
+    starters: [
+      'Profile the selected tables: row counts, freshness and quality signals',
+      'Which of my sources are stale or unmonitored?',
+      'Suggest the best tables for a customer-360 view',
+    ],
+  },
+  models: {
+    label: 'Models',
+    hint: 'Semantic & data models over the selection',
+    starters: [
+      'Propose a star schema over the selected tables',
+      'Which tables are missing a primary key or relationships?',
+      'Draft a semantic model for the selection',
+    ],
+  },
+  ingestion: {
+    label: 'Ingestion',
+    hint: 'Load, sync and watermark the sources',
+    starters: [
+      'What is the load status and freshness of my selection?',
+      'Recommend an ingestion mode (full, incremental, CDC) for these tables',
+      'Show recent ingestion failures and how to fix them',
+    ],
+  },
+  workflow: {
+    label: 'Workflow',
+    hint: 'Draft and govern ETL pipelines',
+    starters: [
+      'Draft a pipeline that cleans and merges the selected tables',
+      'Aggregate the selection into a daily summary table',
+      'Add a quality gate before publishing the output',
+    ],
+  },
+  dashboards: {
+    label: 'Dashboards',
+    hint: 'Charts and boards, tested on real data',
+    starters: [
+      'Chart the trend over time for the selected data',
+      'Build a top-10 breakdown chart from the selection',
+      'Compare this month vs last month on the key metric',
+    ],
+  },
+  questions: {
+    label: 'Questions',
+    hint: 'Ask anything — SQL drafted and verified',
+    starters: [
+      'What are the 10 most important facts in the selected tables?',
+      'Find anomalies or outliers in the selection',
+      'Summarize what this data is about',
+    ],
+  },
+  dependencies: {
+    label: 'Dependencies',
+    hint: 'Lineage and impact of the selection',
+    starters: [
+      'What feeds the selected tables, and what breaks if they change?',
+      'Who uses these objects the most?',
+      'Show the downstream impact of dropping a column here',
+    ],
+  },
 };

@@ -271,7 +271,8 @@ export default function AgentCanvas() {
     [push, setApprovals, stage],
   );
 
-  // The right rail calls this via a window event (panes stay decoupled).
+  // Pane-decoupling events: right rail hands approvals off to the validation
+  // chat; left rail prefills the prompt with a step starter.
   useEffect(() => {
     const onHandOff = (e: Event) => {
       const detail = (e as CustomEvent<{ text: string }>).detail;
@@ -279,8 +280,16 @@ export default function AgentCanvas() {
       setHandOff({ text: detail.text, ts: Date.now() });
       setChatOpen(true);
     };
+    const onPrefill = (e: Event) => {
+      const detail = (e as CustomEvent<{ text: string }>).detail;
+      if (detail?.text) setPrompt(detail.text);
+    };
     window.addEventListener('agentic-os:handoff', onHandOff);
-    return () => window.removeEventListener('agentic-os:handoff', onHandOff);
+    window.addEventListener('agentic-os:prefill', onPrefill);
+    return () => {
+      window.removeEventListener('agentic-os:handoff', onHandOff);
+      window.removeEventListener('agentic-os:prefill', onPrefill);
+    };
   }, []);
 
   return (
