@@ -92,6 +92,7 @@ const WorkflowPage: React.FC = () => {
         {/* Cross-module links + fullscreen deep-dive toggle */}
         <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-gray-900 flex-wrap">
           <span>Related:</span>
+          <a href="/workflow/actions" className="text-blue-600 dark:text-blue-400 hover:underline">All actions (capability catalog)</a>
           <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore &amp; Design (Source Tables)</a>
           <a href="/data-quality" className="text-blue-600 dark:text-blue-400 hover:underline">Data Quality (Checks)</a>
           <a href="/bi-dashboard" className="text-blue-600 dark:text-blue-400 hover:underline">BI Dashboard (Visualize)</a>
