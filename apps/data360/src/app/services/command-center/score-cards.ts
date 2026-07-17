@@ -112,6 +112,14 @@ export interface ScoreCard {
   value: number | string | null;
   /** Unit suffix for the headline value (e.g. "%", "credits", "ms"). */
   unit: string;
+  /**
+   * The headline metric's OWN name (e.g. "MFA adoption", "DMF coverage",
+   * "Failure rate", "Total credits"). The value shown is this specific metric,
+   * NOT a composite dimension score — so a compact rail chip must label it by
+   * the metric ("MFA 0%") and never by the dimension code ("GOV 0%"), which
+   * would read as "governance is 0%". Undefined when no headline was computed.
+   */
+  metricLabel?: string;
   status: ScoreCardStatus;
   /** Open recommendations for this dimension. */
   openRecos: number;
@@ -268,6 +276,7 @@ function buildLiveCard(
     label: DIMENSION_LABEL[dimension],
     value: hasValue ? headline.value : null,
     unit: headline?.unit ?? '',
+    metricLabel: headline?.label ?? undefined,
     status,
     openRecos: counts?.open ?? 0,
     criticalRecos: counts?.critical ?? 0,

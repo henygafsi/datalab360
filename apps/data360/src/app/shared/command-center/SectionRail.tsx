@@ -82,6 +82,25 @@ const AXIS_SHORT: Record<KpiDimension, string> = {
   perf: 'PERF',
 };
 
+// The chip value is ONE headline metric, not a composite dimension score.
+// Labelling it by the dimension code ("GOV 0%") reads as "governance is 0%"
+// when the number is really MFA adoption; likewise "PERF 0%" for a 0% failure
+// rate reads as broken when it is perfect. Label the chip by the METRIC.
+const METRIC_SHORT: Record<string, string> = {
+  'MFA adoption': 'MFA',
+  'DMF coverage': 'DMF',
+  Freshness: 'Fresh',
+  'Failure rate': 'Fails',
+  'P95 execution': 'P95',
+  'Total credits': 'Credits',
+};
+
+function metricShort(card: ScoreCard | undefined, dim: KpiDimension): string {
+  const label = card?.metricLabel;
+  if (!label) return AXIS_SHORT[dim];
+  return METRIC_SHORT[label] ?? label.split(/[\s(]/)[0];
+}
+
 // Purge-safe literal class maps — severity buckets follow the shared cockpit
 // convention (emerald OK · amber warn · red blocker · slate unknown).
 type ChipBucket = 'ok' | 'warn' | 'blocker' | 'idle';
@@ -337,10 +356,14 @@ export default function SectionRail({
                     }
                     const bucket = chipBucket(card);
                     const value = chipValue(card);
+                    // Chip label = the METRIC (MFA, Fails, DMF…), not the
+                    // dimension code — see METRIC_SHORT. Tooltip carries the
+                    // full metric name + which axis it belongs to.
+                    const chipLabel = metricShort(card, dim);
                     const chipTitle =
                       card && card.status === 'ok'
-                        ? `${card.label}: ${value}${card.criticalRecos > 0 ? ` · ${card.criticalRecos} critical` : card.openRecos > 0 ? ` · ${card.openRecos} open recos` : ''}`
-                        : `${AXIS_SHORT[dim]} — no data right now`;
+                        ? `${card.label} · ${card.metricLabel ?? AXIS_SHORT[dim]}: ${value}${card.criticalRecos > 0 ? ` · ${card.criticalRecos} critical` : card.openRecos > 0 ? ` · ${card.openRecos} open recos` : ''}`
+                        : `${card?.metricLabel ?? AXIS_SHORT[dim]} — no data right now`;
                     return (
                       <span
                         key={dim}
@@ -361,7 +384,7 @@ export default function SectionRail({
                           onOpenDimension && 'cursor-pointer',
                         )}
                       >
-                        {AXIS_SHORT[dim]}
+                        {chipLabel}
                         <span className="font-semibold">{value}</span>
                       </span>
                     );
