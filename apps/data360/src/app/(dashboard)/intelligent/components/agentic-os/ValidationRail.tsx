@@ -11,7 +11,7 @@
  * action-catalog (ready / needs-validation / unverified), rbac gate shown as a
  * chip. Denied or unverified actions are visible and labeled, never hidden.
  */
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useAtom, useAtomValue } from 'jotai';
 import { Badge, Button, Input } from 'rizzui';
 import {
@@ -19,12 +19,17 @@ import {
   PiCheckCircle,
   PiHandPalm,
   PiMagnifyingGlass,
+  PiRocketLaunch,
   PiWarningCircle,
   PiX,
 } from 'react-icons/pi';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { listDeployments } from '@/app/services/api/exploreDesignApi';
+import type { ExploreDeployment } from '@/app/services/api/types';
 import { STAGE_META } from './types';
 import type { StageCapability } from './types';
-import { activeStageAtom, approvalsAtom } from './store';
+import { activeProjectIdAtom, activeStageAtom, approvalsAtom } from './store';
 import { useCapabilityMap } from './useCapabilityMap';
 
 const RISK_TINT: Record<string, string> = {
@@ -71,11 +76,39 @@ function CapabilityRow({ c }: { c: StageCapability }) {
   );
 }
 
+const DEPLOY_TONE: Record<string, string> = {
+  completed: 'text-emerald-600 dark:text-emerald-400',
+  active: 'text-emerald-600 dark:text-emerald-400',
+  approved: 'text-emerald-600 dark:text-emerald-400',
+  pending: 'text-amber-600 dark:text-amber-400',
+  awaiting_approval: 'text-amber-600 dark:text-amber-400',
+  scheduled: 'text-amber-600 dark:text-amber-400',
+  failed: 'text-red-600 dark:text-red-400',
+  rejected: 'text-gray-400',
+};
+
 export default function ValidationRail() {
   const stage = useAtomValue(activeStageAtom);
   const [approvals, setApprovals] = useAtom(approvalsAtom);
+  const projectId = useAtomValue(activeProjectIdAtom);
   const caps = useCapabilityMap(stage);
   const [q, setQ] = useState('');
+
+  // Live deployment follow-up for the active project (SSE-refreshed) — the
+  // discussion's outputs are projects, and their deploys are tracked here.
+  const fetchDeployments = useCallback(
+    () =>
+      projectId
+        ? listDeployments(projectId).then((r) => r.deployments ?? [])
+        : Promise.resolve([] as ExploreDeployment[]),
+    [projectId],
+  );
+  const deploymentsQ = useCacheAwareQuery<ExploreDeployment[]>(fetchDeployments, {
+    cacheKeys: [CACHE_KEYS.DEPLOYMENTS],
+    initialData: [],
+    enabled: Boolean(projectId),
+  });
+  const deployments = deploymentsQ.data ?? [];
 
   const pending = approvals.filter((a) => a.status === 'pending');
   const filter = (list: StageCapability[]) =>
@@ -149,6 +182,46 @@ export default function ValidationRail() {
           </ul>
         )}
       </section>
+
+      {/* Deployment follow-up — active project, all statuses, read-only */}
+      {projectId && (
+        <section
+          aria-label="Project deployments"
+          className="shrink-0 border-b border-gray-200 pb-2 pt-1 dark:border-gray-700"
+        >
+          <h3 className="flex items-center gap-1.5 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <PiRocketLaunch className="h-3.5 w-3.5" aria-hidden />
+            Deployments
+            {deployments.length > 0 && (
+              <span className="ml-auto text-[10px] font-normal normal-case text-gray-400">
+                {deployments.length}
+              </span>
+            )}
+          </h3>
+          {deployments.length === 0 ? (
+            <p className="px-2 text-xs text-gray-400">
+              No deployment yet for this project — drafts stay drafts until you
+              deploy from its workbench.
+            </p>
+          ) : (
+            <ul className="max-h-36 space-y-0.5 overflow-y-auto px-2">
+              {deployments.slice(0, 8).map((d) => (
+                <li key={d.deployment_id} className="flex items-center gap-2 text-xs">
+                  <span className="min-w-0 flex-1 truncate text-gray-600 dark:text-gray-300">
+                    {d.deployment_type}
+                    {d.environment ? ` · ${d.environment}` : ''}
+                  </span>
+                  <span
+                    className={`shrink-0 font-medium ${DEPLOY_TONE[d.status?.toLowerCase()] ?? 'text-gray-500'}`}
+                  >
+                    {d.status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {/* Capability map for the active step */}
       <section aria-label="Step capabilities" className="flex min-h-0 flex-1 flex-col pt-2">

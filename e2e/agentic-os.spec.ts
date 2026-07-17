@@ -220,6 +220,11 @@ test('PROJECT OUTPUT: "create a project from the sources" → agent discovers, g
   console.log('NIGHT project output: ' + doneText.slice(0, 160)); // eslint-disable-line no-console
   // The created project became the active context (selector shows it).
   await expect(page.getByText(/Nothing was deployed/), 'no deployment ran').toBeVisible();
+  // Deployment follow-up appears for the active project (honest empty state).
+  await expect(
+    page.getByText('Deployments', { exact: true }),
+    'deployment tracking section shows for the project',
+  ).toBeVisible({ timeout: 20_000 });
   await page.screenshot({ path: path.join(SHOTS, 'project-output.png') });
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });

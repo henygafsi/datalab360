@@ -17,6 +17,7 @@
  * human-approval chat) when an approval is sent to discussion.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { Button, Loader, Textarea } from 'rizzui';
 import { toast } from 'react-hot-toast';
@@ -34,6 +35,13 @@ import {
   type ProposedAction,
 } from '@/app/services/cortex/agent';
 import LineageFlow from '@/app/shared/command-center/LineageFlow';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
+
+// recharts is heavy — load the chart renderer only when a chart card exists.
+const DynamicChart = dynamic(
+  () => import('@/app/(dashboard)/bi-dashboard/components/DynamicChart'),
+  { ssr: false },
+);
 import CortexChatContent, { type QueuedPrompt } from '../../cortex-chat-content';
 import { STAGE_META, type AgentMessage, type LifecycleStage } from './types';
 import {
@@ -112,6 +120,23 @@ function DraftCard({
   const note = governanceNote(draft.tested?.error);
   const aggregationBlocked =
     !ok && /aggregation policy/i.test(draft.tested?.error ?? '') && Boolean(onRetryAggregated);
+
+  // Chart drafts render as a REAL chart (recharts), not a rows table.
+  const sample = draft.tested?.sample ?? [];
+  let chartConfig: React.ComponentProps<typeof DynamicChart>['config'] | null = null;
+  if (draft.module === 'chart' && ok && sample.length > 0) {
+    const cols = draft.tested?.columns?.length ? draft.tested.columns : Object.keys(sample[0]);
+    const xKey = cols.find((c) => typeof sample[0][c] !== 'number') ?? cols[0];
+    const measures = cols.filter((c) => c !== xKey && typeof sample[0][c] === 'number');
+    if (measures.length) {
+      chartConfig = {
+        chartType: ((draft.draft?.chart_type as string) ?? 'bar') as never,
+        x: xKey,
+        measures: measures.map((c) => ({ column: c })),
+        prefetched: { data: sample },
+      } as unknown as React.ComponentProps<typeof DynamicChart>['config'];
+    }
+  }
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs">
@@ -128,8 +153,22 @@ function DraftCard({
           <span className="text-gray-500">{draft.tested.sample_rows} sample rows</span>
         )}
       </div>
-      {draft.tested?.sample && draft.tested.sample.length > 0 && (
-        <RowsPreview columns={draft.tested.columns ?? []} rows={draft.tested.sample} />
+      {chartConfig ? (
+        <div className="h-72 rounded-lg border border-gray-100 p-2 dark:border-gray-800">
+          {typeof draft.draft?.title === 'string' && (
+            <p className="px-1 pb-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+              {draft.draft.title}
+            </p>
+          )}
+          <div className="h-[calc(100%-1.25rem)]">
+            <DynamicChart config={chartConfig} />
+          </div>
+        </div>
+      ) : (
+        draft.tested?.sample &&
+        draft.tested.sample.length > 0 && (
+          <RowsPreview columns={draft.tested.columns ?? []} rows={draft.tested.sample} />
+        )
       )}
       {draft.tested?.steps && draft.tested.steps.length > 0 && (
         <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
@@ -170,6 +209,7 @@ export default function AgentCanvas() {
   const setTouched = useSetAtom(touchedStagesAtom);
   const { role } = useAuth();
   const isAdmin = ADMIN_ROLES.includes(role);
+  const { trackFeatureClick } = useTrackEvent();
 
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
@@ -200,8 +240,19 @@ export default function AgentCanvas() {
   const push = useCallback(
     (m: Omit<AgentMessage, 'id' | 'at'>) => {
       setMessages((prev) => [...prev, { ...m, id: nextId('msg'), at: Date.now() }]);
+      // The discussion IS part of the project trail: every turn is persisted as
+      // an event (EVENT_STORE via /api/data360/track — fire-and-forget), keyed
+      // by stage + active project so it reads like any classic module history.
+      trackFeatureClick('agentic_os_discussion', {
+        turn_role: m.role,
+        kind: m.kind,
+        stage: m.stage,
+        project_id: projectId || null,
+        project_name: projects.find((p) => p.project_id === projectId)?.name ?? null,
+        preview: (m.text ?? '').slice(0, 160),
+      });
     },
-    [setMessages],
+    [setMessages, trackFeatureClick, projectId, projects],
   );
 
   /**
