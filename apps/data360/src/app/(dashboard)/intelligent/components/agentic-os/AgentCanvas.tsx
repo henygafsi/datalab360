@@ -23,7 +23,8 @@ import { toast } from 'react-hot-toast';
 import { PiPaperPlaneRight, PiPlay, PiHandPalm, PiCaretDown, PiCaretUp } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
 import { useAuth } from '@/hooks/useAuth';
-import { getTables } from '@/app/services/mapping';
+import { getDatabases, getSchemas, getTables } from '@/app/services/mapping';
+import { createExploreProject } from '@/app/services/api/exploreDesignApi';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
 import { generateCompletion } from '@/app/services/cortex';
 import { cocoDraft, type CocoDraftResult, type DraftModule } from '@/app/services/cortex/draft';
@@ -204,6 +205,43 @@ export default function AgentCanvas() {
   );
 
   /**
+   * Read-only source discovery: walk databases → schemas → tables (skipping
+   * the app's own DB and empty/system schemas), ground up to 5 tables of the
+   * richest schema found, and return what was explored. Null when nothing is
+   * readable for this role.
+   */
+  const discoverAndGround = useCallback(async (): Promise<{
+    db: string;
+    schema: string;
+    allTables: string[];
+    picked: string[];
+  } | null> => {
+    try {
+      const dbs = await getDatabases();
+      const ordered = [
+        ...dbs.filter((d) => /DRAFT_SOURCE|SOURCE|RAW|LAKE/i.test(d)),
+        ...dbs.filter((d) => !/DRAFT_SOURCE|SOURCE|RAW|LAKE/i.test(d) && !/^CP_DATA360$/i.test(d)),
+      ];
+      for (const db of ordered.slice(0, 3)) {
+        const schemas = (await getSchemas(db).catch(() => [])).filter(
+          (s) => !/INFORMATION_SCHEMA/i.test(s),
+        );
+        for (const schema of schemas.slice(0, 4)) {
+          const tables = await getTables(db, schema).catch(() => [] as string[]);
+          if (tables.length) {
+            const picked = tables.slice(0, 5).map((t) => `${db}.${schema}.${t}`.toUpperCase());
+            setGrounding(picked);
+            return { db: db.toUpperCase(), schema: schema.toUpperCase(), allTables: tables, picked };
+          }
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }, [setGrounding]);
+
+  /**
    * The agent DOES safe things itself instead of instructing the user.
    * Read-only context actions (grounding a schema's tables, grounding one FQN)
    * execute directly; only mutations wait for validation. Returns true when
@@ -212,6 +250,60 @@ export default function AgentCanvas() {
   const tryAutoAct = useCallback(
     async (text: string): Promise<boolean> => {
       const ident = '[A-Za-z_][A-Za-z0-9_]*';
+      // "create a project (from this / from DB.SCHEMA)" → the agent creates a
+      // DRAFT project itself: app-registry write only, NO deployment/DDL —
+      // deploys keep requiring human validation.
+      if (/(create|make|build|start|cr[ée]e[rz]?|nouveau)\s+.*\b(project|projet)\b/i.test(text)) {
+        let tables = grounding;
+        if (!tables.length) {
+          const schemaRef = text.match(new RegExp(`\\b(${ident})\\.(${ident})\\b`));
+          if (schemaRef) {
+            const names = await getTables(schemaRef[1].toUpperCase(), schemaRef[2].toUpperCase()).catch(
+              () => [] as string[],
+            );
+            tables = names
+              .slice(0, 5)
+              .map((t) => `${schemaRef[1]}.${schemaRef[2]}.${t}`.toUpperCase());
+          }
+          if (!tables.length) {
+            const found = await discoverAndGround();
+            tables = found?.picked ?? [];
+          } else {
+            setGrounding(tables);
+          }
+        }
+        if (!tables.length) {
+          push({
+            role: 'agent',
+            stage,
+            kind: 'text',
+            text: 'I could not find readable tables to seed the project — pick some in the left rail and re-ask.',
+          });
+          return true;
+        }
+        const name = `AGENTIC_${tables[0].split('.')[1]}_${Date.now().toString(36).slice(-4).toUpperCase()}`;
+        const created = await createExploreProject({
+          project_name: name,
+          description: `Created by the Agentic OS from: "${text.slice(0, 140)}"`,
+          source_tables: tables.map((f) => {
+            const [database, schema, table] = f.split('.');
+            return { database, schema, table };
+          }),
+          tags: ['agentic-os'],
+        });
+        setProjectId(created.project_id);
+        setTouched((t) => ({ ...t, [stage]: 'done' }));
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text:
+            `Done — I created draft project ${created.project_name} (${created.project_id}) with ` +
+            `${tables.length} source tables and selected it as the active project. Nothing was deployed — ` +
+            `model it here (Models step) or draft its pipeline (Workflow step); any deployment will wait for your validation.`,
+        });
+        return true;
+      }
       // "… DB.SCHEMA.TABLE …" → ground that exact table.
       const fqnMatch = text.match(new RegExp(`\\b(${ident})\\.(${ident})\\.(${ident})\\b`));
       // "select/ground/pick … DB.SCHEMA …" → ground up to 5 of its tables.
@@ -262,7 +354,7 @@ export default function AgentCanvas() {
       }
       return false;
     },
-    [push, setGrounding, stage],
+    [push, setGrounding, stage, grounding, discoverAndGround, setProjectId, setTouched],
   );
 
   const submit = useCallback(async (textArg?: string) => {
@@ -278,12 +370,11 @@ export default function AgentCanvas() {
       // Short acknowledgements ("go", "ok") are conversation, not data intents —
       // the draft engine requires a real intent (min length) and would 422.
       const conversational = text.length < 8;
-      if (conversational || (!grounding.length && !projectId)) {
-        // No grounding/project (a draft would hallucinate tables) or a short
-        // conversational ack: stay in discussion, aware of role and context.
+      if (conversational) {
+        // Short conversational ack — stay in discussion, role/context-aware.
         const ctx = grounding.length
           ? `They HAVE grounded these tables: ${grounding.join(', ')}. Suggest a concrete next ask on them.`
-          : `They have not selected tables or a project yet — tell them to pick up to 5 tables in the left rail (their role only sees granted objects) or select a project.`;
+          : `They have not selected tables or a project yet.`;
         const res = await generateCompletion({
           prompt:
             `You are the Data360 agent at the "${STAGE_META[stage].label}" lifecycle step ` +
@@ -292,6 +383,38 @@ export default function AgentCanvas() {
           model: 'mistral-large2',
         });
         push({ role: 'agent', stage, kind: 'text', text: res.response });
+      } else if (!grounding.length && !projectId) {
+        // A real data intent with nothing selected: the agent explores the
+        // sources ITSELF (read-only), grounds a rich schema, then answers —
+        // discover → ground → analyze, never "please select".
+        push({ role: 'agent', stage, kind: 'text', text: 'Exploring your sources…' });
+        const discovered = await discoverAndGround();
+        if (!discovered) {
+          push({
+            role: 'agent',
+            stage,
+            kind: 'text',
+            text: `I could not find a readable source schema for your role (${role}) — pick a table in the left rail or select a project and I take it from there.`,
+          });
+        } else {
+          const { db, schema, allTables, picked } = discovered;
+          push({
+            role: 'agent',
+            stage,
+            kind: 'text',
+            text: `I explored your sources and picked ${db}.${schema} (${allTables.length} tables). Grounded: ${picked.map((f) => f.split('.')[2]).join(', ')}.`,
+          });
+          const res = await generateCompletion({
+            prompt:
+              `You are the Data360 agent (user role: ${role}). The available tables in ${db}.${schema} are: ` +
+              `${allTables.slice(0, 40).join(', ')}. The user asks: "${text}". ` +
+              `Answer concretely using these REAL table names (max 8 sentences, no markdown headers). ` +
+              `If they asked what to design/build, propose 3-5 concrete options mapped to specific tables, ` +
+              `then tell them the next step happens right here (draft it at the Questions/Dashboards/Workflow step).`,
+            model: 'mistral-large2',
+          });
+          push({ role: 'agent', stage, kind: 'text', text: res.response });
+        }
       } else if (draftModule && grounding.length) {
         const draft = await cocoDraft({
           module: draftModule,

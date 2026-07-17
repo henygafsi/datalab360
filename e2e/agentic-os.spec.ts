@@ -181,6 +181,49 @@ test('AUTO-ACT: "select tables from DRAFT_SOURCE.RETAIL_DW" → agent grounds th
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
+test('AUTO-DISCOVER: vague data ask with nothing selected → agent explores sources itself and answers', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const promptBox = page.getByLabel('Ask the agent');
+  await expect(promptBox).toBeVisible({ timeout: 30_000 });
+
+  await promptBox.fill('choose and analyze data products that can be designed from source');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  await expect(page.getByText('Exploring your sources…')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/I explored your sources and picked/), 'agent explored itself').toBeVisible({
+    timeout: 90_000,
+  });
+  await expect(page.getByText(/[1-5]\/5/).first(), 'grounding auto-filled').toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'auto-discover.png') });
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
+test('PROJECT OUTPUT: "create a project from the sources" → agent discovers, grounds and creates a draft project itself', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const promptBox = page.getByLabel('Ask the agent');
+  await expect(promptBox).toBeVisible({ timeout: 30_000 });
+
+  await promptBox.fill('create a project from the best source tables');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  const done = page.getByText(/Done — I created draft project AGENTIC_/);
+  await expect(done, 'agent created the project itself').toBeVisible({ timeout: 120_000 });
+  const doneText = await done.innerText();
+  console.log('NIGHT project output: ' + doneText.slice(0, 160)); // eslint-disable-line no-console
+  // The created project became the active context (selector shows it).
+  await expect(page.getByText(/Nothing was deployed/), 'no deployment ran').toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'project-output.png') });
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
 test('COHERENT FLOW: ground real table → question (live draft) → chart → lineage, zero mutations', async ({ page }) => {
   test.setTimeout(420_000);
   const errors: string[] = [];
