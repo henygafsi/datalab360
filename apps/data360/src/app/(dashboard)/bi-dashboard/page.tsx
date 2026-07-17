@@ -683,12 +683,16 @@ function BIDashboardPage() {
     },
     [trackFeatureClick],
   );
-  // Lazy signal fetch: fires when the cost/governance axis is open AND the
-  // list is in (covers axis-opened-while-list-loading; loaders are idempotent).
+  // Signal fetch. Governance loads EAGERLY once the list is in so the KPI
+  // strip's Published / Shares fill with real numbers on landing instead of
+  // bare "—" (which reads as broken to an executive). It is bounded to the
+  // top-N most-recent dashboards and idempotent, so the cost is small. Cost
+  // stays lazy — it is heavier and credit attribution on a shared warehouse is
+  // unreliable, so it earns its "opens on the Cost axis" deferral.
   useEffect(() => {
-    if (projectsLoading || !cockpitOpen) return;
-    if (activeAxis === 'governance') loadGov();
-    if (activeAxis === 'cost') loadCost();
+    if (projectsLoading) return;
+    loadGov();
+    if (cockpitOpen && activeAxis === 'cost') loadCost();
   }, [projectsLoading, cockpitOpen, activeAxis, loadGov, loadCost]);
 
   // Docked AI Build hand-off — the rail creates the dashboard (shell or
