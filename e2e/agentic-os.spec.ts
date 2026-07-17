@@ -161,6 +161,98 @@ test('Legacy ?tab= workbench still resolves, chrome restored', async ({ page }) 
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
+test('COHERENT FLOW: ground real table → question (live draft) → chart → lineage, zero mutations', async ({ page }) => {
+  test.setTimeout(420_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  const log = (m: string) => console.log('FLOW ' + m); // eslint-disable-line no-console
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const stepNav = page.getByRole('navigation', { name: 'Lifecycle steps' });
+  await expect(stepNav).toBeVisible({ timeout: 30_000 });
+  const rail = page.locator('aside').filter({ has: stepNav }).first();
+
+  // 1 · SOURCES — ground one REAL table from the granted-only tree.
+  // Prefer the data-rich demo DB (50k-row facts) so the flow exercises real
+  // results; fall back to whatever the role can see.
+  const draftSourceDb = rail.getByRole('button', { name: /DRAFT_SOURCE/ }).first();
+  const anyDb = rail.locator('button[aria-expanded="false"]').first();
+  await expect(anyDb, 'a database row in the tree').toBeVisible({ timeout: 60_000 });
+  const dbBtn = (await draftSourceDb.isVisible().catch(() => false)) ? draftSourceDb : anyDb;
+  await dbBtn.click();
+  await page.waitForTimeout(2000);
+  // Prefer the fact-rich RETAIL_DW schema; fall back to the first collapsed row.
+  const retailSchema = rail.getByRole('button', { name: /RETAIL_DW/ }).first();
+  const anySchema = rail.locator('button[aria-expanded="false"]').first();
+  await expect(anySchema, 'a schema row').toBeVisible({ timeout: 60_000 });
+  const schemaBtn = (await retailSchema.isVisible().catch(() => false)) ? retailSchema : anySchema;
+  await schemaBtn.click();
+  // Table leaves render with the emerald table icon. If the first schema had
+  // none (e.g. INFORMATION_SCHEMA), expand the next collapsed row once.
+  let tableBtn = rail.locator('button:has(svg.text-emerald-500)').first();
+  if (!(await tableBtn.isVisible({ timeout: 20_000 }).catch(() => false))) {
+    await rail.locator('button[aria-expanded="false"]').first().click();
+    tableBtn = rail.locator('button:has(svg.text-emerald-500)').first();
+  }
+  await expect(tableBtn, 'a table leaf').toBeVisible({ timeout: 60_000 });
+  const tableName = (await tableBtn.innerText()).trim();
+  await tableBtn.click();
+  await expect(page.getByText('1/5'), 'grounding registered').toBeVisible({ timeout: 10_000 });
+  log(`grounded table: ${tableName}`);
+
+  // 2 · QUESTIONS — a real SQL draft, tested live. Assert a REAL outcome:
+  // tested-on-real-data OR an explicit honest failure/governance note.
+  await stepNav.getByRole('button', { name: /Questions/i }).click();
+  const promptBox = page.getByLabel('Ask the agent');
+  await promptBox.fill('How many rows does this table have?');
+  await page.getByRole('button', { name: 'Send' }).click();
+  const draftOutcome = page
+    .getByText(/tested on real data/)
+    .or(page.getByText(/test failed|test rejected/))
+    .or(page.getByText(/governance aggregation policy|protected for your role/));
+  await expect(draftOutcome.first(), 'question draft reaches a real outcome').toBeVisible({
+    timeout: 150_000,
+  });
+  const qCard = await page
+    .locator('div.rounded-xl.border')
+    .last()
+    .innerText()
+    .catch(() => '');
+  log(`question outcome: ${qCard.slice(0, 220).replace(/\n/g, ' | ')}`);
+
+  // 3 · DASHBOARDS — chart draft on the same grounding.
+  await stepNav.getByRole('button', { name: /Dashboards/i }).click();
+  await promptBox.fill('Chart the top 5 values of the first categorical column of this table');
+  await page.getByRole('button', { name: 'Send' }).click();
+  const chartOutcome = page
+    .getByText(/chart draft/)
+    .or(page.getByText(/test failed|test rejected/));
+  await expect(chartOutcome.first(), 'chart draft reaches a real outcome').toBeVisible({
+    timeout: 150_000,
+  });
+  const cCard = await page
+    .locator('div.rounded-xl.border')
+    .last()
+    .innerText()
+    .catch(() => '');
+  log(`chart outcome: ${cCard.slice(0, 220).replace(/\n/g, ' | ')}`);
+
+  // 4 · DEPENDENCIES — lineage canvas auto-posts for the grounded object.
+  await stepNav.getByRole('button', { name: /Dependencies/i }).click();
+  await expect(page.getByText(/Lineage for /), 'lineage card posted').toBeVisible({
+    timeout: 15_000,
+  });
+
+  // 5 · GOVERNED / NON-MUTATING — nothing ever entered the validation queue.
+  await expect(
+    page.getByText(/Nothing waiting/).first(),
+    'zero mutations queued across the whole flow',
+  ).toBeVisible();
+
+  await page.screenshot({ path: path.join(SHOTS, 'coherent-flow.png'), fullPage: false });
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
 test('Mobile: rails collapse to sheets, discussion is the surface', async ({ browser }) => {
   const ctx = await browser.newContext({ storageState: STATE, viewport: { width: 390, height: 844 } });
   const page = await ctx.newPage();

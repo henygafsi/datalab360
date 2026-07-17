@@ -86,6 +86,8 @@ export interface AgentMessage {
   rowColumns?: string[];
   /** kind='lineage' — 1-hop lineage canvas anchored on this table FQN. */
   lineageFqn?: string;
+  /** kind='draft' — the user intent that produced it (drives governed retries). */
+  intent?: string;
   at: number;
 }
 

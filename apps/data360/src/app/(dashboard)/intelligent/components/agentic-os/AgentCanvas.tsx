@@ -22,6 +22,7 @@ import { Button, Loader, Textarea } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { PiPaperPlaneRight, PiPlay, PiHandPalm, PiCaretDown, PiCaretUp } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
+import { useAuth } from '@/hooks/useAuth';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
 import { generateCompletion } from '@/app/services/cortex';
 import { cocoDraft, type CocoDraftResult, type DraftModule } from '@/app/services/cortex/draft';
@@ -98,9 +99,17 @@ function governanceNote(error?: string): string | null {
   return null;
 }
 
-function DraftCard({ draft }: { draft: CocoDraftResult }) {
+function DraftCard({
+  draft,
+  onRetryAggregated,
+}: {
+  draft: CocoDraftResult;
+  onRetryAggregated?: () => void;
+}) {
   const ok = draft.tested?.status === 'passed';
   const note = governanceNote(draft.tested?.error);
+  const aggregationBlocked =
+    !ok && /aggregation policy/i.test(draft.tested?.error ?? '') && Boolean(onRetryAggregated);
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs">
@@ -135,6 +144,11 @@ function DraftCard({ draft }: { draft: CocoDraftResult }) {
           {note}
         </p>
       )}
+      {aggregationBlocked && (
+        <Button size="sm" variant="outline" onClick={onRetryAggregated}>
+          Retry as an aggregated query (allowed by the policy)
+        </Button>
+      )}
       {draft.tested?.error && (
         <p className={`text-xs ${note ? 'text-gray-400' : 'text-red-500'}`}>{draft.tested.error}</p>
       )}
@@ -143,6 +157,8 @@ function DraftCard({ draft }: { draft: CocoDraftResult }) {
   );
 }
 
+const ADMIN_ROLES = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'];
+
 export default function AgentCanvas() {
   const stage = useAtomValue(activeStageAtom);
   const grounding = useAtomValue(groundingTablesAtom);
@@ -150,6 +166,8 @@ export default function AgentCanvas() {
   const [messages, setMessages] = useAtom(messagesAtom);
   const setApprovals = useSetAtom(approvalsAtom);
   const setTouched = useSetAtom(touchedStagesAtom);
+  const { role } = useAuth();
+  const isAdmin = ADMIN_ROLES.includes(role);
 
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
@@ -184,8 +202,8 @@ export default function AgentCanvas() {
     [setMessages],
   );
 
-  const submit = useCallback(async () => {
-    const text = prompt.trim();
+  const submit = useCallback(async (textArg?: string) => {
+    const text = (textArg ?? prompt).trim();
     if (!text || busy) return;
     setPrompt('');
     setBusy(true);
@@ -193,16 +211,20 @@ export default function AgentCanvas() {
     setTouched((t) => ({ ...t, [stage]: 'done' }));
     try {
       const draftModule = DRAFT_STAGE[stage];
-      if (!grounding.length && !projectId) {
-        // No grounding, no project: a data draft would hallucinate table names
-        // (and fail). Stay conversational and guide toward real grounding.
+      // Short acknowledgements ("go", "ok") are conversation, not data intents —
+      // the draft engine requires a real intent (min length) and would 422.
+      const conversational = text.length < 8;
+      if (conversational || (!grounding.length && !projectId)) {
+        // No grounding/project (a draft would hallucinate tables) or a short
+        // conversational ack: stay in discussion, aware of role and context.
+        const ctx = grounding.length
+          ? `They HAVE grounded these tables: ${grounding.join(', ')}. Suggest a concrete next ask on them.`
+          : `They have not selected tables or a project yet — tell them to pick up to 5 tables in the left rail (their role only sees granted objects) or select a project.`;
         const res = await generateCompletion({
           prompt:
-            `You are the Data360 agent, currently at the "${STAGE_META[stage].label}" lifecycle step ` +
-            `(${STAGE_META[stage].hint}). The user has not selected any tables or project yet. ` +
-            `User says: "${text}". Reply briefly and helpfully (max 4 sentences, no markdown headers). ` +
-            `If they want data work, tell them to pick up to 5 tables in the left rail (their role only ` +
-            `sees granted objects) or select a project — then you will answer on real data.`,
+            `You are the Data360 agent at the "${STAGE_META[stage].label}" lifecycle step ` +
+            `(${STAGE_META[stage].hint}). The user's warehouse role is ${role}. ${ctx} ` +
+            `User says: "${text}". Reply briefly and helpfully (max 4 sentences, no markdown headers).`,
           model: 'mistral-large2',
         });
         push({ role: 'agent', stage, kind: 'text', text: res.response });
@@ -212,7 +234,8 @@ export default function AgentCanvas() {
           intent: text,
           tables: grounding,
         });
-        push({ role: 'agent', stage, kind: 'draft', draft });
+        push({ role: 'agent', stage, kind: 'draft', draft, intent: text });
+        offerGovernanceRemediation(draft, text);
       } else if (projectId) {
         const res = await proposeAgentActions(projectId, text);
         push({
@@ -229,7 +252,8 @@ export default function AgentCanvas() {
           intent: text,
           tables: grounding,
         });
-        push({ role: 'agent', stage, kind: 'draft', draft });
+        push({ role: 'agent', stage, kind: 'draft', draft, intent: text });
+        offerGovernanceRemediation(draft, text);
       }
     } catch (err) {
       push({
@@ -241,7 +265,50 @@ export default function AgentCanvas() {
     } finally {
       setBusy(false);
     }
-  }, [prompt, busy, stage, grounding, projectId, push, setTouched]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt, busy, stage, grounding, projectId, role, push, setTouched]);
+
+  /**
+   * Non-stop agentic: a governance denial never dead-ends. The agent knows the
+   * user's role — when it is allowed to fix the blocking policy, the governed
+   * remediation is proposed AND pre-selected into the validation queue
+   * (mutating → still needs the human click; read-only retry offered inline).
+   */
+  function offerGovernanceRemediation(draft: CocoDraftResult, intent: string) {
+    const err = draft.tested?.error ?? '';
+    if (draft.tested?.status === 'passed' || !/aggregation policy/i.test(err)) return;
+    if (!isAdmin) {
+      push({
+        role: 'agent',
+        stage,
+        kind: 'text',
+        text: `Your role (${role}) cannot change this policy — ask a security admin, or retry with an aggregated query (the policy allows those).`,
+      });
+      return;
+    }
+    const target = grounding.join(', ') || 'the grounded tables';
+    setApprovals((prev) => {
+      if (prev.some((a) => a.status === 'pending' && a.label.includes('aggregation policy'))) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          id: nextId('appr'),
+          stage,
+          label: `Adjust the aggregation policy blocking ${target}`,
+          rationale: `As ${role} you are allowed to relax or unset this policy. The change is drafted and executed only after your confirmation in the validation chat.`,
+          risk: 'high',
+          handOffTab: 'cortex-chat',
+          prompt: `An aggregation policy blocks row-level reads on ${target} (error: ${err.slice(0, 160)}). As ${role}, draft the exact ALTER/UNSET statements to relax it for my analysis of: "${intent}". Show me the statements and wait for my GO before anything runs.`,
+          status: 'pending',
+        },
+      ];
+    });
+    toast('Remediation proposed — pre-selected in the validation rail (your role allows it).', {
+      icon: '🛡️',
+    });
+  }
 
   /** Read-only proposal → run inline. Mutating → park for human validation. */
   const actOnProposal = useCallback(
@@ -385,6 +452,12 @@ export default function AgentCanvas() {
         </span>
         <span aria-hidden>·</span>
         <span>{STAGE_META[stage].hint}</span>
+        <span
+          className="rounded-full border border-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:border-gray-700"
+          title="The agent proposes only what this role is allowed to do"
+        >
+          as {role}
+        </span>
         <span className="ml-auto">
           <select
             aria-label="Project context"
@@ -485,7 +558,17 @@ export default function AgentCanvas() {
             )}
             {m.kind === 'draft' && m.draft && (
               <div className="mt-2">
-                <DraftCard draft={m.draft} />
+                <DraftCard
+                  draft={m.draft}
+                  onRetryAggregated={
+                    m.intent
+                      ? () =>
+                          void submit(
+                            `Aggregated answer only (an aggregation policy applies — use GROUP BY / aggregate functions, no raw rows): ${m.intent}`,
+                          )
+                      : undefined
+                  }
+                />
               </div>
             )}
             {m.kind === 'rows' && (
