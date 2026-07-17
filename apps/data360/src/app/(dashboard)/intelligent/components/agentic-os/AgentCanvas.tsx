@@ -23,12 +23,14 @@ import { toast } from 'react-hot-toast';
 import { PiPaperPlaneRight, PiPlay, PiHandPalm, PiCaretDown, PiCaretUp } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
+import { generateCompletion } from '@/app/services/cortex';
 import { cocoDraft, type CocoDraftResult, type DraftModule } from '@/app/services/cortex/draft';
 import {
   cocoRunSql,
   proposeAgentActions,
   type ProposedAction,
 } from '@/app/services/cortex/agent';
+import LineageFlow from '@/app/shared/command-center/LineageFlow';
 import CortexChatContent, { type QueuedPrompt } from '../../cortex-chat-content';
 import { STAGE_META, type AgentMessage, type LifecycleStage } from './types';
 import {
@@ -84,8 +86,21 @@ function RowsPreview({ columns, rows }: { columns: string[]; rows: Record<string
   );
 }
 
+/** Governance denials read as wins, not crashes — explain them in words. */
+function governanceNote(error?: string): string | null {
+  if (!error) return null;
+  if (/aggregation policy/i.test(error))
+    return 'Blocked by a governance aggregation policy on this table — only aggregate queries are allowed. That is the governed path working; ask me for an aggregated view instead.';
+  if (/masking policy|row access policy/i.test(error))
+    return 'A masking / row-access policy applies to this data — results are protected for your role.';
+  if (/does not exist or not authorized/i.test(error))
+    return 'The draft referenced an object your role cannot see (or a placeholder) — ground me on real tables from the left rail and retry.';
+  return null;
+}
+
 function DraftCard({ draft }: { draft: CocoDraftResult }) {
   const ok = draft.tested?.status === 'passed';
+  const note = governanceNote(draft.tested?.error);
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs">
@@ -115,7 +130,14 @@ function DraftCard({ draft }: { draft: CocoDraftResult }) {
           ))}
         </ul>
       )}
-      {draft.tested?.error && <p className="text-xs text-red-500">{draft.tested.error}</p>}
+      {note && (
+        <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+          {note}
+        </p>
+      )}
+      {draft.tested?.error && (
+        <p className={`text-xs ${note ? 'text-gray-400' : 'text-red-500'}`}>{draft.tested.error}</p>
+      )}
       {!draft.draft && <p className="text-xs text-gray-400">The model could not produce a draft.</p>}
     </div>
   );
@@ -171,11 +193,24 @@ export default function AgentCanvas() {
     setTouched((t) => ({ ...t, [stage]: 'done' }));
     try {
       const draftModule = DRAFT_STAGE[stage];
-      if (draftModule) {
+      if (!grounding.length && !projectId) {
+        // No grounding, no project: a data draft would hallucinate table names
+        // (and fail). Stay conversational and guide toward real grounding.
+        const res = await generateCompletion({
+          prompt:
+            `You are the Data360 agent, currently at the "${STAGE_META[stage].label}" lifecycle step ` +
+            `(${STAGE_META[stage].hint}). The user has not selected any tables or project yet. ` +
+            `User says: "${text}". Reply briefly and helpfully (max 4 sentences, no markdown headers). ` +
+            `If they want data work, tell them to pick up to 5 tables in the left rail (their role only ` +
+            `sees granted objects) or select a project — then you will answer on real data.`,
+          model: 'mistral-large2',
+        });
+        push({ role: 'agent', stage, kind: 'text', text: res.response });
+      } else if (draftModule && grounding.length) {
         const draft = await cocoDraft({
           module: draftModule,
           intent: text,
-          tables: grounding.length ? grounding : undefined,
+          tables: grounding,
         });
         push({ role: 'agent', stage, kind: 'draft', draft });
       } else if (projectId) {
@@ -192,7 +227,7 @@ export default function AgentCanvas() {
         const draft = await cocoDraft({
           module: 'sql',
           intent: text,
-          tables: grounding.length ? grounding : undefined,
+          tables: grounding,
         });
         push({ role: 'agent', stage, kind: 'draft', draft });
       }
@@ -212,8 +247,13 @@ export default function AgentCanvas() {
   const actOnProposal = useCallback(
     async (msgId: string, idx: number, action: ProposedAction) => {
       const key = `${msgId}:${idx}`;
+      // A path with an unfilled {param} template is guaranteed to 404 — treat
+      // it as discussion material, not a runnable.
+      const templatePath =
+        action.kind === 'endpoint' && /\{[^}]+\}/.test(action.endpoint?.path ?? '');
       const readonlySql = action.kind === 'coco_sql' && action.sql && !action._rejected;
-      const readonlyGet = action.kind === 'endpoint' && action.endpoint?.method === 'GET';
+      const readonlyGet =
+        action.kind === 'endpoint' && action.endpoint?.method === 'GET' && !templatePath;
       if (readonlySql || readonlyGet) {
         setRunning(key);
         try {
@@ -241,12 +281,24 @@ export default function AgentCanvas() {
             });
           }
         } catch (err) {
-          push({
-            role: 'agent',
-            stage,
-            kind: 'error',
-            text: `${action.label} failed: ${err instanceof Error ? err.message : 'error'}`,
-          });
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          if (status === 404 || status === 501) {
+            // Honest unavailability, not a crash: the proposed read isn't wired
+            // on this backend (same convention as InsightActionButton).
+            push({
+              role: 'agent',
+              stage,
+              kind: 'text',
+              text: `"${action.label}" isn't available on this backend yet (${status}) — the agent proposed it, but no route serves it. Pick another proposal or rephrase.`,
+            });
+          } else {
+            push({
+              role: 'agent',
+              stage,
+              kind: 'error',
+              text: `${action.label} failed: ${err instanceof Error ? err.message : 'error'}`,
+            });
+          }
         } finally {
           setRunning(null);
         }
@@ -270,6 +322,38 @@ export default function AgentCanvas() {
     },
     [push, setApprovals, stage],
   );
+
+  // Guided discussion: entering a step for the first time, the agent opens it
+  // (what this step is, what your role can do here). On Dependencies with a
+  // grounded object, the lineage canvas is posted automatically.
+  useEffect(() => {
+    setMessages((prev) => {
+      if (prev.some((m) => m.kind === 'guide' && m.stage === stage)) return prev;
+      const additions: AgentMessage[] = [
+        {
+          id: nextId('guide'),
+          role: 'agent',
+          stage,
+          kind: 'guide',
+          text: STAGE_META[stage].guide,
+          at: Date.now(),
+        },
+      ];
+      if (stage === 'dependencies' && grounding.length) {
+        additions.push({
+          id: nextId('lin'),
+          role: 'agent',
+          stage,
+          kind: 'lineage',
+          text: `Lineage for ${grounding[grounding.length - 1]}:`,
+          lineageFqn: grounding[grounding.length - 1],
+          at: Date.now(),
+        });
+      }
+      return [...prev, ...additions];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
 
   // Pane-decoupling events: right rail hands approvals off to the validation
   // chat; left rail prefills the prompt with a step starter.
@@ -338,7 +422,9 @@ export default function AgentCanvas() {
             className={`max-w-[92%] rounded-xl border px-3 py-2 text-sm ${
               m.role === 'user'
                 ? 'ml-auto border-primary/20 bg-primary/5'
-                : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900'
+                : m.kind === 'guide'
+                  ? 'border-dashed border-primary/30 bg-primary/[0.03] text-gray-600 dark:text-gray-300'
+                  : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900'
             }`}
           >
             {m.text && (
@@ -405,6 +491,15 @@ export default function AgentCanvas() {
             {m.kind === 'rows' && (
               <div className="mt-2">
                 <RowsPreview columns={m.rowColumns ?? []} rows={m.rows ?? []} />
+              </div>
+            )}
+            {m.kind === 'lineage' && m.lineageFqn && (
+              <div className="mt-2 h-64 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+                <LineageFlow
+                  object={m.lineageFqn.split('.')[2] ?? m.lineageFqn}
+                  db={m.lineageFqn.split('.')[0]}
+                  schema={m.lineageFqn.split('.')[1]}
+                />
               </div>
             )}
           </div>

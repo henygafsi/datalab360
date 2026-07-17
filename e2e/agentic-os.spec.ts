@@ -115,6 +115,38 @@ test('Starter prefills the prompt; step dot turns active', async ({ page }) => {
   await expect(page.getByLabel('Ask the agent')).toHaveValue(/10 most important facts/);
 });
 
+test('v2: guided intro per step + stage pickers (graph, palette, tree)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const stepNav = page.getByRole('navigation', { name: 'Lifecycle steps' });
+  await expect(stepNav).toBeVisible({ timeout: 30_000 });
+
+  // Sources: the agent OPENS the discussion (guided intro, role-access wording).
+  await expect(page.getByText(/Step 1 · Sources/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/YOUR role is granted to see/)).toBeVisible();
+
+  // Models: guided intro + the catalog graph picker mounts (ReactFlow canvas).
+  await stepNav.getByRole('button', { name: /Models/i }).click();
+  await expect(page.getByText(/Step 2 · Models/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.react-flow').first()).toBeVisible({ timeout: 60_000 });
+
+  // Workflow: guided intro + the ETL block palette mounts.
+  await stepNav.getByRole('button', { name: /Workflow/i }).click();
+  await expect(page.getByText(/Step 4 · Workflow/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByPlaceholder(/Search blocks/i), 'palette present').toBeVisible({
+    timeout: 60_000,
+  });
+
+  // Dependencies: guided intro + the object tree for picking the anchor.
+  await stepNav.getByRole('button', { name: /Dependencies/i }).click();
+  await expect(page.getByText(/Step 7 · Dependencies/)).toBeVisible({ timeout: 15_000 });
+
+  await page.screenshot({ path: path.join(SHOTS, 'v2-steps.png') });
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
 test('Legacy ?tab= workbench still resolves, chrome restored', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));

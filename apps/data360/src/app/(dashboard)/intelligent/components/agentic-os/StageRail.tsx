@@ -22,9 +22,18 @@ import {
   PiX,
 } from 'react-icons/pi';
 import type { IconType } from 'react-icons';
+import { useAtomValue } from 'jotai';
+import { toast } from 'react-hot-toast';
 import SourceTree from '@/app/(dashboard)/sources/components/SourceTree';
+import CatalogGraphCanvas from '@/app/(dashboard)/explore-design/catalog/components/CatalogGraphCanvas';
+import ETLPalette from '@/app/(dashboard)/workflow/components/ETLPalette';
 import { STAGE_META, STAGE_ORDER, type LifecycleStage } from './types';
-import { activeStageAtom, groundingTablesAtom, touchedStagesAtom } from './store';
+import {
+  activeProjectIdAtom,
+  activeStageAtom,
+  groundingTablesAtom,
+  touchedStagesAtom,
+} from './store';
 
 const STAGE_ICON: Record<LifecycleStage, IconType> = {
   sources: PiDatabase,
@@ -42,6 +51,7 @@ export default function StageRail() {
   const [activeStage, setActiveStage] = useAtom(activeStageAtom);
   const [grounding, setGrounding] = useAtom(groundingTablesAtom);
   const [touched, setTouched] = useAtom(touchedStagesAtom);
+  const projectId = useAtomValue(activeProjectIdAtom);
 
   const selectStage = (s: LifecycleStage) => {
     setActiveStage(s);
@@ -154,11 +164,34 @@ export default function StageRail() {
             </button>
           ))}
         </div>
-        {activeStage === 'sources' && (
+        {(activeStage === 'sources' || activeStage === 'dependencies' || activeStage === 'ingestion') && (
           <SourceTree
             onSelectTable={addGrounding}
             selectedTable={grounding[grounding.length - 1]}
           />
+        )}
+        {activeStage === 'models' && (
+          <div className="h-[340px] px-1">
+            <CatalogGraphCanvas
+              className="h-full"
+              onSelectNode={(node) => {
+                const fqn = node?.anchor_fqn;
+                if (fqn && fqn.split('.').length === 3) {
+                  const [d, s, t] = fqn.split('.');
+                  addGrounding(d, s, t);
+                } else {
+                  toast('Select a product node — it anchors a real table into the grounding.', {
+                    icon: 'ℹ️',
+                  });
+                }
+              }}
+            />
+          </div>
+        )}
+        {activeStage === 'workflow' && (
+          <div className="px-1">
+            <ETLPalette projectId={projectId || undefined} />
+          </div>
         )}
       </div>
     </div>

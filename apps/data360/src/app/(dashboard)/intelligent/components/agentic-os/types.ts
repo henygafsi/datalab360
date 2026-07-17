@@ -68,7 +68,7 @@ export interface PendingApproval {
 }
 
 /** Conversation entries rendered in the center canvas. */
-export type AgentCardKind = 'text' | 'proposals' | 'draft' | 'rows' | 'error';
+export type AgentCardKind = 'text' | 'proposals' | 'draft' | 'rows' | 'error' | 'guide' | 'lineage';
 
 export interface AgentMessage {
   id: string;
@@ -84,6 +84,8 @@ export interface AgentMessage {
   /** kind='rows' — inline read-only run result. */
   rows?: Record<string, unknown>[];
   rowColumns?: string[];
+  /** kind='lineage' — 1-hop lineage canvas anchored on this table FQN. */
+  lineageFqn?: string;
   at: number;
 }
 
@@ -92,6 +94,8 @@ export interface StageMetaEntry {
   hint: string;
   /** Starter prompts — a successful first run per step (onboarding-by-agent). */
   starters: string[];
+  /** Guided intro the agent posts when the user first enters the step. */
+  guide: string;
 }
 
 export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
@@ -103,6 +107,8 @@ export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
       'Which of my sources are stale or unmonitored?',
       'Suggest the best tables for a customer-360 view',
     ],
+    guide:
+      'Step 1 · Sources. The tree on the left lists exactly what YOUR role is granted to see — databases, schemas, tables (with live quality scores). Pick up to 5 tables to ground me; from then on I answer about that selection, on real data. You can also pick a project (top right) so I read its full context.',
   },
   models: {
     label: 'Models',
@@ -112,6 +118,8 @@ export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
       'Which tables are missing a primary key or relationships?',
       'Draft a semantic model for the selection',
     ],
+    guide:
+      'Step 2 · Models. The catalog graph on the left maps your databases, schemas and data products — select a product node to anchor its table into the grounding. Then ask me for a star schema, missing keys, or a semantic model draft; with a project selected I ground on its full modeling history.',
   },
   ingestion: {
     label: 'Ingestion',
@@ -121,6 +129,8 @@ export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
       'Recommend an ingestion mode (full, incremental, CDC) for these tables',
       'Show recent ingestion failures and how to fix them',
     ],
+    guide:
+      'Step 3 · Ingestion. Ask about load status, freshness and failures for your grounded tables. Read-only checks run here; any actual ingestion (connectors, stages, uploads) is a governed action — it appears on the right and waits for your validation.',
   },
   workflow: {
     label: 'Workflow',
@@ -130,6 +140,8 @@ export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
       'Aggregate the selection into a daily summary table',
       'Add a quality gate before publishing the output',
     ],
+    guide:
+      'Step 4 · Workflow. Describe the pipeline you want over the grounded tables — I draft it as governed ETL steps, each rendered and validated (never auto-run). The block palette on the left shows the 100+ building blocks the draft can use.',
   },
   dashboards: {
     label: 'Dashboards',
@@ -139,6 +151,8 @@ export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
       'Build a top-10 breakdown chart from the selection',
       'Compare this month vs last month on the key metric',
     ],
+    guide:
+      'Step 5 · Dashboards. Ask for a chart in plain words — I draft it, run it on your real data, and show the tested result with its sample. Ground at least one table first so the chart reads the right data.',
   },
   questions: {
     label: 'Questions',
@@ -148,6 +162,8 @@ export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
       'Find anomalies or outliers in the selection',
       'Summarize what this data is about',
     ],
+    guide:
+      'Step 6 · Questions. Ask anything about the grounded tables — I draft the SQL, test it live, and show verified results. No grounding yet? I can still discuss and point you to the right data.',
   },
   dependencies: {
     label: 'Dependencies',
@@ -157,5 +173,7 @@ export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
       'Who uses these objects the most?',
       'Show the downstream impact of dropping a column here',
     ],
+    guide:
+      'Step 7 · Dependencies. Pick an object in the tree and I show its lineage — what feeds it, what it feeds, and the blast radius of a change. Impact answers stay read-only; remediations go through validation.',
   },
 };
