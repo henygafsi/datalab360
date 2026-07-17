@@ -128,6 +128,7 @@ export default function ObservabilityPage() {
         </a>
         <span className="mx-1 text-slate-300 dark:text-slate-600">|</span>
         <span>Related:</span>
+          <a href="/observability/actions" className="text-blue-600 dark:text-blue-400 hover:underline">All actions (capability catalog)</a>
         <a href="/data-quality" className="text-blue-600 hover:underline dark:text-blue-400">
           Data Quality (Checks)
         </a>
