@@ -21,10 +21,10 @@ import {
   ExternalLink, Grid3x3, KeyRound, ShieldCheck, Users as UsersIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { UsersSurface } from '../users/page';
-import { RolesSurface } from '../roles/page';
-import { GrantsSurface } from '../grants/page';
-import { AccessMatrixSurface } from '../access-matrix/page';
+import { UsersSurface } from '../users/users-content';
+import { RolesSurface } from '../roles/roles-content';
+import { GrantsSurface } from '../grants/grants-content';
+import { AccessMatrixSurface } from '../access-matrix/AccessMatrixSurface';
 import { routes } from '@/config/routes';
 
 export type GovernanceTabId = 'users' | 'roles' | 'grants' | 'access';

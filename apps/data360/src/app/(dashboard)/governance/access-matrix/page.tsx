@@ -1,41 +1,16 @@
 'use client';
 
-import { Grid3x3, Lock } from 'lucide-react';
-import { HiOutlineUsers } from 'react-icons/hi2';
+import { Grid3x3 } from 'lucide-react';
 import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
-import EmptyState from '@/components/ui/EmptyState';
-import UserAccessMatrix from '../components/UserAccessMatrix';
-import { useAuth } from '@/hooks/useAuth';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
-import { isAdminRole } from '@/config/constants';
+import { AccessMatrixSurface } from './AccessMatrixSurface';
 
 /**
- * Access Matrix — real users × Data360 UI pages, each cell the user's
- * governance-resolved page access (per role). Aggregates the data the
- * governance tabs manage (users · roles · effective permissions) into one
- * who-can-reach-what grid. Admin-only, mirroring the Users page gate.
+ * Access Matrix route — real users × Data360 UI pages, each cell the user's
+ * governance-resolved page access (per role). The embeddable body lives in
+ * ./AccessMatrixSurface (a page file may only export a default page).
  */
-/** Embeddable body (governance consolidation): admin gate + matrix, no
- *  breadcrumb/PageHeader — the "Access matrix" tab of GovernanceEntitySurface. */
-export function AccessMatrixSurface() {
-  const { role } = useAuth();
-  if (!isAdminRole(role)) {
-    return (
-      <EmptyState
-        icon={Lock}
-        title="Access restricted"
-        description="The access matrix is only available to platform administrators (ACCOUNTADMIN, SYSADMIN, SECURITYADMIN)."
-      />
-    );
-  }
-  return (
-    <div className="rounded-xl border border-muted bg-white p-6 dark:bg-gray-800">
-      <UserAccessMatrix />
-    </div>
-  );
-}
-
 export default function AccessMatrixPage() {
   // Auto-emits PAGE_VIEW on mount (this is the top routed component for the route).
   useTrackEvent();
