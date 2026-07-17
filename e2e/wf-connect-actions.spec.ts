@@ -131,6 +131,25 @@ test('account-overview Actions tab + page render the catalog and run an account-
   expect(errs, 'zero pageerrors').toEqual([]);
 });
 
+test('bi-dashboard actions page renders the catalog and runs a read-only action', async ({ page }) => {
+  const errs: string[] = [];
+  page.on('pageerror', (e) => errs.push(String(e.message).slice(0, 150)));
+  await signIn(page);
+  await page.goto('/bi-dashboard/actions');
+  await page.waitForLoadState('networkidle', { timeout: 120_000 }).catch(() => {});
+
+  await expect(page.getByText(/All BI-dashboard capabilities as actions/i)).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/28 capabilities/i)).toBeVisible({ timeout: 60_000 });
+  for (const area of ['Build', 'Data', 'Manage', 'Publish & share']) {
+    await expect(page.getByText(area, { exact: true }).first()).toBeVisible();
+  }
+  const runBtns = page.getByRole('button', { name: 'Run', exact: true });
+  await runBtns.first().click();
+  await expect(page.locator('pre').first()).toBeVisible({ timeout: 60_000 });
+  await page.screenshot({ path: 'e2e/results/bi-actions-surface.png', fullPage: true });
+  expect(errs, 'zero pageerrors').toEqual([]);
+});
+
 test('connect actions page renders the catalog and runs a read-only action', async ({ page }) => {
   const errs: string[] = [];
   page.on('pageerror', (e) => errs.push(String(e.message).slice(0, 150)));

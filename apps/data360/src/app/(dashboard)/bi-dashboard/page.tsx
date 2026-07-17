@@ -880,6 +880,7 @@ function BIDashboardPage() {
               {/* Cross-module context (formerly the slim strip under the KPI row). */}
               <div className="flex items-center gap-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-2.5 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900/50 dark:text-gray-400">
                 <span>Related:</span>
+                <a href="/bi-dashboard/actions" className="text-blue-600 dark:text-blue-400 hover:underline">All actions (capability catalog)</a>
                 <Link href="/explore-design" className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
                   <Compass className="w-3 h-3" /> Explore &amp; Design (Source Tables)
                 </Link>
