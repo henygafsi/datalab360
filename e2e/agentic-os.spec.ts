@@ -161,6 +161,26 @@ test('Legacy ?tab= workbench still resolves, chrome restored', async ({ page }) 
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
+test('AUTO-ACT: "select tables from DRAFT_SOURCE.RETAIL_DW" → agent grounds them ITSELF', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const promptBox = page.getByLabel('Ask the agent');
+  await expect(promptBox).toBeVisible({ timeout: 30_000 });
+
+  await promptBox.fill('select the tables from DRAFT_SOURCE.RETAIL_DW schema');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  // The agent must DO it (grounding fills), not instruct the user.
+  await expect(page.getByText(/Done — I grounded \d+ of \d+ tables/), 'agent acted itself').toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByText(/[1-5]\/5/).first(), 'grounding registered').toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'auto-act.png') });
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
 test('COHERENT FLOW: ground real table → question (live draft) → chart → lineage, zero mutations', async ({ page }) => {
   test.setTimeout(420_000);
   const errors: string[] = [];

@@ -23,6 +23,7 @@ import { toast } from 'react-hot-toast';
 import { PiPaperPlaneRight, PiPlay, PiHandPalm, PiCaretDown, PiCaretUp } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
 import { useAuth } from '@/hooks/useAuth';
+import { getTables } from '@/app/services/mapping';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
 import { generateCompletion } from '@/app/services/cortex';
 import { cocoDraft, type CocoDraftResult, type DraftModule } from '@/app/services/cortex/draft';
@@ -161,7 +162,7 @@ const ADMIN_ROLES = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'];
 
 export default function AgentCanvas() {
   const stage = useAtomValue(activeStageAtom);
-  const grounding = useAtomValue(groundingTablesAtom);
+  const [grounding, setGrounding] = useAtom(groundingTablesAtom);
   const [projectId, setProjectId] = useAtom(activeProjectIdAtom);
   const [messages, setMessages] = useAtom(messagesAtom);
   const setApprovals = useSetAtom(approvalsAtom);
@@ -202,6 +203,68 @@ export default function AgentCanvas() {
     [setMessages],
   );
 
+  /**
+   * The agent DOES safe things itself instead of instructing the user.
+   * Read-only context actions (grounding a schema's tables, grounding one FQN)
+   * execute directly; only mutations wait for validation. Returns true when
+   * the intent was handled.
+   */
+  const tryAutoAct = useCallback(
+    async (text: string): Promise<boolean> => {
+      const ident = '[A-Za-z_][A-Za-z0-9_]*';
+      // "… DB.SCHEMA.TABLE …" → ground that exact table.
+      const fqnMatch = text.match(new RegExp(`\\b(${ident})\\.(${ident})\\.(${ident})\\b`));
+      // "select/ground/pick … DB.SCHEMA …" → ground up to 5 of its tables.
+      const schemaMatch =
+        !fqnMatch &&
+        /select|ground|pick|choisis|s[ée]lectionne|prends|use/i.test(text) &&
+        text.match(new RegExp(`\\b(${ident})\\.(${ident})\\b`));
+      if (fqnMatch) {
+        const fqn = `${fqnMatch[1]}.${fqnMatch[2]}.${fqnMatch[3]}`.toUpperCase();
+        setGrounding((g) => (g.includes(fqn) ? g : [...g.slice(-4), fqn]));
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text: `Done — grounded ${fqn}. Ask me anything about it, or add more tables (5 max).`,
+        });
+        return true;
+      }
+      if (schemaMatch) {
+        const db = schemaMatch[1].toUpperCase();
+        const schema = schemaMatch[2].toUpperCase();
+        try {
+          const tables = await getTables(db, schema);
+          if (!tables.length) {
+            push({
+              role: 'agent',
+              stage,
+              kind: 'text',
+              text: `${db}.${schema} has no tables your role can see — pick another schema in the tree.`,
+            });
+            return true;
+          }
+          const picked = tables.slice(0, 5).map((t) => `${db}.${schema}.${t}`.toUpperCase());
+          setGrounding(picked);
+          push({
+            role: 'agent',
+            stage,
+            kind: 'text',
+            text:
+              `Done — I grounded ${picked.length} of ${tables.length} tables from ${db}.${schema}: ` +
+              `${picked.map((f) => f.split('.')[2]).join(', ')}. ` +
+              `Ask me anything about them, or move to the next step (Models, Questions, Dashboards…).`,
+          });
+          return true;
+        } catch {
+          return false; // schema unreadable → fall through to conversation
+        }
+      }
+      return false;
+    },
+    [push, setGrounding, stage],
+  );
+
   const submit = useCallback(async (textArg?: string) => {
     const text = (textArg ?? prompt).trim();
     if (!text || busy) return;
@@ -210,6 +273,7 @@ export default function AgentCanvas() {
     push({ role: 'user', stage, kind: 'text', text });
     setTouched((t) => ({ ...t, [stage]: 'done' }));
     try {
+      if (await tryAutoAct(text)) return;
       const draftModule = DRAFT_STAGE[stage];
       // Short acknowledgements ("go", "ok") are conversation, not data intents —
       // the draft engine requires a real intent (min length) and would 422.
@@ -266,7 +330,7 @@ export default function AgentCanvas() {
       setBusy(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prompt, busy, stage, grounding, projectId, role, push, setTouched]);
+  }, [prompt, busy, stage, grounding, projectId, role, push, setTouched, tryAutoAct]);
 
   /**
    * Non-stop agentic: a governance denial never dead-ends. The agent knows the
