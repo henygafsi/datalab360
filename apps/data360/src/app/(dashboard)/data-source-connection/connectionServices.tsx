@@ -459,6 +459,33 @@ export async function uploadStageFile(
     }
 }
 
+export interface LoadStagedFileResult {
+    status: string;
+    target: string;
+    created: boolean;
+    mode: string;
+    rows_loaded: number | null;
+    file: string;
+    stage: string;
+}
+
+/** Materialize a staged file as a table (INFER_SCHEMA -> CREATE -> COPY INTO). */
+export async function loadStagedFileAsTable(
+    stageName: string,
+    filePath: string,
+    body: { database: string; schema_name: string; table: string; mode: 'create' | 'replace' | 'append' }
+): Promise<LoadStagedFileResult> {
+    try {
+        const response = await apiClient.post(
+            API.connect.loadStageFileAsTable(stageName, filePath),
+            body,
+        );
+        return response.data;
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Failed to load file as table'));
+    }
+}
+
 export async function deleteStageFile(
     stageName: string,
     filePath: string
@@ -470,6 +497,16 @@ export async function deleteStageFile(
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Failed to delete file'));
+    }
+}
+
+/** Drop a stage (the object itself, not its files) — DELETE /connect/stages/{stage}. */
+export async function dropStage(stageName: string): Promise<any> {
+    try {
+        const response = await apiClient.delete(API.connect.dropStage(stageName));
+        return response.data;
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Failed to drop stage'));
     }
 }
 
@@ -868,5 +905,79 @@ export async function icebergIngest(body: {
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Iceberg ingest failed'));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Agentic connector wizard + no-code Custom API (open-data) ingestion
+// ---------------------------------------------------------------------------
+
+/** One bundled open-data preset (no API key required). */
+export interface CustomApiPreset {
+    id: string;
+    label: string;
+    params: Record<string, unknown>;
+    doc?: string;
+}
+
+/** GET /connect/custom-api/presets — bundled open-data presets. */
+export async function getCustomApiPresets(): Promise<{ presets: CustomApiPreset[] }> {
+    try {
+        const response = await apiClient.get(API.connect.customApiPresets());
+        return response.data;
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Failed to load open-data presets'));
+    }
+}
+
+export interface CustomApiIngestPayload {
+    preset?: string;
+    params?: Record<string, unknown>;
+    url?: string;
+    json_path?: string;
+    headers?: Record<string, string>;
+    target_database: string;
+    target_schema?: string;
+    target_table: string;
+    mode?: 'append' | 'replace';
+}
+
+/** POST /connect/custom-api/ingest — fetch a JSON API server-side and land it as a table. */
+export async function customApiIngest(
+    payload: CustomApiIngestPayload,
+): Promise<{ status?: string; table?: string; rows_loaded?: number; source?: string;[k: string]: unknown }> {
+    try {
+        const response = await apiClient.post(API.connect.customApiIngest(), payload);
+        return response.data;
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Custom API ingest failed'));
+    }
+}
+
+/** Response of the agentic wizard: best connector + prefill + honest cost estimate. */
+export interface WizardSuggestion {
+    connector_type: string;
+    label?: string | null;
+    prefilled_config: Record<string, unknown>;
+    confidence: string;
+    reason: string;
+    missing_user_inputs: string[];
+    catalog_steps: string[];
+    cost_estimate?: {
+        est_credits_low?: number | null;
+        est_credits_high?: number | null;
+        basis?: string;
+    };
+    fallback_used?: boolean;
+    model?: string;
+}
+
+/** POST /connect/wizard/suggest — describe a source in plain language, get the best connector. */
+export async function wizardSuggestConnector(description: string): Promise<WizardSuggestion> {
+    try {
+        const response = await apiClient.post(API.connect.wizardSuggest(), { description });
+        return response.data;
+    } catch (error) {
+        throw new Error(extractErrorMessage(error, 'Connector suggestion failed'));
     }
 }

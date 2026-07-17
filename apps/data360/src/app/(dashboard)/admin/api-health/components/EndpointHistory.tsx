@@ -302,7 +302,7 @@ export function EndpointHistory({ refreshKey }: { refreshKey: number }) {
       'In 2-3 terse sentences: is this endpoint stable, regressing (slower or newly failing), or recovering? ' +
       'If regressing, name the most likely cause and one concrete next check. Do not name any specific data-warehouse vendor.';
     try {
-      const res = await generateCompletion({ prompt, model: 'claude-3-7-sonnet' } as any);
+      const res = await generateCompletion({ prompt, model: 'mistral-large2' } as any);
       setAiResult((res?.response || '').trim() || 'No diagnosis returned.');
     } catch (err: any) {
       setAiError(toMessage(err, 'Diagnosis failed. Try again.'));

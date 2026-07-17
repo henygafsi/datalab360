@@ -233,7 +233,7 @@ export function ProbeVsProd({ probeRows, refreshKey }: Props) {
       'In 3-5 terse bullet points: which endpoints need attention first and why (fails-in-prod and slow-in-prod outrank probe-only noise), ' +
       'and one concrete next check for the top one. Do not name any specific data-warehouse vendor.';
     try {
-      const res = await generateCompletion({ prompt, model: 'claude-3-7-sonnet' } as any);
+      const res = await generateCompletion({ prompt, model: 'mistral-large2' } as any);
       setAiResult((res?.response || '').trim() || 'No analysis returned.');
     } catch (err: any) {
       setAiError(toMessage(err, 'Analysis failed. Try again.'));

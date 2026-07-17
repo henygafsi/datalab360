@@ -278,6 +278,15 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
 
     if (isSubmitting) return;
 
+    // Deleting a relationship is a traced design change — confirm like the
+    // canvas drop_table action does (was fired straight off the button click).
+    const label = existingRelationship.sourceColumn
+      ? `${existingRelationship.sourceColumn} → ${existingRelationship.targetTable?.table ?? ''}`
+      : 'this relationship';
+    if (typeof window !== 'undefined' && !window.confirm(`Remove ${label}? This is a traced change and ships at the next deploy.`)) {
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {

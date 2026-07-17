@@ -54,6 +54,7 @@ import { routes } from '@/config/routes';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import { useModuleAccess } from '@/hooks/useCapability';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
+import GovernanceEntitySurface, { type GovernanceTabId } from './components/GovernanceEntitySurface';
 import {
   addRolePanelOpenAtom,
   addUserPanelOpenAtom,
@@ -94,7 +95,9 @@ const EMPTY_CORE: GovCore = {
   aggregation: null,
 };
 
-/** Sub-page directory — keeps every governance CRUD flow ≤ 2 clicks away. */
+/** Sub-page directory — the HEAVY self-contained pages only. Users / Roles /
+ *  Grants / Access-matrix moved INTO the landing as embedded tabs
+ *  (GovernanceEntitySurface, 2026-07-16 consolidation). */
 const DIRECTORY: {
   href: string;
   icon: React.ElementType;
@@ -103,10 +106,6 @@ const DIRECTORY: {
   countKey?: 'users' | 'roles' | 'policies';
 }[] = [
   { href: routes.governance.policies, icon: ShieldCheck, title: 'Policies', desc: 'Masking, row access, aggregation, network, tags', countKey: 'policies' },
-  { href: routes.governance.users, icon: Users, title: 'Users', desc: 'Create, edit, enable/disable, assign or revoke roles', countKey: 'users' },
-  { href: routes.governance.roles, icon: UserCog, title: 'Roles', desc: 'Warehouse roles, granular app roles, permissions', countKey: 'roles' },
-  { href: routes.governance.grants, icon: KeyRound, title: 'Module grants', desc: 'Grant or revoke module access per role' },
-  { href: routes.governance.accessMatrix, icon: Grid3x3, title: 'Access matrix', desc: 'Which user reaches which page, resolved live' },
   { href: routes.governance.securityMatrix, icon: Fingerprint, title: 'Security matrix', desc: 'Row-level axes, enterprise identities, posture' },
   { href: routes.governance.oauth, icon: Lock, title: 'Authentication', desc: 'SSO integrations, network policies, service keys' },
   { href: routes.governance.projects, icon: FolderKanban, title: 'Project governance', desc: 'Owners, contributors, versions, deployments' },
@@ -116,6 +115,14 @@ const DIRECTORY: {
 export default function GovernanceLandingPage() {
   useTrackEvent(); // fire-and-forget PAGE_VIEW on mount/route change
   const router = useRouter();
+  // ?tab= deep-link into the embedded entity surface (read ONCE on mount via
+  // window.location — same idiom as ?axis=; the surface owns the state after).
+  const [initialEntityTab] = useState<GovernanceTabId | undefined>(() => {
+    if (typeof window === 'undefined') return undefined;
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return tab === 'users' || tab === 'roles' || tab === 'grants' || tab === 'access'
+      ? tab : undefined;
+  });
   const setAddUserOpen = useSetAtom(addUserPanelOpenAtom);
   const setAddRoleOpen = useSetAtom(addRolePanelOpenAtom);
 
@@ -544,7 +551,16 @@ export default function GovernanceLandingPage() {
             <KpiStrip items={kpis} loading={core.loading} />
           </div>
 
-          {/* Sub-page directory — every CRUD flow ≤ 2 clicks from here. */}
+          {/* Users · Roles · Grants · Access matrix — consolidated as embedded
+              tabs (the entities live HERE now; old routes stay as deep links). */}
+          <div>
+            <h2 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
+              Users, roles &amp; access
+            </h2>
+            <GovernanceEntitySurface initialTab={initialEntityTab} />
+          </div>
+
+          {/* Sub-page directory — heavy self-contained pages. */}
           <div>
             <h2 className="mb-3 text-sm font-semibold text-slate-700 dark:text-slate-200">
               Governance areas

@@ -192,10 +192,17 @@ export default function ConnectorAiHelper({ open, onClose, onUseConnector }: Con
 
   return (
     <div
+      className="fixed inset-0 z-40 flex bg-slate-900/40"
+      onClick={onClose}
+      aria-hidden="true"
+    >
+    <div
       ref={dialogRef}
       role="dialog"
+      aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed right-0 top-0 z-40 flex h-screen w-full max-w-xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800"
+      onClick={(e) => e.stopPropagation()}
+      className="ml-auto flex h-full w-full max-w-xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800"
     >
         {/* Header */}
         <div className="flex-shrink-0 flex items-center justify-between bg-gradient-to-r from-purple-600 to-fuchsia-600 px-5 py-4">
@@ -275,6 +282,7 @@ export default function ConnectorAiHelper({ open, onClose, onUseConnector }: Con
             </div>
           )}
         </div>
+    </div>
     </div>
   );
 }

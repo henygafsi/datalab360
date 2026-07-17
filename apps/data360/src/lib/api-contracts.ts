@@ -65,8 +65,16 @@ export const API = {
     testConnector: (id: string) => `/connect/connectors/${enc(id)}/test`,
     /** POST /connect/connectors/{id}/sync — trigger a manual sync. */
     syncConnector: (id: string) => `/connect/connectors/${enc(id)}/sync`,
+    /** GET /connect/custom-api/presets — bundled open-data presets (no key). */
+    customApiPresets: () => '/connect/custom-api/presets',
+    /** POST /connect/custom-api/ingest — JSON API → Snowflake (preset or URL). */
+    customApiIngest: () => '/connect/custom-api/ingest',
+    /** POST /connect/wizard/suggest — NL description → best connector + prefill + cost. */
+    wizardSuggest: () => '/connect/wizard/suggest',
     createInternalStage: () => '/connect/stages/internal',
     listStages: () => '/connect/stages',
+    /** DELETE /connect/stages/{stage} — drop the stage itself. */
+    dropStage: (stage: string) => `/connect/stages/${enc(stage)}`,
     createAwsStage: () => '/connect/aws/stage',
     createGcsStage: () => '/connect/gcs/stage',
     /** POST /connect/stages/{stage}/upload (multipart). */
@@ -116,6 +124,9 @@ export const API = {
     /** GET /connect/stages/{stage}/files/{file_path}/download */
     downloadStageFile: (stage: string, filePath: string) =>
       `/connect/stages/${enc(stage)}/files/${enc(filePath)}/download`,
+    /** POST /connect/stages/{stage}/files/{file_path}/load-table */
+    loadStageFileAsTable: (stage: string, filePath: string) =>
+      `/connect/stages/${enc(stage)}/files/${enc(filePath)}/load-table`,
 
     // --- PostgreSQL / MySQL ---
     /** POST /connect/postgres/ingest */

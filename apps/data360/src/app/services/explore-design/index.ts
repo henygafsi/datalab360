@@ -47,7 +47,7 @@ export type EventType =
   | 'COLUMN_INCLUDED'
   | 'BATCH_OPERATION';
 
-export type EventStatus = 'pending' | 'validated' | 'failed' | 'applied';
+export type EventStatus = 'pending' | 'validated' | 'failed' | 'applied' | 'approved' | 'rejected';
 
 export interface TableReference {
   database: string;
@@ -282,15 +282,51 @@ export async function getProjectEvents(
         ...(filters?.event_type ? { event_type: filters.event_type } : {}),
       },
     });
-    const events = data.events || [];
+    // Normalize backend PROJECT_EVENTS rows into the DesignEvent shape the UI
+    // renders. The backend stores STATUS uppercased ('PENDING'/'SUCCESS'/…) and
+    // nests target/payload inside DETAILS — without this mapping every
+    // consumer's `status === 'pending'` filter matched nothing and targets
+    // rendered blank ("no changes" in the Release tab despite traced events).
+    const STATUS_MAP: Record<string, EventStatus> = {
+      PENDING: 'pending',
+      VALIDATED: 'validated',
+      SUCCESS: 'applied',
+      APPLIED: 'applied',
+      APPROVED: 'approved',
+      REJECTED: 'rejected',
+      FAILED: 'failed',
+      ERROR: 'failed',
+    };
+    const events: DesignEvent[] = (data.events || []).map((raw: any) => {
+      const details = raw.details && typeof raw.details === 'object' ? raw.details : {};
+      const target = details.target && typeof details.target === 'object'
+        ? details.target
+        : {
+            database: details.database ?? raw.target?.database ?? '',
+            schema: details.schema ?? details.schema_name ?? raw.target?.schema ?? '',
+            table: details.table ?? raw.target?.table ?? '',
+            ...(details.column ? { column: details.column } : {}),
+          };
+      const upper = String(raw.status ?? '').toUpperCase();
+      return {
+        event_id: raw.event_id,
+        event_type: raw.event_type,
+        target,
+        payload: details.payload && typeof details.payload === 'object' ? details.payload : details,
+        status: STATUS_MAP[upper] ?? (String(raw.status ?? '').toLowerCase() as EventStatus),
+        created_at: raw.timestamp ?? raw.created_at ?? '',
+        user_id: raw.username ?? raw.user_id,
+        error: raw.error_message ?? raw.error,
+      };
+    });
     return {
       project_id: data.project_id || projectId,
       events,
       summary: {
         total: events.length,
-        pending: events.filter((e: any) => e.status === 'pending').length,
-        validated: events.filter((e: any) => e.status === 'validated').length,
-        failed: events.filter((e: any) => e.status === 'failed').length,
+        pending: events.filter((e) => e.status === 'pending').length,
+        validated: events.filter((e) => e.status === 'validated').length,
+        failed: events.filter((e) => e.status === 'failed').length,
       },
     };
   } catch {
@@ -2751,6 +2787,105 @@ export async function getExploreActions(): Promise<{
   areas: Record<string, ExploreAction[]>; actions: ExploreAction[];
 }> {
   const { data } = await apiClient.get(`${ED}/actions`);
+  return data;
+}
+
+// ── Guided policy builder (full Snowflake policy family) ────────────────────
+export interface PolicyTypeInput {
+  name: string;
+  kind: 'roles' | 'role' | 'int' | 'enum' | 'columns' | 'column' | 'text' | 'bool';
+  required: boolean;
+  label: string;
+  options?: string[];
+  help?: string;
+}
+
+export interface PolicyTypeSpec {
+  policy_type: string;
+  label: string;
+  level: 'column' | 'object' | 'tag';
+  why: string;
+  status: 'ga' | 'preview' | 'planned';
+  edition: string;
+  attach_verb: string;
+  one_per: string;
+  doc_url: string;
+  inputs: PolicyTypeInput[];
+  examples: Array<{ title: string; sql: string }>;
+  gotchas: string[];
+}
+
+/** Registry of every Snowflake policy type the guided builder supports. */
+export async function getPolicyTypes(): Promise<{
+  seed_version: number; fingerprint: string; count: number; policy_types: PolicyTypeSpec[];
+}> {
+  const { data } = await apiClient.get(`${ED}/policy-types`);
+  return data;
+}
+
+/** Draft a policy: generates doc-grounded DDL and queues it as a traced
+ *  release change (pending DDL_ACTION — visible in the Release tab). */
+export async function draftPolicy(
+  projectId: string,
+  body: {
+    policy_type: string;
+    target: { database: string; schema_name: string; table: string; column?: string | null };
+    params: Record<string, any>;
+    column_data_type?: string | null;
+  }
+): Promise<{
+  project_id: string; policy_name: string; policy_type: string;
+  statements: string[]; ddl_sql: string; event_id: string; status: string;
+}> {
+  const { data } = await apiClient.post(`${ED}/${projectId}/policies/draft`, body);
+  return data;
+}
+
+// ── Ingestion task monitor (state · last run · next run · pause/resume/run-now) ──
+export interface IngestionTask {
+  name: string;
+  fqn: string;
+  kind: 'ingestion' | 'deployment';
+  state: string;                 // 'started' | 'suspended' | ''
+  schedule: string | null;
+  warehouse: string | null;
+  owner: string | null;
+  last_suspended_reason: string | null;
+  last_run: {
+    state: string;
+    scheduled_time: string | null;
+    completed_time: string | null;
+    error_code: string | null;
+    error_message: string | null;
+  } | null;
+  next_run: string | null;
+}
+
+export interface IngestionTaskMonitor {
+  project_id: string;
+  tasks: IngestionTask[];
+  count: number;
+  operate_gate: string;
+}
+
+export async function getIngestionTaskMonitor(projectId: string): Promise<IngestionTaskMonitor> {
+  const { data } = await apiClient.get(`${ED}/${projectId}/ingestion/tasks`);
+  return data;
+}
+
+/** Pause the project's scheduled ingestion task (rights-gated). */
+export async function suspendIngestionTask(projectId: string) {
+  const { data } = await apiClient.post(`${ED}/${projectId}/ingestion/tasks/suspend`, {});
+  return data;
+}
+/** Resume the project's scheduled ingestion task (rights-gated). */
+export async function resumeIngestionTask(projectId: string) {
+  const { data } = await apiClient.post(`${ED}/${projectId}/ingestion/tasks/resume`, {});
+  return data;
+}
+/** Run the project's ingestion task immediately (EXECUTE TASK). */
+export async function runIngestionTaskNow(projectId: string) {
+  const { data } = await apiClient.post(`${ED}/${projectId}/ingestion/tasks/run-now`, {});
   return data;
 }
 

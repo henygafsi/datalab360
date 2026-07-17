@@ -3176,6 +3176,13 @@ const OverviewTab = memo(function OverviewTab({
   // capped at a scrollable summary rather than a full-page wall of lists.
   const [aiRecosOpen, setAiRecosOpen] = useState(true);
 
+  // Details "2nd page" — the heavy detail cards (Recent activity · Storage ·
+  // Module health · Tasks) converge behind ONE button-tab bar so page 1 stays a
+  // compact cockpit (KPIs + hero + maturity + recos) and each detail opens on
+  // demand instead of stacking into a long scroll. Mirrors the governance
+  // one-pager's deep-dive button-tabs.
+  const [detailView, setDetailView] = useState<'activity' | 'storage' | 'health' | 'tasks' | 'composition'>('activity');
+
   // Sync hero range picker to the global Time Range whenever the parent
   // changes it. Without this, the user clicks "7d" in the global filter
   // bar, summary/module-health refetch with days=7, but the KPI cache
@@ -3703,7 +3710,38 @@ const OverviewTab = memo(function OverviewTab({
       </section>
 
         </GridCell>
-        <GridCell className="xl:col-span-6">
+        <GridCell>
+      {/* ── Details "2nd page": ONE button-tab bar. Only the selected detail
+          renders below, so the cockpit above stays a compact one-pager instead
+          of a long scroll of stacked cards. ── */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
+        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
+        {([
+          { id: 'activity', label: 'Recent activity' },
+          { id: 'storage', label: 'Storage' },
+          { id: 'health', label: 'Module health' },
+          { id: 'tasks', label: 'Tasks' },
+          { id: 'composition', label: 'Composition' },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setDetailView(t.id)}
+            aria-pressed={detailView === t.id}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              detailView === t.id
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+        </GridCell>
+        {detailView === 'storage' && (
+        <GridCell className="xl:col-span-12">
       {/* Storage breakdown (database/total vs stage vs failsafe) — from the
           cached KPI payload; shows "—" until OVERVIEW_KPIS is provisioned. */}
       <SectionCard title="Storage Breakdown">
@@ -3738,7 +3776,9 @@ const OverviewTab = memo(function OverviewTab({
       </SectionCard>
 
         </GridCell>
-        <GridCell className="xl:col-span-6">
+        )}
+        {detailView === 'health' && (
+        <GridCell className="xl:col-span-12">
       {/* Module Health Grid */}
       {moduleHealth && Array.isArray(moduleHealth.modules) && moduleHealth.modules.length > 0 && (
         <SectionCard title="Module Health">
@@ -3829,9 +3869,13 @@ const OverviewTab = memo(function OverviewTab({
       )}
 
         </GridCell>
-        {/* The workspace/account composite is the one block that cannot fit
-            the grid at small sizes — folded behind an in-grid More drawer. */}
-        <MoreDrawer label="Workspace & account composite">
+        )}
+        {/* The workspace/account composite (project-mix + module-usage charts)
+            is the 'Composition' detail tab — gated so it only shows under its
+            own button-tab instead of floating between the tab bar and the
+            active detail. Still an in-grid drawer (its content is oversized). */}
+        {detailView === 'composition' && (
+        <MoreDrawer label="Workspace & account composite" inline>
       {/* ── Workspace Overview composite + Snowflake Account Overview rail ── */}
       {(() => {
         const projectsByType =
@@ -4126,12 +4170,16 @@ const OverviewTab = memo(function OverviewTab({
       })()}
 
         </MoreDrawer>
-        <GridCell className="xl:col-span-6">
+        )}
+        {detailView === 'tasks' && (
+        <GridCell className="xl:col-span-12">
       {/* Snowflake Tasks Quick View */}
       <TasksQuickWidget />
 
         </GridCell>
-        <GridCell>
+        )}
+        {detailView === 'activity' && (
+        <GridCell className="xl:col-span-12">
       {/* Recent Activity — radar widget removed (obsKpis was dead state) */}
       <div className="grid grid-cols-1 gap-6">
         <SectionCard title="Recent Activity">
@@ -4169,6 +4217,7 @@ const OverviewTab = memo(function OverviewTab({
         </SectionCard>
       </div>
         </GridCell>
+        )}
       </Board>
     </TabGrid>
   );
@@ -5266,6 +5315,11 @@ const CostTab = memo(function CostTab({
   infraLoading?: boolean;
 }) {
   const periodDays = days ?? 30;
+  // Details "2nd page" bookmark-tabs — converge the board's detail cells behind
+  // ONE button-tab bar so the tab is a no-scroll one-pager (KPIs + hero trend
+  // stay on top; only the selected detail group renders). Mirrors the account
+  // tab's DETAILS bar.
+  const [finopsTab, setFinopsTab] = useState<'breakdown' | 'serverless' | 'monitors' | 'infra'>('breakdown');
   const categoryPieData = useMemo(() => {
     const byCategory = data?.by_category || {};
     return Object.entries(byCategory)
@@ -5529,6 +5583,36 @@ const CostTab = memo(function CostTab({
       </SectionCard>
 
         </GridCell>
+        <GridCell>
+      {/* ── Details "2nd page": ONE bookmark-tab bar. Only the selected detail
+          group renders below, so the tab is a no-scroll one-pager (KPIs + hero
+          Daily Credit Trend stay on top). ── */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
+        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
+        {([
+          { id: 'breakdown', label: 'Cost breakdown' },
+          { id: 'serverless', label: 'Serverless & compute' },
+          { id: 'monitors', label: 'Budgets & anomalies' },
+          { id: 'infra', label: 'Infrastructure' },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setFinopsTab(t.id)}
+            aria-pressed={finopsTab === t.id}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              finopsTab === t.id
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+        </GridCell>
+        {finopsTab === 'serverless' && (<>
         <GridCell className="xl:col-span-6">
       {/* P0 surfacing — FinOps/governance KPIs the backend already computes but
           the UI never showed (cost-by-warehouse/service, clustering, pipe,
@@ -5638,6 +5722,8 @@ const CostTab = memo(function CostTab({
       </div>
 
         </GridCell>
+        </>)}
+        {finopsTab === 'breakdown' && (<>
         <GridCell>
       {/* Category Pie + Top Warehouses */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -5769,6 +5855,8 @@ const CostTab = memo(function CostTab({
       </div>
 
         </GridCell>
+        </>)}
+        {finopsTab === 'monitors' && (
         <GridCell>
       {/* Iter 4 — Budgets & Resource Monitors + Cost Anomalies */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -5871,10 +5959,13 @@ const CostTab = memo(function CostTab({
         </SectionCard>
       </div>
         </GridCell>
+        )}
 
         {/* Compute & infrastructure cells (folded from the dead ComputeTab):
             warehouse credits, warehouse details, replication, tasks & pipes. */}
+        {finopsTab === 'infra' && (
         <ComputeTab data={infra} loading={infraLoading} zone="board" />
+        )}
       </Board>
     </TabGrid>
   );
@@ -7671,6 +7762,10 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
   ops: DataOperationsOverviewResponse | null;
   opsLoading: boolean;
 }) {
+  // Bookmark-tabs so the tab is a no-scroll one-pager: KPIs stay on top; the
+  // three heavy board lanes (query performance · warehouse efficiency · data
+  // operations) each open on demand instead of stacking.
+  const [usageTab, setUsageTab] = useState<'performance' | 'efficiency' | 'operations'>('performance');
   return (
     <TabGrid>
       <KpiZone>
@@ -7680,13 +7775,45 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
         <DataOperationsTab data={ops} loading={opsLoading} zone="kpis" />
       </KpiZone>
       <Board>
+        <GridCell>
+      {/* ── Details bookmark-tabs — only the selected lane renders below. ── */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
+        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
+        {([
+          { id: 'performance', label: 'Query performance' },
+          { id: 'efficiency', label: 'Warehouse efficiency' },
+          { id: 'operations', label: 'Data operations' },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setUsageTab(t.id)}
+            aria-pressed={usageTab === t.id}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              usageTab === t.id
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+        </GridCell>
+        {usageTab === 'performance' && (
         <PerformanceTab data={perf} loading={perfLoading} zone="board" />
+        )}
         {/* Compute-efficiency axis — surfaces the warehouse-efficiency endpoint
             (queue/spill/misconfig flags) that previously had NO UI consumer. */}
+        {usageTab === 'efficiency' && (
         <GridCell>
           <WarehouseEfficiencyCard days={30} />
         </GridCell>
+        )}
+        {usageTab === 'operations' && (
         <DataOperationsTab data={ops} loading={opsLoading} zone="board" />
+        )}
       </Board>
     </TabGrid>
   );
@@ -7704,6 +7831,9 @@ const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
   //   Semantic models → GET semantic models list (listSemanticModels)
   const [edModels, setEdModels] = useState<number | null>(null);
   const [semanticModels, setSemanticModels] = useState<number | null>(null);
+  // Bookmark-tabs: access-insights evidence tables vs the full catalog explorer,
+  // so the tab is a no-scroll one-pager (KPIs on top; one detail renders below).
+  const [dobjTab, setDobjTab] = useState<'insights' | 'catalog'>('insights');
   // Tasks failed (7d) — the count isn't in any existing payload, so it is
   // derived client-side from the SAME TASK_HISTORY rows the tab's
   // "Tasks & Pipelines" sub-table renders (sum of per-task `failed`).
@@ -7841,6 +7971,32 @@ const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
         </div>
       </KpiZone>
       <Board>
+        <GridCell>
+      {/* ── Details bookmark-tabs — only the selected group renders below. ── */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
+        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
+        {([
+          { id: 'insights', label: 'Access insights' },
+          { id: 'catalog', label: 'Catalog explorer' },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setDobjTab(t.id)}
+            aria-pressed={dobjTab === t.id}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              dobjTab === t.id
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+        </GridCell>
+        {dobjTab === 'insights' && (<>
         {/* Top accessed objects — Excel-grade evidence table. */}
         <GridCell className="xl:col-span-7">
           {insightsStatus === 'loading' ? (
@@ -7939,12 +8095,15 @@ const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
             </p>
           </SectionCard>
         </GridCell>
+        </>)}
 
         {/* Full Data Catalog Explorer (the former 'Data Objects' tab —
             sub-tabs, KPI grid, AI discovery, object detail; unchanged). */}
+        {dobjTab === 'catalog' && (
         <GridCell>
           <SnowflakeObjectsTab />
         </GridCell>
+        )}
       </Board>
     </TabGrid>
   );

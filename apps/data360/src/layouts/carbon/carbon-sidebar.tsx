@@ -9,7 +9,6 @@ import {
   PiHeadsetBold,
   PiArrowRightBold,
 } from 'react-icons/pi';
-import dynamic from 'next/dynamic';
 import SimpleBar from 'simplebar-react';
 import { CarbonSidebarMenu } from './carbon-sidebar-menu';
 import { useSession } from 'next-auth/react';
@@ -18,9 +17,6 @@ import { motion } from 'framer-motion';
 import { normalizeToIds, getAllModuleIds } from '@/config/modules';
 import { useSidebarCollapsed } from '@/store/sidebar-store';
 
-const NeedSupport = dynamic(() => import('@/layouts/carbon/need-support'), {
-  ssr: false,
-});
 
 export function CarbonSidebar({ className }: { className?: string }) {
   const { data: session } = useSession();
@@ -165,15 +161,18 @@ export function CarbonSidebar({ className }: { className?: string }) {
           />
         </motion.div>
 
-        {/* Support section - hidden when collapsed */}
+        {/* Support link — a single quiet row, not a marketing card. An
+            executive console should not hard-sell "our expert team" in the
+            primary nav; keep help reachable, drop the visual weight. */}
         {!sidebarCollapsed && (
-          <div className="from-white/98 dark:from-slate-950/98 sticky bottom-0 bg-gradient-to-t to-white/80 px-4 pb-6 backdrop-blur-md dark:to-slate-950/80">
-            <NeedSupport
-              title="Need Support?"
-              text="Get help from our expert team"
-              prefixIcon={<PiHeadsetBold className="h-5 w-5 text-blue-500" />}
-              className="group relative rounded-xl border border-slate-200/60 bg-gradient-to-br from-slate-50/90 to-blue-50/50 p-5 transition-all duration-200 hover:border-blue-200/60 hover:shadow-md hover:shadow-blue-500/10 dark:border-slate-700/40 dark:from-slate-800/40 dark:to-blue-950/30 dark:hover:border-blue-800/50"
-            />
+          <div className="sticky bottom-0 bg-white/90 px-4 pb-4 pt-2 backdrop-blur-md dark:bg-slate-950/90">
+            <a
+              href="mailto:support@datalab360.io"
+              className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            >
+              <PiHeadsetBold className="h-4 w-4" aria-hidden="true" />
+              Support
+            </a>
           </div>
         )}
       </SimpleBar>

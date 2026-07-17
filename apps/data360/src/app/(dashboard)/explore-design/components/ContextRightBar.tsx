@@ -357,15 +357,19 @@ export default function ContextRightBar({
           {/* Project CRUD (rename / description / delete) — Overview header
               area only (no table selected); the page gates it by role. */}
           {!selectedTable && projectCrudSlot}
-          {/* Addendum #66 — the right bar owns object creation: one governed
-              "Create" group at the top of the Actions section. Collapsed when a
-              table is selected so its actions stay above the fold. */}
-          {onCreateObject && (
+          {/* Addendum #66 / clarity pass — the right bar owns object creation.
+              On the project OVERVIEW (no table) the Create group leads, open.
+              When a table IS selected it moved BELOW the table inspector (see
+              after ActionsPanel) so the panel opens on the table you picked, not
+              a "Create" box — user feedback: the leading Create read as a
+              mystery tab. #66's goal (table actions above the fold) is better
+              served this way. */}
+          {onCreateObject && !selectedTable && (
             <CreateObjectsGroup
               onCreate={onCreateObject}
               canCreate={canCreate.allowed || canCreate.loading}
-              hasTable={!!selectedTable}
-              defaultOpen={!selectedTable}
+              hasTable={false}
+              defaultOpen
             />
           )}
           {selectedTable ? (
@@ -469,6 +473,18 @@ export default function ContextRightBar({
             onNodeAction={onNodeAction}
             onGoToTab={(t) => onTabChange(t)}
           />
+
+          {/* Create a NEW object — secondary here (a table is selected), so it
+              sits at the bottom, collapsed and clearly labelled, rather than
+              leading the table inspector. */}
+          {onCreateObject && (
+            <CreateObjectsGroup
+              onCreate={onCreateObject}
+              canCreate={canCreate.allowed || canCreate.loading}
+              hasTable
+              defaultOpen={false}
+            />
+          )}
         </>
           )}
         </>
@@ -827,7 +843,7 @@ function CreateObjectsGroup({ onCreate, canCreate, hasTable, defaultOpen }: {
       >
         <summary className="flex cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
           <Plus className="h-3.5 w-3.5 text-blue-500" />
-          Create
+          {hasTable ? 'Create new object' : 'Create'}
           {!canCreate && (
             <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-medium text-slate-400">
               <Lock className="h-2.5 w-2.5" /> needs create access
@@ -1343,7 +1359,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
               } catch (e: any) { toast.error(toServiceError(e, 'DDL diff not available — no pending changes').message); } finally { setLoadingDdl(false); }
             }} />
             <ActionBtn label="Refresh view" icon={RefreshCw} disabled={!canExecute} onClick={() => {
-              onAddEvent({ type: 'VIEW_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
+              onAddEvent({ type: 'VIEW_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { operation: 'refresh' } });
               toast.success('View refresh added — review in Deploy tab');
             }} />
             {canWrite && <ActionBtn label="Alter view" icon={Plus} onClick={() => onFocusAction('add_column')} />}
@@ -1359,11 +1375,11 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
           </div>
           <div className="flex flex-wrap gap-2">
             <ActionBtn label="Refresh" icon={RefreshCw} disabled={!canExecute} onClick={() => {
-              onAddEvent({ type: 'DYNAMIC_TABLE_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
+              onAddEvent({ type: 'DYNAMIC_TABLE_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { operation: 'refresh' } });
               toast.success('Dynamic table refresh added to deployment draft');
             }} />
             <ActionBtn label="Suspend" icon={AlertTriangle} disabled={!canWrite} onClick={() => {
-              onAddEvent({ type: 'DYNAMIC_TABLE_SUSPEND', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
+              onAddEvent({ type: 'DYNAMIC_TABLE_SUSPEND', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { operation: 'suspend' } });
               toast.success('Dynamic table suspend added to deployment draft');
             }} />
           </div>
@@ -2061,11 +2077,15 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
 function IngestionCostPanel({ table, trace }: { table: TableItem; trace: IngestionTraceEntry | null }) {
   const [credits, setCredits] = useState<number | null>(null);
   const [costLoaded, setCostLoaded] = useState(false);
+  // Ingestion sourcing detection (COPY_HISTORY-derived): where the table is fed
+  // FROM, by what mechanism, and at what cadence.
+  const [sourcing, setSourcing] = useState<import('@/app/services/catalog/rightbar').TableIngestion | null>(null);
 
   useEffect(() => {
     let alive = true;
     setCredits(null);
     setCostLoaded(false);
+    setSourcing(null);
     // Reuse the catalog rightbar service — same per-table context the SmartRightBar
     // uses. avg_cost_credits is best-effort warehouse credits (null when absent).
     void (async () => {
@@ -2074,8 +2094,9 @@ function IngestionCostPanel({ table, trace }: { table: TableItem; trace: Ingesti
         const ing = await getTableIngestion(table.database, table.schema, table.table);
         if (!alive) return;
         setCredits(typeof ing?.avg_cost_credits === 'number' ? ing.avg_cost_credits : null);
+        setSourcing(ing ?? null);
       } catch {
-        if (alive) setCredits(null);
+        if (alive) { setCredits(null); setSourcing(null); }
       } finally {
         if (alive) setCostLoaded(true);
       }
@@ -2122,9 +2143,49 @@ function IngestionCostPanel({ table, trace }: { table: TableItem; trace: Ingesti
           <p className="font-medium text-slate-700 dark:text-slate-300">{creditsLabel}</p>
         </div>
       </div>
+
+      {/* Ingestion sourcing detection — how the table is fed, from where, how often */}
+      {sourcing && (sourcing.ingestion_type || sourcing.cadence) && (() => {
+        const t = sourcing.ingestion_type;
+        const typeLabel = t === 'SNOWPIPE' ? 'Snowpipe' : t === 'COPY' ? 'Bulk COPY' : t === 'TASK' ? 'Task' : t === 'STREAM' ? 'Stream' : t === 'MANUAL' ? 'Manual / not stage-loaded' : '—';
+        const from = sourcing.source_name
+          ? (sourcing.source_name.startsWith('stages/') ? 'Internal stage' : sourcing.source_name)
+          : (t === 'MANUAL' ? '—' : '—');
+        const cad = sourcing.cadence;
+        const cadLabel = cad === 'one_shot' ? 'One-shot' : cad === 'daily' ? 'Daily' : cad === 'weekly' ? 'Weekly' : cad === 'monthly' ? 'Monthly' : cad === 'stale' ? 'Stale' : cad === 'irregular' ? 'Irregular' : '—';
+        const idle = sourcing.days_since_last_load;
+        const warn = sourcing.is_one_shot === true || cad === 'stale';
+        return (
+          <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-2 space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <RefreshCw className="h-3 w-3 text-blue-500" aria-hidden />
+              <span className="text-[10px] font-semibold text-slate-700 dark:text-slate-300">Sourcing</span>
+              {cad && (
+                <span className={cn('ml-auto rounded-full px-1.5 py-0.5 text-[9px] font-semibold',
+                  warn ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                       : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400')}>
+                  {cadLabel}{cad === 'stale' && typeof idle === 'number' ? ` · ${idle}d idle` : ''}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+              <div><span className="text-slate-400">Type</span><p className="font-medium text-slate-700 dark:text-slate-300">{typeLabel}</p></div>
+              <div><span className="text-slate-400">From</span><p className="font-medium truncate text-slate-700 dark:text-slate-300" title={sourcing.source_name || ''}>{from}</p></div>
+              {typeof sourcing.load_count === 'number' && (
+                <div><span className="text-slate-400">Loads (365d)</span><p className="font-medium text-slate-700 dark:text-slate-300">{sourcing.load_count}</p></div>
+              )}
+              {typeof idle === 'number' && (
+                <div><span className="text-slate-400">Last load</span><p className="font-medium text-slate-700 dark:text-slate-300">{idle === 0 ? 'today' : `${idle}d ago`}</p></div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       <MoreDetails>
         Source-load activity (Snowpipe &amp; COPY) over the last 7 days and
-        best-effort warehouse credits. &quot;—&quot; = no data recorded.
+        best-effort warehouse credits. Sourcing = detected ingestion mechanism,
+        origin and cadence from COPY_HISTORY (365d). &quot;—&quot; = no data recorded.
       </MoreDetails>
     </div>
   );
@@ -2284,6 +2345,15 @@ function HistoryAiSummary({ events }: { events: HistoryEvent[] }) {
 
 // Exported: reused full-width by the catalog page (Insights view / History
 // sub-tab). The HistoryEvent shape below is exported alongside.
+// Turn a raw event type into a readable label, preserving data acronyms —
+// 'RLS_POLICY_APPLIED' → 'RLS Policy Applied', 'PRIMARY_KEY_SET' → 'Primary Key
+// Set'. History showed the raw SHOUTING_SNAKE token before.
+const HISTORY_ACRONYMS = new Set(['RLS', 'PK', 'FK', 'SCD', 'AI', 'DDL', 'SQL', 'ETL', 'DQ', 'PII']);
+const prettyEventType = (t: string): string =>
+  String(t).split('_').filter(Boolean)
+    .map((w) => (HISTORY_ACRONYMS.has(w.toUpperCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join(' ');
+
 export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
   const grouped = events.reduce<Record<string, HistoryEvent[]>>((acc, e) => {
     const day = new Date(e.timestamp).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -2299,7 +2369,7 @@ export function HistoryPanel({ events }: { events: HistoryEvent[] }) {
         <div key={e.id} className="flex items-start gap-2.5 px-3 py-2 rounded-lg border border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
           <HistoryStatusIcon status={e.status} />
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-slate-800 dark:text-slate-200">{e.type}</p>
+            <p className="text-xs font-medium text-slate-800 dark:text-slate-200">{prettyEventType(e.type)}</p>
             <p className="text-[10px] text-slate-500 truncate">{e.actor} · {e.object}</p>
             {e.message && e.status === 'error' && (
               <p className="text-[10px] text-red-500 mt-0.5 line-clamp-1">{e.message}</p>
@@ -3165,7 +3235,23 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
   const [scanResult, setScanResult] = useState<any>(null);
   const [selectedCols, setSelectedCols] = useState<Set<string>>(new Set());
   const [policyType, setPolicyType] = useState<'SHA2_MASK' | 'PARTIAL_MASK' | 'FULL_MASK' | 'CUSTOM'>('SHA2_MASK');
+  // Roles that see the UNMASKED value (the masking policy reveals to these, masks
+  // for everyone else). Empty → ACCOUNTADMIN default.
+  const [maskRoles, setMaskRoles] = useState('');
   const piiCount = columns.filter((c) => c.isSensitive).length;
+  // Row-access policy (RLS) config — replaces the old blind "Add RLS" button:
+  // pick the filter column + the rule (role allowlist or a custom predicate).
+  const [rlsOpen, setRlsOpen] = useState(false);
+  const [rlsColumn, setRlsColumn] = useState('');
+  const [rlsKind, setRlsKind] = useState<'roles' | 'custom'>('roles');
+  const [rlsRoles, setRlsRoles] = useState('');
+  const [rlsExpr, setRlsExpr] = useState('');
+  const rlsColType = columns.find((c) => c.name === rlsColumn)?.dataType || 'VARCHAR';
+  const rlsBuiltExpr = rlsKind === 'roles'
+    ? `CURRENT_ROLE() IN (${rlsRoles.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean).map((r) => `'${r}'`).join(', ')})`
+    : rlsExpr.trim();
+  const rlsPolicyName = `rls_${table.table.toLowerCase()}`;
+  const rlsValid = !!rlsColumn && (rlsKind === 'roles' ? !!rlsRoles.trim() : !!rlsExpr.trim());
 
   const runPiiScan = useCallback(async () => {
     if (scanning) return; // double-submit guard
@@ -3261,6 +3347,12 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
               </button>
             ))}
           </div>
+          <input
+            value={maskRoles}
+            onChange={(e) => setMaskRoles(e.target.value)}
+            placeholder="Reveal unmasked to roles — default ACCOUNTADMIN"
+            className="w-full px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+          />
         </div>
       )}
 
@@ -3268,14 +3360,103 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
       <div className="flex gap-2">
         <ActionBtn label={`Mask ${selectedCols.size || piiCount} col${(selectedCols.size || piiCount) > 1 ? 's' : ''}`} icon={Lock} disabled={!canWrite || (selectedCols.size === 0 && piiCount === 0)} onClick={() => {
           const cols = selectedCols.size > 0 ? [...selectedCols] : columns.filter((c) => c.isSensitive).map((c) => c.name);
-          cols.forEach((col) => onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { column: col, policyType } }));
+          if (cols.length === 0) { toast.error('Select at least one column to mask'); return; }
+          // ONE event carrying all columns — the significance guard requires
+          // policyName + a non-empty columns[]; a per-column loop both fails that
+          // guard (payload had only {column}) AND would merge-collapse (same-type,
+          // same-target events last-win) to a single column. Fixed: masking now
+          // reliably records as a traced, deployable change.
+          const columnTypes = Object.fromEntries(cols.map((c) => [c, columns.find((x) => x.name === c)?.dataType || 'VARCHAR']));
+          const revealRoles = maskRoles.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean);
+          onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { policyName: `mask_${policyType.toLowerCase()}_${table.table.toLowerCase()}`, columns: cols, columnTypes, policyType, revealRoles: revealRoles.length ? revealRoles : undefined } });
           toast.success(`${policyType} masking drafted for ${cols.length} column(s)`);
         }} />
-        <ActionBtn label="Add RLS" icon={Shield} disabled={!canWrite} onClick={() => {
-          onAddEvent({ type: 'RLS_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { policyName: `rls_${table.table.toLowerCase()}`, roleColumn: 'CURRENT_ROLE()' } });
-          toast.success('RLS policy added to deployment draft');
-        }} />
+        <ActionBtn label={rlsOpen ? 'Cancel RLS' : 'Add RLS'} icon={Shield} disabled={!canWrite} onClick={() => setRlsOpen((v) => !v)} />
       </div>
+
+      {/* Row-access policy config — the filter column + rule must be chosen; no
+          blind one-click. Emits a rich RLS_POLICY_APPLIED (column + expression)
+          that the governance deploy path materializes as CREATE ROW ACCESS
+          POLICY … ON (col) (docs.snowflake.com/.../create-row-access-policy). */}
+      {rlsOpen && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10 p-2.5 space-y-2">
+          <p className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">Row-access policy</p>
+          <div>
+            <label className="text-[9px] font-medium uppercase tracking-wide text-slate-400">Filter column</label>
+            <select
+              value={rlsColumn}
+              onChange={(e) => setRlsColumn(e.target.value)}
+              className="w-full mt-0.5 px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+            >
+              <option value="">Select a column…</option>
+              {columns.map((c) => <option key={c.name} value={c.name}>{c.name} ({c.dataType})</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[9px] font-medium uppercase tracking-wide text-slate-400">Rule</label>
+            <div className="flex gap-1.5 mt-0.5">
+              {(['roles', 'custom'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setRlsKind(k)}
+                  className={cn('px-2 py-1 rounded-lg text-[10px] font-medium border transition-colors',
+                    rlsKind === k
+                      ? 'border-blue-400 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                      : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800')}
+                >
+                  {k === 'roles' ? 'Role allowlist' : 'Custom predicate'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {rlsKind === 'roles' ? (
+            <input
+              value={rlsRoles}
+              onChange={(e) => setRlsRoles(e.target.value)}
+              placeholder="Roles that see all rows — e.g. ACCOUNTADMIN, ANALYST"
+              className="w-full px-2 py-1 text-[11px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+            />
+          ) : (
+            <input
+              value={rlsExpr}
+              onChange={(e) => setRlsExpr(e.target.value)}
+              placeholder="Boolean predicate — e.g. COUNTRY = CURRENT_REGION()"
+              className="w-full px-2 py-1 text-[11px] font-mono rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+            />
+          )}
+          {rlsValid && (
+            <div className="p-2 rounded-lg bg-slate-900 text-green-400 text-[9px] font-mono break-all leading-relaxed">
+              CREATE ROW ACCESS POLICY {rlsPolicyName} AS ({rlsColumn.toLowerCase()} {rlsColType}) RETURNS BOOLEAN -&gt; {rlsBuiltExpr};
+              <br />ALTER TABLE {table.table} ADD ROW ACCESS POLICY {rlsPolicyName} ON ({rlsColumn});
+            </div>
+          )}
+          <ActionBtn
+            label="Apply RLS to draft"
+            icon={Shield}
+            primary
+            disabled={!canWrite || !rlsValid}
+            onClick={() => {
+              onAddEvent({
+                type: 'RLS_POLICY_APPLIED',
+                projectId,
+                target: { database: table.database, schema: table.schema, table: table.table },
+                payload: {
+                  policyName: rlsPolicyName,
+                  column: rlsColumn,
+                  columnType: rlsColType,
+                  expression: rlsBuiltExpr,
+                  ruleKind: rlsKind,
+                  roles: rlsKind === 'roles' ? rlsRoles.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean) : undefined,
+                  roleColumn: 'CURRENT_ROLE()',
+                },
+              });
+              toast.success(`RLS on ${rlsColumn} added to deployment draft`);
+              setRlsOpen(false); setRlsColumn(''); setRlsRoles(''); setRlsExpr('');
+            }}
+          />
+        </div>
+      )}
 
       {/* Suggested policies from AI scan */}
       {suggested.length > 0 && (
@@ -3286,7 +3467,19 @@ const PoliciesCard = React.forwardRef<HTMLDivElement, {
               <p className="font-medium text-slate-700 dark:text-slate-300">{sp.policy_name}</p>
               <p className="text-slate-500 text-[9px] mt-0.5">{sp.label} · {sp.affected_columns?.length || 0} columns</p>
               <button onClick={() => {
-                (sp.affected_columns || []).forEach((c: any) => onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: c.table || table.table }, payload: { column: c.column, policyType: sp.pii_type, policyName: sp.policy_name } }));
+                // Group the suggested policy's columns by table → one guard-valid
+                // event per table (policyName + columns[]), instead of a
+                // per-column loop that fails the significance guard / merge-collapses.
+                const byTable = new Map<string, string[]>();
+                (sp.affected_columns || []).forEach((c: any) => {
+                  const t = c.table || table.table;
+                  byTable.set(t, [...(byTable.get(t) || []), c.column]);
+                });
+                if (byTable.size === 0) { toast.error('No columns to apply this policy to'); return; }
+                byTable.forEach((cols, t) => {
+                  const columnTypes = Object.fromEntries(cols.map((c) => [c, (t === table.table ? columns.find((x) => x.name === c)?.dataType : undefined) || 'VARCHAR']));
+                  onAddEvent({ type: 'MASKING_POLICY_APPLIED', projectId, target: { database: table.database, schema: table.schema, table: t }, payload: { policyName: sp.policy_name, columns: cols, columnTypes, policyType: sp.pii_type } });
+                });
                 toast.success(`Policy "${sp.policy_name}" applied to draft`);
               }} className="mt-1 text-[9px] font-semibold text-purple-600 dark:text-purple-400 hover:underline">
                 Apply to draft →

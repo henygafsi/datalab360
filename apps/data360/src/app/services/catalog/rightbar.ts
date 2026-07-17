@@ -83,6 +83,13 @@ export interface TableIngestion {
   pipeline_step: number | null;
   pipeline_name: string | null;
   status: string | null;
+  // Ingestion sourcing detection (COPY_HISTORY-derived, additive)
+  ingestion_type: 'SNOWPIPE' | 'COPY' | 'TASK' | 'STREAM' | 'MANUAL' | null;
+  source_name: string | null;
+  cadence: 'one_shot' | 'daily' | 'weekly' | 'monthly' | 'irregular' | 'stale' | null;
+  days_since_last_load: number | null;
+  load_count: number | null;
+  is_one_shot: boolean | null;
 }
 
 /** Section 6 — OWNERSHIP */

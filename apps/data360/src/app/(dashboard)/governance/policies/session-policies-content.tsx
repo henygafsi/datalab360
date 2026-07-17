@@ -109,7 +109,7 @@ export default function SessionPoliciesContent() {
 
       await createSessionPolicy(requestData);
 
-      toast.success('Session policy created successfully!');
+      toast.success('Session policy created');
       setShowCreatePanel(false);
       resetForm();
       refetch();

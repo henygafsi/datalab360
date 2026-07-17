@@ -438,7 +438,7 @@ export default function CortexChatContent({
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast.success('Copied to clipboard!');
+    toast.success('Copied to clipboard');
   };
 
   // ── Render result data (SQL tables, text, suggestions) ─────────────

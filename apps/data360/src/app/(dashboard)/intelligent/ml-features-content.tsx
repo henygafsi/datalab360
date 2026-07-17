@@ -446,15 +446,15 @@ function SentimentTab() {
           <div className="grid grid-cols-4 gap-4">
             <div className="rounded-xl bg-green-50 p-4 dark:bg-green-900/20">
               <div className="text-2xl font-bold text-green-600">{positiveCount}</div>
-              <div className="text-sm text-green-700 dark:text-green-400">Positive 😄</div>
+              <div className="text-sm text-green-700 dark:text-green-400">Positive</div>
             </div>
             <div className="rounded-xl bg-amber-50 p-4 dark:bg-amber-900/20">
               <div className="text-2xl font-bold text-amber-600">{neutralCount}</div>
-              <div className="text-sm text-amber-700 dark:text-amber-400">Neutral 😐</div>
+              <div className="text-sm text-amber-700 dark:text-amber-400">Neutral</div>
             </div>
             <div className="rounded-xl bg-red-50 p-4 dark:bg-red-900/20">
               <div className="text-2xl font-bold text-red-600">{negativeCount}</div>
-              <div className="text-sm text-red-700 dark:text-red-400">Negative 😞</div>
+              <div className="text-sm text-red-700 dark:text-red-400">Negative</div>
             </div>
             <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-700">
               <div className="text-2xl font-bold text-slate-700 dark:text-slate-200">

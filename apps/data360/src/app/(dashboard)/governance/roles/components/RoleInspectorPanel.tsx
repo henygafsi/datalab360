@@ -25,7 +25,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Input } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
-  ShieldCheck, GitBranch, Boxes, Loader2, RefreshCw, Plus, Trash2, Layers, AlertTriangle,
+  ShieldCheck, GitBranch, Boxes, Loader2, RefreshCw, Plus, Trash2, Layers, AlertTriangle, CalendarClock,
 } from 'lucide-react';
 import RightTabPanel, { type RightTabSection } from '@/app/shared/governance/right-tab-panel';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -37,7 +37,10 @@ import {
   mintAccessRoleFromObjects,
   isRoleGrant,
   getApiErrorMessage,
+  createFutureGrant,
+  listFutureGrants,
   type RoleObjectGrant,
+  type FutureGrant,
 } from '@/app/services/governance/role_grants';
 
 export interface RoleInspectorPanelProps {
@@ -50,7 +53,7 @@ export interface RoleInspectorPanelProps {
   onMutated?: () => void;
 }
 
-type SectionId = 'grants' | 'hierarchy' | 'mint';
+type SectionId = 'grants' | 'hierarchy' | 'mint' | 'future';
 
 export default function RoleInspectorPanel({
   role,
@@ -91,6 +94,39 @@ export default function RoleInspectorPanel({
   const { allowed: canGrant } = useCanPerform('gouvernance', 'grant');
   const { allowed: canRevoke } = useCanPerform('gouvernance', 'revoke');
   const { allowed: canCreate } = useCanPerform('gouvernance', 'create');
+
+  // Future grants (new objects auto-inherit access) — schema-scoped.
+  const [fgDb, setFgDb] = useState('');
+  const [fgSchema, setFgSchema] = useState('');
+  const [fgPriv, setFgPriv] = useState('SELECT');
+  const [fgType, setFgType] = useState('TABLES');
+  const [fgList, setFgList] = useState<FutureGrant[]>([]);
+  const [fgBusy, setFgBusy] = useState(false);
+  const fgReady = !!fgDb && !!role;
+
+  const loadFuture = useCallback(async () => {
+    if (!fgDb) { setFgList([]); return; }
+    try {
+      setFgList(await listFutureGrants(fgDb, fgSchema || undefined));
+    } catch {
+      setFgList([]);
+    }
+  }, [fgDb, fgSchema]);
+
+  const grantFuture = useCallback(async () => {
+    if (!fgReady || !role) return;
+    setFgBusy(true);
+    try {
+      await createFutureGrant({ privilege: fgPriv, object_type: fgType, database: fgDb, schema_name: fgSchema || null, role });
+      toast.success(`Future ${fgType.toLowerCase()} → ${role}`);
+      await loadFuture();
+      onMutated?.();
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+    } finally {
+      setFgBusy(false);
+    }
+  }, [fgReady, role, fgPriv, fgType, fgDb, fgSchema, loadFuture, onMutated]);
 
   // ── attach state ──
   const [attachName, setAttachName] = useState('');
@@ -429,6 +465,62 @@ export default function RoleInspectorPanel({
     </div>
   );
 
+  const futureBody = () => (
+    <div className="space-y-3 p-1">
+      <p className="text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+        Grant a privilege on <span className="font-medium">future</span> objects in a schema so every
+        new table/view automatically inherits <span className="font-medium">{role}</span>&apos;s access — the
+        anti-drift primitive (no manual re-grant per object).
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">Database</span>
+          <Input size="sm" value={fgDb} onChange={(e) => setFgDb(e.target.value.toUpperCase())} placeholder="ANALYTICS" onBlur={loadFuture} />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">Schema <span className="text-slate-400">(optional)</span></span>
+          <Input size="sm" value={fgSchema} onChange={(e) => setFgSchema(e.target.value.toUpperCase())} placeholder="whole DB if empty" onBlur={loadFuture} />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">Privilege</span>
+          <select value={fgPriv} onChange={(e) => setFgPriv(e.target.value)}
+            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900">
+            {['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'REFERENCES', 'USAGE', 'ALL'].map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-slate-600 dark:text-slate-300">On future</span>
+          <select value={fgType} onChange={(e) => setFgType(e.target.value)}
+            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900">
+            {['TABLES', 'VIEWS', 'SCHEMAS', 'STAGES', 'DYNAMIC TABLES'].map((o) => <option key={o} value={o}>{o.toLowerCase()}</option>)}
+          </select>
+        </label>
+      </div>
+      <Button size="sm" onClick={grantFuture} disabled={!canGrant || !fgReady || fgBusy}
+        title={!canGrant ? 'Requires the governance grant permission' : undefined}
+        className="w-full gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700">
+        {fgBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+        Grant on future objects
+      </Button>
+      {!canGrant && (
+        <p className="text-[10px] text-slate-400">Read-only: you lack the grant permission on governance.</p>
+      )}
+      {fgList.length > 0 && (
+        <div>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Existing future grants ({fgList.length})</p>
+          <ul className="divide-y divide-slate-100 dark:divide-slate-700/60">
+            {fgList.slice(0, 12).map((g, i) => (
+              <li key={i} className="flex items-center justify-between gap-2 py-1 text-[11px] text-slate-600 dark:text-slate-300">
+                <span className="truncate">{String(g.privilege ?? '')} · {String(g.grant_on ?? '')}</span>
+                <span className="shrink-0 text-slate-400">{String(g.grantee_name ?? '')}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+
   const sections: RightTabSection[] = [
     {
       id: 'grants',
@@ -450,6 +542,13 @@ export default function RoleInspectorPanel({
       label: 'Mint access role',
       description: 'Reverse-provision a reusable access role from object grants.',
       render: mintBody,
+    },
+    {
+      id: 'future',
+      icon: CalendarClock,
+      label: 'Future grants',
+      description: 'New objects in a schema auto-inherit this role\u2019s access.',
+      render: futureBody,
     },
   ];
 

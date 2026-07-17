@@ -370,11 +370,15 @@ const isSignificantEvent = (type: EventType, payload: Record<string, any>): bool
       return true;
 
     case 'TABLE_CREATED':
-      // Must have table name and at least one column
+      // Must have a table name.
       if (!payload.tableName) {
         console.debug(`[EventStore] Rejecting ${type}: no table name`);
         return false;
       }
+      // An intentional EMPTY table (mode:'empty' — "Add empty table, feed it
+      // from sources later") is a real, traceable creation even with no columns
+      // yet. Only reject a nameless/columnless accidental create.
+      if (payload.mode === 'empty') return true;
       if (!payload.columns || payload.columns.length === 0) {
         console.debug(`[EventStore] Rejecting ${type}: no columns defined`);
         return false;

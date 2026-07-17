@@ -27,6 +27,7 @@ import {
   Activity,
   Boxes,
   CalendarClock,
+  ChevronRight,
   Database,
   Info,
   PackageOpen,
@@ -150,6 +151,46 @@ function SectionTitle({ icon: Icon, title, info, right }: {
         />
       </Tooltip>
       {right && <span className="ml-auto flex items-center gap-1.5">{right}</span>}
+    </div>
+  );
+}
+
+/** Collapsible variant of SectionTitle — a click-to-toggle header that keeps
+ *  secondary release detail (live objects, schedule) folded so the production
+ *  panel scrolls less. Body renders only when open; the count already lives in
+ *  the title so a folded section still tells you how much it holds. */
+function CollapsibleSection({ icon: Icon, title, info, defaultOpen = false, children }: {
+  icon: React.ElementType;
+  title: string;
+  info: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        >
+          <ChevronRight
+            className={cn('h-3 w-3 shrink-0 text-slate-400 transition-transform', open && 'rotate-90')}
+            aria-hidden
+          />
+          <Icon className="h-3.5 w-3.5 shrink-0 text-blue-500" aria-hidden />
+          <h4 className="truncate text-xs font-semibold text-slate-800 dark:text-slate-200">{title}</h4>
+        </button>
+        <Tooltip content={<span className="block max-w-[260px] text-left">{info}</span>} placement="top">
+          <Info
+            className="h-3 w-3 shrink-0 cursor-help text-slate-300 hover:text-slate-500 dark:text-slate-600 dark:hover:text-slate-400"
+            aria-label={`About: ${title}`}
+          />
+        </Tooltip>
+      </div>
+      {open && children}
     </div>
   );
 }
@@ -394,13 +435,13 @@ export default function DeployedProduction({ projectId }: { projectId: string })
             </div>
           )}
 
-          {/* ── 2. Deployed objects (per-product info) ── */}
-          <div>
-            <SectionTitle
-              icon={Boxes}
-              title={`Deployed objects (${objects.length})`}
-              info="Objects created in the warehouse by this project's executed releases — parsed from the deployed DDL. Live row counts are shown where Snowflake exposes them cheaply (dynamic tables); plain views show '—' rather than an invented number."
-            />
+          {/* ── 2. Deployed objects (per-product info) — open by default ── */}
+          <CollapsibleSection
+            icon={Boxes}
+            title={`Deployed objects (${objects.length})`}
+            info="Objects created in the warehouse by this project's executed releases — parsed from the deployed DDL. Live row counts are shown where Snowflake exposes them cheaply (dynamic tables); plain views show '—' rather than an invented number."
+            defaultOpen
+          >
             {objects.length === 0 ? (
               <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
                 The recorded deployments carry no object-level DDL — nothing to list here.
@@ -462,16 +503,15 @@ export default function DeployedProduction({ projectId }: { projectId: string })
                 })}
               </ul>
             )}
-          </div>
+          </CollapsibleSection>
 
-          {/* ── 3. Live DE objects in the project scope ── */}
+          {/* ── 3. Live DE objects in the project scope — folded by default ── */}
           {scope && (
-            <div>
-              <SectionTitle
-                icon={Database}
-                title={`Live in ${scope.database}.${scope.schema}`}
-                info="Dynamic tables and streams currently live in this project's target schema (from SHOW — cheap metadata, includes real row counts and refresh lag). The schema can also hold objects from other projects."
-              />
+            <CollapsibleSection
+              icon={Database}
+              title={`Live in ${scope.database}.${scope.schema} (${dynamicTables.length + streams.length})`}
+              info="Dynamic tables and streams currently live in this project's target schema (from SHOW — cheap metadata, includes real row counts and refresh lag). The schema can also hold objects from other projects."
+            >
               {dynamicTables.length === 0 && streams.length === 0 ? (
                 <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
                   No dynamic tables or streams in this schema.
@@ -578,16 +618,15 @@ export default function DeployedProduction({ projectId }: { projectId: string })
                   })}
                 </ul>
               )}
-            </div>
+            </CollapsibleSection>
           )}
 
-          {/* ── 4. Schedule state ── */}
-          <div>
-            <SectionTitle
-              icon={CalendarClock}
-              title={`Schedule (${schedules.length})`}
-              info="Scheduled deployments registered for this project. When empty, production only changes on a manual deploy (dynamic tables still self-refresh on their target lag)."
-            />
+          {/* ── 4. Schedule state — folded by default ── */}
+          <CollapsibleSection
+            icon={CalendarClock}
+            title={`Schedule (${schedules.length})`}
+            info="Scheduled deployments registered for this project. When empty, production only changes on a manual deploy (dynamic tables still self-refresh on their target lag)."
+          >
             {schedules.length === 0 ? (
               <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">
                 No deployment schedule — releases ship manually.
@@ -610,7 +649,7 @@ export default function DeployedProduction({ projectId }: { projectId: string })
                 ))}
               </ul>
             )}
-          </div>
+          </CollapsibleSection>
 
           {/* ── Advisor (derived from the loaded data — never invented) ── */}
           {advisorHints.length > 0 && (

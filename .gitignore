@@ -93,3 +93,15 @@ temp/
 reports/
 e2e/axis-validation-artifacts/
 e2e/.artifacts/
+
+# Production delivery hygiene (2026-07-16): dev docs/notes/artifacts never ship
+CLAUDE.md
+.claude/
+docs/
+*.xlsx
+*.log
+e2e/*-artifacts/
+e2e/*artifacts*/
+e2e/ao-shots*/
+e2e/night-audit-artifacts/
+/_*.mjs

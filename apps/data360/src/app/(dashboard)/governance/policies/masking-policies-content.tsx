@@ -164,7 +164,7 @@ export default function MaskingPoliciesContent({ prefill }: {
 
       await createMaskingPolicy(requestData);
 
-      toast.success('Masking policy created successfully!');
+      toast.success('Masking policy created');
       setShowCreatePanel(false);
       resetCreateForm();
       refetch();

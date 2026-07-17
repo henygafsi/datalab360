@@ -308,7 +308,7 @@ export default function StepDeploy() {
         try { await bulkUpdateEvents(projectId, { event_ids: appliedIds, new_status: 'SUCCESS' }); } catch { /* non-blocking */ }
       }
 
-      toast.success('Deployment completed successfully!');
+      toast.success('Deployment completed');
       goNext(); // → verify step
 
     } catch (error: any) {

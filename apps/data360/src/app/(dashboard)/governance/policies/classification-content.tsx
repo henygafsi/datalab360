@@ -25,6 +25,13 @@ const CLASSIFICATION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 // All classification endpoints receive parameters as query strings (not JSON body).
 // Backend signatures: `table_name: str = Query(...)`, `name: str = Query(...)`, etc.
+async function scanPii(params: { database: string; schema: string; sample_size?: number }) {
+  // PII pattern + risk scan over a schema (backend already existed; the
+  // Classification steward could not reach it without leaving governance).
+  const { data } = await apiClient.post(`${PREFIX}/pii-scan`, null, { params });
+  return data;
+}
+
 async function classifyTable(params: { table_name: string }) {
   const { data } = await apiClient.post(`${PREFIX}/classification/classify`, null, {
     params,
@@ -87,7 +94,7 @@ function errorMessage(err: any, fallback: string): string {
   return err?.response?.data?.message || err?.message || fallback;
 }
 
-type ActiveSection = 'classify' | 'extract' | 'apply' | 'classifiers';
+type ActiveSection = 'classify' | 'extract' | 'apply' | 'classifiers' | 'pii';
 
 // Helper: DB.SCHEMA.TABLE picker — returns fully-qualified name + allows
 // each level to update independently. Resets downstream selections when a
@@ -373,6 +380,27 @@ export default function ClassificationContent({ onProtect }: { onProtect?: (row:
   const [applyTarget, setApplyTarget] = useState<Target>({ database: '', schema: '', table: '' });
   const [applying, setApplying] = useState(false);
 
+  // PII Scan (schema-level)
+  const [piiTarget, setPiiTarget] = useState<Target>({ database: '', schema: '', table: '' });
+  const [piiResult, setPiiResult] = useState<any>(null);
+  const [piiScanning, setPiiScanning] = useState(false);
+
+  const handlePiiScan = async () => {
+    if (!piiTarget.database || !piiTarget.schema) return;
+    setPiiScanning(true);
+    setPiiResult(null);
+    try {
+      const res = await scanPii({ database: piiTarget.database, schema: piiTarget.schema, sample_size: 100 });
+      setPiiResult(res);
+      const n = res?.count ?? (res?.pii_columns?.length ?? 0);
+      toast.success(n > 0 ? `${n} PII column${n > 1 ? 's' : ''} detected` : 'No PII patterns detected');
+    } catch (err: any) {
+      toast.error(errorMessage(err, 'PII scan failed'));
+    } finally {
+      setPiiScanning(false);
+    }
+  };
+
   // Custom Classifier
   const [showCreateClassifier, setShowCreateClassifier] = useState(false);
   const [classifierName, setClassifierName] = useState('');
@@ -489,6 +517,7 @@ export default function ClassificationContent({ onProtect }: { onProtect?: (row:
     { id: 'classify' as ActiveSection, name: 'Classify Table', icon: PiMagnifyingGlass },
     { id: 'extract' as ActiveSection, name: 'Extract Categories', icon: PiTag },
     { id: 'apply' as ActiveSection, name: 'Apply Tags', icon: PiCheckCircle },
+    { id: 'pii' as ActiveSection, name: 'PII Scan', icon: PiShieldCheck },
     { id: 'classifiers' as ActiveSection, name: 'Custom Classifiers', icon: PiCode },
   ];
 
@@ -585,6 +614,98 @@ export default function ClassificationContent({ onProtect }: { onProtect?: (row:
       )}
 
       {/* Extract Categories Section */}
+      {/* PII Scan Section — schema-wide PII detection + risk (steward stays in governance) */}
+      {activeSection === 'pii' && (
+        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 space-y-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center">
+              <PiShieldCheck className="w-5 h-5 text-rose-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">PII Scan</h3>
+              <p className="text-sm text-slate-500">Detect PII across a schema with risk scoring &amp; compliance mapping (GDPR / HIPAA / PCI-DSS)</p>
+            </div>
+          </div>
+
+          <TablePicker value={piiTarget} onChange={setPiiTarget} accent="violet" />
+          <p className="text-xs text-slate-400 dark:text-slate-500">Scans the whole schema — the table field is ignored.</p>
+
+          <div className="flex items-center justify-between">
+            <TargetSummary target={{ ...piiTarget, table: '' }} />
+            <div className="flex items-center gap-2">
+              {piiResult && (
+                <Button variant="outline" onClick={() => setPiiResult(null)} className="gap-2">
+                  <PiArrowClockwise className="w-4 h-4" /> Clear
+                </Button>
+              )}
+              <Button
+                onClick={handlePiiScan}
+                disabled={piiScanning || !piiTarget.database || !piiTarget.schema}
+                className="gap-2 bg-rose-600 text-white hover:bg-rose-700"
+              >
+                {piiScanning ? <Loader variant="spinner" size="sm" /> : <PiMagnifyingGlass className="w-4 h-4" />}
+                Scan for PII
+              </Button>
+            </div>
+          </div>
+
+          {piiResult && (
+            <div className="mt-2 space-y-2">
+              <h4 className="font-medium text-slate-900 dark:text-white">
+                Detected PII ({piiResult.count ?? piiResult.pii_columns?.length ?? 0})
+              </h4>
+              {(piiResult.pii_columns ?? []).length === 0 ? (
+                <p className="text-sm text-slate-500">No PII patterns detected in this schema.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 dark:bg-slate-800/60 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">Table.Column</th>
+                        <th className="px-3 py-2">PII type</th>
+                        <th className="px-3 py-2">Risk</th>
+                        <th className="px-3 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                      {(piiResult.pii_columns ?? []).slice(0, 50).map((c: any, i: number) => {
+                        const col = c.column ?? c.column_name;
+                        const tbl = c.table ?? c.table_name;
+                        const piiType = c.pii_type ?? c.type;
+                        const risk = c.risk ?? c.risk_level ?? '—';
+                        return (
+                          <tr key={`${tbl}.${col}.${i}`}>
+                            <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">
+                              {tbl ? `${tbl}.` : ''}{col}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-300">{piiType}</td>
+                            <td className="px-3 py-2">
+                              <span className="rounded px-1.5 py-0.5 text-[11px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                {String(risk).toLowerCase()}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {onProtect && col && tbl && (
+                                <button
+                                  onClick={() => onProtect({ database: piiTarget.database, schema: piiTarget.schema, table: tbl, column: col })}
+                                  className="text-xs font-medium text-violet-600 hover:underline dark:text-violet-400"
+                                >
+                                  Mask
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {activeSection === 'extract' && (
         <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 space-y-5">
           <div className="flex items-center gap-3">

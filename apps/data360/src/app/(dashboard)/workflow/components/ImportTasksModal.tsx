@@ -90,12 +90,24 @@ export default function ImportTasksModal({
     <AnimatePresence>
       {open && (
         <motion.div
+          key="import-tasks-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 bg-slate-900/40"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      {open && (
+        <motion.div
+          key="import-tasks-sheet"
           initial={{ x: '100%' }}
           animate={{ x: 0 }}
           exit={{ x: '100%' }}
           transition={{ type: 'spring', stiffness: 380, damping: 32 }}
           role="dialog"
-          aria-modal="false"
+          aria-modal="true"
           aria-label="Import task graphs"
           onClick={(e) => e.stopPropagation()}
           className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"

@@ -65,6 +65,20 @@ const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label
   QUALITY_GATE_SET: { icon: Shield, label: 'Quality Gate', color: 'bg-emerald-100 text-emerald-600' },
 };
 
+// Humanize an event type with no config entry (non-union types emitted via the
+// `any` onAddEvent path, e.g. VIEW_REFRESH) — "VIEW_REFRESH" → "View Refresh" —
+// so History never shows a raw SHOUTING_SNAKE token.
+const humanizeEventType = (t: string): string =>
+  String(t).split('_').filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+
+// History shows EVERY traced action (the user's directive: "ALL ACTIONS in all
+// tabs must be traced"). We use a DENY-list of pure-UI, non-action events rather
+// than an allow-list, so newly-added or non-union action types appear
+// automatically instead of being silently hidden. SELECTED events are UI-only
+// navigation (and are guard-rejected anyway).
+const NON_ACTION_EVENT_TYPES = new Set<string>(['SCHEMA_SELECTED', 'TABLE_SELECTED']);
+const isTracedAction = (t: string): boolean => !NON_ACTION_EVENT_TYPES.has(t);
+
 // Event display priority — same order as deployment execution
 // Lower = show first (schema before tables before FKs before policies)
 const EVENT_DISPLAY_PRIORITY: Partial<Record<EventType, number>> = {
@@ -128,7 +142,7 @@ const EventRow: React.FC<{
 }> = ({ event, onRemove, isExpanded, onToggle }) => {
   const config = eventTypeConfig[event.type] || {
     icon: Table2,
-    label: event.type,
+    label: humanizeEventType(event.type),
     color: 'bg-slate-100 text-slate-600'
   };
   const status = statusConfig[event.status] || {
@@ -250,40 +264,17 @@ const EventTable = React.memo(function EventTable({ className, compact, projectI
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
   const [showTemplateEvents, setShowTemplateEvents] = useState(false);
 
-  // Event types that should be displayed in the Changes panel
-  // Schema changes + modeling actions (ETL mappings are shown in Deployment modal instead)
-  const displayableEventTypes: EventType[] = [
-    'SCHEMA_CREATED',
-    'TABLE_CREATED',
-    'TABLE_RENAMED',
-    'COLUMN_RENAMED',
-    'INGESTION_MODE_SET',
-    'MASKING_POLICY_APPLIED',
-    'MASKING_POLICY_REMOVED',
-    'AGGREGATION_POLICY_APPLIED',
-    'AGGREGATION_POLICY_REMOVED',
-    'PRIMARY_KEY_SET',
-    'PRIMARY_KEY_REMOVED',
-    'ADD_COLUMN',
-    'REMOVE_COLUMN',
-    'RLS_POLICY_APPLIED',
-    'RLS_POLICY_REMOVED',
-    'FOREIGN_KEY_ADDED',
-    'FOREIGN_KEY_REMOVED',
-    'TABLE_ADDED_TO_MODELING',
-    'TABLE_REMOVED_FROM_MODELING',
-  ];
-
-  // Filter pending events to only count displayable ones
+  // Filter pending events to only count real (traced) actions — every action
+  // except pure-UI selection events (see isTracedAction / NON_ACTION_EVENT_TYPES).
   const displayablePendingEvents = useMemo(() => {
-    return pendingEvents.filter(event => displayableEventTypes.includes(event.type) && !event.payload?.isTemplate);
+    return pendingEvents.filter(event => isTracedAction(event.type) && !event.payload?.isTemplate);
   }, [pendingEvents]);
 
   // Filtered events — sorted by execution priority (schema → tables → columns → FKs → policies)
   const filteredEvents = useMemo(() => {
     const filtered = events.filter((event) => {
-      // Only show displayable event types (exclude SCHEMA_SELECTED, TABLE_SELECTED, etc.)
-      if (!displayableEventTypes.includes(event.type)) return false;
+      // Show every traced action; hide only pure-UI selection events.
+      if (!isTracedAction(event.type)) return false;
 
       // Search filter
       if (searchQuery) {
@@ -413,13 +404,21 @@ const EventTable = React.memo(function EventTable({ className, compact, projectI
           </div>
         );
       case 'FOREIGN_KEY_ADDED':
+      case 'FOREIGN_KEY_REMOVED': {
+        // Emitters carry columns[] + referencedTable{table} + referencedColumns[]
+        // (nested plural). The old flat singular keys (columnName/refTable/
+        // refColumn) never existed on the payload → "→ undefined.undefined".
+        const srcCols = Array.isArray(payload.columns) ? payload.columns.join(', ') : (payload.columnName || target.column || '—');
+        const refTbl = payload.referencedTable?.table || payload.refTable || '—';
+        const refCols = Array.isArray(payload.referencedColumns) ? payload.referencedColumns.join(', ') : (payload.refColumn || '—');
         return (
           <div className="text-[10px] text-slate-500 dark:text-slate-400">
-            <span className="font-mono">{payload.columnName || target.column}</span>
+            <span className="font-mono">{srcCols}</span>
             <span className="mx-1">→</span>
-            <span className="text-purple-600 dark:text-purple-400">{payload.refTable}.{payload.refColumn}</span>
+            <span className="text-purple-600 dark:text-purple-400">{refTbl}.{refCols}</span>
           </div>
         );
+      }
       case 'COLUMN_MAPPING_CREATED':
         return (
           <div className="text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
@@ -516,7 +515,7 @@ const EventTable = React.memo(function EventTable({ className, compact, projectI
         <div className="flex-1 overflow-auto">
           {/* Template events collapsible group */}
           {(() => {
-            const templateEvents = sortByPriority(events.filter(e => displayableEventTypes.includes(e.type) && e.payload?.isTemplate));
+            const templateEvents = sortByPriority(events.filter(e => isTracedAction(e.type) && e.payload?.isTemplate));
             if (templateEvents.length > 0) {
               const templateSchemaCount = templateEvents.filter(e => e.type === 'SCHEMA_CREATED').length;
               const templateTableCount = templateEvents.filter(e => e.type === 'TABLE_CREATED').length;
@@ -543,7 +542,7 @@ const EventTable = React.memo(function EventTable({ className, compact, projectI
                   {showTemplateEvents && (
                     <div className="bg-indigo-50/30 dark:bg-indigo-900/5">
                       {templateEvents.map((event) => {
-                        const config = eventTypeConfig[event.type] || { icon: Table2, label: event.type, color: 'bg-slate-100 text-slate-600' };
+                        const config = eventTypeConfig[event.type] || { icon: Table2, label: humanizeEventType(event.type), color: 'bg-slate-100 text-slate-600' };
                         const Icon = config.icon;
                         return (
                           <div key={event.id} className="flex items-center gap-2 px-3 py-1.5 border-t border-indigo-100 dark:border-indigo-900/30">
@@ -566,15 +565,15 @@ const EventTable = React.memo(function EventTable({ className, compact, projectI
             }
             return null;
           })()}
-          {events.filter(e => displayableEventTypes.includes(e.type) && !e.payload?.isTemplate).length === 0 && events.filter(e => e.payload?.isTemplate).length === 0 ? (
+          {events.filter(e => isTracedAction(e.type) && !e.payload?.isTemplate).length === 0 && events.filter(e => e.payload?.isTemplate).length === 0 ? (
             <div className="p-4 text-center text-slate-500 text-sm">
               No changes recorded yet
             </div>
           ) : (
-            sortByPriority(events.filter(e => displayableEventTypes.includes(e.type) && !e.payload?.isTemplate)).map((event) => {
+            sortByPriority(events.filter(e => isTracedAction(e.type) && !e.payload?.isTemplate)).map((event) => {
               const config = eventTypeConfig[event.type] || {
                 icon: Table2,
-                label: event.type,
+                label: humanizeEventType(event.type),
                 color: 'bg-slate-100 text-slate-600'
               };
               const status = statusConfig[event.status] || statusConfig.pending;

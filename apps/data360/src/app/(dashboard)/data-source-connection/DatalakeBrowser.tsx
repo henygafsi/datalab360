@@ -14,7 +14,7 @@ import {
   HiXMark
 } from 'react-icons/hi2';
 import { HiRefresh, HiViewGrid, HiViewList, HiDownload, HiUpload } from 'react-icons/hi';
-import { Database, FileText, FileJson, Archive, File as FileIcon, FileSpreadsheet, Braces, Package } from 'lucide-react';
+import { Database, FileText, FileJson, Archive, File as FileIcon, FileSpreadsheet, Braces, Package, Table2, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import {
@@ -24,7 +24,9 @@ import {
   downloadStageFile,
   deleteStageFile,
   uploadStageFile,
+  loadStagedFileAsTable,
   getStageGrants,
+  dropStage,
   type StageFilePreviewResponse
 } from './connectionServices';
 
@@ -96,12 +98,13 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
   const [grantsLoading, setGrantsLoading] = useState(false);
   const [grantsError, setGrantsError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
-    type: 'delete' | 'bulk-delete' | 'overwrite';
+    type: 'delete' | 'bulk-delete' | 'overwrite' | 'drop-stage';
     file?: StageItem;
     fileNames?: string[];
     fileList?: FileList;
     uploadToastId?: string;
     inputRef?: HTMLInputElement;
+    stageName?: string;
   } | null>(null);
 
   const loadStages = useCallback(async () => {
@@ -264,10 +267,49 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     }
   };
 
+  // "Load as table" — the last mile: staged file -> queryable table
+  // (INFER_SCHEMA -> CREATE TABLE USING TEMPLATE -> COPY INTO on the backend).
+  const [loadTableFile, setLoadTableFile] = useState<StageItem | null>(null);
+  const [loadTableForm, setLoadTableForm] = useState({ database: '', schema_name: 'PUBLIC', table: '', mode: 'create' as 'create' | 'replace' | 'append' });
+  const [loadTableBusy, setLoadTableBusy] = useState(false);
+
+  const isLoadableFile = (name: string) => {
+    const base = name.toLowerCase().endsWith('.gz') ? name.slice(0, -3) : name;
+    const ext = base.split('.').pop()?.toLowerCase();
+    return ext === 'csv' || ext === 'json' || ext === 'parquet';
+  };
+
+  const openLoadTable = (file: StageItem) => {
+    const base = file.name.toLowerCase().endsWith('.gz') ? file.name.slice(0, -3) : file.name;
+    const stem = (base.split('/').pop() || base).replace(/\.[^.]+$/, '');
+    const suggested = stem.replace(/[^A-Za-z0-9_]/g, '_').replace(/^([0-9])/, 'T$1').toUpperCase();
+    setLoadTableForm((f) => ({ ...f, table: suggested }));
+    setLoadTableFile(file);
+  };
+
+  const submitLoadTable = async () => {
+    if (!currentStage || !loadTableFile) return;
+    const { database, schema_name, table, mode } = loadTableForm;
+    if (!database || !schema_name || !table) {
+      toast.error('Database, schema and table are required');
+      return;
+    }
+    setLoadTableBusy(true);
+    try {
+      const res = await loadStagedFileAsTable(currentStage, loadTableFile.name, { database, schema_name, table, mode });
+      toast.success(`Loaded ${res.rows_loaded ?? '—'} rows into ${res.target}`);
+      setLoadTableFile(null);
+    } catch (e: any) {
+      toast.error(e?.message || 'Load failed');
+    } finally {
+      setLoadTableBusy(false);
+    }
+  };
+
   const handleDownload = async (file: StageItem) => {
     if (!currentStage) return;
 
-    toast('Preparing download...', { icon: '⬇️' });
+    toast('Preparing download…');
 
     try {
       await downloadStageFile(currentStage, file.name);
@@ -299,6 +341,30 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     } catch (error: any) {
       toast.error(`Failed to delete: ${error.message}`);
       console.error('Delete error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Drop the whole stage object (DELETE /connect/stages/{stage}), not its files.
+  const handleDropStage = () => {
+    if (!currentStage) return;
+    setConfirmAction({ type: 'drop-stage', stageName: currentStage });
+  };
+
+  const executeDropStage = async (stageName: string) => {
+    setConfirmAction(null);
+    setLoading(true);
+    try {
+      await dropStage(stageName);
+      toast.success(`Dropped stage: ${stageName}`);
+      // The dropped stage is gone; reset selection and re-list from the API.
+      setCurrentStage(null);
+      setFiles([]);
+      await loadStages();
+    } catch (error: any) {
+      toast.error(`Failed to drop stage: ${error.message}`);
+      console.error('Drop stage error:', error);
     } finally {
       setLoading(false);
     }
@@ -635,6 +701,17 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                   />
                   {/*Sync stages*/}
                 </Button>
+                {currentStage && canDeleteFiles && (
+                  <Button
+                    onClick={handleDropStage}
+                    disabled={loading}
+                    className="bg-white hover:bg-red-50 dark:bg-slate-700 dark:hover:bg-red-900/30 border border-slate-300 dark:border-slate-600 text-sm"
+                    title={deletePerm.allowed ? 'Drop this stage (the object, not just its files)' : deleteDeniedReason}
+                    aria-label="Drop stage"
+                  >
+                    <HiOutlineTrash className="h-4 w-4 text-red-600 dark:text-red-400" />
+                  </Button>
+                )}
                 <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                   {files.length} files
                 </Badge>
@@ -729,6 +806,71 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
       </div>
 
       {/* Inline Confirmation Bar */}
+      {loadTableFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" role="dialog" aria-modal="true" aria-label="Load file as table">
+          <div className="w-[26rem] max-w-[90vw] rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                <Table2 className="h-4 w-4 text-indigo-500" aria-hidden="true" />
+                Load as table
+              </h3>
+              <button onClick={() => setLoadTableFile(null)} className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close">
+                <HiXMark className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-3 truncate text-xs text-slate-500 dark:text-slate-400" title={loadTableFile.name}>
+              {loadTableFile.name} — the schema is inferred from the file, then rows are copied in.
+            </p>
+            <div className="space-y-2.5">
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-slate-700 dark:text-slate-200">Database *</span>
+                <input
+                  className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+                  value={loadTableForm.database}
+                  onChange={(e) => setLoadTableForm((f) => ({ ...f, database: e.target.value.toUpperCase() }))}
+                  placeholder="ANALYTICS"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-slate-700 dark:text-slate-200">Schema *</span>
+                <input
+                  className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+                  value={loadTableForm.schema_name}
+                  onChange={(e) => setLoadTableForm((f) => ({ ...f, schema_name: e.target.value.toUpperCase() }))}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-slate-700 dark:text-slate-200">Table *</span>
+                <input
+                  className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+                  value={loadTableForm.table}
+                  onChange={(e) => setLoadTableForm((f) => ({ ...f, table: e.target.value.toUpperCase() }))}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-slate-700 dark:text-slate-200">Mode</span>
+                <select
+                  className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-800"
+                  value={loadTableForm.mode}
+                  onChange={(e) => setLoadTableForm((f) => ({ ...f, mode: e.target.value as 'create' | 'replace' | 'append' }))}
+                >
+                  <option value="create">Create new table (fails if it exists)</option>
+                  <option value="replace">Replace existing table</option>
+                  <option value="append">Append to existing table</option>
+                </select>
+              </label>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => setLoadTableFile(null)}>Cancel</Button>
+              <Button size="sm" disabled={loadTableBusy} onClick={submitLoadTable}>
+                {loadTableBusy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+                Load table
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmAction && (
         <div className={`flex-shrink-0 px-6 py-3 flex items-center justify-between border-b ${
           confirmAction.type === 'overwrite'
@@ -748,6 +890,9 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
             )}
             {confirmAction.type === 'overwrite' && (
               <>One or more files already exist. Overwrite them?</>
+            )}
+            {confirmAction.type === 'drop-stage' && confirmAction.stageName && (
+              <>This drops the whole stage &quot;{confirmAction.stageName}&quot; and every file in it. Irreversible. Continue?</>
             )}
           </Text>
           <div className="flex items-center space-x-2 ml-4">
@@ -774,6 +919,8 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                   executeBulkDelete(confirmAction.fileNames);
                 } else if (confirmAction.type === 'overwrite') {
                   executeOverwrite();
+                } else if (confirmAction.type === 'drop-stage' && confirmAction.stageName) {
+                  executeDropStage(confirmAction.stageName);
                 }
               }}
               className={
@@ -782,7 +929,11 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                   : 'bg-red-600 hover:bg-red-700 text-white'
               }
             >
-              {confirmAction.type === 'overwrite' ? 'Yes, Overwrite' : 'Confirm Delete'}
+              {confirmAction.type === 'overwrite'
+                ? 'Yes, Overwrite'
+                : confirmAction.type === 'drop-stage'
+                ? 'Yes, Drop Stage'
+                : 'Confirm Delete'}
             </Button>
           </div>
         </div>
@@ -969,6 +1120,16 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                           >
                             <HiOutlineEye className="h-4 w-4" />
                           </button>
+                          {isLoadableFile(file.name) && (
+                            <button
+                              onClick={() => openLoadTable(file)}
+                              className="p-2 text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 dark:text-slate-400 dark:hover:text-indigo-400 dark:hover:bg-indigo-950/30 rounded-lg transition-colors"
+                              title="Load as table"
+                              aria-label={`Load ${file.name} as table`}
+                            >
+                              <Table2 className="h-4 w-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => handleDownload(file)}
                             className="p-2 text-slate-600 hover:text-green-600 hover:bg-green-50 dark:text-slate-400 dark:hover:text-green-400 dark:hover:bg-green-950/30 rounded-lg transition-colors"
@@ -1073,6 +1234,15 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                       >
                         <HiOutlineEye className="h-4 w-4" />
                       </button>
+                      {isLoadableFile(file.name) && (
+                        <button
+                          onClick={() => openLoadTable(file)}
+                          className="p-1.5 text-slate-600 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-400 rounded"
+                          title="Load as table"
+                        >
+                          <Table2 className="h-4 w-4" />
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDownload(file)}
                         className="p-1.5 text-slate-600 hover:text-green-600 dark:text-slate-400 dark:hover:text-green-400 rounded"

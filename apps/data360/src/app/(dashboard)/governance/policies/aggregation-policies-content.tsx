@@ -79,7 +79,7 @@ export default function AggregationPoliciesContent() {
       };
 
       await createAggregationPolicy(requestData);
-      toast.success('Aggregation policy created successfully!');
+      toast.success('Aggregation policy created');
       setShowCreatePanel(false);
       resetCreateForm();
       refetch();

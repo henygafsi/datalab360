@@ -279,7 +279,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
             );
 
             toast({
-                title: '🎉 Deployment Scheduled!',
+                title: 'Deployment scheduled',
                 description: `Mapping deployment has been scheduled for ${new Date(scheduledDateTime).toLocaleString()}. It will be available in your account overview for modeler approval and activation.`,
                 variant: 'default',
             });

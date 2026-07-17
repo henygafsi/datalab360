@@ -35,7 +35,7 @@ import PolicyAssignmentPanel, { PolicyCategory } from './PolicyAssignmentPanel';
 import AddColumnModal, { ComputedColumn } from './AddColumnModal';
 import ColumnMappingModal from './ColumnMappingModal';
 import MappingSummaryPanel from './MappingSummaryPanel';
-import OverflowMenu from './OverflowMenu';
+import OverflowMenu, { type OverflowItem } from './OverflowMenu';
 // TableOptionsSidebar (T1 — RETIRED as a separate panel): the modeling view no
 // longer floats it; its actions now live in the unified ContextRightBar cockpit.
 // The component file is retained (it backs other surfaces) but is not rendered here.
@@ -468,7 +468,33 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   }, [tables, tableColumns, targetTableIds, targetMappedColumns, fkColumnSet]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [edges, setEdges, onEdgesChangeBase] = useEdgesState([]);
+
+  // Trace edge removals: deleting a relation on the canvas is a design change
+  // like any other — emit RELATION_REMOVED so it reaches the synced trace and
+  // the Release tab (previously it silently mutated local state only).
+  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+    for (const ch of changes) {
+      if (ch.type !== 'remove') continue;
+      const edge = edges.find((e) => e.id === ch.id);
+      if (!edge) continue;
+      const src = tables.find((t) => t.id === edge.source);
+      const tgt = tables.find((t) => t.id === edge.target);
+      if (!src || !tgt) continue;
+      addEventRef.current({
+        type: 'RELATION_REMOVED',
+        projectId: projectId ?? undefined,
+        target: { database: src.database, schema: src.schema, table: src.table },
+        payload: {
+          sourceColumn: String(edge.sourceHandle ?? '').split('-')[0] || edge.id,
+          targetTable: { database: tgt.database, schema: tgt.schema, table: tgt.table },
+          targetColumn: String(edge.targetHandle ?? '').split('-')[0] || edge.id,
+          relationType: 'many_to_one',
+        },
+      });
+    }
+    onEdgesChangeBase(changes);
+  }, [edges, tables, projectId, onEdgesChangeBase]);
 
   // Update nodes when data changes (tables, columns, mappings)
   // Preserve positions while updating node data
@@ -1098,7 +1124,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
       if (sourceIsTarget && !targetIsTarget) {
         // User connected backwards: DWH → Source, swap them
-        toast('Swapped direction: Source → Target (DWH)', { icon: '🔄' });
+        toast('Swapped direction: Source → Target (DWH)');
         setMappingSourceTable(targetTable);
         setMappingTargetTable(sourceTable);
         setPendingConnectionParams({
@@ -1367,7 +1393,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // Start FK linking mode
         setRelationMode(true);
         setPendingConnection({ sourceNode: nodeId, sourceColumn: '' });
-        toast.success('Click target table to create foreign key link', { icon: '🔗' });
+        toast.success('Click target table to create foreign key link');
         break;
       case 'relation': {
         // Seed the relation on the table's REAL primary key, not a hardcoded
@@ -1711,15 +1737,15 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                   active: showMinimap,
                   activeColor: 'blue',
                 },
-                {
-                  label: columnMappingsList.length > 0
-                    ? `Mapping summary (${columnMappingsList.length})`
-                    : 'Mapping summary',
+                // Mapping summary is only offered when there ARE column mappings —
+                // an empty "0 mappings" panel was pure clutter on fresh projects.
+                ...(columnMappingsList.length > 0 ? ([{
+                  label: `Mapping summary (${columnMappingsList.length})`,
                   icon: List,
                   onClick: () => setShowMappingSummary(!showMappingSummary),
                   active: showMappingSummary,
                   activeColor: 'blue',
-                },
+                }] as OverflowItem[]) : []),
                 { label: 'Export model', icon: Download, onClick: handleExport },
               ]}
             />
@@ -2008,8 +2034,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         }}
       />
 
-      {/* Mapping Summary Slide-out Panel */}
-      {showMappingSummary && (
+      {/* Mapping Summary Slide-out Panel — only when mappings exist */}
+      {showMappingSummary && columnMappingsList.length > 0 && (
         <div className="absolute right-0 top-0 h-full w-96 z-50 shadow-xl">
           <MappingSummaryPanel
             isOpen={showMappingSummary}
@@ -2072,7 +2098,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 >
                   {fkPickerState.sourceCols.map(c => (
                     <option key={c.name} value={c.name}>
-                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' 🔑' : ''}
+                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' · PK' : ''}
                     </option>
                   ))}
                 </select>
@@ -2093,7 +2119,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 >
                   {fkPickerState.targetCols.map(c => (
                     <option key={c.name} value={c.name}>
-                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' 🔑' : ''}
+                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' · PK' : ''}
                     </option>
                   ))}
                 </select>
@@ -2155,6 +2181,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           if (canRename) {
             addEvent({
               type: 'TABLE_RENAMED',
+              projectId: projectId || undefined,
               target: { database: table.database, schema: table.schema, table: table.table },
               payload: { newName: trimmed },
             });
@@ -2226,6 +2253,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                   if (selected) {
                     addEvent({
                       type: 'PRIMARY_KEY_SET',
+                      projectId: projectId || undefined,
                       target: { database: table.database, schema: table.schema, table: table.table },
                       payload: { columns: [selected] },
                     });

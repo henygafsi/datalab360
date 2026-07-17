@@ -21,8 +21,19 @@ import {
   fetchNodeKpis, dryRunRefreshNodeKpis,
 } from '@/app/services/catalog/nodeKpis';
 import {
-  SOURCE_TAG_OPTIONS, readAllTags, writeTag, tagKey,
+  SOURCE_TAG_OPTIONS, tagKey,
 } from '@/app/services/catalog/sourceTags';
+import { getCatalogGraph, classifyCatalogSchema, type SchemaType } from '@/app/services/catalog/graph';
+
+// Zone label (rich UI vocabulary) → governed schema_type (SOURCE/PRODUCT/PROJECT)
+// so the ERD keeps the descriptive zone while persisting the governed
+// classification server-side (which fires a TAG_ASSIGNED event). Mirrors the
+// backend zone→type rules in catalog/services/graph.py.
+const ZONE_TO_TYPE: Record<string, SchemaType> = {
+  'Raw / Landing': 'SOURCE', 'Staging': 'SOURCE', 'External': 'SOURCE', 'Reference / Master': 'SOURCE',
+  'Curated / Core': 'PRODUCT', 'Mart / Serving': 'PRODUCT', 'Analytics / BI': 'PRODUCT', 'ML / Feature': 'PRODUCT',
+  'Sandbox': 'PROJECT',
+};
 
 // Minimal lineage inputs — REUSED from state the page already holds (FK
 // relationships + column mappings). No new fetch: the map only composes.
@@ -110,16 +121,29 @@ interface TableNodeData {
 // ---------------------------------------------------------------------------
 // Reusable presentational bits (module scope — stable identity).
 // ---------------------------------------------------------------------------
+// Per-type color for the classification chip — the "color each" axis: SOURCE
+// = sky, PRODUCT = violet, PROJECT = amber (zone labels inherit their type's
+// color via ZONE_TO_TYPE); anything else falls to slate.
+function tagTone(tag: string): string {
+  const t = tag.toUpperCase();
+  const type: SchemaType | null =
+    ZONE_TO_TYPE[tag] ?? (t === 'SOURCE' || t === 'PRODUCT' || t === 'PROJECT' ? (t as SchemaType) : null);
+  if (type === 'SOURCE') return 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300';
+  if (type === 'PRODUCT') return 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300';
+  if (type === 'PROJECT') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300';
+  return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300';
+}
+
 function TagChip({ tag }: { tag: string | null }) {
   return (
     <span
       className={cn(
         'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium',
         tag
-          ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300'
+          ? tagTone(tag)
           : 'bg-slate-100 text-slate-400 dark:bg-slate-700/60 dark:text-slate-400 italic',
       )}
-      title={tag ? `Source type: ${tag} (local)` : 'Click to classify (local)'}
+      title={tag ? `Classification: ${tag} (governed · event-traced)` : 'Click to classify'}
     >
       <TagIcon className="h-2.5 w-2.5" />
       {tag ?? 'untagged'}
@@ -751,13 +775,34 @@ function SourceMindMapInner({
   const [focus, setFocus] = useState<Focus>(() =>
     selectedDatabase ? { level: 'db', database: selectedDatabase } : { level: 'overview' },
   );
-  // Lazy-init tags from versioned localStorage once.
-  const [tags, setTags] = useState<Record<string, string>>(() => readAllTags());
+  // Tags come from the GOVERNED server classification (persisted + TAG_ASSIGNED
+  // event) — NO localStorage. Filled by the effect below from /catalog/graph.
+  const [tags, setTags] = useState<Record<string, string>>({});
   const [tagEditor, setTagEditor] = useState<TagEditorState | null>(null);
 
   const [kpisByFqn, setKpisByFqn] = useState<Record<string, NodeKpis>>({});
   const [loadingFqns, setLoadingFqns] = useState<Set<string>>(() => new Set());
   const [refreshingFqns, setRefreshingFqns] = useState<Set<string>>(() => new Set());
+
+  // Load the GOVERNED schema classifications (server-persisted, TAG_ASSIGNED
+  // event on write) and use them as the ERD tags — replaces browser-local tags.
+  // Shows the rich `zone` label when set, else the SOURCE/PRODUCT/PROJECT type.
+  useEffect(() => {
+    let active = true;
+    getCatalogGraph()
+      .then((g) => {
+        if (!active) return;
+        const server: Record<string, string> = {};
+        for (const n of g.nodes) {
+          if (n.kind === 'schema' && n.database && n.schema_type && n.schema_type !== 'UNCLASSIFIED') {
+            server[tagKey(n.database, n.label)] = n.zone || n.schema_type;
+          }
+        }
+        setTags(server);
+      })
+      .catch(() => { /* classification optional — leave untagged */ });
+    return () => { active = false; };
+  }, []);
 
   // --- focus transitions -------------------------------------------------
   const goOverview = useCallback(() => setFocus({ level: 'overview' }), []);
@@ -788,15 +833,31 @@ function SourceMindMapInner({
   // --- tag editing -------------------------------------------------------
   const editDbTag = useCallback((database: string) => {
     const fqn = tagKey(database);
-    setTagEditor({ fqn, database, current: readAllTags()[fqn] ?? null });
-  }, []);
+    setTagEditor({ fqn, database, current: tags[fqn] ?? null });
+  }, [tags]);
   const editSchemaTag = useCallback((database: string, schema: string) => {
     const fqn = tagKey(database, schema);
-    setTagEditor({ fqn, database, schema, current: readAllTags()[fqn] ?? null });
-  }, []);
+    setTagEditor({ fqn, database, schema, current: tags[fqn] ?? null });
+  }, [tags]);
   const applyTag = useCallback((fqn: string, tag: string | null) => {
-    setTags(writeTag(fqn, tag));
+    // Optimistic ERD update for immediate feedback.
+    setTags((prev) => {
+      const next = { ...prev };
+      if (tag) next[fqn] = tag; else delete next[fqn];
+      return next;
+    });
     setTagEditor(null);
+    // Persist to the GOVERNED classification store — fires a TAG_ASSIGNED event
+    // (audit trail). Schema-level only; db-level tags stay view-only. Keeps the
+    // rich zone label as `zone`, deriving the governed SOURCE/PRODUCT/PROJECT.
+    const parts = fqn.split('.');
+    if (parts.length === 2) {
+      const [database, schema] = parts;
+      const schemaType: SchemaType = tag ? (ZONE_TO_TYPE[tag] ?? 'SOURCE') : 'UNCLASSIFIED';
+      classifyCatalogSchema(database, schema, schemaType, tag).catch(() => {
+        /* keep optimistic state; next graph refresh re-syncs from the server */
+      });
+    }
   }, []);
 
   // --- per-object KPI fetch on schema dive --------------------------------

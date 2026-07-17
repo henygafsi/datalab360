@@ -122,11 +122,12 @@ const TaskLogsDrawer: React.FC<TaskLogsDrawerProps> = ({
   return (
     <div
       role="dialog"
-      aria-modal="false"
+      aria-modal="true"
       aria-label="Run logs"
-      className="fixed inset-y-0 right-0 z-[70] flex"
+      className="fixed inset-0 z-[70] flex bg-slate-900/40"
+      onClick={onClose}
     >
-      <div className="ml-auto flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
+      <div onClick={(e) => e.stopPropagation()} className="ml-auto flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900">
           <div className="flex min-w-0 items-center gap-2">

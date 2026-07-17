@@ -55,7 +55,11 @@ import {
     oracleTest,
     oracleIngest,
     oracleSampleStage,
+    getCustomApiPresets,
+    customApiIngest,
+    type CustomApiPreset,
 } from './connectionServices';
+import ConnectorPromptBar from './ConnectorPromptBar';
 import { silentReauth } from '@/app/services/auth/silentReauth';
 
 // Assuming submitS3Form is also in the data-source-connection services folder
@@ -480,6 +484,12 @@ export default function DataSourceConnectionPage() {
       icon: '/data-sources/oracle-logo.svg',
       description: 'Oracle Autonomous Database — Always Free cloud tier',
     },
+    {
+      id: 'custom_api',
+      name: 'Custom API (Open Data)',
+      icon: '/data-sources/api-logo.svg',
+      description: 'No-code JSON API ingestion — bundled open-data presets (weather, FX rates) or any URL',
+    },
   ] as { id: string; name: string; icon: string; description: string; comingSoon?: boolean }[], []);
 
   // Memoize selected source lookup (avoids .find() on every render)
@@ -698,6 +708,15 @@ export default function DataSourceConnectionPage() {
           datalake_role: str('datalake_role', prev.datalake_role),
         }));
         break;
+      case 'custom_api':
+        setCustomApiFormData((prev) => ({
+          ...prev,
+          preset: str('preset', prev.preset),
+          url: str('url', prev.url),
+          json_path: str('json_path', prev.json_path),
+          target_table: str('target_table', prev.target_table),
+        }));
+        break;
       default:
         break;
     }
@@ -854,7 +873,7 @@ export default function DataSourceConnectionPage() {
                   azureFormData.storage_url
               );
               setAzureStorageIntegrationCreated(true);
-              toast.success('Azure Storage Integration created successfully!');
+              toast.success('Azure Storage Integration created');
               setAzureCurrentSubStep(2); // Move to Storage consent/details step (wait for user consent)
               // Use consent URL from create response so user sees it immediately without clicking "Fetch Consent Details"
               if (createResponse.azure_consent_url) {
@@ -867,7 +886,7 @@ export default function DataSourceConnectionPage() {
               setAzureStorageConsentUrl(response?.azure_consent_url || null);
               setAzureStorageMultiTenantAppName(response?.azure_multi_tenant_app_name || null);
               setAzureStorageDetailsFetched(true);
-              toast.success('Storage integration details fetched successfully!');
+              toast.success('Storage integration details fetched');
           } else if (azureCurrentSubStep === 3) { // Step 3: Handle Notification Option
               if (showAzureNotificationOption) {
                   // If notification option is ON, try to create notification integration
@@ -877,7 +896,7 @@ export default function DataSourceConnectionPage() {
                       azureFormData.queue_url
                   );
                   setAzureNotificationIntegrationCreated(true);
-                  toast.success('Azure Notification Integration created successfully!');
+                  toast.success('Azure Notification Integration created');
                   setAzureCurrentSubStep(4); // Move to Notification details
               } else {
                   // If notification option is OFF, just move to next step without API call
@@ -896,7 +915,7 @@ export default function DataSourceConnectionPage() {
                       azureFormData.auto_update,
                       notificationIntegrationParam
                   );
-                  toast.success('Azure Stage created successfully!');
+                  toast.success('Azure Stage created');
                   await loadConnections();
                   try { await silentReauth(); } catch {}
                   setConnectedProvider('snowflake');
@@ -911,7 +930,7 @@ export default function DataSourceConnectionPage() {
               setAzureConsentUrl(response?.azure_consent_url || null);
               setAzureMultiTenantAppName(response?.azure_multi_tenant_app_name || null);
               setAzureNotificationDetailsFetched(true);
-              toast.success('Notification integration details fetched successfully!');
+              toast.success('Notification integration details fetched');
                   // setAzureCurrentSubStep(5); // Move to Stage creation
               }
           } else if (azureCurrentSubStep === 5) { // Final Step when notification is ON: Create Azure Stage
@@ -927,7 +946,7 @@ export default function DataSourceConnectionPage() {
                   azureFormData.auto_update,
                   notificationIntegrationParam
               );
-              toast.success('Azure Stage created successfully!');
+              toast.success('Azure Stage created');
 
               await loadConnections();
               try { await silentReauth(); } catch {}
@@ -1001,6 +1020,29 @@ export default function DataSourceConnectionPage() {
   });
   const [oracleTestResult, setOracleTestResult] = useState<{ ok?: boolean; version?: string; table_count?: number; tables?: string[]; latency_ms?: number } | null>(null);
 
+  // --- Custom API (no-code, open-data presets or any JSON URL) ---
+  const [customApiFormData, setCustomApiFormData] = useState({
+    preset: 'weather_current',
+    url: '',
+    json_path: '',
+    // Preset params (weather: lat/lon required, city is a label; fx: base).
+    lat: '48.8566',
+    lon: '2.3522',
+    city: 'Paris',
+    base: 'EUR',
+    target_database: 'CP_DATA360',
+    target_schema: 'CUSTOM_API',
+    target_table: '',
+    mode: 'append' as 'append' | 'replace',
+  });
+  const [customApiPresetList, setCustomApiPresetList] = useState<CustomApiPreset[]>([]);
+  useEffect(() => {
+    if (selectedSource !== 'custom_api' || customApiPresetList.length > 0) return;
+    getCustomApiPresets()
+      .then((r) => setCustomApiPresetList(r.presets || []))
+      .catch(() => setCustomApiPresetList([])); // honest empty — form still allows custom URL
+  }, [selectedSource, customApiPresetList.length]);
+
   const handleAwsSubmit = async (e: FormEvent) => {
       e.preventDefault();
       if (awsCurrentSubStep === 1 && failsValidationGate('aws', { ...awsFormData })) {
@@ -1017,7 +1059,7 @@ export default function DataSourceConnectionPage() {
               setAwsIntegrationCreated(true);
               setAwsIamUserArn(result.STORAGE_AWS_IAM_USER_ARN || null);
               setAwsExternalId(result.STORAGE_AWS_EXTERNAL_ID || null);
-              toast.success('AWS Storage Integration created successfully!');
+              toast.success('AWS Storage Integration created');
               setAwsCurrentSubStep(2);
           } else if (awsCurrentSubStep === 3) {
               // Patch the integration with the external_id before creating the stage
@@ -1033,7 +1075,7 @@ export default function DataSourceConnectionPage() {
                   awsFormData.load_data,
                   awsFormData.auto_update
               );
-              toast.success('AWS Stage created successfully!');
+              toast.success('AWS Stage created');
 
               await loadConnections();
               try { await silentReauth(); } catch {}
@@ -1066,7 +1108,7 @@ export default function DataSourceConnectionPage() {
               );
               setGcsIntegrationCreated(true);
               setGcsServiceAccount(result.STORAGE_GCP_SERVICE_ACCOUNT);
-              toast.success('GCS Storage Integration created successfully!');
+              toast.success('GCS Storage Integration created');
               setGcsCurrentSubStep(2); // Move to IAM guide step
           } else if (gcsCurrentSubStep === 3) {
               await createGcsStage(
@@ -1077,7 +1119,7 @@ export default function DataSourceConnectionPage() {
                   gcsFormData.auto_update,
                   gcsFormData.prefix || null
               );
-              toast.success('GCS Stage created successfully!');
+              toast.success('GCS Stage created');
 
               // Save connection
               await loadConnections();
@@ -1109,7 +1151,7 @@ export default function DataSourceConnectionPage() {
               snowflakeFormData.datalake_role
           );
           setSnowflakeConnected(true);
-          toast.success('Snowflake Datalake connected successfully!');
+          toast.success('Snowflake Datalake connected');
 
           await loadConnections();
           try { await silentReauth(); } catch {}
@@ -1632,7 +1674,7 @@ export default function DataSourceConnectionPage() {
                                                   className="shrink-0 text-xs"
                                                   onClick={() => {
                                                       navigator.clipboard.writeText(awsIamUserArn || '');
-                                                      toast.success('IAM User ARN copied!');
+                                                      toast.success('IAM User ARN copied');
                                                   }}
                                               >
                                                   Copy
@@ -1661,7 +1703,7 @@ export default function DataSourceConnectionPage() {
                                                           if (arn) {
                                                               setAwsIamUserArn(arn);
                                                               if (extId) setAwsExternalId(extId);
-                                                              toast.success('IAM details retrieved!');
+                                                              toast.success('IAM details retrieved');
                                                           } else {
                                                               toast.error('IAM User ARN not found. Check your integration in Snowflake.');
                                                           }
@@ -1697,7 +1739,7 @@ export default function DataSourceConnectionPage() {
                                                   className="shrink-0 text-xs"
                                                   onClick={() => {
                                                       navigator.clipboard.writeText(awsExternalId || '');
-                                                      toast.success('External ID copied!');
+                                                      toast.success('External ID copied');
                                                   }}
                                               >
                                                   Copy
@@ -1944,7 +1986,7 @@ export default function DataSourceConnectionPage() {
                                                   className="shrink-0 text-xs"
                                                   onClick={() => {
                                                       navigator.clipboard.writeText(gcsServiceAccount || '');
-                                                      toast.success('Service account copied!');
+                                                      toast.success('Service account copied');
                                                   }}
                                               >
                                                   Copy
@@ -1971,7 +2013,7 @@ export default function DataSourceConnectionPage() {
                                                           const sa = props.STORAGE_GCP_SERVICE_ACCOUNT ?? '';
                                                           if (sa) {
                                                               setGcsServiceAccount(sa);
-                                                              toast.success('Service account retrieved!');
+                                                              toast.success('Service account retrieved');
                                                           } else {
                                                               toast.error('Service account not found in integration properties. Please check your integration in Snowflake.');
                                                           }
@@ -2127,7 +2169,7 @@ export default function DataSourceConnectionPage() {
                                                   );
                                                   setGcsNotificationCreated(true);
                                                   setGcsPubsubServiceAccount(result.GCP_PUBSUB_SERVICE_ACCOUNT || null);
-                                                  toast.success('GCS Notification Integration created!');
+                                                  toast.success('GCS Notification Integration created');
                                               } catch (err: any) {
                                                   toast.error(err.message || 'Failed to create notification integration');
                                               } finally {
@@ -2164,7 +2206,7 @@ export default function DataSourceConnectionPage() {
                                                               className="shrink-0 text-xs"
                                                               onClick={() => {
                                                                   navigator.clipboard.writeText(gcsPubsubServiceAccount || '');
-                                                                  toast.success('Pub/Sub service account copied!');
+                                                                  toast.success('Pub/Sub service account copied');
                                                               }}
                                                           >
                                                               Copy
@@ -2537,6 +2579,120 @@ export default function DataSourceConnectionPage() {
       return null;
   };
 
+  const renderCustomApiForm = () => {
+      const isCustomUrl = customApiFormData.preset === '';
+      const activePreset = customApiPresetList.find((p) => p.id === customApiFormData.preset);
+      const handleSubmit = async (e: FormEvent) => {
+          e.preventDefault();
+          if (isCustomUrl && !customApiFormData.url.trim()) {
+              toast.error('Provide the API URL');
+              return;
+          }
+          setLoading(true);
+          try {
+              const presetParams: Record<string, unknown> =
+                  customApiFormData.preset === 'weather_current'
+                      ? {
+                          lat: parseFloat(customApiFormData.lat),
+                          lon: parseFloat(customApiFormData.lon),
+                          city: customApiFormData.city.trim() || undefined,
+                      }
+                      : customApiFormData.preset === 'fx_rates_ecb'
+                          ? { base: customApiFormData.base.trim().toUpperCase() || 'EUR' }
+                          : {};
+              const res = await customApiIngest({
+                  ...(isCustomUrl
+                      ? { url: customApiFormData.url.trim(), json_path: customApiFormData.json_path.trim() || undefined }
+                      : { preset: customApiFormData.preset, params: presetParams }),
+                  target_database: customApiFormData.target_database.trim(),
+                  target_schema: customApiFormData.target_schema.trim() || 'CUSTOM_API',
+                  target_table: customApiFormData.target_table.trim(),
+                  mode: customApiFormData.mode,
+              });
+              toast.success(
+                  `API ingested — ${res.rows_loaded ?? '?'} row(s) into ${res.table ?? customApiFormData.target_table}`,
+              );
+              await loadConnections();
+              setCurrentStep(0);
+              setSelectedSource('');
+          } catch (err: any) {
+              toast.error(err?.message || 'Custom API ingest failed');
+          } finally {
+              setLoading(false);
+          }
+      };
+      const selectCls =
+          'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100';
+      return (
+          <div className="mx-auto w-full max-w-lg transform rounded-2xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl p-6 sm:p-10 shadow-xl border border-slate-200/50 dark:border-slate-700/50">
+              <div className="mb-6 flex items-center justify-between gap-3">
+                  <h3 className="text-2xl font-bold text-slate-800 dark:text-white">Custom API</h3>
+                  <Image src="/data-sources/api-logo.svg" alt="Custom API" width={56} height={56} unoptimized />
+              </div>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                  <div>
+                      <Label>Source</Label>
+                      <select
+                          className={selectCls}
+                          value={customApiFormData.preset}
+                          onChange={(e) => setCustomApiFormData((p) => ({ ...p, preset: e.target.value }))}
+                          disabled={loading}
+                          aria-label="Open-data preset or custom URL"
+                      >
+                          {customApiPresetList.map((p) => (
+                              <option key={p.id} value={p.id}>{p.label}</option>
+                          ))}
+                          <option value="">Custom URL (any JSON API)…</option>
+                      </select>
+                      {activePreset?.doc && (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{activePreset.doc}</p>
+                      )}
+                  </div>
+                  {isCustomUrl && (
+                      <>
+                          <Input label="API URL" placeholder="https://api.example.com/data.json" value={customApiFormData.url} onChange={(e) => setCustomApiFormData((p) => ({ ...p, url: e.target.value }))} required disabled={loading} />
+                          <Input label="JSON path (optional)" placeholder="e.g. results or data.items" value={customApiFormData.json_path} onChange={(e) => setCustomApiFormData((p) => ({ ...p, json_path: e.target.value }))} disabled={loading} />
+                      </>
+                  )}
+                  {customApiFormData.preset === 'weather_current' && (
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                          <Input label="Latitude" type="number" step="any" value={customApiFormData.lat} onChange={(e) => setCustomApiFormData((p) => ({ ...p, lat: e.target.value }))} required disabled={loading} />
+                          <Input label="Longitude" type="number" step="any" value={customApiFormData.lon} onChange={(e) => setCustomApiFormData((p) => ({ ...p, lon: e.target.value }))} required disabled={loading} />
+                          <Input label="City label" value={customApiFormData.city} onChange={(e) => setCustomApiFormData((p) => ({ ...p, city: e.target.value }))} disabled={loading} />
+                      </div>
+                  )}
+                  {customApiFormData.preset === 'fx_rates_ecb' && (
+                      <Input label="Base currency" value={customApiFormData.base} onChange={(e) => setCustomApiFormData((p) => ({ ...p, base: e.target.value }))} disabled={loading} />
+                  )}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <Input label="Target database" value={customApiFormData.target_database} onChange={(e) => setCustomApiFormData((p) => ({ ...p, target_database: e.target.value }))} required disabled={loading} />
+                      <Input label="Target schema" value={customApiFormData.target_schema} onChange={(e) => setCustomApiFormData((p) => ({ ...p, target_schema: e.target.value }))} disabled={loading} />
+                  </div>
+                  <Input label="Target table" placeholder="e.g. WEATHER_LIVE" value={customApiFormData.target_table} onChange={(e) => setCustomApiFormData((p) => ({ ...p, target_table: e.target.value }))} required disabled={loading} />
+                  <div>
+                      <Label>Write mode</Label>
+                      <select
+                          className={selectCls}
+                          value={customApiFormData.mode}
+                          onChange={(e) => setCustomApiFormData((p) => ({ ...p, mode: e.target.value as 'append' | 'replace' }))}
+                          disabled={loading}
+                          aria-label="Write mode"
+                      >
+                          <option value="append">Append (keep history — time series)</option>
+                          <option value="replace">Replace (latest snapshot only)</option>
+                      </select>
+                  </div>
+                  <Button type="submit" className="w-full" disabled={loading || !canIngest} title={!canIngest ? ingestDeniedReason : undefined}>
+                      {loading ? 'Ingesting…' : 'Fetch & load to Snowflake'}
+                  </Button>
+              </form>
+              <p className="text-xs text-slate-500 mt-2">
+                  Fetched server-side, landed via bulk load; the run is recorded in the project event log.
+              </p>
+          </div>
+      );
+  };
+
   const renderPostgresForm = () => {
       const handleSubmit = async (e: FormEvent) => {
           e.preventDefault();
@@ -2820,6 +2976,16 @@ export default function DataSourceConnectionPage() {
         if (currentStep === 0) {
             return (
                 <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-3xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl p-8">
+
+                    {/* Prompt-first entry — describe the source, get routed into the right
+                        stepped form. Inline (no popup), always visible, RBAC-gated. */}
+                    <div className="mb-6">
+                        <ConnectorPromptBar
+                            onUse={(pickerId, suggestion) => handleAiUseConnector(pickerId, suggestion.prefilled_config)}
+                            disabled={!canCreate}
+                            disabledReason="You need connect:create permission to add a connection"
+                        />
+                    </div>
 
                     {/* Connector health at a glance (GET /connect/connectors/health).
                         The cockpit's Ingestion axis scrolls here for per-connector Test/Sync. */}
@@ -3133,7 +3299,7 @@ export default function DataSourceConnectionPage() {
                                         comingSoon={source.comingSoon}
                                         onClick={() => {
                                             if (source.comingSoon) {
-                                                toast('This connector will be available soon.', { icon: '🔜' });
+                                                toast('This connector will be available soon.');
                                                 return;
                                             }
                                             handleSourceSelect(source.id);
@@ -3247,6 +3413,13 @@ export default function DataSourceConnectionPage() {
                         <div className="mx-auto max-w-2xl space-y-8">
                             <Breadcrumb onHomeClick={() => router.push(routes.home)} />
                             {renderOracleForm()}
+                        </div>
+                    );
+                case 'custom_api':
+                    return (
+                        <div className="mx-auto max-w-2xl space-y-8">
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
+                            {renderCustomApiForm()}
                         </div>
                     );
                 default:

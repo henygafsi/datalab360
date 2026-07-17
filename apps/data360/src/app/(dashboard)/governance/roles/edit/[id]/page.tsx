@@ -62,12 +62,12 @@ export default function EditRolePage() {
     try {
       setIsSaving(true);
       await updateRole(roleData.role, { comment });
-      toast.success(`✅ Rôle ${roleData.role} mis à jour avec succès`);
+      toast.success(`Rôle ${roleData.role} mis à jour`);
       router.push('/governance/roles');
     } catch (err: any) {
       console.error('Error updating role:', err);
       const errorMessage = toMessage(err, 'Erreur lors de la mise à jour');
-      toast.error(`❌ ${errorMessage}`);
+      toast.error(`${errorMessage}`);
     } finally {
       setIsSaving(false);
     }

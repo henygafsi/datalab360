@@ -147,7 +147,7 @@ export default function AiBuildSection({
     if (result.source === 'fallback') {
       toast(
         `AI offline — built from a catalog template (${result.fallbackReason}). Configure each block, or Refine to retry.`,
-        { icon: '🛟', duration: 4500 },
+        { duration: 4500 },
       );
     }
     onApply(result.nodes, result.edges, text, result.source, result.fallbackReason);

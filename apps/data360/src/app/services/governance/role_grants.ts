@@ -161,3 +161,48 @@ export async function mintAccessRoleFromObjects(
     throw new Error(getApiErrorMessage(e));
   }
 }
+
+// ============= FUTURE GRANTS (new objects auto-inherit access) =============
+const FUTURE_GRANTS = '/gouvernance/future-grants';
+
+export interface FutureGrant {
+  privilege?: string;
+  grant_on?: string;
+  name?: string;
+  grantee_name?: string;
+  [k: string]: unknown;
+}
+
+export interface FutureGrantPayload {
+  privilege: string;      // SELECT | INSERT | UPDATE | DELETE | REFERENCES | USAGE | ALL
+  object_type: string;    // TABLES | VIEWS | SCHEMAS | STAGES | DYNAMIC TABLES
+  database: string;
+  schema_name?: string | null;
+  role: string;
+}
+
+/** List FUTURE grants in a schema (or whole database when schema omitted). */
+export async function listFutureGrants(database: string, schema?: string | null): Promise<FutureGrant[]> {
+  const { data } = await apiClient.get(FUTURE_GRANTS, {
+    params: { database, ...(schema ? { schema_name: schema } : {}) },
+  });
+  return data?.grants ?? [];
+}
+
+/** Grant a privilege on FUTURE objects so new tables auto-inherit access. */
+export async function createFutureGrant(payload: FutureGrantPayload): Promise<void> {
+  try {
+    await apiClient.post(FUTURE_GRANTS, payload);
+  } catch (e) {
+    throw new Error(getApiErrorMessage(e));
+  }
+}
+
+/** Revoke a FUTURE-objects privilege from a role. */
+export async function revokeFutureGrant(payload: FutureGrantPayload): Promise<void> {
+  try {
+    await apiClient.delete(FUTURE_GRANTS, { data: payload });
+  } catch (e) {
+    throw new Error(getApiErrorMessage(e));
+  }
+}

@@ -537,7 +537,7 @@ export default function ServerMetricsPanel() {
             <p className="text-[10px] text-slate-400">Latest 4xx / 5xx responses</p>
           </div>
           {m.recent_errors.length === 0 ? (
-            <EmptyState icon={AlertTriangle} compact title="No errors 🎉" />
+            <EmptyState icon={AlertTriangle} compact title="No errors" />
           ) : (
             <div className="px-3 pb-2">
               <div className="divide-y divide-slate-100 dark:divide-slate-800">

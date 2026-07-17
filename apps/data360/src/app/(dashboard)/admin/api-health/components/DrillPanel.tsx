@@ -177,7 +177,7 @@ export function DrillPanel({ detail, onClose, onReprobe, reprobing }: DrillPanel
       `Response data snapshot: ${(r?.data || '—').slice(0, 1200)}\n\n` +
       'Give: (1) the most likely root cause in 1-2 sentences, (2) a concrete recommended fix. Be terse and technical. Do not name any specific data-warehouse vendor.';
     try {
-      const res = await generateCompletion({ prompt, model: 'claude-3-7-sonnet' } as any);
+      const res = await generateCompletion({ prompt, model: 'mistral-large2' } as any);
       setAiResult((res?.response || '').trim() || 'No recommendation returned.');
     } catch (err: any) {
       setAiError(err?.message || 'Analysis failed. Try again.');

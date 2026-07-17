@@ -239,18 +239,38 @@ export function generateSnowflakeSQL(event: DesignEvent): { sql: string; rollbac
     }
 
     case 'MASKING_POLICY_APPLIED': {
-      const maskColumns = event.payload.columns || [];
-      // Fully qualified policy reference: CP_DATA360.GOUVERNANCE.<policy_name>
-      const policyDb = event.payload.policyDatabase || 'CP_DATA360';
-      const policySchema = event.payload.policySchema || 'GOUVERNANCE';
-      const policyFQN = `${policyDb}.${policySchema}.${event.payload.policyName}`;
+      // Custom per-column masking policies must be CREATED inline before SET —
+      // the old DDL referenced CP_DATA360.GOUVERNANCE.<name> which never existed
+      // (only semantic MASK_EMAIL/… policies live there), so masking deploy
+      // failed. Create a typed, role-conditioned policy per column (RETURNS type
+      // must equal the column type → text columns only; others are skipped with
+      // an honest comment). docs.snowflake.com/.../create-masking-policy.
+      const maskColumns: string[] = event.payload.columns || [];
+      const colTypes: Record<string, string> = event.payload.columnTypes || {};
+      const revealRoles: string[] = (event.payload.revealRoles?.length ? event.payload.revealRoles : ['ACCOUNTADMIN']);
+      const roleList = revealRoles.map((r) => `'${String(r).toUpperCase()}'`).join(', ');
+      const pt = event.payload.policyType || 'FULL_MASK';
+      const isText = (t: string) => /^(VARCHAR|CHAR|CHARACTER|STRING|TEXT|NVARCHAR|NCHAR)/i.test(String(t || ''));
+      const maskBody = pt === 'SHA2_MASK' ? 'SHA2(val)'
+        : pt === 'PARTIAL_MASK' ? "REGEXP_REPLACE(val, '.', '*', 1, GREATEST(LENGTH(val)-4,0))"
+        : "'***MASKED***'";
+      const stmts: string[] = [];
+      const rollback: string[] = [];
+      for (const col of maskColumns) {
+        const rawType = colTypes[col] || 'VARCHAR';
+        if (!isText(rawType)) { stmts.push(`-- Masking skipped for ${col} (${rawType}): supported on text columns`); continue; }
+        const baseType = String(rawType).split('(')[0].toUpperCase().trim();
+        const pName = `${event.payload.policyName}_${col.toLowerCase()}`;
+        const pFqn = `${event.target.database}.${event.target.schema}.${pName}`;
+        stmts.push(
+          `CREATE OR REPLACE MASKING POLICY ${pFqn} AS (val ${baseType}) RETURNS ${baseType} -> CASE WHEN CURRENT_ROLE() IN (${roleList}) THEN val ELSE ${maskBody} END;`,
+          `ALTER TABLE ${tableRef} MODIFY COLUMN ${col} SET MASKING POLICY ${pFqn};`,
+        );
+        rollback.push(`ALTER TABLE ${tableRef} MODIFY COLUMN ${col} UNSET MASKING POLICY;`);
+      }
       return {
-        sql: maskColumns.map((col: string) =>
-          `ALTER TABLE ${tableRef} MODIFY COLUMN ${col} SET MASKING POLICY ${policyFQN};`
-        ).join('\n'),
-        rollbackSql: maskColumns.map((col: string) =>
-          `ALTER TABLE ${tableRef} MODIFY COLUMN ${col} UNSET MASKING POLICY;`
-        ).join('\n'),
+        sql: stmts.join('\n') || `-- No text columns to mask`,
+        rollbackSql: rollback.join('\n'),
       };
     }
 
@@ -344,20 +364,43 @@ export function generateSnowflakeSQL(event: DesignEvent): { sql: string; rollbac
     case 'COLUMN_INCLUDED':
       return { sql: `-- Column ${tableRef}.${event.target.column} included in data model` };
 
-    case 'RLS_POLICY_APPLIED':
+    case 'RLS_POLICY_APPLIED': {
+      // A row-access policy is custom per table, so it must be CREATED inline
+      // before ADD (the old DDL did only ADD → the policy never existed → deploy
+      // failed). Uses the rich payload from the Add-RLS config (column + type +
+      // expression). Policy is co-located with the table so ADD resolves it.
+      const rlsCol = event.payload.column || event.payload.policyColumn || event.payload.filterColumn;
+      if (!rlsCol) {
+        return { sql: `-- RLS ${event.payload.policyName}: no filter column captured — reconfigure via Add RLS` };
+      }
+      const rlsType = event.payload.columnType || 'VARCHAR';
+      const rlsExpr = event.payload.expression || 'CURRENT_ROLE() IS NOT NULL';
+      const policyFqn = `${event.target.database}.${event.target.schema}.${event.payload.policyName}`;
       return {
-        sql: `ALTER TABLE ${tableRef} ADD ROW ACCESS POLICY ${event.payload.policyName} ON (${event.payload.policyColumn || event.payload.filterColumn || '*'});`,
-        rollbackSql: `ALTER TABLE ${tableRef} DROP ROW ACCESS POLICY ${event.payload.policyName};`,
+        sql: [
+          `CREATE OR REPLACE ROW ACCESS POLICY ${policyFqn} AS (${rlsCol} ${rlsType}) RETURNS BOOLEAN -> ${rlsExpr};`,
+          `ALTER TABLE ${tableRef} ADD ROW ACCESS POLICY ${policyFqn} ON (${rlsCol});`,
+        ].join('\n'),
+        rollbackSql: `ALTER TABLE ${tableRef} DROP ROW ACCESS POLICY ${policyFqn};`,
       };
+    }
     case 'RLS_POLICY_REMOVED':
       return { sql: `ALTER TABLE ${tableRef} DROP ROW ACCESS POLICY ${event.payload.policyName};` };
-    case 'AGGREGATION_POLICY_APPLIED':
+    case 'AGGREGATION_POLICY_APPLIED': {
+      // Snowflake assigns an aggregation policy with SET (not ADD) and removes it
+      // with UNSET (not DROP — DROP deletes the policy object). The prior ADD/DROP
+      // was a syntax error → aggregation deploy failed. FORCE lets it re-assign
+      // over an existing one. (docs.snowflake.com/en/user-guide/aggregation-policies)
+      const aggFqn = (event.payload.policyDatabase && event.payload.policySchema)
+        ? `${event.payload.policyDatabase}.${event.payload.policySchema}.${event.payload.policyName}`
+        : event.payload.policyName;
       return {
-        sql: `ALTER TABLE ${tableRef} ADD AGGREGATION POLICY ${event.payload.policyName};`,
-        rollbackSql: `ALTER TABLE ${tableRef} DROP AGGREGATION POLICY ${event.payload.policyName};`,
+        sql: `ALTER TABLE ${tableRef} SET AGGREGATION POLICY ${aggFqn} FORCE;`,
+        rollbackSql: `ALTER TABLE ${tableRef} UNSET AGGREGATION POLICY;`,
       };
+    }
     case 'AGGREGATION_POLICY_REMOVED':
-      return { sql: `ALTER TABLE ${tableRef} DROP AGGREGATION POLICY ${event.payload.policyName};` };
+      return { sql: `ALTER TABLE ${tableRef} UNSET AGGREGATION POLICY;` };
 
     default:
       return { sql: `-- ${event.type}: ${JSON.stringify(event.payload)}` };

@@ -345,7 +345,15 @@ function InsightCard({ insight, onAct }: { insight: SnowflakeInsight; onAct: () 
 // ── States ─────────────────────────────────────────────────────────────────
 function LoadingState() {
   return (
-    <div className="space-y-3 animate-pulse" aria-hidden="true">
+    <div className="space-y-3">
+      {/* Honest status: the first (uncached) run is a real Cortex analysis over
+          the account's Snowflake features and can take ~a minute — say so instead
+          of leaving a bare skeleton that reads as "stuck". Warm loads are instant. */}
+      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" aria-hidden="true" />
+        <span>Running platform analysis… first run can take up to a minute.</span>
+      </div>
+      <div className="space-y-3 animate-pulse" aria-hidden="true">
       {[0, 1, 2].map((n) => (
         <div key={n} className="rounded-xl border border-slate-100 dark:border-slate-800 p-3.5">
           <div className="flex items-center gap-2">
@@ -357,6 +365,7 @@ function LoadingState() {
           <div className="mt-2.5 ml-auto h-7 w-28 rounded-lg bg-slate-200 dark:bg-slate-800" />
         </div>
       ))}
+      </div>
     </div>
   );
 }

@@ -5,13 +5,16 @@ import { toServiceError } from '../_errors';
 // TYPES
 // ============================================
 
+// Only models live on this Snowflake account/region (probed live 2026-07-16):
+// mistral-7b, mistral-large2, llama3.1-8b/70b, llama3.3-70b, mixtral-8x7b work;
+// llama3.1-405b, claude-3-*, deepseek-r1, jamba-*, reka-*, gemma-* return
+// "Request failed for external function _COMPLETE".
 export type LLMModel =
   | 'mistral-7b'
+  | 'llama3.1-8b'
   | 'mistral-large2'
   | 'llama3.1-70b'
-  | 'llama3.1-405b'
-  | 'claude-3-7-sonnet'
-  | 'deepseek-r1';
+  | 'llama3.3-70b';
 
 export type LanguageCode = 'en' | 'fr' | 'es' | 'de' | 'it' | 'pt' | 'ja' | 'ko' | 'zh' | 'ar' | 'ru';
 
@@ -95,11 +98,10 @@ export interface TableInfo {
 // supported completion catalog.
 export const LLM_MODELS = [
   { value: 'mistral-7b', label: 'Fast', description: 'Quick answers, lowest cost' },
+  { value: 'llama3.1-8b', label: 'Efficient', description: 'Fast with good quality' },
   { value: 'mistral-large2', label: 'Balanced', description: 'Strong general-purpose quality' },
   { value: 'llama3.1-70b', label: 'Capable', description: 'Higher quality for complex tasks' },
-  { value: 'llama3.1-405b', label: 'Most Capable', description: 'Best quality, slower' },
-  { value: 'claude-3-7-sonnet', label: 'Reasoning', description: 'Deep reasoning & long context' },
-  { value: 'deepseek-r1', label: 'Analytical', description: 'Step-by-step problem solving' },
+  { value: 'llama3.3-70b', label: 'Most Capable', description: 'Best available quality, slower' },
 ] as const;
 
 export const LANGUAGES = [

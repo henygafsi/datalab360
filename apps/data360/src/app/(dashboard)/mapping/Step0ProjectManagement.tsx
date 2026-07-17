@@ -102,7 +102,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
 
         try {
             const response = await createProject(payload);
-            toast({ title: 'Project Created', description: `Project "${newProjectName}" created successfully!` });
+            toast({ title: 'Project Created', description: `Project "${newProjectName}" created` });
 
             setSelectedProjectId(response.project_id);
             refetch();
