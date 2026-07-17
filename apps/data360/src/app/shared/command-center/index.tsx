@@ -159,6 +159,7 @@ import {
 const ModulesTab = lazy(() => import('./modules-tab'));
 const SnowflakeExplorerTab = lazy(() => import('./snowflake-explorer-tab'));
 const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
+const CcActionSurface = lazy(() => import('./CcActionSurface'));
 const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
 const SnowflakeAccountsAuditSection = lazy(() => import('./SnowflakeAccountsAuditSection'));
 const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
@@ -260,6 +261,10 @@ const tabs: TabItem[] = [
   { id: 'projects', label: 'Projects', icon: Rocket },
   // Merged: Org Summary + ORGADMIN-gated Org Accounts + Snowflake Accounts.
   { id: 'organization', label: 'Organization', icon: GitBranch },
+  // Registry-driven capability catalog (GET /command-center/actions) — every
+  // account capability as a governed, verifiable action (same pattern as the
+  // other module Actions surfaces).
+  { id: 'actions', label: 'Actions', icon: Zap },
 ];
 
 /**
@@ -2336,6 +2341,14 @@ function CommandCenterDashboardInner() {
               </div>
             </details>
           </div>
+        );
+      case 'actions':
+        return (
+          <Suspense fallback={<LoadingSection />}>
+            <div className="min-h-0 flex-1 overflow-y-auto p-1">
+              <CcActionSurface />
+            </div>
+          </Suspense>
         );
       case 'organization':
         /* Organization ONE-PAGER (2026-07-12 refactor): a compact executive
