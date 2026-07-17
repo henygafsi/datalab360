@@ -36,7 +36,7 @@ import Breadcrumb from '@/components/ui/Breadcrumb';
 import FullscreenPanel, { FullscreenExpandButton } from '@/components/ui/FullscreenPanel';
 import { usePagedRows, TablePager } from '@/components/ui/TablePager';
 import IntelligentCockpit, { IntelligentKpiStrip } from './components/IntelligentCockpit';
-import AskLanding from './components/AskLanding';
+import AgenticOSShell from './components/agentic-os/AgenticOSShell';
 import IntelligentActionSurface from './components/IntelligentActionSurface';
 
 // Import content components
@@ -494,7 +494,7 @@ export default function IntelligentPage() {
         {/* Tab Content */}
         <div role="tabpanel" className="p-6">
           {/* Chat-first home: persisted AI chat + data-aware suggestions */}
-          {activeTab === 'home' && <AskLanding />}
+          {activeTab === 'home' && <AgenticOSShell />}
           {/* Agentic command surface: all AI capabilities as governed actions */}
           {activeTab === 'actions' && <IntelligentActionSurface />}
           {activeTab === 'semantic-models' && <SemanticModelsContent />}

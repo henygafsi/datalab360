@@ -1,0 +1,151 @@
+'use client';
+
+/**
+ * Agentic OS — LEFT rail: lifecycle step strip + grounding picker.
+ *
+ * The 7 steps of the chain (sources → … → dependencies). The active step drives
+ * the center routing and the right-rail capability map. Under "Sources" the
+ * existing SourceTree is embedded as the picker: selecting a table adds its FQN
+ * to the grounding context (max 5 — the coco draft limit), which every agent
+ * call is grounded on.
+ */
+import { useAtom } from 'jotai';
+import { Badge } from 'rizzui';
+import {
+  PiDatabase,
+  PiTreeStructure,
+  PiDownloadSimple,
+  PiFlowArrow,
+  PiChartBar,
+  PiChatCircleDots,
+  PiGraph,
+  PiX,
+} from 'react-icons/pi';
+import type { IconType } from 'react-icons';
+import SourceTree from '@/app/(dashboard)/sources/components/SourceTree';
+import { STAGE_META, STAGE_ORDER, type LifecycleStage } from './types';
+import { activeStageAtom, groundingTablesAtom, touchedStagesAtom } from './store';
+
+const STAGE_ICON: Record<LifecycleStage, IconType> = {
+  sources: PiDatabase,
+  models: PiTreeStructure,
+  ingestion: PiDownloadSimple,
+  workflow: PiFlowArrow,
+  dashboards: PiChartBar,
+  questions: PiChatCircleDots,
+  dependencies: PiGraph,
+};
+
+const MAX_GROUNDING = 5;
+
+export default function StageRail() {
+  const [activeStage, setActiveStage] = useAtom(activeStageAtom);
+  const [grounding, setGrounding] = useAtom(groundingTablesAtom);
+  const [touched, setTouched] = useAtom(touchedStagesAtom);
+
+  const selectStage = (s: LifecycleStage) => {
+    setActiveStage(s);
+    setTouched((t) => ({ ...t, [s]: t[s] === 'done' ? 'done' : 'active' }));
+  };
+
+  const addGrounding = (database: string, schema: string, table: string) => {
+    const fqn = `${database}.${schema}.${table}`;
+    setGrounding((g) => {
+      if (g.includes(fqn)) return g;
+      if (g.length >= MAX_GROUNDING) return g;
+      return [...g, fqn];
+    });
+    setTouched((t) => ({ ...t, sources: 'done' }));
+  };
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* Step strip */}
+      <nav aria-label="Lifecycle steps" className="shrink-0 space-y-0.5 px-1">
+        {STAGE_ORDER.map((s) => {
+          const Icon = STAGE_ICON[s];
+          const meta = STAGE_META[s];
+          const state = touched[s];
+          const active = activeStage === s;
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => selectStage(s)}
+              aria-current={active ? 'step' : undefined}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+                active
+                  ? 'bg-primary/10 font-medium text-primary'
+                  : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+              }`}
+              title={meta.hint}
+            >
+              <Icon className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{meta.label}</span>
+              <span
+                aria-hidden
+                className={`h-2 w-2 shrink-0 rounded-full ${
+                  state === 'done'
+                    ? 'bg-emerald-500'
+                    : state === 'active'
+                      ? 'bg-amber-400'
+                      : 'bg-gray-300 dark:bg-gray-600'
+                }`}
+              />
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Grounding chips (always visible — this is the agent's context) */}
+      <div className="mt-3 shrink-0 border-t border-gray-200 px-2 pt-3 dark:border-gray-700">
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            Grounding
+          </span>
+          <span className="text-[11px] text-gray-400">
+            {grounding.length}/{MAX_GROUNDING}
+          </span>
+        </div>
+        {grounding.length === 0 ? (
+          <p className="text-xs text-gray-400">
+            Pick tables below — the agent answers about this selection.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-1">
+            {grounding.map((fqn) => (
+              <Badge key={fqn} variant="outline" size="sm" className="max-w-full gap-1 pr-1">
+                <span className="truncate text-[11px]" title={fqn}>
+                  {fqn.split('.').slice(-1)[0]}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${fqn} from grounding`}
+                  onClick={() => setGrounding((g) => g.filter((x) => x !== fqn))}
+                  className="rounded-full p-0.5 hover:bg-gray-200 dark:hover:bg-gray-700"
+                >
+                  <PiX className="h-3 w-3" aria-hidden />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Stage picker — v1: the Sources step embeds the real catalog tree */}
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto border-t border-gray-200 pt-2 dark:border-gray-700">
+        {activeStage === 'sources' ? (
+          <SourceTree
+            onSelectTable={addGrounding}
+            selectedTable={grounding[grounding.length - 1]}
+          />
+        ) : (
+          <p className="px-2 text-xs leading-relaxed text-gray-400">
+            {STAGE_META[activeStage].hint}. Use the prompt in the center — the
+            right rail lists exactly what this step can and cannot do.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

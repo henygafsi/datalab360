@@ -1,0 +1,208 @@
+'use client';
+
+/**
+ * Agentic OS — RIGHT rail: human validation + honest capability map.
+ *
+ * Top: the approval queue — every mutating proposal parked by the discussion.
+ * "Approve & discuss" hands the item to the embedded validation chat (the
+ * proven human-approval surface) via the canvas hand-off event; nothing
+ * mutating executes from this rail directly.
+ * Bottom: what THIS step can and cannot do — folded from the step's module
+ * action-catalog (ready / needs-validation / unverified), rbac gate shown as a
+ * chip. Denied or unverified actions are visible and labeled, never hidden.
+ */
+import { useState } from 'react';
+import { useAtom, useAtomValue } from 'jotai';
+import { Badge, Button, Input } from 'rizzui';
+import {
+  PiShieldCheck,
+  PiCheckCircle,
+  PiHandPalm,
+  PiMagnifyingGlass,
+  PiWarningCircle,
+  PiX,
+} from 'react-icons/pi';
+import { STAGE_META } from './types';
+import type { StageCapability } from './types';
+import { activeStageAtom, approvalsAtom } from './store';
+import { useCapabilityMap } from './useCapabilityMap';
+
+const RISK_TINT: Record<string, string> = {
+  low: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  high: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+};
+
+function gateLabel(rbac: string): string {
+  if (!rbac) return 'view';
+  if (rbac.startsWith('module:')) return 'view';
+  const slash = rbac.indexOf('/');
+  return slash >= 0 ? rbac.slice(slash + 1) : rbac;
+}
+
+function CapabilityRow({ c }: { c: StageCapability }) {
+  return (
+    <li className="flex items-start gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800">
+      <span className="mt-0.5 shrink-0" aria-hidden>
+        {c.verdict === 'ready' ? (
+          <PiCheckCircle className="h-3.5 w-3.5 text-emerald-500" />
+        ) : c.verdict === 'gated' ? (
+          <PiHandPalm className="h-3.5 w-3.5 text-amber-500" />
+        ) : (
+          <PiWarningCircle className="h-3.5 w-3.5 text-gray-400" />
+        )}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium text-gray-700 dark:text-gray-200" title={c.why}>
+          {c.label}
+        </span>
+        <span className="text-[10px] text-gray-400">
+          {c.verdict === 'ready'
+            ? 'runs inline'
+            : c.verdict === 'gated'
+              ? 'needs your validation'
+              : 'contract not verified'}
+        </span>
+      </span>
+      <Badge variant="outline" size="sm" className="shrink-0 text-[10px]">
+        {gateLabel(c.rbac)}
+      </Badge>
+    </li>
+  );
+}
+
+export default function ValidationRail() {
+  const stage = useAtomValue(activeStageAtom);
+  const [approvals, setApprovals] = useAtom(approvalsAtom);
+  const caps = useCapabilityMap(stage);
+  const [q, setQ] = useState('');
+
+  const pending = approvals.filter((a) => a.status === 'pending');
+  const filter = (list: StageCapability[]) =>
+    q.trim()
+      ? list.filter(
+          (c) =>
+            c.label.toLowerCase().includes(q.toLowerCase()) ||
+            c.why.toLowerCase().includes(q.toLowerCase()),
+        )
+      : list;
+
+  const approve = (id: string) => {
+    const item = approvals.find((a) => a.id === id);
+    if (!item) return;
+    window.dispatchEvent(
+      new CustomEvent('agentic-os:handoff', { detail: { text: item.prompt } }),
+    );
+    setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: 'sent' } : a)));
+  };
+
+  const dismiss = (id: string) => {
+    setApprovals((prev) => prev.map((a) => (a.id === id ? { ...a, status: 'dismissed' } : a)));
+  };
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* Approval queue */}
+      <section aria-label="Pending validations" className="shrink-0 border-b border-gray-200 pb-2 dark:border-gray-700">
+        <h3 className="flex items-center gap-1.5 px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+          <PiShieldCheck className="h-3.5 w-3.5" aria-hidden />
+          To validate
+          {pending.length > 0 && (
+            <Badge size="sm" color="warning" className="ml-auto">
+              {pending.length}
+            </Badge>
+          )}
+        </h3>
+        {pending.length === 0 ? (
+          <p className="px-2 text-xs text-gray-400">
+            Nothing waiting. Mutating proposals from the discussion land here —
+            they never run without you.
+          </p>
+        ) : (
+          <ul className="max-h-56 space-y-1.5 overflow-y-auto px-2">
+            {pending.map((a) => (
+              <li key={a.id} className="rounded-lg border border-amber-200 bg-amber-50/50 p-2 dark:border-amber-900/40 dark:bg-amber-900/10">
+                <div className="flex items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{a.label}</span>
+                  {a.risk && (
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${RISK_TINT[a.risk] ?? ''}`}>
+                      {a.risk}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    aria-label="Dismiss"
+                    onClick={() => dismiss(a.id)}
+                    className="rounded p-0.5 text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+                  >
+                    <PiX className="h-3 w-3" aria-hidden />
+                  </button>
+                </div>
+                {a.rationale && <p className="mt-1 text-[11px] text-gray-500">{a.rationale}</p>}
+                <div className="mt-1.5">
+                  <Button size="sm" variant="outline" onClick={() => approve(a.id)}>
+                    Approve & discuss
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Capability map for the active step */}
+      <section aria-label="Step capabilities" className="flex min-h-0 flex-1 flex-col pt-2">
+        <h3 className="px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+          {STAGE_META[stage].label} — can / can&apos;t
+        </h3>
+        <div className="px-2 py-1.5">
+          <Input
+            size="sm"
+            aria-label="Filter capabilities"
+            placeholder="Filter…"
+            prefix={<PiMagnifyingGlass className="h-3.5 w-3.5" aria-hidden />}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+          {caps.loading ? (
+            <p className="px-2 text-xs text-gray-400">Loading the capability catalog…</p>
+          ) : caps.unavailable ? (
+            <p className="px-2 text-xs text-gray-400">
+              Catalog not provisioned for this step — actions unavailable, not
+              hidden.
+            </p>
+          ) : (
+            <>
+              {filter(caps.ready).length > 0 && (
+                <ul className="space-y-0.5 px-1">
+                  {filter(caps.ready).map((c) => (
+                    <CapabilityRow key={c.action_id} c={c} />
+                  ))}
+                </ul>
+              )}
+              {filter(caps.gated).length > 0 && (
+                <ul className="space-y-0.5 px-1">
+                  {filter(caps.gated).map((c) => (
+                    <CapabilityRow key={c.action_id} c={c} />
+                  ))}
+                </ul>
+              )}
+              {filter(caps.unverified).length > 0 && (
+                <ul className="space-y-0.5 px-1 opacity-70">
+                  {filter(caps.unverified).map((c) => (
+                    <CapabilityRow key={c.action_id} c={c} />
+                  ))}
+                </ul>
+              )}
+              {caps.all.length === 0 && (
+                <p className="px-2 text-xs text-gray-400">No catalog entry for this step yet.</p>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
