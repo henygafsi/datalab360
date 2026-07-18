@@ -32,7 +32,9 @@ import { createDashboard, createWidget, nlToChart } from '@/app/services/api/biD
 import type { DashboardChartType, BIDashboardChartConfig } from '@/app/services/api/types';
 import ModelFlow from './ModelFlow';
 import PlanFlow from './PlanFlow';
-import type { ProposedModel, ProposedPlan, TableTile } from './types';
+import AssessmentCard from './AssessmentCard';
+import { runAssessment } from './runAssessment';
+import type { ProposedModel, ProposedPlan, TableTile, AssessFinding } from './types';
 import {
   addEvent,
   getUnifiedProjects,
@@ -541,6 +543,22 @@ export default function AgentCanvas() {
         /^(go|ok|oui|yes|add them|apply|create( it)?|vas[- ]?y|valide|fais[- ]?le)\b/i.test(text)
       ) {
         await createModel(pendingModelRef.current);
+        return;
+      }
+      // Assessment intent: scan the connected account through the 6 stages,
+      // narrated, then post the honest hero + findings card (real endpoints).
+      if (/\b(assess|scan|audit|évalue|analyse mon compte|assessment|health check)\b/i.test(text)) {
+        const stages = [
+          'Stage 1 · Validating connection, role and permissions…',
+          'Stage 2 · Discovering the inventory (databases, schemas, objects, roles, policies)…',
+          'Stage 3 · Analyzing usage, workload and cost…',
+          'Stage 4 · Analyzing security and governance…',
+          'Stage 5 · Inferring domains and data-product opportunities…',
+          'Stage 6 · Generating solutions from findings…',
+        ];
+        for (const s of stages) push({ role: 'agent', stage, kind: 'text', text: s });
+        const report = await runAssessment();
+        push({ role: 'agent', stage, kind: 'assessment', assessment: report });
         return;
       }
       if (await tryAutoAct(text)) return;
@@ -1385,6 +1403,24 @@ export default function AgentCanvas() {
               </div>
             )}
             {m.kind === 'plan' && m.plan && <PlanFlow plan={m.plan} />}
+            {m.kind === 'assessment' && m.assessment && (
+              <div className="mt-2">
+                <AssessmentCard
+                  report={m.assessment}
+                  onGenerateSolution={(f: AssessFinding) => {
+                    // Route the finding into the OS's governed creator/propose
+                    // flow: prefill a concrete remediation ask, stay gated.
+                    const ask =
+                      f.recommendation ||
+                      `Propose a governed remediation for: ${f.title}${f.object ? ` (on ${f.object})` : ''}`;
+                    setPrompt(ask);
+                    toast('Finding sent to the solution flow — review, preview, then validate.', {
+                      icon: '🛠️',
+                    });
+                  }}
+                />
+              </div>
+            )}
             {m.kind === 'tiles' && m.tiles && (
               <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {m.tiles.map((t) => (

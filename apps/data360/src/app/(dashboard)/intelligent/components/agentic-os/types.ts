@@ -79,7 +79,36 @@ export type AgentCardKind =
   | 'flow'
   | 'model'
   | 'plan'
-  | 'tiles';
+  | 'tiles'
+  | 'assessment';
+
+export type AssessAvailability =
+  | 'Available'
+  | 'Partial'
+  | 'Delayed'
+  | 'Not authorized'
+  | 'Not supported'
+  | 'Not configured';
+
+/** A scanned-account assessment: hero narrative + honest coverage + findings. */
+export interface AssessmentReport {
+  account: string;
+  coveragePct: number | null;
+  narrative: string;
+  score: number | null;
+  criticalCount: number;
+  availability: { source: string; state: AssessAvailability; reason?: string }[];
+  findings: AssessFinding[];
+}
+export interface AssessFinding {
+  id: string;
+  kind: string;
+  severity: string;
+  title: string;
+  factType: 'observed' | 'inferred';
+  recommendation: string | null;
+  object: string | null;
+}
 
 /** Live per-table platform signals rendered as KPI tiles (real, no LLM). */
 export interface TableTile {
@@ -129,6 +158,8 @@ export interface AgentMessage {
   plan?: ProposedPlan;
   /** kind='tiles' — live per-table platform KPI tiles. */
   tiles?: TableTile[];
+  /** kind='assessment' — scanned-account assessment report. */
+  assessment?: AssessmentReport;
   at: number;
 }
 
@@ -146,9 +177,9 @@ export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
     label: 'Sources',
     hint: 'Pick the data objects that ground the agent',
     starters: [
+      'Assess my Snowflake account (scan, findings, solutions)',
       'Profile the selected tables: row counts, freshness and quality signals',
       'Which of my sources are stale or unmonitored?',
-      'Suggest the best tables for a customer-360 view',
     ],
     guide:
       'Step 1 · Sources. The tree on the left lists exactly what YOUR role is granted to see — databases, schemas, tables (with live quality scores). Pick up to 5 tables to ground me; from then on I answer about that selection, on real data. You can also pick a project (top right) so I read its full context.',

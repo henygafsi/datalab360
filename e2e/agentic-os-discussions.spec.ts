@@ -276,6 +276,36 @@ test('WORKFLOW CREATOR: rendered ETL draft → real workflow in one click', asyn
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
+test('ASSESSMENT: scan intent → staged narration → hero + honest availability + findings + Generate solution', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const box = page.getByLabel('Ask the agent');
+  await expect(box).toBeVisible({ timeout: 30_000 });
+
+  await box.fill('assess my Snowflake account');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  // Staged narration then the report card.
+  await expect(page.getByText(/Stage 1 · Validating connection/), 'staged scan narrated').toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/Data360 scanned/), 'hero narrative posted').toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText('Source availability'), 'honest availability shown').toBeVisible();
+  await expect(page.getByText(/Findings \(\d+\)/), 'findings section rendered').toBeVisible();
+  await page.screenshot({ path: path.join(SHOTS, 'assessment.png') });
+  record('assessment', await lastAgentCard(page));
+
+  // If any finding rendered, its "Generate solution" routes into the flow.
+  const gen = page.getByRole('button', { name: 'Generate solution' }).first();
+  if (await gen.isVisible().catch(() => false)) {
+    await gen.click();
+    await expect(box).not.toHaveValue('');
+    record('assessment-solution', 'finding routed to solution flow (prompt prefilled)');
+  }
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
 test('CONVERSATION variety: greeting, short ack, FR selection, vague discovery — all coherent', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
