@@ -124,10 +124,12 @@ function DraftCard({
   draft,
   onRetryAggregated,
   onCreateWidget,
+  onCreateWorkflow,
 }: {
   draft: CocoDraftResult;
   onRetryAggregated?: () => void;
   onCreateWidget?: () => void;
+  onCreateWorkflow?: () => void;
 }) {
   const ok = draft.tested?.status === 'passed';
   const note = governanceNote(draft.tested?.error);
@@ -206,6 +208,11 @@ function DraftCard({
       {draft.module === 'chart' && ok && onCreateWidget && (
         <Button size="sm" onClick={onCreateWidget}>
           Create as BI widget
+        </Button>
+      )}
+      {draft.module === 'etl' && ok && onCreateWorkflow && (
+        <Button size="sm" onClick={onCreateWorkflow}>
+          Create this workflow
         </Button>
       )}
       {draft.tested?.error && (
@@ -894,6 +901,67 @@ export default function AgentCanvas() {
   const agenticBoardRef = useRef<{ project_id: string; page_id: string; name: string } | null>(null);
 
   /**
+   * CREATOR path for pipelines: a rendered ETL draft becomes a REAL workflow.
+   * The draft's steps are already the engine's shape (action_type + payload,
+   * wired by input_step) — creation is a direct governed write. Execution and
+   * scheduling stay behind human validation in the Workflow module.
+   */
+  const createWorkflowFromDraft = useCallback(
+    async (draft: CocoDraftResult, intent: string) => {
+      const steps = ((draft.draft?.steps ?? []) as {
+        action_type: string;
+        step_name?: string;
+        payload?: Record<string, unknown>;
+      }[]).map((s) => ({
+        action_type: s.action_type,
+        step_name: s.step_name ?? undefined,
+        payload: s.payload ?? {},
+      }));
+      if (!steps.length) {
+        toast('This draft has no steps to create.', { icon: 'ℹ️' });
+        return;
+      }
+      const name = `AGENTIC_WF_${Date.now().toString(36).slice(-4).toUpperCase()}`;
+      try {
+        // Direct contract call — the legacy createWorkflow service still sends
+        // workflow_name/step_order, which the backend 422s (parallel API
+        // generations; census gap #23). POST /workflow wants project_name +
+        // {action_type, step_name, payload} steps.
+        const res = await apiClient.post('/workflow', {
+          project_name: name,
+          description: `Created by the Agentic OS from: "${intent.slice(0, 140)}"`,
+          steps,
+          tags: ['agentic-os'],
+        });
+        const data = (res.data?.data ?? res.data ?? {}) as { project_id?: string };
+        if (projectId) {
+          void addEvent(projectId, {
+            module_name: 'agentic_os',
+            event_type: 'WORKFLOW_CREATED',
+            status: 'SUCCESS',
+            details: { workflow: name, workflow_project: data.project_id ?? null, steps: steps.length, intent },
+          }).catch(() => {});
+        }
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text: `Created — workflow ${name} (${steps.length} steps${data.project_id ? `, ${data.project_id}` : ''}). Open Workflow to see the canvas; running or scheduling it waits for your validation.`,
+        });
+        toast(`Workflow ${name} created (${steps.length} steps).`, { icon: '⚙️' });
+      } catch (e) {
+        push({
+          role: 'agent',
+          stage,
+          kind: 'error',
+          text: `Workflow creation failed: ${e instanceof Error ? e.message : 'error'}`,
+        });
+      }
+    },
+    [projectId, push, stage],
+  );
+
+  /**
    * CREATOR path for charts: a passed chart draft becomes a REAL BI widget.
    * nl-to-chart builds a validated table-based config from the same intent,
    * then the widget is written to a session dashboard through the existing BI
@@ -1296,6 +1364,11 @@ export default function AgentCanvas() {
                       : undefined
                   }
                   onCreateWidget={m.intent ? () => void createChartWidget(m.intent as string) : undefined}
+                  onCreateWorkflow={
+                    m.intent
+                      ? () => void createWorkflowFromDraft(m.draft as CocoDraftResult, m.intent as string)
+                      : undefined
+                  }
                 />
               </div>
             )}

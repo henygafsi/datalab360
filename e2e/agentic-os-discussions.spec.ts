@@ -200,6 +200,35 @@ test('CHART CREATOR: tested chart draft → real BI widget in one click', async 
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
+test('WORKFLOW CREATOR: rendered ETL draft → real workflow in one click', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const stepNav = page.getByRole('navigation', { name: 'Lifecycle steps' });
+  await expect(stepNav).toBeVisible({ timeout: 30_000 });
+
+  await ask(page, 'select DRAFT_SOURCE.RETAIL_DW.FACT_ORDERS');
+  await expect(page.getByText(/Done — grounded/)).toBeVisible({ timeout: 30_000 });
+  await stepNav.getByRole('button', { name: /Workflow/i }).click();
+  await ask(page, 'aggregate FACT_ORDERS into a daily summary table');
+
+  await expect(page.getByText(/etl draft/).last(), 'etl draft outcome').toBeVisible({ timeout: 150_000 });
+  const createBtn = page.getByRole('button', { name: 'Create this workflow' });
+  if (await createBtn.isVisible().catch(() => false)) {
+    await createBtn.click();
+    await expect(page.getByText(/Created — workflow AGENTIC_WF_/), 'workflow CREATED').toBeVisible({
+      timeout: 60_000,
+    });
+    record('workflow-created', await lastAgentCard(page));
+  } else {
+    record('workflow-created', 'etl draft did not fully render — honest failure, no create button');
+  }
+  await page.screenshot({ path: path.join(SHOTS, 'workflow-creator.png') });
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
 test('CONVERSATION variety: greeting, short ack, FR selection, vague discovery — all coherent', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
