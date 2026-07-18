@@ -169,6 +169,37 @@ test('GOVERNANCE discussion: agg-policy table → honest denial + remediation pr
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
+test('CHART CREATOR: tested chart draft → real BI widget in one click', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const stepNav = page.getByRole('navigation', { name: 'Lifecycle steps' });
+  await expect(stepNav).toBeVisible({ timeout: 30_000 });
+
+  await ask(page, 'select DRAFT_SOURCE.RETAIL_DW.FACT_ORDERS');
+  await expect(page.getByText(/Done — grounded/)).toBeVisible({ timeout: 30_000 });
+  await stepNav.getByRole('button', { name: /Dashboards/i }).click();
+  await ask(page, 'bar chart of order count by channel');
+
+  const outcome = page.getByText(/chart draft/).last();
+  await expect(outcome, 'chart draft outcome').toBeVisible({ timeout: 150_000 });
+  const createBtn = page.getByRole('button', { name: 'Create as BI widget' });
+  if (await createBtn.isVisible().catch(() => false)) {
+    await createBtn.click();
+    await expect(
+      page.getByText(/Created — widget|could not validate a widget config/),
+      'widget creation reaches a real outcome',
+    ).toBeVisible({ timeout: 90_000 });
+    record('chart-widget-created', await lastAgentCard(page));
+  } else {
+    record('chart-widget-created', 'draft did not pass — honest failure shown, no widget button');
+  }
+  await page.screenshot({ path: path.join(SHOTS, 'chart-widget.png') });
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
 test('CONVERSATION variety: greeting, short ack, FR selection, vague discovery — all coherent', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));

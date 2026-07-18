@@ -27,6 +27,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { getDatabases, getSchemas, getTables, getTableColumns } from '@/app/services/mapping';
 import { createExploreProject } from '@/app/services/api/exploreDesignApi';
 import { createRelationship } from '@/app/services/explore-design';
+import { createDashboard, createWidget, nlToChart } from '@/app/services/api/biDashboardApi';
+import type { DashboardChartType, BIDashboardChartConfig } from '@/app/services/api/types';
 import ModelFlow from './ModelFlow';
 import type { ProposedModel } from './types';
 import {
@@ -121,9 +123,11 @@ function governanceNote(error?: string): string | null {
 function DraftCard({
   draft,
   onRetryAggregated,
+  onCreateWidget,
 }: {
   draft: CocoDraftResult;
   onRetryAggregated?: () => void;
+  onCreateWidget?: () => void;
 }) {
   const ok = draft.tested?.status === 'passed';
   const note = governanceNote(draft.tested?.error);
@@ -197,6 +201,11 @@ function DraftCard({
       {aggregationBlocked && (
         <Button size="sm" variant="outline" onClick={onRetryAggregated}>
           Retry as an aggregated query (allowed by the policy)
+        </Button>
+      )}
+      {draft.module === 'chart' && ok && onCreateWidget && (
+        <Button size="sm" onClick={onCreateWidget}>
+          Create as BI widget
         </Button>
       )}
       {draft.tested?.error && (
@@ -881,6 +890,78 @@ export default function AgentCanvas() {
   /** The last generated model awaiting validation ("go"/"add them" creates it). */
   const pendingModelRef = useRef<ProposedModel | null>(null);
 
+  /** One agentic BI board per session — widgets created from chart drafts land there. */
+  const agenticBoardRef = useRef<{ project_id: string; page_id: string; name: string } | null>(null);
+
+  /**
+   * CREATOR path for charts: a passed chart draft becomes a REAL BI widget.
+   * nl-to-chart builds a validated table-based config from the same intent,
+   * then the widget is written to a session dashboard through the existing BI
+   * API. Draft board only — publishing stays behind human validation.
+   */
+  const createChartWidget = useCallback(
+    async (intent: string) => {
+      const src = grounding[0];
+      if (!src) {
+        toast('Ground a table first — the widget needs a real source.', { icon: 'ℹ️' });
+        return;
+      }
+      const [db, schema] = src.split('.');
+      const res = await nlToChart(intent, db, schema).catch(() => null);
+      if (!res?.valid || !res.chart_config) {
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text: `The BI engine could not validate a widget config for this ask${
+            res?.validation_errors?.length ? ` — ${res.validation_errors.map((e) => e.msg).join('; ')}` : ''
+          }. Refine the ask or build it in the BI editor.`,
+        });
+        return;
+      }
+      if (!agenticBoardRef.current) {
+        const board = await createDashboard({
+          project_name: `AGENTIC_BOARD_${Date.now().toString(36).slice(-4).toUpperCase()}`,
+          description: 'Created by the Agentic OS from tested chart drafts',
+          tags: ['agentic-os'],
+        });
+        agenticBoardRef.current = {
+          project_id: board.project_id,
+          page_id: board.default_page_id,
+          name: `AGENTIC_BOARD`,
+        };
+      }
+      const cfg = res.chart_config as unknown as BIDashboardChartConfig & { chartType?: string };
+      const created = await createWidget(agenticBoardRef.current.project_id, {
+        page_id: agenticBoardRef.current.page_id,
+        widget_type: 'chart',
+        chart_type: ((cfg.chartType as string) ?? 'bar') as DashboardChartType,
+        title: intent.slice(0, 60),
+        chart_config: cfg,
+        position_x: 0,
+        position_y: 0,
+        width: 6,
+        height: 4,
+      });
+      if (projectId) {
+        void addEvent(projectId, {
+          module_name: 'agentic_os',
+          event_type: 'WIDGET_CREATED',
+          status: 'SUCCESS',
+          details: { widget_id: created.widget_id, dashboard: agenticBoardRef.current.project_id, intent },
+        }).catch(() => {});
+      }
+      push({
+        role: 'agent',
+        stage,
+        kind: 'text',
+        text: `Created — widget "${intent.slice(0, 60)}" on the agentic BI board (${agenticBoardRef.current.project_id}). Open BI Dashboard to arrange or publish it — publishing waits for your validation.`,
+      });
+      toast('Widget created on the agentic BI board.', { icon: '📊' });
+    },
+    [grounding, stage, push, projectId],
+  );
+
   /**
    * CREATE the generated model in the project — real relationships through the
    * existing E&D API (each one an audited project event, visible in the E&D
@@ -1214,6 +1295,7 @@ export default function AgentCanvas() {
                           )
                       : undefined
                   }
+                  onCreateWidget={m.intent ? () => void createChartWidget(m.intent as string) : undefined}
                 />
               </div>
             )}
