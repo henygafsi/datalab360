@@ -370,7 +370,12 @@ export default function AgentCanvas() {
         for (const schema of schemas.slice(0, 4)) {
           const tables = await getTables(db, schema).catch(() => [] as string[]);
           if (tables.length) {
-            const picked = tables.slice(0, 5).map((t) => `${db}.${schema}.${t}`.toUpperCase());
+            // Facts first, then dims — an analysis grounding needs measures.
+            const ranked = [...tables].sort((a, b) => {
+              const rank = (t: string) => (/^FACT/i.test(t) ? 0 : /^DIM/i.test(t) ? 1 : 2);
+              return rank(a) - rank(b);
+            });
+            const picked = ranked.slice(0, 5).map((t) => `${db}.${schema}.${t}`.toUpperCase());
             setGrounding(picked);
             return { db: db.toUpperCase(), schema: schema.toUpperCase(), allTables: tables, picked };
           }
@@ -696,7 +701,9 @@ export default function AgentCanvas() {
             `Answer ONLY a strict JSON object, no prose: {"steps":[{"title":"<short>", ` +
             `"stage":"sources|models|ingestion|workflow|dashboards|questions|dependencies", ` +
             `"detail":"<one concrete actionable ask the user could send at that step>"}]} — max 6 steps, ` +
-            `each mapped to the right lifecycle stage, grounded on the real table names.`,
+            `each mapped to the right lifecycle stage, grounded on the real table names. ` +
+            `For dashboards steps the detail must be ONE single chart ask (one metric by one dimension, ` +
+            `e.g. "bar chart of total X by Y"); for questions steps ONE single question.`,
           model: 'mistral-large2',
         });
         const raw = (res.response ?? '').replace(/\\n/g, '\n').replace(/\\"/g, '"');
