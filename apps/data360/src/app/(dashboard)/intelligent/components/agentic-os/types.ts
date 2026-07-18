@@ -76,7 +76,17 @@ export type AgentCardKind =
   | 'error'
   | 'guide'
   | 'lineage'
-  | 'flow';
+  | 'flow'
+  | 'model';
+
+/** A READY generated data model: previewed as a flow, validated into creation. */
+export interface ProposedModel {
+  fact: string;
+  dims: string[];
+  joins: { from: string; to: string; key: string }[];
+  /** FQN → real column names (fetched, not guessed). */
+  columns: Record<string, string[]>;
+}
 
 export interface AgentMessage {
   id: string;
@@ -96,6 +106,8 @@ export interface AgentMessage {
   lineageFqn?: string;
   /** kind='draft' — the user intent that produced it (drives governed retries). */
   intent?: string;
+  /** kind='model' — the generated, ready-to-create data model. */
+  model?: ProposedModel;
   at: number;
 }
 

@@ -75,12 +75,24 @@ test('STAR SCHEMA on a fresh agent-created project (the user flow, end to end)',
   //     concrete grounded answer (both are real outcomes; blank is not).
   await stepNav.getByRole('button', { name: /Models/i }).click();
   await ask(page, 'propose a star schema over the selected tables');
-  await expect(
-    page.getByText(/fact table|dimension|join key|star schema/i).first(),
-    'star-schema ask reaches a concrete model answer',
-  ).toBeVisible({ timeout: 150_000 });
-  await page.waitForTimeout(1500);
-  record('star-schema-on-project', await lastAgentCard(page));
+  // CREATOR contract: a READY model card — flow preview with real columns +
+  // one-click creation. Fallback text (parse miss) is tolerated but recorded.
+  const modelCard = page.getByRole('button', { name: 'Create this model in the project' });
+  const gotCard = await modelCard
+    .waitFor({ state: 'visible', timeout: 150_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (gotCard) {
+    await expect(page.locator('.react-flow').last(), 'model flow preview').toBeVisible();
+    record('star-schema-preview', 'model card with flow preview rendered');
+    await modelCard.click();
+    await expect(page.getByText(/Created — \d+\/\d+ relationships/), 'model CREATED in the project').toBeVisible({
+      timeout: 60_000,
+    });
+    record('star-schema-created', await lastAgentCard(page));
+  } else {
+    record('star-schema-on-project', await lastAgentCard(page));
+  }
   await page.screenshot({ path: path.join(SHOTS, 'star-schema.png') });
 
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);

@@ -24,8 +24,11 @@ import { toast } from 'react-hot-toast';
 import { PiPaperPlaneRight, PiPlay, PiHandPalm, PiCaretDown, PiCaretUp } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
 import { useAuth } from '@/hooks/useAuth';
-import { getDatabases, getSchemas, getTables } from '@/app/services/mapping';
+import { getDatabases, getSchemas, getTables, getTableColumns } from '@/app/services/mapping';
 import { createExploreProject } from '@/app/services/api/exploreDesignApi';
+import { createRelationship } from '@/app/services/explore-design';
+import ModelFlow from './ModelFlow';
+import type { ProposedModel } from './types';
 import {
   addEvent,
   getUnifiedProjects,
@@ -503,6 +506,15 @@ export default function AgentCanvas() {
     push({ role: 'user', stage, kind: 'text', text });
     setTouched((t) => ({ ...t, [stage]: 'done' }));
     try {
+      // A pending generated artifact + a confirmation word = CREATE it now.
+      // Autonomous creator contract: confirmations execute, they never re-ask.
+      if (
+        pendingModelRef.current &&
+        /^(go|ok|oui|yes|add them|apply|create( it)?|vas[- ]?y|valide|fais[- ]?le)\b/i.test(text)
+      ) {
+        await createModel(pendingModelRef.current);
+        return;
+      }
       if (await tryAutoAct(text)) return;
       const draftModule = DRAFT_STAGE[stage];
       // Short acknowledgements ("go", "ok") are conversation, not data intents —
@@ -562,20 +574,50 @@ export default function AgentCanvas() {
         push({ role: 'agent', stage, kind: 'draft', draft, intent: text });
         offerGovernanceRemediation(draft, text);
       } else if (stage === 'models' && grounding.length) {
-        // Modeling asks are DESIGN answers, not SQL drafts and not empty
-        // propose calls on a fresh project: answer with a concrete model
-        // (facts/dimensions/keys) mapped to the REAL grounded tables.
+        // A modeling ask returns a READY artifact: real columns fetched, the
+        // model generated as strict JSON, previewed as a flow card with a
+        // create button — never prose walls, never questions back.
+        const colEntries = await Promise.all(
+          grounding.map(async (fqn) => {
+            const cols = await getTableColumns('', '', fqn).catch(() => []);
+            return [
+              fqn,
+              cols
+                .map((c) => (c as { name?: string; column_name?: string }).name ?? (c as { column_name?: string }).column_name ?? '')
+                .filter(Boolean)
+                .slice(0, 20),
+            ] as const;
+          }),
+        );
+        const columns = Object.fromEntries(colEntries);
         const res = await generateCompletion({
           prompt:
-            `You are the Data360 modeling agent (user role: ${role}). Grounded tables: ` +
-            `${grounding.join(', ')}. The user asks: "${text}". Propose a concrete data model ` +
-            `answer (max 10 sentences, no markdown headers): name the fact table(s), the dimension ` +
-            `tables, the join keys you would expect, and one modeling risk to check. Use ONLY these ` +
-            `real table names. End by saying they can draft the build pipeline at the Workflow step — ` +
-            `nothing is deployed without their validation.`,
+            `Design a star model over these REAL tables and columns:\n` +
+            colEntries.map(([f, c]) => `${f}: ${c.join(', ')}`).join('\n') +
+            `\nUser intent: "${text}".\nAnswer ONLY a strict JSON object, no prose, shaped ` +
+            `{"fact":"<table fqn>","dims":["<fqn>",...],"joins":[{"from":"<fqn>","to":"<fqn>","key":"<real column>"}]} ` +
+            `using only the tables and columns above.`,
           model: 'mistral-large2',
         });
-        push({ role: 'agent', stage, kind: 'text', text: res.response });
+        const raw = res.response ?? '';
+        try {
+          // The completion arrives double-escaped (\n, \") — unescape before parsing.
+          const unescaped = raw.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+          const jsonStr = unescaped.slice(unescaped.indexOf('{'), unescaped.lastIndexOf('}') + 1);
+          const parsed = JSON.parse(jsonStr) as Omit<ProposedModel, 'columns'>;
+          if (!parsed.fact || !Array.isArray(parsed.joins)) throw new Error('bad shape');
+          const model: ProposedModel = { ...parsed, dims: parsed.dims ?? [], columns };
+          pendingModelRef.current = model;
+          push({
+            role: 'agent',
+            stage,
+            kind: 'model',
+            model,
+            text: 'Ready — model generated on your real columns. Preview below; one click creates it in the project (nothing deploys).',
+          });
+        } catch {
+          push({ role: 'agent', stage, kind: 'text', text: raw.replace(/\\n/g, '\n') });
+        }
       } else if (projectId) {
         const res = await proposeAgentActions(projectId, text);
         // Pre-check every endpoint proposal against the REAL route registry —
@@ -836,6 +878,62 @@ export default function AgentCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
+  /** The last generated model awaiting validation ("go"/"add them" creates it). */
+  const pendingModelRef = useRef<ProposedModel | null>(null);
+
+  /**
+   * CREATE the generated model in the project — real relationships through the
+   * existing E&D API (each one an audited project event, visible in the E&D
+   * modeling canvas). The click on the card IS the validation. No deployment.
+   */
+  const createModel = useCallback(
+    async (model: ProposedModel) => {
+      let pid = projectId;
+      if (!pid) {
+        const created = await createExploreProject({
+          project_name: `AGENTIC_MODEL_${Date.now().toString(36).slice(-4).toUpperCase()}`,
+          description: 'Created by the Agentic OS to hold a generated model',
+          source_tables: [model.fact, ...model.dims].map((f) => {
+            const [database, schema, table] = f.split('.');
+            return { database, schema, table };
+          }),
+          tags: ['agentic-os'],
+        });
+        pid = created.project_id;
+        setProjectId(pid);
+      }
+      let ok = 0;
+      const failures: string[] = [];
+      for (const j of model.joins) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await createRelationship(pid, {
+            source_table: j.from.split('.').slice(-1)[0],
+            source_column: j.key,
+            target_table: j.to.split('.').slice(-1)[0],
+            target_column: j.key,
+            cardinality: 'many_to_one',
+          });
+          ok += 1;
+        } catch (e) {
+          failures.push(`${j.from}→${j.to} (${j.key}): ${e instanceof Error ? e.message : 'error'}`);
+        }
+      }
+      pendingModelRef.current = null;
+      push({
+        role: 'agent',
+        stage,
+        kind: 'text',
+        text:
+          `Created — ${ok}/${model.joins.length} relationships written to the project (audited events). ` +
+          `Open Explore & Design to see the ERD live${failures.length ? `. Failed: ${failures.join('; ')}` : ''}. ` +
+          `Deployment still waits for your validation.`,
+      });
+      toast(`Model created — ${ok} relationships in the project.`, { icon: '✅' });
+    },
+    [projectId, setProjectId, push, stage],
+  );
+
   /**
    * Replay executor — "automated via deployment, like other projects": re-runs
    * the STORED user turns of the restored process through the normal governed
@@ -1023,7 +1121,23 @@ export default function AgentCanvas() {
             }`}
           >
             {m.text && (
-              <p className={m.kind === 'error' ? 'text-red-600 dark:text-red-400' : ''}>{m.text}</p>
+              <p
+                className={`whitespace-pre-line ${m.kind === 'error' ? 'text-red-600 dark:text-red-400' : ''}`}
+              >
+                {m.text.replace(/\\n/g, '\n').replace(/\*\*/g, '')}
+              </p>
+            )}
+            {m.kind === 'model' && m.model && (
+              <div className="mt-2 space-y-2">
+                <ModelFlow model={m.model} />
+                <Button
+                  size="sm"
+                  onClick={() => void createModel(m.model as ProposedModel)}
+                  disabled={busy}
+                >
+                  Create this model in the project
+                </Button>
+              </div>
             )}
             {m.kind === 'proposals' && (
               <div className="mt-2 space-y-2">
