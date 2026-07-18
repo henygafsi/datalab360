@@ -200,6 +200,12 @@ function DraftCard({
 
 const ADMIN_ROLES = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'];
 
+/** Snowflake session tokens live ~55 min — detect expiry in any caught error. */
+function isAuthExpired(err: unknown): boolean {
+  const s = String((err as Error)?.message ?? err ?? '');
+  return /390114|08001|token has expired|must authenticate|not authenticated|status code 401/i.test(s);
+}
+
 export default function AgentCanvas() {
   const stage = useAtomValue(activeStageAtom);
   const [grounding, setGrounding] = useAtom(groundingTablesAtom);
@@ -287,7 +293,10 @@ export default function AgentCanvas() {
         }
       }
       return null;
-    } catch {
+    } catch (e) {
+      // Expired warehouse session must surface as itself — never as the
+      // misleading "no readable schema for your role".
+      if (isAuthExpired(e)) throw new Error('AUTH_EXPIRED');
       return null;
     }
   }, [setGrounding]);
@@ -494,12 +503,23 @@ export default function AgentCanvas() {
         offerGovernanceRemediation(draft, text);
       }
     } catch (err) {
-      push({
-        role: 'agent',
-        stage,
-        kind: 'error',
-        text: err instanceof Error ? err.message : 'The agent call failed.',
-      });
+      if (isAuthExpired(err)) {
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text:
+            'Your warehouse session has expired (tokens last ~55 minutes). Reload the page to sign in ' +
+            'again, then re-ask — your grounding and the governed flow pick up right where you left off.',
+        });
+      } else {
+        push({
+          role: 'agent',
+          stage,
+          kind: 'error',
+          text: err instanceof Error ? err.message : 'The agent call failed.',
+        });
+      }
     } finally {
       setBusy(false);
     }
