@@ -99,7 +99,19 @@ export default function ValidationRail() {
   const fetchDeployments = useCallback(
     () =>
       projectId
-        ? listDeployments(projectId).then((r) => r.deployments ?? [])
+        ? listDeployments(projectId).then((r) => {
+            // The route may answer flat ({deployments}) or enveloped
+            // ({data:{deployments}}) — normalize to a real array, always.
+            const raw = r as unknown as {
+              deployments?: unknown;
+              data?: { deployments?: unknown };
+            };
+            if (Array.isArray(r)) return r as ExploreDeployment[];
+            if (Array.isArray(raw.deployments)) return raw.deployments as ExploreDeployment[];
+            if (Array.isArray(raw.data?.deployments))
+              return raw.data.deployments as ExploreDeployment[];
+            return [] as ExploreDeployment[];
+          })
         : Promise.resolve([] as ExploreDeployment[]),
     [projectId],
   );
@@ -108,7 +120,7 @@ export default function ValidationRail() {
     initialData: [],
     enabled: Boolean(projectId),
   });
-  const deployments = deploymentsQ.data ?? [];
+  const deployments = Array.isArray(deploymentsQ.data) ? deploymentsQ.data : [];
 
   const pending = approvals.filter((a) => a.status === 'pending');
   const filter = (list: StageCapability[]) =>
