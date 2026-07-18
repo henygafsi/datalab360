@@ -503,6 +503,21 @@ export default function AgentCanvas() {
         });
         push({ role: 'agent', stage, kind: 'draft', draft, intent: text });
         offerGovernanceRemediation(draft, text);
+      } else if (stage === 'models' && grounding.length) {
+        // Modeling asks are DESIGN answers, not SQL drafts and not empty
+        // propose calls on a fresh project: answer with a concrete model
+        // (facts/dimensions/keys) mapped to the REAL grounded tables.
+        const res = await generateCompletion({
+          prompt:
+            `You are the Data360 modeling agent (user role: ${role}). Grounded tables: ` +
+            `${grounding.join(', ')}. The user asks: "${text}". Propose a concrete data model ` +
+            `answer (max 10 sentences, no markdown headers): name the fact table(s), the dimension ` +
+            `tables, the join keys you would expect, and one modeling risk to check. Use ONLY these ` +
+            `real table names. End by saying they can draft the build pipeline at the Workflow step — ` +
+            `nothing is deployed without their validation.`,
+          model: 'mistral-large2',
+        });
+        push({ role: 'agent', stage, kind: 'text', text: res.response });
       } else if (projectId) {
         const res = await proposeAgentActions(projectId, text);
         push({
