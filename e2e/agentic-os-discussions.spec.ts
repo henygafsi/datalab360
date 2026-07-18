@@ -276,6 +276,37 @@ test('WORKFLOW CREATOR: rendered ETL draft → real workflow in one click', asyn
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
+test('PRODUCE PRODUCTS: scan estate → opportunities → one-click Build product auto-generates a real project+model', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const box = page.getByLabel('Ask the agent');
+  await expect(box).toBeVisible({ timeout: 30_000 });
+
+  await box.fill('what products can I build from my data?');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  await expect(page.getByText(/Scanning your estate/), 'scan narrated').toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/product opportunities to build/), 'opportunities card').toBeVisible({ timeout: 120_000 });
+  await page.screenshot({ path: path.join(SHOTS, 'opportunities.png') });
+  record('opportunities-scan', await lastAgentCard(page));
+
+  const build = page.getByRole('button', { name: 'Build product' }).first();
+  const gotOpp = await build.isVisible().catch(() => false);
+  if (gotOpp) {
+    await build.click();
+    await expect(page.getByText(/Built PRODUCT_/), 'product auto-generated').toBeVisible({ timeout: 120_000 });
+    await expect(page.getByText(/[1-5]\/5/).first(), 'built product grounded').toBeVisible();
+    record('product-built', await lastAgentCard(page));
+    await page.screenshot({ path: path.join(SHOTS, 'product-built.png') });
+  } else {
+    record('product-built', 'no build-ready opportunity in estate — honest empty state');
+  }
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
 test('ASSESSMENT: scan intent → staged narration → hero + honest availability + findings + Generate solution', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];

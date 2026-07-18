@@ -80,7 +80,8 @@ export type AgentCardKind =
   | 'model'
   | 'plan'
   | 'tiles'
-  | 'assessment';
+  | 'assessment'
+  | 'opportunities';
 
 export type AssessAvailability =
   | 'Available'
@@ -160,6 +161,8 @@ export interface AgentMessage {
   tiles?: TableTile[];
   /** kind='assessment' — scanned-account assessment report. */
   assessment?: AssessmentReport;
+  /** kind='opportunities' — functional product-opportunity scan. */
+  opportunities?: import('./scanOpportunities').OpportunityScan;
   at: number;
 }
 
@@ -177,9 +180,9 @@ export const STAGE_META: Record<LifecycleStage, StageMetaEntry> = {
     label: 'Sources',
     hint: 'Pick the data objects that ground the agent',
     starters: [
-      'Assess my Snowflake account (scan, findings, solutions)',
+      'What products can I build from my data? (scan & generate)',
+      'Build a data product from my best source schema',
       'Profile the selected tables: row counts, freshness and quality signals',
-      'Which of my sources are stale or unmonitored?',
     ],
     guide:
       'Step 1 · Sources. The tree on the left lists exactly what YOUR role is granted to see — databases, schemas, tables (with live quality scores). Pick up to 5 tables to ground me; from then on I answer about that selection, on real data. You can also pick a project (top right) so I read its full context.',
