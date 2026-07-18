@@ -310,10 +310,18 @@ export default function AgentCanvas() {
   const tryAutoAct = useCallback(
     async (text: string): Promise<boolean> => {
       const ident = '[A-Za-z_][A-Za-z0-9_]*';
-      // "create a project (from this / from DB.SCHEMA)" → the agent creates a
-      // DRAFT project itself: app-registry write only, NO deployment/DDL —
-      // deploys keep requiring human validation.
-      if (/(create|make|build|start|cr[ée]e[rz]?|nouveau)\s+.*\b(project|projet)\b/i.test(text)) {
+      // "create/I want a project (from this / from DB.SCHEMA)" → the agent
+      // creates a DRAFT project itself: app-registry write only, NO
+      // deployment/DDL — deploys keep requiring human validation. The intent
+      // net is wide on purpose: FR/EN want-verbs, agglutinations ("jeveu") and
+      // common typos included — a mention of a wanted project must never fall
+      // through to a doomed SQL draft.
+      const wantsProject =
+        /\b(projec?t|projet)\b/i.test(text) &&
+        /(create|make|build|start|new|want|need|design|desin|cr[ée]e|nouveau|veu[xt]?|jeveu|voudrais|besoin|g[ée]n[èe]re|lance|fais|donne)/i.test(
+          text,
+        );
+      if (wantsProject) {
         let tables = grounding;
         if (!tables.length) {
           const schemaRef = text.match(new RegExp(`\\b(${ident})\\.(${ident})\\b`));
@@ -353,6 +361,18 @@ export default function AgentCanvas() {
         });
         setProjectId(created.project_id);
         setTouched((t) => ({ ...t, [stage]: 'done' }));
+        const wantsStar = /[ée]toile|star/i.test(text);
+        const wantsIngestion = /ingest/i.test(text);
+        const nextSteps = [
+          wantsStar
+            ? 'you asked for a star model — go to the Models step and say "propose a star schema", I draft it over these tables'
+            : 'model it at the Models step',
+          wantsIngestion
+            ? 'for ingestion, the Ingestion step recommends the right mode (full/incremental/CDC) per table'
+            : null,
+        ]
+          .filter(Boolean)
+          .join('; ');
         push({
           role: 'agent',
           stage,
@@ -360,7 +380,7 @@ export default function AgentCanvas() {
           text:
             `Done — I created draft project ${created.project_name} (${created.project_id}) with ` +
             `${tables.length} source tables and selected it as the active project. Nothing was deployed — ` +
-            `model it here (Models step) or draft its pipeline (Workflow step); any deployment will wait for your validation.`,
+            `${nextSteps}; any deployment will wait for your validation.`,
         });
         return true;
       }

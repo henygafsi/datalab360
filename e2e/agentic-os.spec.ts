@@ -229,6 +229,22 @@ test('PROJECT OUTPUT: "create a project from the sources" → agent discovers, g
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
+test('PROJECT OUTPUT (FR familier): "jeveu un projet desin…etoile…ingestion" → project created, star+ingestion guidance', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const promptBox = page.getByLabel('Ask the agent');
+  await expect(promptBox).toBeVisible({ timeout: 30_000 });
+
+  await promptBox.fill('jeveu un projet desin and explore ac une modelisation en etoile et ajoute les table / ingestion');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  await expect(page.getByText(/Done — I created draft project AGENTIC_/), 'project created from FR phrasing').toBeVisible({
+    timeout: 120_000,
+  });
+  await expect(page.getByText(/star schema/), 'star-model guidance').toBeVisible();
+  await expect(page.getByText(/full\/incremental\/CDC/), 'ingestion guidance').toBeVisible();
+});
+
 test('COHERENT FLOW: ground real table → question (live draft) → chart → lineage, zero mutations', async ({ page }) => {
   test.setTimeout(420_000);
   const errors: string[] = [];
