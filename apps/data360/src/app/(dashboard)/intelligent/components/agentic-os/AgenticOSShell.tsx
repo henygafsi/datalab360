@@ -18,6 +18,7 @@ import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import StageRail from './StageRail';
 import AgentCanvas from './AgentCanvas';
 import ValidationRail from './ValidationRail';
+import LifecycleDock from './LifecycleDock';
 
 export default function AgenticOSShell() {
   const [leftOpen, setLeftOpen] = useState(false);
@@ -25,6 +26,12 @@ export default function AgenticOSShell() {
 
   return (
     <div className="flex h-[calc(100dvh-330px)] min-h-[480px] flex-col overflow-hidden rounded-b-xl bg-white dark:bg-gray-900">
+      {/* WAW lifecycle dock — the project's 6 phases, current highlighted */}
+      <div className="hidden shrink-0 border-b border-gray-200 dark:border-gray-700 sm:block">
+        <ErrorBoundary>
+          <LifecycleDock />
+        </ErrorBoundary>
+      </div>
       {/* Compact toolbar — visible whenever a rail is collapsed (below xl) */}
       <div className="flex shrink-0 items-center gap-2 border-b border-gray-200 px-2 py-1.5 dark:border-gray-700 xl:hidden">
         <button

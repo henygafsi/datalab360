@@ -65,6 +65,7 @@ import {
   activeProjectIdAtom,
   activeStageAtom,
   approvalsAtom,
+  projectsAtom,
   groundingTablesAtom,
   messagesAtom,
   nextId,
@@ -278,6 +279,7 @@ export default function AgentCanvas() {
   const [projectId, setProjectId] = useAtom(activeProjectIdAtom);
   const [messages, setMessages] = useAtom(messagesAtom);
   const setApprovals = useSetAtom(approvalsAtom);
+  const setProjectsDir = useSetAtom(projectsAtom);
   const setTouched = useSetAtom(touchedStagesAtom);
   const { role } = useAuth();
   const isAdmin = ADMIN_ROLES.includes(role);
@@ -295,7 +297,12 @@ export default function AgentCanvas() {
     let alive = true;
     getUnifiedProjects({ mine_only: true, limit: 12, offset: 0 })
       .then((res) => {
-        if (alive) setProjects(res.projects ?? []);
+        if (alive) {
+          const list = res.projects ?? [];
+          setProjects(list);
+          // Share id→name with the AI Agent panel.
+          setProjectsDir(list.map((p) => ({ project_id: p.project_id, name: p.name })));
+        }
       })
       .catch(() => {
         /* degrade: propose falls back to grounded drafts */

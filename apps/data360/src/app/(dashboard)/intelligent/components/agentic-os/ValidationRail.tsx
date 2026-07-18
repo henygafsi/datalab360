@@ -20,6 +20,7 @@ import {
   PiHandPalm,
   PiMagnifyingGlass,
   PiRocketLaunch,
+  PiRobot,
   PiWarningCircle,
   PiX,
 } from 'react-icons/pi';
@@ -29,7 +30,14 @@ import { listDeployments } from '@/app/services/api/exploreDesignApi';
 import type { ExploreDeployment } from '@/app/services/api/types';
 import { STAGE_META } from './types';
 import type { StageCapability } from './types';
-import { activeProjectIdAtom, activeStageAtom, approvalsAtom } from './store';
+import {
+  activeProjectIdAtom,
+  activeStageAtom,
+  approvalsAtom,
+  groundingTablesAtom,
+  projectsAtom,
+  touchedStagesAtom,
+} from './store';
 import { useCapabilityMap } from './useCapabilityMap';
 
 const RISK_TINT: Record<string, string> = {
@@ -87,12 +95,40 @@ const DEPLOY_TONE: Record<string, string> = {
   rejected: 'text-gray-400',
 };
 
+const STAGE_ORDER_7 = [
+  'sources',
+  'models',
+  'ingestion',
+  'workflow',
+  'dashboards',
+  'questions',
+  'dependencies',
+] as const;
+
 export default function ValidationRail() {
   const stage = useAtomValue(activeStageAtom);
   const [approvals, setApprovals] = useAtom(approvalsAtom);
   const projectId = useAtomValue(activeProjectIdAtom);
+  const grounding = useAtomValue(groundingTablesAtom);
+  const touched = useAtomValue(touchedStagesAtom);
+  const projects = useAtomValue(projectsAtom);
   const caps = useCapabilityMap(stage);
   const [q, setQ] = useState('');
+
+  // AI Agent header (WAW): what's understood + next actions + progress.
+  const doneCount = STAGE_ORDER_7.filter((s) => touched[s] === 'done').length;
+  const progressPct = Math.round((doneCount / STAGE_ORDER_7.length) * 100);
+  const projectName = projects.find((p) => p.project_id === projectId)?.name ?? null;
+  const understood = projectName
+    ? `Working on ${projectName}${grounding.length ? ` · ${grounding.length} table${grounding.length === 1 ? '' : 's'} grounded` : ''}.`
+    : grounding.length
+      ? `Grounded on ${grounding.length} table${grounding.length === 1 ? '' : 's'} — ready to model, chart or question them.`
+      : 'Tell me your objective or pick tables — I ground on your data and build from there.';
+  const nextActions = projectName
+    ? ['Propose a star model (Models)', 'Generate a dashboard (Dashboards)', 'Draft the pipeline (Workflow)']
+    : grounding.length
+      ? ['Ask a question on the selection', 'Chart it (Dashboards)', 'Build a product from it']
+      : ['Pick tables in the left rail', 'Or ask "what products can I build?"', 'Or "assess my account"'];
 
   // Live deployment follow-up for the active project (SSE-refreshed) — the
   // discussion's outputs are projects, and their deploys are tracked here.
@@ -147,6 +183,50 @@ export default function ValidationRail() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
+      {/* AI Agent header — WAW: online, understood, next actions, progress */}
+      <section
+        aria-label="AI Agent"
+        className="shrink-0 border-b border-gray-200 px-2 pb-2.5 pt-1 dark:border-gray-700"
+      >
+        <div className="mb-1.5 flex items-center gap-1.5">
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <PiRobot className="h-3.5 w-3.5" aria-hidden />
+          </span>
+          <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">AI Agent</span>
+          <span className="flex items-center gap-1 text-[10px] text-emerald-500">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden /> Online
+          </span>
+        </div>
+        <p className="rounded-md bg-primary/[0.04] px-2 py-1.5 text-[11px] leading-relaxed text-gray-600 dark:text-gray-300">
+          <span className="font-medium text-gray-700 dark:text-gray-200">Understood · </span>
+          {understood}
+        </p>
+        <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+          Next actions
+        </p>
+        <ol className="mt-0.5 space-y-0.5">
+          {nextActions.map((a, i) => (
+            <li key={a} className="flex items-start gap-1.5 text-[11px] text-gray-600 dark:text-gray-300">
+              <span className="mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-gray-100 text-[8px] font-semibold text-gray-500 dark:bg-gray-800">
+                {i + 1}
+              </span>
+              <span className="min-w-0">{a}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-2 flex items-center gap-2">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-800">
+            <div
+              className="h-full rounded-full bg-primary transition-all"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <span className="shrink-0 text-[10px] text-gray-400">
+            {doneCount} of {STAGE_ORDER_7.length} · {progressPct}%
+          </span>
+        </div>
+      </section>
+
       {/* Approval queue */}
       <section aria-label="Pending validations" className="shrink-0 border-b border-gray-200 pb-2 dark:border-gray-700">
         <h3 className="flex items-center gap-1.5 px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">

@@ -24,6 +24,9 @@ export const messagesAtom = atom<AgentMessage[]>([]);
 /** Mutating proposals awaiting a human decision in the right rail. */
 export const approvalsAtom = atom<PendingApproval[]>([]);
 
+/** Lightweight project directory (id→name) shared with the AI Agent panel. */
+export const projectsAtom = atom<{ project_id: string; name: string }[]>([]);
+
 /** Stages the user has interacted with (visited or produced a result on). */
 export const touchedStagesAtom = atom<Partial<Record<LifecycleStage, 'active' | 'done'>>>({});
 
