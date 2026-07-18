@@ -25,13 +25,14 @@ import { PiPaperPlaneRight, PiPlay, PiHandPalm, PiCaretDown, PiCaretUp } from 'r
 import apiClient from '@/lib/api-client';
 import { useAuth } from '@/hooks/useAuth';
 import { getDatabases, getSchemas, getTables, getTableColumns } from '@/app/services/mapping';
+import { fetchNodeKpis } from '@/app/services/catalog/nodeKpis';
 import { createExploreProject } from '@/app/services/api/exploreDesignApi';
 import { createRelationship } from '@/app/services/explore-design';
 import { createDashboard, createWidget, nlToChart } from '@/app/services/api/biDashboardApi';
 import type { DashboardChartType, BIDashboardChartConfig } from '@/app/services/api/types';
 import ModelFlow from './ModelFlow';
 import PlanFlow from './PlanFlow';
-import type { ProposedModel, ProposedPlan } from './types';
+import type { ProposedModel, ProposedPlan, TableTile } from './types';
 import {
   addEvent,
   getUnifiedProjects,
@@ -137,10 +138,15 @@ function DraftCard({
   const aggregationBlocked =
     !ok && /aggregation policy/i.test(draft.tested?.error ?? '') && Boolean(onRetryAggregated);
 
-  // Chart drafts render as a REAL chart (recharts), not a rows table.
+  // Charts render as REAL charts; SQL answers auto-visualize too when the
+  // result shape fits (≥2 rows, one categorical + numeric measures).
   const sample = draft.tested?.sample ?? [];
   let chartConfig: React.ComponentProps<typeof DynamicChart>['config'] | null = null;
-  if (draft.module === 'chart' && ok && sample.length > 0) {
+  if (
+    (draft.module === 'chart' || draft.module === 'sql') &&
+    ok &&
+    sample.length > (draft.module === 'sql' ? 1 : 0)
+  ) {
     const cols = draft.tested?.columns?.length ? draft.tested.columns : Object.keys(sample[0]);
     const xKey = cols.find((c) => typeof sample[0][c] !== 'number') ?? cols[0];
     const measures = cols.filter((c) => c !== xKey && typeof sample[0][c] === 'number');
@@ -169,7 +175,7 @@ function DraftCard({
           <span className="text-gray-500">{draft.tested.sample_rows} sample rows</span>
         )}
       </div>
-      {chartConfig ? (
+      {chartConfig && (
         <div className="h-72 rounded-lg border border-gray-100 p-2 dark:border-gray-800">
           {typeof draft.draft?.title === 'string' && (
             <p className="px-1 pb-1 text-xs font-medium text-gray-600 dark:text-gray-300">
@@ -180,12 +186,12 @@ function DraftCard({
             <DynamicChart config={chartConfig} />
           </div>
         </div>
-      ) : (
+      )}
+      {(!chartConfig || draft.module === 'sql') &&
         draft.tested?.sample &&
         draft.tested.sample.length > 0 && (
           <RowsPreview columns={draft.tested.columns ?? []} rows={draft.tested.sample} />
-        )
-      )}
+        )}
       {draft.tested?.steps && draft.tested.steps.length > 0 && (
         <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
           {draft.tested.steps.map((s) => (
@@ -653,6 +659,34 @@ export default function AgentCanvas() {
           contextSummary: res.context_summary,
           text: res.error,
         });
+      } else if (
+        stage === 'ingestion' &&
+        grounding.length &&
+        /status|freshness|frais|load|charge|profile|quality|signal|score/i.test(text)
+      ) {
+        // Ingestion visual-first: LIVE platform signals per grounded table
+        // (persisted goal-axis KPIs — real data, zero LLM, instant tiles).
+        const tiles: TableTile[] = await Promise.all(
+          grounding.map(async (fqn) => {
+            const [db, sch, tbl] = fqn.split('.');
+            const k = await fetchNodeKpis(db, sch, tbl).catch(() => null);
+            return {
+              fqn,
+              dq: k?.dq ?? null,
+              gov: k?.gov ?? null,
+              cost: k?.cost ?? null,
+              perfMs: k?.perfMs ?? null,
+              trust: k?.trust ?? null,
+            };
+          }),
+        );
+        push({
+          role: 'agent',
+          stage,
+          kind: 'tiles',
+          tiles,
+          text: 'Live platform signals for your grounded tables (— = never computed; use dry-run in the tree to refresh):',
+        });
       } else if (/plan|phase|steps?|[ée]tapes?|finish|roadmap|process|how (do|to)|comment (faire|finir)/i.test(text)) {
         // Planning asks answer as a CLICKABLE FLOW, never numbered prose:
         // each node maps to a lifecycle step and walks the plan on click.
@@ -851,6 +885,15 @@ export default function AgentCanvas() {
           .filter((e): e is Record<string, unknown> => typeof e === 'object' && e !== null)
           .sort((a, b) => String(a.timestamp ?? '').localeCompare(String(b.timestamp ?? '')));
         if (!events.length) return;
+        // Restore the stored grounding too — the process resumes with its
+        // context, not just its transcript.
+        for (let i = events.length - 1; i >= 0; i--) {
+          const g = (events[i].details as { grounding?: string[] } | undefined)?.grounding;
+          if (Array.isArray(g) && g.length) {
+            setGrounding((cur) => (cur.length ? cur : g));
+            break;
+          }
+        }
         const restored: AgentMessage[] = events.map((e) => {
           const details = (e.details ?? {}) as { text?: string; kind?: string };
           return {
@@ -1335,6 +1378,48 @@ export default function AgentCanvas() {
               </div>
             )}
             {m.kind === 'plan' && m.plan && <PlanFlow plan={m.plan} />}
+            {m.kind === 'tiles' && m.tiles && (
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {m.tiles.map((t) => (
+                  <div
+                    key={t.fqn}
+                    className="rounded-lg border border-gray-200 p-2 dark:border-gray-700"
+                  >
+                    <p className="truncate text-xs font-semibold" title={t.fqn}>
+                      {t.fqn.split('.').slice(-1)[0]}
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
+                      {(
+                        [
+                          ['DQ', t.dq],
+                          ['GOV', t.gov],
+                          ['COST', t.cost],
+                          ['TRUST', t.trust],
+                        ] as const
+                      ).map(([label, v]) => (
+                        <span
+                          key={label}
+                          className={`rounded-full px-1.5 py-0.5 font-medium ${
+                            v == null
+                              ? 'bg-gray-100 text-gray-400 dark:bg-gray-800'
+                              : v >= 70
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                : v >= 40
+                                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                                  : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                          }`}
+                        >
+                          {label} {v == null ? '—' : Math.round(v)}
+                        </span>
+                      ))}
+                      <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-gray-500 dark:bg-gray-800">
+                        PERF {t.perfMs == null ? '—' : `${Math.round(t.perfMs)}ms`}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {m.kind === 'proposals' && (
               <div className="mt-2 space-y-2">
                 {m.contextSummary && (

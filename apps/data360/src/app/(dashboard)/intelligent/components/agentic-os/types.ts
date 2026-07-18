@@ -78,7 +78,18 @@ export type AgentCardKind =
   | 'lineage'
   | 'flow'
   | 'model'
-  | 'plan';
+  | 'plan'
+  | 'tiles';
+
+/** Live per-table platform signals rendered as KPI tiles (real, no LLM). */
+export interface TableTile {
+  fqn: string;
+  dq: number | null;
+  gov: number | null;
+  cost: number | null;
+  perfMs: number | null;
+  trust: number | null;
+}
 
 /** A generated multi-step plan, rendered as a clickable flow (never prose). */
 export interface ProposedPlan {
@@ -116,6 +127,8 @@ export interface AgentMessage {
   model?: ProposedModel;
   /** kind='plan' — the generated plan as a clickable step flow. */
   plan?: ProposedPlan;
+  /** kind='tiles' — live per-table platform KPI tiles. */
+  tiles?: TableTile[];
   at: number;
 }
 

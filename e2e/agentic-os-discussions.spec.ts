@@ -122,6 +122,8 @@ test('PROCESS REUSE: discussion stored in the project timeline, restored after r
   await expect(page.getByText(/Restored \d+ turns from this project/), 'process restored').toBeVisible({
     timeout: 30_000,
   });
+  // The context restores with the transcript: grounding chips come back too.
+  await expect(page.getByText(/[1-5]\/5/).first(), 'grounding restored with the process').toBeVisible();
   await expect(page.getByText(/424242/).first(), 'stored turn content restored').toBeVisible();
   // The process map (ReactFlow) renders for step-by-step validation…
   await expect(page.getByText('Process map — click a step to validate/continue it:')).toBeVisible();
@@ -197,6 +199,27 @@ test('CHART CREATOR: tested chart draft → real BI widget in one click', async 
     record('chart-widget-created', 'draft did not pass — honest failure shown, no widget button');
   }
   await page.screenshot({ path: path.join(SHOTS, 'chart-widget.png') });
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
+test('INGESTION TILES: freshness ask → live per-table KPI tiles (real platform data, no LLM)', async ({ page }) => {
+  test.setTimeout(240_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  const stepNav = page.getByRole('navigation', { name: 'Lifecycle steps' });
+  await expect(stepNav).toBeVisible({ timeout: 30_000 });
+
+  await ask(page, 'sélectionne les tables de DRAFT_SOURCE.RETAIL_DW');
+  await expect(page.getByText(/Done — I grounded/)).toBeVisible({ timeout: 60_000 });
+  await stepNav.getByRole('button', { name: /Ingestion/i }).click();
+  await ask(page, 'What is the load status and freshness of my selection?');
+
+  await expect(page.getByText(/Live platform signals/), 'tiles card posted').toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/^DQ /).first(), 'KPI chips rendered').toBeVisible();
+  record('ingestion-tiles', await lastAgentCard(page));
+  await page.screenshot({ path: path.join(SHOTS, 'ingestion-tiles.png') });
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
