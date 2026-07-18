@@ -86,6 +86,36 @@ test('STAR SCHEMA on a fresh agent-created project (the user flow, end to end)',
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
+test('PROCESS REUSE: discussion stored in the project timeline, restored after reload', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('navigation', { name: 'Lifecycle steps' })).toBeVisible({ timeout: 30_000 });
+
+  // 1 · The agent creates a project; the discussion turns persist to its timeline.
+  await ask(page, 'create a project from the best source tables');
+  await expect(page.getByText(/Done — I created draft project AGENTIC_/)).toBeVisible({ timeout: 120_000 });
+  const marker = `remember the number 424242`; // distinctive turn to find after reload
+  await ask(page, marker);
+  await page.waitForTimeout(12_000); // conversational reply + event persistence
+
+  // 2 · Fresh page = fresh session store; reopening the project restores the process.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('navigation', { name: 'Lifecycle steps' })).toBeVisible({ timeout: 30_000 });
+  const osProject = page.getByRole('button', { name: /AGENTIC_/ }).first();
+  await expect(osProject, 'OS projects history panel lists the stored process').toBeVisible({ timeout: 30_000 });
+  await osProject.click();
+
+  await expect(page.getByText(/Restored \d+ turns from this project/), 'process restored').toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByText(/424242/).first(), 'stored turn content restored').toBeVisible();
+  record('process-reuse', await lastAgentCard(page));
+  await page.screenshot({ path: path.join(SHOTS, 'process-reuse.png') });
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
 test('GOVERNANCE discussion: agg-policy table → honest denial + remediation pre-selected + aggregated retry', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));

@@ -9,8 +9,12 @@
  * to the grounding context (max 5 — the coco draft limit), which every agent
  * call is grounded on.
  */
+import { useCallback } from 'react';
 import { useAtom } from 'jotai';
 import { Badge } from 'rizzui';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
 import {
   PiDatabase,
   PiTreeStructure,
@@ -22,7 +26,6 @@ import {
   PiX,
 } from 'react-icons/pi';
 import type { IconType } from 'react-icons';
-import { useAtomValue } from 'jotai';
 import { toast } from 'react-hot-toast';
 import SourceTree from '@/app/(dashboard)/sources/components/SourceTree';
 import CatalogGraphCanvas from '@/app/(dashboard)/explore-design/catalog/components/CatalogGraphCanvas';
@@ -51,7 +54,21 @@ export default function StageRail() {
   const [activeStage, setActiveStage] = useAtom(activeStageAtom);
   const [grounding, setGrounding] = useAtom(groundingTablesAtom);
   const [touched, setTouched] = useAtom(touchedStagesAtom);
-  const projectId = useAtomValue(activeProjectIdAtom);
+  const [projectId, setProjectId] = useAtom(activeProjectIdAtom);
+
+  // Cockpit: the OS's own usage history — every project born from (or touched
+  // by) an agentic discussion; selecting one restores its stored process.
+  const fetchOsProjects = useCallback(async () => {
+    const res = await getUnifiedProjects({ mine_only: true, limit: 50, offset: 0 });
+    return (res.projects ?? []).filter(
+      (p) => p.tags?.includes('agentic-os') || p.name?.startsWith('AGENTIC_'),
+    );
+  }, []);
+  const osProjectsQ = useCacheAwareQuery<UnifiedProject[]>(fetchOsProjects, {
+    cacheKeys: [CACHE_KEYS.PROJECTS],
+    initialData: [],
+  });
+  const osProjects = Array.isArray(osProjectsQ.data) ? osProjectsQ.data : [];
 
   const selectStage = (s: LifecycleStage) => {
     setActiveStage(s);
@@ -141,6 +158,36 @@ export default function StageRail() {
           </div>
         )}
       </div>
+
+      {/* OS usage history — stored agentic processes; one click resumes one. */}
+      {osProjects.length > 0 && (
+        <div className="mt-3 shrink-0 border-t border-gray-200 px-2 pt-3 dark:border-gray-700">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              OS projects
+            </span>
+            <span className="text-[11px] text-gray-400">{osProjects.length}</span>
+          </div>
+          <ul className="max-h-28 space-y-0.5 overflow-y-auto">
+            {osProjects.slice(0, 12).map((p) => (
+              <li key={p.project_id}>
+                <button
+                  type="button"
+                  onClick={() => setProjectId(p.project_id)}
+                  className={`w-full truncate rounded-md px-2 py-1 text-left text-xs transition-colors ${
+                    projectId === p.project_id
+                      ? 'bg-primary/10 font-medium text-primary'
+                      : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
+                  }`}
+                  title={`${p.name} — resume this stored discussion/process`}
+                >
+                  {p.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Stage picker — Sources embeds the real catalog tree; every step
           offers starter prompts so the first run always succeeds. */}

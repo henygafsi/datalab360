@@ -26,7 +26,12 @@ import apiClient from '@/lib/api-client';
 import { useAuth } from '@/hooks/useAuth';
 import { getDatabases, getSchemas, getTables } from '@/app/services/mapping';
 import { createExploreProject } from '@/app/services/api/exploreDesignApi';
-import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
+import {
+  addEvent,
+  getUnifiedProjects,
+  listEvents,
+  type UnifiedProject,
+} from '@/app/services/api/projectsApi';
 import { generateCompletion } from '@/app/services/cortex';
 import { cocoDraft, type CocoDraftResult, type DraftModule } from '@/app/services/cortex/draft';
 import {
@@ -257,8 +262,30 @@ export default function AgentCanvas() {
         project_name: projects.find((p) => p.project_id === projectId)?.name ?? null,
         preview: (m.text ?? '').slice(0, 160),
       });
+      // With an active project, the turn ALSO lands in the project's own
+      // timeline (PROJECT_EVENTS) — the discussion becomes a stored process,
+      // replayable when the project is reopened, visible in every History
+      // surface like any classic module's events. Guides are skipped (chrome,
+      // not process). Fire-and-forget: persistence must never block the chat.
+      if (projectId && m.kind !== 'guide') {
+        void addEvent(projectId, {
+          module_name: 'agentic_os',
+          event_type: 'DISCUSSION_TURN',
+          event_subtype: m.stage,
+          status: m.kind === 'error' ? 'FAILED' : 'SUCCESS',
+          entity_type: m.role,
+          details: {
+            kind: m.kind,
+            text: (m.text ?? '').slice(0, 600),
+            grounding,
+            ...(m.intent ? { intent: m.intent } : {}),
+          },
+        }).catch(() => {
+          /* timeline persistence is best-effort */
+        });
+      }
     },
-    [setMessages, trackFeatureClick, projectId, projects],
+    [setMessages, trackFeatureClick, projectId, projects, grounding],
   );
 
   /**
@@ -682,6 +709,53 @@ export default function AgentCanvas() {
     },
     [push, setApprovals, stage],
   );
+
+  // Reused-as-process: opening a project restores its stored discussion from
+  // the PROJECT_EVENTS timeline — the conversation continues where the project
+  // left off, across sessions and users.
+  const restoredForRef = useRef<string>('');
+  useEffect(() => {
+    if (!projectId || restoredForRef.current === projectId) return;
+    restoredForRef.current = projectId;
+    void listEvents(projectId, {
+      module_name: 'agentic_os',
+      event_type: 'DISCUSSION_TURN',
+      limit: 100,
+    })
+      .then((res) => {
+        const events = (Array.isArray(res) ? res : (res as { events?: unknown[] })?.events ?? [])
+          .filter((e): e is Record<string, unknown> => typeof e === 'object' && e !== null)
+          .sort((a, b) => String(a.timestamp ?? '').localeCompare(String(b.timestamp ?? '')));
+        if (!events.length) return;
+        const restored: AgentMessage[] = events.map((e) => {
+          const details = (e.details ?? {}) as { text?: string; kind?: string };
+          return {
+            id: nextId('hist'),
+            role: e.entity_type === 'user' ? 'user' : 'agent',
+            stage: (String(e.event_subtype ?? 'sources') as LifecycleStage) ?? 'sources',
+            kind: 'text',
+            text: details.text ?? '',
+            at: Date.parse(String(e.timestamp ?? '')) || Date.now(),
+          };
+        });
+        setMessages((prev) => {
+          if (prev.some((m) => m.id.startsWith('hist'))) return prev;
+          const divider: AgentMessage = {
+            id: nextId('hist_div'),
+            role: 'agent',
+            stage,
+            kind: 'guide',
+            text: `Restored ${restored.length} turns from this project's stored discussion — the process continues where it left off.`,
+            at: Date.now(),
+          };
+          return [...restored, divider, ...prev];
+        });
+      })
+      .catch(() => {
+        /* no stored discussion — fresh start */
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   // Guided discussion: entering a step for the first time, the agent opens it
   // (what this step is, what your role can do here). On Dependencies with a
