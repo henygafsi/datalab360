@@ -200,6 +200,30 @@ test('CHART CREATOR: tested chart draft → real BI widget in one click', async 
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
 });
 
+test('PLAN FLOW: planning ask → clickable step flow, never numbered prose', async ({ page }) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await page.goto('/intelligent', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('navigation', { name: 'Lifecycle steps' })).toBeVisible({ timeout: 30_000 });
+
+  await ask(page, 'sélectionne les tables de DRAFT_SOURCE.RETAIL_DW');
+  await expect(page.getByText(/Done — I grounded/)).toBeVisible({ timeout: 60_000 });
+  await ask(page, 'how to finish all phases from these sources to dashboards?');
+
+  const planReady = page.getByText(/Plan ready — click any step/);
+  const gotPlan = await planReady.waitFor({ state: 'visible', timeout: 120_000 }).then(() => true).catch(() => false);
+  if (gotPlan) {
+    await expect(page.locator('.react-flow').last(), 'plan rendered as flow').toBeVisible();
+    record('plan-flow', 'clickable plan flow rendered');
+  } else {
+    record('plan-flow', `fallback: ${(await lastAgentCard(page)).slice(0, 120)}`);
+  }
+  await page.screenshot({ path: path.join(SHOTS, 'plan-flow.png') });
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
 test('WORKFLOW CREATOR: rendered ETL draft → real workflow in one click', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];

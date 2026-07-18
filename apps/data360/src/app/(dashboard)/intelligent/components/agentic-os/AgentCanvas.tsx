@@ -30,7 +30,8 @@ import { createRelationship } from '@/app/services/explore-design';
 import { createDashboard, createWidget, nlToChart } from '@/app/services/api/biDashboardApi';
 import type { DashboardChartType, BIDashboardChartConfig } from '@/app/services/api/types';
 import ModelFlow from './ModelFlow';
-import type { ProposedModel } from './types';
+import PlanFlow from './PlanFlow';
+import type { ProposedModel, ProposedPlan } from './types';
 import {
   addEvent,
   getUnifiedProjects,
@@ -652,6 +653,32 @@ export default function AgentCanvas() {
           contextSummary: res.context_summary,
           text: res.error,
         });
+      } else if (/plan|phase|steps?|[ée]tapes?|finish|roadmap|process|how (do|to)|comment (faire|finir)/i.test(text)) {
+        // Planning asks answer as a CLICKABLE FLOW, never numbered prose:
+        // each node maps to a lifecycle step and walks the plan on click.
+        const res = await generateCompletion({
+          prompt:
+            `Grounded tables: ${grounding.join(', ')}. User (role ${role}) asks: "${text}". ` +
+            `Answer ONLY a strict JSON object, no prose: {"steps":[{"title":"<short>", ` +
+            `"stage":"sources|models|ingestion|workflow|dashboards|questions|dependencies", ` +
+            `"detail":"<one concrete actionable ask the user could send at that step>"}]} — max 6 steps, ` +
+            `each mapped to the right lifecycle stage, grounded on the real table names.`,
+          model: 'mistral-large2',
+        });
+        const raw = (res.response ?? '').replace(/\\n/g, '\n').replace(/\\"/g, '"');
+        try {
+          const parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) as ProposedPlan;
+          if (!Array.isArray(parsed.steps) || !parsed.steps.length) throw new Error('bad');
+          push({
+            role: 'agent',
+            stage,
+            kind: 'plan',
+            plan: parsed,
+            text: 'Plan ready — click any step to jump there with the ask prefilled:',
+          });
+        } catch {
+          push({ role: 'agent', stage, kind: 'text', text: raw });
+        }
       } else {
         const draft = await cocoDraft({
           module: 'sql',
@@ -1279,15 +1306,35 @@ export default function AgentCanvas() {
             {m.kind === 'model' && m.model && (
               <div className="mt-2 space-y-2">
                 <ModelFlow model={m.model} />
-                <Button
-                  size="sm"
-                  onClick={() => void createModel(m.model as ProposedModel)}
-                  disabled={busy}
-                >
-                  Create this model in the project
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      const mod = m.model as ProposedModel;
+                      const j = mod.joins[0];
+                      void submit(
+                        `Preview 10 sample rows validating the star model: join ${mod.fact} with ${mod.dims[0] ?? ''}${j ? ` on ${j.key}` : ''} (aggregate-safe if a policy applies)`,
+                      );
+                    }}
+                  >
+                    Preview joined sample
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => void createModel(m.model as ProposedModel)}
+                    disabled={busy}
+                  >
+                    Create this model in the project
+                  </Button>
+                  <span className="text-[10px] text-gray-400">
+                    creation free (registry) · execution costed after approval — dry-run first
+                  </span>
+                </div>
               </div>
             )}
+            {m.kind === 'plan' && m.plan && <PlanFlow plan={m.plan} />}
             {m.kind === 'proposals' && (
               <div className="mt-2 space-y-2">
                 {m.contextSummary && (

@@ -77,7 +77,13 @@ export type AgentCardKind =
   | 'guide'
   | 'lineage'
   | 'flow'
-  | 'model';
+  | 'model'
+  | 'plan';
+
+/** A generated multi-step plan, rendered as a clickable flow (never prose). */
+export interface ProposedPlan {
+  steps: { title: string; stage: LifecycleStage; detail: string }[];
+}
 
 /** A READY generated data model: previewed as a flow, validated into creation. */
 export interface ProposedModel {
@@ -108,6 +114,8 @@ export interface AgentMessage {
   intent?: string;
   /** kind='model' — the generated, ready-to-create data model. */
   model?: ProposedModel;
+  /** kind='plan' — the generated plan as a clickable step flow. */
+  plan?: ProposedPlan;
   at: number;
 }
 
