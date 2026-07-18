@@ -40,6 +40,7 @@ import {
   type ProposedAction,
 } from '@/app/services/cortex/agent';
 import LineageFlow from '@/app/shared/command-center/LineageFlow';
+import ProcessFlow from './ProcessFlow';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 
 // recharts is heavy — load the chart renderer only when a chart card exists.
@@ -204,6 +205,36 @@ function DraftCard({
 }
 
 const ADMIN_ROLES = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'];
+
+/**
+ * Route registry pre-check (no more Run→404): the backend's real OpenAPI path
+ * list is fetched once per session; endpoint proposals are validated against
+ * it BEFORE a Run button is offered. Unknown path → disabled honest chip.
+ */
+let routeRegexes: RegExp[] | null = null;
+let routesPromise: Promise<RegExp[]> | null = null;
+async function loadRouteRegistry(): Promise<RegExp[]> {
+  if (routeRegexes) return routeRegexes;
+  routesPromise ??= apiClient
+    .get('/openapi.json', { timeout: 30_000 })
+    .then((res) => {
+      const paths = Object.keys((res.data?.paths ?? {}) as Record<string, unknown>);
+      routeRegexes = paths.map(
+        (p) => new RegExp(`^${p.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[^}]+\}/g, '[^/]+')}$`),
+      );
+      return routeRegexes;
+    })
+    .catch(() => {
+      routesPromise = null;
+      return [];
+    });
+  return routesPromise;
+}
+function routeExists(path: string, regs: RegExp[]): boolean {
+  if (!regs.length) return true; // registry unavailable → don't block, runtime 404 handling remains
+  const clean = path.split('?')[0];
+  return regs.some((r) => r.test(clean));
+}
 
 /** Snowflake session tokens live ~55 min — detect expiry in any caught error. */
 function isAuthExpired(err: unknown): boolean {
@@ -547,11 +578,19 @@ export default function AgentCanvas() {
         push({ role: 'agent', stage, kind: 'text', text: res.response });
       } else if (projectId) {
         const res = await proposeAgentActions(projectId, text);
+        // Pre-check every endpoint proposal against the REAL route registry —
+        // unavailable ones are marked now, never offered as a doomed Run.
+        const regs = await loadRouteRegistry();
+        const checked = (res.actions ?? []).map((a) =>
+          a.kind === 'endpoint' && a.endpoint?.path && !routeExists(a.endpoint.path, regs)
+            ? ({ ...a, _rejected: 'route_missing' } as typeof a)
+            : a,
+        );
         push({
           role: 'agent',
           stage,
           kind: 'proposals',
-          proposals: res.actions ?? [],
+          proposals: checked,
           contextSummary: res.context_summary,
           text: res.error,
         });
@@ -745,10 +784,18 @@ export default function AgentCanvas() {
             role: 'agent',
             stage,
             kind: 'guide',
-            text: `Restored ${restored.length} turns from this project's stored discussion — the process continues where it left off.`,
+            text: `Restored ${restored.length} turns from this project's stored discussion — the process continues where it left off. Validate each step on the process map below; Run process replays it read-only; Export turns builds a training set.`,
             at: Date.now(),
           };
-          return [...restored, divider, ...prev];
+          const flowCard: AgentMessage = {
+            id: nextId('hist_flow'),
+            role: 'agent',
+            stage,
+            kind: 'flow',
+            text: 'Process map — click a step to validate/continue it:',
+            at: Date.now(),
+          };
+          return [...restored, divider, flowCard, ...prev];
         });
       })
       .catch(() => {
@@ -789,6 +836,93 @@ export default function AgentCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
+  /**
+   * Replay executor — "automated via deployment, like other projects": re-runs
+   * the STORED user turns of the restored process through the normal governed
+   * pipeline. Read-only outcomes re-materialize on fresh data; every mutating
+   * step parks in the validation rail exactly like live. Bounded (≤5 turns),
+   * sequential, traced as PROCESS_REPLAY events in the project timeline.
+   */
+  const [replaying, setReplaying] = useState(false);
+  const replayProcess = useCallback(async () => {
+    if (!projectId || replaying) return;
+    const turns = messages
+      .filter((m) => m.id.startsWith('hist') && m.role === 'user' && (m.text ?? '').trim())
+      .slice(0, 5);
+    if (!turns.length) {
+      toast('No stored user turns to replay for this project.', { icon: 'ℹ️' });
+      return;
+    }
+    setReplaying(true);
+    void addEvent(projectId, {
+      module_name: 'agentic_os',
+      event_type: 'PROCESS_REPLAY',
+      status: 'STARTED',
+      details: { turns: turns.length },
+    }).catch(() => {});
+    push({
+      role: 'agent',
+      stage,
+      kind: 'text',
+      text: `Replaying this process — ${turns.length} stored turns, read-only; anything mutating waits for you.`,
+    });
+    try {
+      for (const t of turns) {
+        // eslint-disable-next-line no-await-in-loop
+        await submit(t.text as string);
+      }
+      void addEvent(projectId, {
+        module_name: 'agentic_os',
+        event_type: 'PROCESS_REPLAY',
+        status: 'SUCCESS',
+        details: { turns: turns.length },
+      }).catch(() => {});
+    } finally {
+      setReplaying(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, replaying, messages, stage, push]);
+
+  /** Train-from-process: the stored pairs (intent → tested outcome) as JSONL. */
+  const exportTraining = useCallback(() => {
+    const pairs: { prompt: string; completion: string; stage: string }[] = [];
+    for (let i = 0; i < messages.length - 1; i++) {
+      const u = messages[i];
+      const a = messages[i + 1];
+      if (u.role === 'user' && a.role === 'agent' && a.kind !== 'guide' && (u.text ?? '').trim()) {
+        pairs.push({
+          prompt: u.text ?? '',
+          completion: (a.text ?? '') || `[${a.kind}]`,
+          stage: u.stage,
+        });
+      }
+    }
+    if (!pairs.length) {
+      toast('No prompt→outcome pairs in this discussion yet.', { icon: 'ℹ️' });
+      return;
+    }
+    const blob = new Blob([pairs.map((p) => JSON.stringify(p)).join('\n')], {
+      type: 'application/jsonl',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `agentic-process-${projectId || 'session'}-training.jsonl`;
+    link.click();
+    URL.revokeObjectURL(url);
+    if (projectId) {
+      void addEvent(projectId, {
+        module_name: 'agentic_os',
+        event_type: 'EXPORT_TRAINING_SET',
+        status: 'SUCCESS',
+        details: { pairs: pairs.length },
+      }).catch(() => {});
+    }
+    toast(`Training set exported — ${pairs.length} grounded pairs (JSONL, fine-tune ready).`, {
+      icon: '🎓',
+    });
+  }, [messages, projectId]);
+
   // Pane-decoupling events: right rail hands approvals off to the validation
   // chat; left rail prefills the prompt with a step starter.
   useEffect(() => {
@@ -825,6 +959,27 @@ export default function AgentCanvas() {
         >
           as {role}
         </span>
+        {projectId && (
+          <>
+            <button
+              type="button"
+              onClick={() => void replayProcess()}
+              disabled={replaying || busy}
+              className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              title="Replay the stored process read-only on fresh data — mutations still wait for you"
+            >
+              {replaying ? 'Replaying…' : 'Run process'}
+            </button>
+            <button
+              type="button"
+              onClick={exportTraining}
+              className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              title="Export this process's prompt→outcome pairs as a fine-tune-ready JSONL"
+            >
+              Export turns
+            </button>
+          </>
+        )}
         <span className="ml-auto">
           <select
             aria-label="Project context"
@@ -876,9 +1031,10 @@ export default function AgentCanvas() {
                   <p className="text-xs text-gray-500">{m.contextSummary}</p>
                 )}
                 {(m.proposals ?? []).map((a, idx) => {
+                  const routeMissing = a._rejected === 'route_missing';
                   const mutating = !(
                     (a.kind === 'coco_sql' && a.sql && !a._rejected) ||
-                    (a.kind === 'endpoint' && a.endpoint?.method === 'GET')
+                    (a.kind === 'endpoint' && a.endpoint?.method === 'GET' && !routeMissing)
                   );
                   const key = `${m.id}:${idx}`;
                   return (
@@ -895,6 +1051,14 @@ export default function AgentCanvas() {
                             {a.risk}
                           </span>
                         )}
+                        {routeMissing ? (
+                          <span
+                            className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-400 dark:bg-gray-800"
+                            title="Pre-checked against the live route registry: this backend has no route for it"
+                          >
+                            not on this backend
+                          </span>
+                        ) : (
                         <Button
                           size="sm"
                           variant={mutating ? 'outline' : 'solid'}
@@ -911,6 +1075,7 @@ export default function AgentCanvas() {
                             </>
                           )}
                         </Button>
+                        )}
                       </div>
                       {a.rationale && (
                         <p className="mt-1 text-xs text-gray-500">{a.rationale}</p>
@@ -943,6 +1108,7 @@ export default function AgentCanvas() {
                 <RowsPreview columns={m.rowColumns ?? []} rows={m.rows ?? []} />
               </div>
             )}
+            {m.kind === 'flow' && <ProcessFlow messages={messages} />}
             {m.kind === 'lineage' && m.lineageFqn && (
               <div className="mt-2 h-64 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
                 <LineageFlow

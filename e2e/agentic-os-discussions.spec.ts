@@ -111,6 +111,12 @@ test('PROCESS REUSE: discussion stored in the project timeline, restored after r
     timeout: 30_000,
   });
   await expect(page.getByText(/424242/).first(), 'stored turn content restored').toBeVisible();
+  // The process map (ReactFlow) renders for step-by-step validation…
+  await expect(page.getByText('Process map — click a step to validate/continue it:')).toBeVisible();
+  await expect(page.locator('.react-flow').first(), 'flow canvas mounted').toBeVisible({ timeout: 20_000 });
+  // …and the process is executable + trainable from the context line.
+  await expect(page.getByRole('button', { name: 'Run process' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Export turns' })).toBeVisible();
   record('process-reuse', await lastAgentCard(page));
   await page.screenshot({ path: path.join(SHOTS, 'process-reuse.png') });
   expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);

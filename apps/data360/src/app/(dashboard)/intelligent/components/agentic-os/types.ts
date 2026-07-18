@@ -68,7 +68,15 @@ export interface PendingApproval {
 }
 
 /** Conversation entries rendered in the center canvas. */
-export type AgentCardKind = 'text' | 'proposals' | 'draft' | 'rows' | 'error' | 'guide' | 'lineage';
+export type AgentCardKind =
+  | 'text'
+  | 'proposals'
+  | 'draft'
+  | 'rows'
+  | 'error'
+  | 'guide'
+  | 'lineage'
+  | 'flow';
 
 export interface AgentMessage {
   id: string;
