@@ -751,14 +751,54 @@ function KpiRowSkeleton({ count = 6 }: { count?: number }) {
   );
 }
 
-function TabErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+/**
+ * TabErrorState — a CALM "still computing / temporarily unavailable" panel,
+ * not an alarming red error. On large Snowflake accounts these cross-account
+ * ACCOUNT_USAGE scans legitimately exceed the API's cold-scan window; the
+ * result caches once it lands, so a retry usually resolves it. A genuine
+ * error (permission, invalid identifier) passes `tone="error"` for the red
+ * treatment. Replaces the stacking "Failed to load …" toasts (2026-08-24).
+ */
+function TabErrorState({
+  message,
+  onRetry,
+  tone = 'computing',
+}: {
+  message: string;
+  onRetry: () => void;
+  tone?: 'computing' | 'error';
+}) {
+  const err = tone === 'error';
   return (
-    <div className="m-4 flex flex-col items-center justify-center gap-3 rounded-xl border border-red-100 bg-red-50 p-8 text-center dark:border-red-900/50 dark:bg-red-950/40">
-      <AlertTriangle className="h-6 w-6 text-red-500" />
-      <p className="text-sm font-medium text-red-700 dark:text-red-300">{message}</p>
+    <div
+      className={cn(
+        'm-4 flex flex-col items-center justify-center gap-2 rounded-xl border p-8 text-center',
+        err
+          ? 'border-red-100 bg-red-50 dark:border-red-900/50 dark:bg-red-950/40'
+          : 'border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/40',
+      )}
+    >
+      {err ? (
+        <AlertTriangle className="h-6 w-6 text-red-500" />
+      ) : (
+        <RefreshCw className="h-6 w-6 text-amber-500" />
+      )}
+      <p className={cn('text-sm font-medium', err ? 'text-red-700 dark:text-red-300' : 'text-amber-800 dark:text-amber-200')}>
+        {err ? message : 'Still computing for this account'}
+      </p>
+      {!err && (
+        <p className="max-w-md text-xs text-amber-700 dark:text-amber-300">
+          {message}. This account&apos;s scan is taking longer than the live window; it caches once ready, so a retry usually resolves it.
+        </p>
+      )}
       <button
         onClick={onRetry}
-        className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50"
+        className={cn(
+          'mt-1 inline-flex items-center gap-1.5 rounded-md border bg-white px-3 py-1.5 text-xs font-medium',
+          err
+            ? 'border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50'
+            : 'border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50',
+        )}
       >
         <RefreshCw className="h-3.5 w-3.5" /> Retry
       </button>
@@ -1818,8 +1858,8 @@ function CommandCenterDashboardInner() {
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
       };
-    } catch (err) {
-      toast.error('Failed to load governance & grants data');
+    } catch {
+      /* toast removed 2026-08-24: slow-endpoint 500s degrade inline (skeleton→empty), not as stacking popups */
     } finally {
       setTabLoading((p) => ({ ...p, 'governance-grants': false }));
     }
@@ -1838,8 +1878,8 @@ function CommandCenterDashboardInner() {
       // Stamps the MERGED tab's cache key ('usage-performance') — this lane is
       // fetched together with fetchPerformance for the Usage & Performance tab.
       tabDataCache.current['usage-performance'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
-    } catch (err) {
-      toast.error('Failed to load data operations overview');
+    } catch {
+      /* toast removed: inline degrade */
     } finally {
       setTabLoading((p) => ({ ...p, 'data-ops': false }));
     }
@@ -1862,8 +1902,8 @@ function CommandCenterDashboardInner() {
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
       };
-    } catch (err) {
-      toast.error('Failed to load performance data');
+    } catch {
+      /* toast removed: inline degrade */
     } finally {
       setTabLoading((p) => ({ ...p, performance: false }));
     }
@@ -1880,12 +1920,10 @@ function CommandCenterDashboardInner() {
           end_date: filters.end_date,
         }),
         // Cortex spend is a secondary overlay on the FinOps tab — if it fails
-        // the primary cost breakdown still renders. Surface the failure as a
-        // non-blocking toast (instead of silently swallowing) then degrade to
-        // null so the tab stays usable.
+        // the primary cost breakdown still renders. Degrade silently to null
+        // (no toast: it's an optional overlay; the AI-Spend KPI just hides).
         getCortexCosts(filters.days, filters).catch((e) => {
           console.warn('[CommandCenter] cortex-costs failed:', e);
-          toast.error(getApiErrorMessage(e) || 'Could not load AI cost overlay');
           return null;
         }),
       ]);
@@ -1928,8 +1966,8 @@ function CommandCenterDashboardInner() {
       setInfra(data);
       setLastUpdated(new Date());
       tabDataCache.current['compute'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
-    } catch (err) {
-      toast.error('Failed to load compute data');
+    } catch {
+      /* toast removed: inline degrade */
     } finally {
       setTabLoading((p) => ({ ...p, compute: false }));
     }
@@ -1973,8 +2011,8 @@ function CommandCenterDashboardInner() {
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
       };
-    } catch (err) {
-      toast.error('Failed to load platform activity');
+    } catch {
+      /* toast removed: inline degrade */
     } finally {
       setTabLoading((p) => ({ ...p, 'platform-activity': false }));
     }
