@@ -3984,7 +3984,7 @@ const OverviewTab = memo(function OverviewTab({
           }
           return (
             <div className="h-24">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={96}>
                 <PieChart>
                   <Pie
                     data={data}
@@ -4593,7 +4593,7 @@ const ProjectsTab = memo(function ProjectsTab({
         <SectionCard title="Projects by Type">
           {typePieData.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <PieChart>
                   <Pie
                     data={typePieData}
@@ -4628,7 +4628,7 @@ const ProjectsTab = memo(function ProjectsTab({
         <SectionCard title="Deployment Status">
           {statusPieData.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <PieChart>
                   <Pie
                     data={statusPieData}
@@ -4668,7 +4668,7 @@ const ProjectsTab = memo(function ProjectsTab({
         <SectionCard title="Daily Execution Runs">
           {executionDaily.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <BarChart data={executionDaily}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
@@ -4716,7 +4716,7 @@ const ProjectsTab = memo(function ProjectsTab({
         <SectionCard title="Projects by Status">
           {statusByProjectData.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <PieChart>
                   <Pie
                     data={statusByProjectData}
@@ -4749,7 +4749,7 @@ const ProjectsTab = memo(function ProjectsTab({
         <SectionCard title="Deployment Duration & Steps">
           {executionDaily.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <ComposedChart data={executionDaily}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
@@ -5590,7 +5590,7 @@ const CostTab = memo(function CostTab({
       {/* Daily Credit Trend */}
       <SectionCard title={`Daily Credit Trend (${periodDays}d)`}>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={256}>
             <AreaChart data={dailyTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
@@ -5662,7 +5662,7 @@ const CostTab = memo(function CostTab({
         >
           {hasComputeStorageSplit && computeVsStorage.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <AreaChart data={computeVsStorage}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
@@ -5757,7 +5757,7 @@ const CostTab = memo(function CostTab({
         <SectionCard title="Cost by Category">
           {categoryPieData.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <PieChart>
                   <Pie
                     data={categoryPieData}
@@ -5785,7 +5785,7 @@ const CostTab = memo(function CostTab({
 
         <SectionCard title="Top Warehouses">
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={256}>
               <BarChart data={topWarehouses.slice(0, 10)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
@@ -5815,7 +5815,7 @@ const CostTab = memo(function CostTab({
         <SectionCard title="Storage Breakdown">
           {storagePieData.length > 0 ? (
             <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={192}>
                 <PieChart>
                   <Pie
                     data={storagePieData}
@@ -6231,7 +6231,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
       <SectionCard title={`Login Activity (${data.period_days ?? 7}d)`}>
         {hasLoginActivity ? (
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={256}>
               <ComposedChart data={loginTrend}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
@@ -6330,7 +6330,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         <SectionCard title="Login by Client Type">
           {clientTypes.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <PieChart>
                   <Pie
                     data={clientTypes.map((c: any) => ({
@@ -6617,7 +6617,7 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
         <SectionCard title="Policy Distribution">
           {policyPieData.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <PieChart>
                   <Pie
                     data={policyPieData}
@@ -6649,7 +6649,7 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
         <SectionCard title="Grants by Object Type">
           {objectCoverage.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <PieChart>
                   <Pie
                     data={objectCoverage.map((o: any) => ({
@@ -6685,7 +6685,7 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <SectionCard title="Grants per Role (Top 15)">
           <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={320}>
               <BarChart data={roleGrantDist.slice(0, 15)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
@@ -6709,7 +6709,7 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
 
         <SectionCard title="Privilege Distribution (Top 15)">
           <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={320}>
               <BarChart data={privilegeDist.slice(0, 15)}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis
@@ -7029,7 +7029,7 @@ const DataOperationsTab = memo(function DataOperationsTab({
         <GridCell className="xl:col-span-6">
         <SectionCard title="Daily Loading Volume">
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={256}>
               <ComposedChart data={dailyVolume}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis
@@ -7144,7 +7144,7 @@ const DataOperationsTab = memo(function DataOperationsTab({
         <GridCell className="xl:col-span-6">
         <SectionCard title="Task Execution Trend">
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={256}>
               <ComposedChart data={taskDaily}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis
@@ -7403,7 +7403,7 @@ const PerformanceTab = memo(function PerformanceTab({
       <GridCell className="xl:col-span-6">
       <SectionCard title={`Query Latency Trend (${data.period_days ?? 7}d)`}>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={256}>
             <ComposedChart data={queryPerf}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
@@ -7452,7 +7452,7 @@ const PerformanceTab = memo(function PerformanceTab({
         {/* Query Type Distribution */}
         <SectionCard title="Query Type Distribution">
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={256}>
               <BarChart data={queryTypes.slice(0, 8)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
@@ -7479,7 +7479,7 @@ const PerformanceTab = memo(function PerformanceTab({
         {/* Compilation vs Execution */}
         <SectionCard title="Compile vs Execute Time">
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={256}>
               <AreaChart data={queryPerf}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis
@@ -7633,7 +7633,7 @@ const ComputeTab = memo(function ComputeTab({
         <GridCell className="xl:col-span-6">
         <SectionCard title="Warehouse Credits">
           <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={288}>
               <BarChart data={sorted.slice(0, 12)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
@@ -8655,7 +8655,7 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
       >
         {safeUserSessions.length >= 3 ? (
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={256}>
               <ComposedChart
                 data={backfillDailySeries(
                   safeUserSessions,
@@ -8725,7 +8725,7 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         <SectionCard title="Module Usage">
           {modulePieData.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <PieChart>
                   <Pie
                     data={modulePieData}
@@ -8765,7 +8765,7 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         <SectionCard title="Action Breakdown">
           {moduleActionData.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <BarChart data={moduleActionData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
@@ -8864,7 +8864,7 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         <SectionCard title="Top Users by Activity">
           {topUsersData.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <BarChart data={topUsersData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
@@ -8903,7 +8903,7 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         <SectionCard title="Activity by Client Type">
           {clientTypesPie.length > 0 ? (
             <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <PieChart>
                   <Pie
                     data={clientTypesPie}
