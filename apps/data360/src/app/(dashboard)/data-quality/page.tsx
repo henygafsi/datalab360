@@ -3909,6 +3909,7 @@ export default function DataQualityPage() {
       {/* Related Modules */}
       <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
         <span>Related:</span>
+        <a href="/data-quality/actions" className="text-blue-600 dark:text-blue-400 hover:underline">All actions (capability catalog)</a>
         <a href="/governance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Policies)</a>
         <a href="/observability" className="text-blue-600 dark:text-blue-400 hover:underline">Observability (Lineage)</a>
         <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Catalog)</a>

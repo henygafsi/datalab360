@@ -3563,6 +3563,7 @@ export default function DataSourceConnectionPage() {
             {/* Related Modules */}
             <div className="mt-6 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
               <span>Related:</span>
+              <a href="/data-source-connection/actions" className="text-blue-600 dark:text-blue-400 hover:underline">All actions (capability catalog)</a>
               <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Model Sources)</a>
               <a href="/workflow" className="text-blue-600 dark:text-blue-400 hover:underline">Workflow (Ingest Pipelines)</a>
             </div>

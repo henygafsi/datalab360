@@ -17,6 +17,7 @@
  *     recommendations: Recommendation[] }
  */
 import apiClient from '@/lib/api-client';
+import { dedupGet } from '@/app/services/request-dedup';
 
 const PREFIX = '/command-center';
 
@@ -77,15 +78,20 @@ export interface CommandCenterRecommendations {
   recommendations: Recommendation[];
 }
 
-/** Cross-module recommendations across every dimension. */
+/** Cross-module recommendations across every dimension.
+ *  Deduped: the account tab fires this from three consumers at once
+ *  (SectionRail score-cards, AiAdvisor, TopProblemsPanel) — one request
+ *  serves all of them (60s TTL, backend caches 30 min anyway). */
 export async function getCommandCenterRecommendations(
   days?: number,
 ): Promise<CommandCenterRecommendations> {
-  const { data } = await apiClient.get<CommandCenterRecommendations>(
-    `${PREFIX}/recommendations`,
-    { params: days != null ? { days } : undefined },
-  );
-  return data;
+  return dedupGet(`cc:recos:${days ?? 'default'}`, 60_000, async () => {
+    const { data } = await apiClient.get<CommandCenterRecommendations>(
+      `${PREFIX}/recommendations`,
+      { params: days != null ? { days } : undefined },
+    );
+    return data;
+  });
 }
 
 /** Recommendations scoped to a single dimension (e.g. "security", "cost"). */

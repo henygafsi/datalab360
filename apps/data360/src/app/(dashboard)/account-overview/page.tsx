@@ -127,8 +127,13 @@ function ViewportFitFrame({ children }: { children: ReactNode }) {
   return (
     <div
       ref={ref}
-      style={{ minHeight: height != null ? `${height}px` : 'calc(100dvh - 200px)' }}
-      className="min-h-[240px] pb-1"
+      // Zero-scroll contract (2026-08-24): the frame is a CEILING, not a floor.
+      // Fixed height + overflow-hidden ⇒ the PAGE can never scroll; a tab whose
+      // content exceeds the budget scrolls inside its Board (TabGridKit), the
+      // one sanctioned internal scroll surface. (The old min-height "growth
+      // contract" let every tab grow the page to 1.9–2.3× the viewport.)
+      style={{ height: height != null ? `${height}px` : 'calc(100dvh - 200px)' }}
+      className="min-h-[240px] overflow-hidden pb-1"
     >
       {children}
     </div>

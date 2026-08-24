@@ -40,9 +40,12 @@ export function UsersSurface() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
-        <ImportButton title="Import Users" />
-        <AddUserButton onAddUserSuccess={handleAddUserSuccess} />
+      {/* Compact toolbar actions — these buttons default to w-full (a
+          container-query breakpoint that never fires in the embedded governance
+          surface), which rendered two page-wide primary buttons. Pin w-auto. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <ImportButton title="Import Users" className="w-auto" />
+        <AddUserButton onAddUserSuccess={handleAddUserSuccess} className="w-auto" />
       </div>
       {/* Per-page KPI strip — total · active · disabled · roles (honest "—"). */}
       <GovernanceKpiStrip scope="users" />

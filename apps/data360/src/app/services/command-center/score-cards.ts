@@ -19,6 +19,7 @@
  */
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
+import { dedupGet } from '@/app/services/request-dedup';
 
 const PREFIX = '/command-center';
 
@@ -112,6 +113,14 @@ export interface ScoreCard {
   value: number | string | null;
   /** Unit suffix for the headline value (e.g. "%", "credits", "ms"). */
   unit: string;
+  /**
+   * The headline metric's OWN name (e.g. "MFA adoption", "DMF coverage",
+   * "Failure rate", "Total credits"). The value shown is this specific metric,
+   * NOT a composite dimension score — so a compact rail chip must label it by
+   * the metric ("MFA 0%") and never by the dimension code ("GOV 0%"), which
+   * would read as "governance is 0%". Undefined when no headline was computed.
+   */
+  metricLabel?: string;
   status: ScoreCardStatus;
   /** Open recommendations for this dimension. */
   openRecos: number;
@@ -211,11 +220,16 @@ async function fetchKpiDimension(
 async function fetchRecommendations(
   days?: number,
 ): Promise<RecommendationsResponse> {
-  const { data } = await apiClient.get<RecommendationsResponse>(
-    `${PREFIX}/recommendations`,
-    { params: days != null ? { days } : undefined },
-  );
-  return data;
+  // Same endpoint + same dedup key as getCommandCenterRecommendations
+  // (recommendations.ts) — the rail and the account-tab advisors share ONE
+  // request per window instead of three concurrent identical GETs.
+  return dedupGet(`cc:recos:${days ?? 'default'}`, 60_000, async () => {
+    const { data } = await apiClient.get<RecommendationsResponse>(
+      `${PREFIX}/recommendations`,
+      { params: days != null ? { days } : undefined },
+    );
+    return data;
+  });
 }
 
 /**
@@ -268,6 +282,7 @@ function buildLiveCard(
     label: DIMENSION_LABEL[dimension],
     value: hasValue ? headline.value : null,
     unit: headline?.unit ?? '',
+    metricLabel: headline?.label ?? undefined,
     status,
     openRecos: counts?.open ?? 0,
     criticalRecos: counts?.critical ?? 0,

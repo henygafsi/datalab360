@@ -683,12 +683,16 @@ function BIDashboardPage() {
     },
     [trackFeatureClick],
   );
-  // Lazy signal fetch: fires when the cost/governance axis is open AND the
-  // list is in (covers axis-opened-while-list-loading; loaders are idempotent).
+  // Signal fetch. Governance loads EAGERLY once the list is in so the KPI
+  // strip's Published / Shares fill with real numbers on landing instead of
+  // bare "—" (which reads as broken to an executive). It is bounded to the
+  // top-N most-recent dashboards and idempotent, so the cost is small. Cost
+  // stays lazy — it is heavier and credit attribution on a shared warehouse is
+  // unreliable, so it earns its "opens on the Cost axis" deferral.
   useEffect(() => {
-    if (projectsLoading || !cockpitOpen) return;
-    if (activeAxis === 'governance') loadGov();
-    if (activeAxis === 'cost') loadCost();
+    if (projectsLoading) return;
+    loadGov();
+    if (cockpitOpen && activeAxis === 'cost') loadCost();
   }, [projectsLoading, cockpitOpen, activeAxis, loadGov, loadCost]);
 
   // Docked AI Build hand-off — the rail creates the dashboard (shell or
@@ -876,6 +880,7 @@ function BIDashboardPage() {
               {/* Cross-module context (formerly the slim strip under the KPI row). */}
               <div className="flex items-center gap-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-2.5 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-900/50 dark:text-gray-400">
                 <span>Related:</span>
+                <a href="/bi-dashboard/actions" className="text-blue-600 dark:text-blue-400 hover:underline">All actions (capability catalog)</a>
                 <Link href="/explore-design" className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1">
                   <Compass className="w-3 h-3" /> Explore &amp; Design (Source Tables)
                 </Link>

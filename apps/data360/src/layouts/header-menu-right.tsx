@@ -50,8 +50,11 @@ export default function HeaderMenuRight() {
         )}
       </button>
 
-      {/* Active deployments chip — visible only when something is in flight */}
-      <DeploymentProgressChip />
+      {/* Active deployments chip — visible only when something is in flight.
+          Desktop-only: at ~200px it would overflow a phone header. */}
+      <div className="hidden md:block">
+        <DeploymentProgressChip />
+      </div>
 
       {/* Notifications */}
       <NotificationDropdown>

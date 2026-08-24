@@ -26,6 +26,31 @@ const MAX_MODULES = 8;
 const MAX_EVENT_TYPES = 6;
 const MAX_FAILURES = 3;
 
+// Module-level cache + in-flight dedup. The card remounts when its parent lane
+// flips loading→loaded (different tree shapes) and it renders on two tabs
+// (account, platform-activity) — without this, each mount refires the ~20s
+// cold Cortex call. Server caches 15 min; mirror a short client TTL here.
+const DIGEST_TTL_MS = 5 * 60_000;
+let digestCache: { at: number; data: ActivityInsightResponse } | null = null;
+let digestInFlight: Promise<ActivityInsightResponse> | null = null;
+
+async function fetchDigestOnce(force = false): Promise<ActivityInsightResponse> {
+  if (!force && digestCache && Date.now() - digestCache.at < DIGEST_TTL_MS) {
+    return digestCache.data;
+  }
+  if (!digestInFlight) {
+    digestInFlight = getPlatformActivityInsight()
+      .then((d) => {
+        digestCache = { at: Date.now(), data: d };
+        return d;
+      })
+      .finally(() => {
+        digestInFlight = null;
+      });
+  }
+  return digestInFlight;
+}
+
 /** "2026-07-10T06:38" → "06:38" (keeps the raw string when unparsable). */
 function fmtTime(at: string): string {
   const t = at.split('T')[1];
@@ -59,11 +84,11 @@ export default function ActivityDigestCard() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true);
     setError(null);
     try {
-      setData(await getPlatformActivityInsight());
+      setData(await fetchDigestOnce(force));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load the activity digest');
     } finally {

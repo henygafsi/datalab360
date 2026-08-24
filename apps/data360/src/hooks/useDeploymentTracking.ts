@@ -1,12 +1,19 @@
 /**
  * Hooks for deployment tracking.
  *
- * useActiveDeployments — polls /deployments/track every 10s. Drives the
- *   header progress chip and the "Resume deploy" links in the notification
- *   dropdown.
+ * useActiveDeployments — event-driven: fetches once on mount, then refreshes
+ *   on the shared SSE `deployments` cache-invalidation events (every lifecycle
+ *   mutation fires one server-side) + on tab re-focus, with a slow 120s safety
+ *   poll as the only timer. Drives the header progress chip and the "Resume
+ *   deploy" links in the notification dropdown.
  *
- * useDeploymentDetail — single-deployment polling (2s while non-terminal,
- *   then halts). Used by the deploy popup when the user reopens it.
+ *   (Previously this polled /deployments/track every 10s on every dashboard
+ *   page — ~8.6k Snowflake queries/day per open tab. The SSE channel already
+ *   existed; the poll was redundant.)
+ *
+ * useDeploymentDetail — single-deployment refresh on the same SSE events
+ *   (step mutations invalidate `deployments`) + a 30s safety poll while the
+ *   deployment is non-terminal. Used by the deploy popup when reopened.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -16,17 +23,20 @@ import {
   type DeploymentRow,
 } from '@/app/services/deployment-tracking';
 import { pingNotifications } from '@/hooks/useNotifications';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useOnCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 
-const ACTIVE_POLL_MS = 10_000;
+// Slow safety net only — SSE invalidation is the primary refresh signal.
+const ACTIVE_POLL_MS = 120_000;
 // Exponential backoff cap for repeated failures (e.g. DEPLOYMENTS table not
-// yet bootstrapped). 10s → 20s → 40s → … → cap 5min. Resets on success.
-const ACTIVE_MAX_POLL_MS = 300_000;
+// yet bootstrapped). 120s → 240s → … → cap 10min. Resets on success.
+const ACTIVE_MAX_POLL_MS = 600_000;
 // Hard stop after this many consecutive failures. The /deployments/track
 // endpoint is one we know returns 404 in some deploys, so a permanent
-// stop keeps the console quiet and reduces XHR noise to zero after ~30s.
+// stop keeps the console quiet and reduces XHR noise to zero.
 const ACTIVE_MAX_FAILURES = 5;
-const DETAIL_POLL_MS = 2_000;
-const DETAIL_POLL_MS_BG = 5_000; // when tab is hidden
+const DETAIL_POLL_MS = 30_000;
+const DETAIL_POLL_MS_BG = 60_000; // when tab is hidden
 
 // ----- Active deployments (header chip + dropdown) ----------------------
 export function useActiveDeployments() {
@@ -69,6 +79,14 @@ export function useActiveDeployments() {
     }
   }, []);
 
+  // Primary refresh signal: the shared SSE stream. Every deployment lifecycle
+  // mutation fires an `deployments` invalidation server-side, so the chip
+  // updates within the SSE latency instead of a poll tick.
+  useOnCacheInvalidation([CACHE_KEYS.DEPLOYMENTS], () => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    void refresh();
+  });
+
   // Compute current cadence from failures (no extra state, no extra
   // re-renders just to bump the interval).
   const currentInterval =
@@ -85,13 +103,13 @@ export function useActiveDeployments() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Timer setup. Does NOT call refresh() in the body — only the interval
-  // tick fires it, so the effect doesn't re-fire every time the interval
-  // changes (which caused 404 spam).
+  // Safety-net timer only. Does NOT call refresh() in the body — only the
+  // interval tick fires it, so the effect doesn't re-fire every time the
+  // interval changes (which caused 404 spam).
   useEffect(() => {
     if (deadRef.current) return;
     // Skip the tick while the tab is hidden — the header chip isn't visible, so
-    // there's no reason to poll /deployments/track in the background. Resume
+    // there's no reason to hit /deployments/track in the background. Resume
     // (with an immediate refresh) when the tab becomes visible again.
     const id = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
@@ -132,7 +150,7 @@ export function useDeploymentDetail(deploymentId: string | null) {
       setRow(r);
       setError(null);
       // When the status flips to terminal, ping the badge bus so the bell
-      // counter refreshes without waiting for its own 30s poll.
+      // counter refreshes without waiting for its own poll.
       if (lastStatusRef.current && lastStatusRef.current !== r.status) {
         pingNotifications();
       }
@@ -143,6 +161,14 @@ export function useDeploymentDetail(deploymentId: string | null) {
       setLoading(false);
     }
   }, [deploymentId]);
+
+  // Step mutations invalidate `deployments` server-side — refresh on the SSE
+  // event instead of a 2s poll. The timer below is only a safety net.
+  useOnCacheInvalidation([CACHE_KEYS.DEPLOYMENTS], () => {
+    if (!deploymentId) return;
+    if (row && isTerminal(row.status)) return;
+    void refresh();
+  });
 
   useEffect(() => {
     if (!deploymentId) {

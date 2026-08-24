@@ -169,6 +169,17 @@ function SourcesPage() {
               <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
               Refresh Catalog
             </Button>
+            <Link href="/sources/actions">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => trackFeatureClick('catalog_all_actions')}
+                title="Every catalog capability as a governed action"
+              >
+                All actions
+              </Button>
+            </Link>
             <Link href="/data-source-connection">
               <Button
                 size="sm"

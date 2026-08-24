@@ -10,6 +10,7 @@
  */
 
 import apiClient from '@/lib/api-client';
+import { dedupGet, invalidateDedup } from '@/app/services/request-dedup';
 import type {
   // Dashboard
   DashboardOverviewResponse,
@@ -98,6 +99,33 @@ import type {
 
 const BASE_URL = '/org-accounts';
 
+// ─── Client-side GET cache (this module had ZERO caching: 73 bare GETs, so
+// every component mount / tab revisit refired identical requests — several
+// endpoints were measured fetching 2× per page load). All GETs below go
+// through cachedGet: same-key calls collapse into one request and repeats
+// within the TTL are served from memory. Mutations in this module call
+// invalidateOrgAccountsCache(), and the SSE cache-invalidation stream clears
+// the whole dedup cache, so staleness is bounded by real change signals.
+const ORG_GET_TTL_MS = 120_000;
+
+// `T = any` mirrors axios' untyped-get default for the handful of legacy
+// untyped calls below.
+function cachedGet<T = any>(
+  url: string,
+  opts?: { params?: object; timeout?: number; signal?: AbortSignal },
+): Promise<{ data: T }> {
+  const key = `org:${url}:${opts?.params ? JSON.stringify(opts.params) : ''}`;
+  return dedupGet(key, ORG_GET_TTL_MS, async () => {
+    const { data } = await apiClient.get<T>(url, opts);
+    return data;
+  }).then((data) => ({ data }));
+}
+
+/** Drop every cached org-accounts GET — called after any mutation here. */
+export function invalidateOrgAccountsCache(): void {
+  invalidateDedup('org:');
+}
+
 // =============================================================================
 // DASHBOARD - OPTIMIZED ENDPOINTS
 // =============================================================================
@@ -107,7 +135,7 @@ const BASE_URL = '/org-accounts';
  * Use this for instant page load.
  */
 export async function getDashboardOverview(): Promise<DashboardOverviewResponse> {
-  const { data } = await apiClient.get<DashboardOverviewResponse>(`${BASE_URL}/dashboard/overview`);
+  const { data } = await cachedGet<DashboardOverviewResponse>(`${BASE_URL}/dashboard/overview`);
   return data;
 }
 
@@ -115,7 +143,7 @@ export async function getDashboardOverview(): Promise<DashboardOverviewResponse>
  * **FAST** (~2s) - Combined credits and storage totals for dashboard cards.
  */
 export async function getDashboardUsage(): Promise<DashboardUsageResponse> {
-  const { data } = await apiClient.get<DashboardUsageResponse>(`${BASE_URL}/dashboard/usage`);
+  const { data } = await cachedGet<DashboardUsageResponse>(`${BASE_URL}/dashboard/usage`);
   return data;
 }
 
@@ -123,7 +151,7 @@ export async function getDashboardUsage(): Promise<DashboardUsageResponse> {
  * Trend data for charts (~3-5s). Load after page renders.
  */
 export async function getDashboardTrends(days = 30): Promise<DashboardTrendsResponse> {
-  const { data } = await apiClient.get<DashboardTrendsResponse>(`${BASE_URL}/dashboard/trends?days=${days}`);
+  const { data } = await cachedGet<DashboardTrendsResponse>(`${BASE_URL}/dashboard/trends?days=${days}`);
   return data;
 }
 
@@ -138,7 +166,7 @@ export async function getDashboardTrends(days = 30): Promise<DashboardTrendsResp
  * degrade to an info/empty state rather than surfacing a hard error.
  */
 export async function getAccounts(filters?: AccountFilters): Promise<AccountsListResponse> {
-  const { data } = await apiClient.get<AccountsListResponse>(`${BASE_URL}/accounts`, {
+  const { data } = await cachedGet<AccountsListResponse>(`${BASE_URL}/accounts`, {
     params: filters,
     timeout: 60000,
   });
@@ -149,7 +177,7 @@ export async function getAccounts(filters?: AccountFilters): Promise<AccountsLis
  * Get detailed info for a specific account.
  */
 export async function getAccountDetail(accountName: string): Promise<AccountDetailResponse> {
-  const { data } = await apiClient.get<AccountDetailResponse>(
+  const { data } = await cachedGet<AccountDetailResponse>(
     `${BASE_URL}/accounts/${encodeURIComponent(accountName)}`
   );
   return data;
@@ -205,6 +233,7 @@ export async function dropAccount(
       },
     },
   );
+  invalidateOrgAccountsCache();
   return data;
 }
 
@@ -247,6 +276,7 @@ export async function createAccount(
     `${BASE_URL}/accounts`,
     payload,
   );
+  invalidateOrgAccountsCache();
   return data;
 }
 
@@ -334,7 +364,7 @@ export async function updateAccount(
  * Credit usage for all accounts with breakdown by service.
  */
 export async function getCredits(days = 30): Promise<CreditsResponse> {
-  const { data } = await apiClient.get<CreditsResponse>(`${BASE_URL}/credits?days=${days}`);
+  const { data } = await cachedGet<CreditsResponse>(`${BASE_URL}/credits?days=${days}`);
   return data;
 }
 
@@ -342,7 +372,7 @@ export async function getCredits(days = 30): Promise<CreditsResponse> {
  * Top credit consuming accounts.
  */
 export async function getTopConsumers(days = 30, limit = 10): Promise<TopConsumersResponse> {
-  const { data } = await apiClient.get<TopConsumersResponse>(
+  const { data } = await cachedGet<TopConsumersResponse>(
     `${BASE_URL}/credits/top?days=${days}&limit=${limit}`
   );
   return data;
@@ -356,7 +386,7 @@ export async function getTopConsumers(days = 30, limit = 10): Promise<TopConsume
  * Uses extended timeout (60s) due to slow Snowflake queries.
  */
 export async function getStorage(): Promise<StorageResponse> {
-  const { data } = await apiClient.get<StorageResponse>(`${BASE_URL}/organization/storage`, {
+  const { data } = await cachedGet<StorageResponse>(`${BASE_URL}/organization/storage`, {
     timeout: 60000,
   });
   return data;
@@ -366,7 +396,7 @@ export async function getStorage(): Promise<StorageResponse> {
  * Daily storage trend.
  */
 export async function getStorageTrend(days = 30): Promise<StorageTrendResponse> {
-  const { data } = await apiClient.get<StorageTrendResponse>(`${BASE_URL}/storage/trend?days=${days}`);
+  const { data } = await cachedGet<StorageTrendResponse>(`${BASE_URL}/storage/trend?days=${days}`);
   return data;
 }
 
@@ -374,7 +404,7 @@ export async function getStorageTrend(days = 30): Promise<StorageTrendResponse> 
  * Database-level storage breakdown (yesterday's snapshot).
  */
 export async function getStorageDatabases(): Promise<DatabaseStorageResponse> {
-  const { data } = await apiClient.get<DatabaseStorageResponse>(`${BASE_URL}/storage/databases`, {
+  const { data } = await cachedGet<DatabaseStorageResponse>(`${BASE_URL}/storage/databases`, {
     timeout: 60000,
   });
   return data;
@@ -384,7 +414,7 @@ export async function getStorageDatabases(): Promise<DatabaseStorageResponse> {
  * Stage storage per account (yesterday's snapshot).
  */
 export async function getStorageStages(): Promise<StageStorageResponse> {
-  const { data } = await apiClient.get<StageStorageResponse>(`${BASE_URL}/storage/stages`, {
+  const { data } = await cachedGet<StageStorageResponse>(`${BASE_URL}/storage/stages`, {
     timeout: 60000,
   });
   return data;
@@ -399,7 +429,7 @@ export async function getStorageStages(): Promise<StageStorageResponse> {
  * Uses extended timeout (60s) due to slow Snowflake queries.
  */
 export async function getWarehouses(days = 30): Promise<WarehousesResponse> {
-  const { data } = await apiClient.get<WarehousesResponse>(`${BASE_URL}/warehouses?days=${days}`, {
+  const { data } = await cachedGet<WarehousesResponse>(`${BASE_URL}/warehouses?days=${days}`, {
     timeout: 60000,
   });
   return data;
@@ -409,7 +439,7 @@ export async function getWarehouses(days = 30): Promise<WarehousesResponse> {
  * Warehouse usage for specific account.
  */
 export async function getAccountWarehouses(accountName: string, days = 30): Promise<AccountWarehousesResponse> {
-  const { data } = await apiClient.get<AccountWarehousesResponse>(
+  const { data } = await cachedGet<AccountWarehousesResponse>(
     `${BASE_URL}/warehouses/${encodeURIComponent(accountName)}?days=${days}`
   );
   return data;
@@ -443,6 +473,7 @@ export async function resizeWarehouse(warehouse: string, size: string): Promise<
     { size },
     { timeout: 60000 }
   );
+  invalidateOrgAccountsCache();
   return data;
 }
 
@@ -453,6 +484,7 @@ export async function setWarehouseAutoSuspend(warehouse: string, seconds: number
     { seconds },
     { timeout: 60000 }
   );
+  invalidateOrgAccountsCache();
   return data;
 }
 
@@ -463,6 +495,7 @@ export async function suspendWarehouse(warehouse: string): Promise<WarehouseMuta
     null,
     { timeout: 60000 }
   );
+  invalidateOrgAccountsCache();
   return data;
 }
 
@@ -475,6 +508,7 @@ export async function resumeWarehouse(warehouse: string): Promise<WarehouseMutat
     null,
     { timeout: 60000 }
   );
+  invalidateOrgAccountsCache();
   return data;
 }
 
@@ -486,7 +520,7 @@ export async function resumeWarehouse(warehouse: string): Promise<WarehouseMutat
  * Login activity summary (requires premium views).
  */
 export async function getLogins(days = 30): Promise<LoginsResponse> {
-  const { data } = await apiClient.get<LoginsResponse>(`${BASE_URL}/logins?days=${days}`);
+  const { data } = await cachedGet<LoginsResponse>(`${BASE_URL}/logins?days=${days}`);
   return data;
 }
 
@@ -494,7 +528,7 @@ export async function getLogins(days = 30): Promise<LoginsResponse> {
  * Failed login attempts for security monitoring.
  */
 export async function getFailedLogins(days = 7): Promise<FailedLoginsResponse> {
-  const { data } = await apiClient.get<FailedLoginsResponse>(`${BASE_URL}/logins/failed?days=${days}`);
+  const { data } = await cachedGet<FailedLoginsResponse>(`${BASE_URL}/logins/failed?days=${days}`);
   return data;
 }
 
@@ -502,7 +536,7 @@ export async function getFailedLogins(days = 7): Promise<FailedLoginsResponse> {
  * Login history for specific account.
  */
 export async function getAccountLoginHistory(accountName: string, days = 7): Promise<AccountLoginHistoryResponse> {
-  const { data } = await apiClient.get<AccountLoginHistoryResponse>(
+  const { data } = await cachedGet<AccountLoginHistoryResponse>(
     `${BASE_URL}/logins/${encodeURIComponent(accountName)}?days=${days}`
   );
   return data;
@@ -516,7 +550,7 @@ export async function getAccountLoginHistory(accountName: string, days = 7): Pro
  * Query metrics (requires premium views).
  */
 export async function getQueries(days = 7): Promise<QueriesResponse> {
-  const { data } = await apiClient.get<QueriesResponse>(`${BASE_URL}/queries?days=${days}`);
+  const { data } = await cachedGet<QueriesResponse>(`${BASE_URL}/queries?days=${days}`);
   return data;
 }
 
@@ -524,7 +558,7 @@ export async function getQueries(days = 7): Promise<QueriesResponse> {
  * Daily query volume trend.
  */
 export async function getQueriesTrend(days = 30): Promise<QueryTrendResponse> {
-  const { data } = await apiClient.get<QueryTrendResponse>(`${BASE_URL}/queries/trend?days=${days}`);
+  const { data } = await cachedGet<QueryTrendResponse>(`${BASE_URL}/queries/trend?days=${days}`);
   return data;
 }
 
@@ -537,7 +571,7 @@ export async function getQueriesTrend(days = 30): Promise<QueryTrendResponse> {
  * Uses extended timeout (60s) due to slow Snowflake queries.
  */
 export async function getDataTransfer(days = 30): Promise<DataTransferResponse> {
-  const { data } = await apiClient.get<DataTransferResponse>(`${BASE_URL}/data-transfer?days=${days}`, {
+  const { data } = await cachedGet<DataTransferResponse>(`${BASE_URL}/data-transfer?days=${days}`, {
     timeout: 60000,
   });
   return data;
@@ -551,7 +585,7 @@ export async function getDataTransfer(days = 30): Promise<DataTransferResponse> 
  * Remaining credit balance.
  */
 export async function getBalance(): Promise<BalanceResponse> {
-  const { data } = await apiClient.get<BalanceResponse>(`${BASE_URL}/organization/remaining-balance`);
+  const { data } = await cachedGet<BalanceResponse>(`${BASE_URL}/organization/remaining-balance`);
   return data;
 }
 
@@ -559,7 +593,7 @@ export async function getBalance(): Promise<BalanceResponse> {
  * Contract items.
  */
 export async function getContract(): Promise<ContractResponse> {
-  const { data } = await apiClient.get<ContractResponse>(`${BASE_URL}/contract`);
+  const { data } = await cachedGet<ContractResponse>(`${BASE_URL}/contract`);
   return data;
 }
 
@@ -569,7 +603,7 @@ export async function getContract(): Promise<ContractResponse> {
  * Uses extended timeout (60s) — Snowflake USAGE_IN_CURRENCY_DAILY can be slow.
  */
 export async function getOrganizationCosts(days = 30): Promise<any> {
-  const { data } = await apiClient.get(`${BASE_URL}/organization/costs`, { params: { days }, timeout: 60000 });
+  const { data } = await cachedGet(`${BASE_URL}/organization/costs`, { params: { days }, timeout: 60000 });
   return data;
 }
 
@@ -577,7 +611,7 @@ export async function getOrganizationCosts(days = 30): Promise<any> {
  * Current pricing rates per account.
  */
 export async function getRateSheet(): Promise<RateSheetResponse> {
-  const { data } = await apiClient.get<RateSheetResponse>(`${BASE_URL}/rate-sheet`);
+  const { data } = await cachedGet<RateSheetResponse>(`${BASE_URL}/rate-sheet`);
   return data;
 }
 
@@ -603,7 +637,7 @@ export async function getOrgSummary(
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== '') clean[k] = v;
   }
-  const { data } = await apiClient.get<OrgSummaryResponse>(
+  const { data } = await cachedGet<OrgSummaryResponse>(
     `${BASE_URL}/org-summary`,
     { params: clean }
   );
@@ -618,7 +652,7 @@ export async function getOrgSummary(
  * Metering by account & service type.
  */
 export async function getMetering(days = 30): Promise<MeteringResponse> {
-  const { data } = await apiClient.get<MeteringResponse>(`${BASE_URL}/metering?days=${days}`);
+  const { data } = await cachedGet<MeteringResponse>(`${BASE_URL}/metering?days=${days}`);
   return data;
 }
 
@@ -626,7 +660,7 @@ export async function getMetering(days = 30): Promise<MeteringResponse> {
  * Daily metering trend.
  */
 export async function getMeteringTrend(days = 30): Promise<MeteringTrendResponse> {
-  const { data } = await apiClient.get<MeteringTrendResponse>(`${BASE_URL}/metering/trend?days=${days}`);
+  const { data } = await cachedGet<MeteringTrendResponse>(`${BASE_URL}/metering/trend?days=${days}`);
   return data;
 }
 
@@ -639,7 +673,7 @@ export async function getMeteringTrend(days = 30): Promise<MeteringTrendResponse
  * Uses extended timeout (60s) due to multiple Snowflake queries.
  */
 export async function getHealth(): Promise<HealthScoresResponse> {
-  const { data } = await apiClient.get<HealthScoresResponse>(`${BASE_URL}/health`, {
+  const { data } = await cachedGet<HealthScoresResponse>(`${BASE_URL}/health`, {
     timeout: 60000,
   });
   return data;
@@ -648,7 +682,7 @@ export async function getHealth(): Promise<HealthScoresResponse> {
  * Alerts for high usage, failed logins, inactive accounts.
  */
 export async function getAlerts(days = 7): Promise<AlertsResponse> {
-  const { data } = await apiClient.get<AlertsResponse>(`${BASE_URL}/alerts?days=${days}`);
+  const { data } = await cachedGet<AlertsResponse>(`${BASE_URL}/alerts?days=${days}`);
   return data;
 }
 
@@ -657,7 +691,7 @@ export async function getAlerts(days = 7): Promise<AlertsResponse> {
  * Uses extended timeout (60s) since it queries SHOW RESOURCE MONITORS.
  */
 export async function getResourceMonitors(): Promise<{ monitors: any[]; count: number }> {
-  const { data } = await apiClient.get<{ monitors: any[]; count: number }>(
+  const { data } = await cachedGet<{ monitors: any[]; count: number }>(
     `${BASE_URL}/resource-monitors`, { timeout: 60000 }
   );
   return data;
@@ -689,6 +723,7 @@ export async function createResourceMonitor(
   const { data } = await apiClient.post<CreateResourceMonitorResponse>(
     `${BASE_URL}/resource-monitors`, request, { timeout: 60000 }
   );
+  invalidateOrgAccountsCache();
   return data;
 }
 
@@ -700,7 +735,7 @@ export async function createResourceMonitor(
  * Auto-clustering credits per account.
  */
 export async function getServicesClustering(days = 30): Promise<ClusteringResponse> {
-  const { data } = await apiClient.get<ClusteringResponse>(`${BASE_URL}/services/clustering?days=${days}`);
+  const { data } = await cachedGet<ClusteringResponse>(`${BASE_URL}/services/clustering?days=${days}`);
   return data;
 }
 
@@ -708,7 +743,7 @@ export async function getServicesClustering(days = 30): Promise<ClusteringRespon
  * Materialized view refresh credits per account.
  */
 export async function getServicesMaterializedViews(days = 30): Promise<MaterializedViewResponse> {
-  const { data } = await apiClient.get<MaterializedViewResponse>(`${BASE_URL}/services/materialized-views?days=${days}`);
+  const { data } = await cachedGet<MaterializedViewResponse>(`${BASE_URL}/services/materialized-views?days=${days}`);
   return data;
 }
 
@@ -716,7 +751,7 @@ export async function getServicesMaterializedViews(days = 30): Promise<Materiali
  * Snowpipe usage per account.
  */
 export async function getServicesPipes(days = 30): Promise<PipeResponse> {
-  const { data } = await apiClient.get<PipeResponse>(`${BASE_URL}/services/pipes?days=${days}`);
+  const { data } = await cachedGet<PipeResponse>(`${BASE_URL}/services/pipes?days=${days}`);
   return data;
 }
 
@@ -724,7 +759,7 @@ export async function getServicesPipes(days = 30): Promise<PipeResponse> {
  * Search optimization credits per account.
  */
 export async function getServicesSearchOptimization(days = 30): Promise<SearchOptimizationResponse> {
-  const { data } = await apiClient.get<SearchOptimizationResponse>(`${BASE_URL}/services/search-optimization?days=${days}`);
+  const { data } = await cachedGet<SearchOptimizationResponse>(`${BASE_URL}/services/search-optimization?days=${days}`);
   return data;
 }
 
@@ -732,7 +767,7 @@ export async function getServicesSearchOptimization(days = 30): Promise<SearchOp
  * Query acceleration credits per account.
  */
 export async function getServicesQueryAcceleration(days = 30): Promise<QueryAccelerationResponse> {
-  const { data } = await apiClient.get<QueryAccelerationResponse>(`${BASE_URL}/services/query-acceleration?days=${days}`);
+  const { data } = await cachedGet<QueryAccelerationResponse>(`${BASE_URL}/services/query-acceleration?days=${days}`);
   return data;
 }
 
@@ -744,7 +779,7 @@ export async function getServicesQueryAcceleration(days = 30): Promise<QueryAcce
  * Replication usage per account.
  */
 export async function getReplication(days = 30): Promise<ReplicationResponse> {
-  const { data } = await apiClient.get<ReplicationResponse>(`${BASE_URL}/replication?days=${days}`);
+  const { data } = await cachedGet<ReplicationResponse>(`${BASE_URL}/replication?days=${days}`);
   return data;
 }
 
@@ -752,7 +787,7 @@ export async function getReplication(days = 30): Promise<ReplicationResponse> {
  * Cost anomalies detected.
  */
 export async function getAnomalies(days = 30): Promise<AnomalyResponse> {
-  const { data } = await apiClient.get<AnomalyResponse>(`${BASE_URL}/anomalies?days=${days}`);
+  const { data } = await cachedGet<AnomalyResponse>(`${BASE_URL}/anomalies?days=${days}`);
   // Live backend emits {credits, mean_credits, usage_date} while the typed
   // contract says {actual_value, upper_bound, date}. Accept both vocabularies
   // at the service seam.
@@ -776,7 +811,7 @@ export async function getAnomalies(days = 30): Promise<AnomalyResponse> {
  * List reader accounts for data sharing.
  */
 export async function getReaderAccounts(): Promise<ReaderAccountsResponse> {
-  const { data } = await apiClient.get<ReaderAccountsResponse>(`${BASE_URL}/reader-accounts`);
+  const { data } = await cachedGet<ReaderAccountsResponse>(`${BASE_URL}/reader-accounts`);
   return data;
 }
 
@@ -786,6 +821,7 @@ export async function getReaderAccounts(): Promise<ReaderAccountsResponse> {
 export async function createReaderAccount(request: CreateReaderAccountRequest): Promise<CreateReaderAccountResponse> {
   // TODO(henry-P1): method gap — FE sends POST /org-accounts/reader-accounts, backend only has GET
   const { data } = await apiClient.post<CreateReaderAccountResponse>(`${BASE_URL}/reader-accounts`, request);
+  invalidateOrgAccountsCache();
   return data;
 }
 
@@ -803,7 +839,7 @@ export async function deleteReaderAccount(name: string): Promise<{ success: bool
  * List all data shares.
  */
 export async function getShares(): Promise<SharesResponse> {
-  const { data } = await apiClient.get<SharesResponse>(`${BASE_URL}/shares`);
+  const { data } = await cachedGet<SharesResponse>(`${BASE_URL}/shares`);
   return data;
 }
 
@@ -811,7 +847,7 @@ export async function getShares(): Promise<SharesResponse> {
  * Get share details.
  */
 export async function getShareDetail(shareName: string): Promise<ShareDetailResponse> {
-  const { data } = await apiClient.get<ShareDetailResponse>(
+  const { data } = await cachedGet<ShareDetailResponse>(
     `${BASE_URL}/shares/${encodeURIComponent(shareName)}`
   );
   return data;
@@ -822,63 +858,63 @@ export async function getShareDetail(shareName: string): Promise<ShareDetailResp
 // =============================================================================
 
 export async function getSecurityOverview(days = 30, filters?: Partial<CommandCenterFilters>): Promise<SecurityOverviewResponse> {
-  const { data } = await apiClient.get<SecurityOverviewResponse>(
+  const { data } = await cachedGet<SecurityOverviewResponse>(
     `${BASE_URL}/security-overview`, { params: { days, ...filters }, timeout: 60000 }
   );
   return data;
 }
 
 export async function getGovernanceOverview(): Promise<GovernanceOverviewResponse> {
-  const { data } = await apiClient.get<GovernanceOverviewResponse>(
+  const { data } = await cachedGet<GovernanceOverviewResponse>(
     `${BASE_URL}/governance-overview`, { timeout: 60000 }
   );
   return data;
 }
 
 export async function getDataLoadingOverview(days = 30): Promise<DataLoadingOverviewResponse> {
-  const { data } = await apiClient.get<DataLoadingOverviewResponse>(
+  const { data } = await cachedGet<DataLoadingOverviewResponse>(
     `${BASE_URL}/data-loading-overview`, { params: { days }, timeout: 60000 }
   );
   return data;
 }
 
 export async function getAutomationOverview(days = 30): Promise<AutomationOverviewResponse> {
-  const { data } = await apiClient.get<AutomationOverviewResponse>(
+  const { data } = await cachedGet<AutomationOverviewResponse>(
     `${BASE_URL}/automation-overview`, { params: { days }, timeout: 60000 }
   );
   return data;
 }
 
 export async function getPerformanceOverview(days = 7, filters?: Partial<CommandCenterFilters>): Promise<PerformanceOverviewResponse> {
-  const { data } = await apiClient.get<PerformanceOverviewResponse>(
+  const { data } = await cachedGet<PerformanceOverviewResponse>(
     `${BASE_URL}/performance-overview`, { params: { days, ...filters }, timeout: 60000 }
   );
   return data;
 }
 
 export async function getCortexCosts(days = 30, filters?: Partial<CommandCenterFilters>): Promise<CortexCostsResponse> {
-  const { data } = await apiClient.get<CortexCostsResponse>(
+  const { data } = await cachedGet<CortexCostsResponse>(
     `${BASE_URL}/cortex-costs`, { params: { days, ...filters }, timeout: 60000 }
   );
   return data;
 }
 
 export async function getPlatformActivity(days = 7): Promise<PlatformActivityResponse> {
-  const { data } = await apiClient.get<PlatformActivityResponse>(
+  const { data } = await cachedGet<PlatformActivityResponse>(
     `${BASE_URL}/platform-activity`, { params: { days }, timeout: 60000 }
   );
   return data;
 }
 
 export async function getAccountHealthScore(): Promise<AccountHealthScoreResponse> {
-  const { data } = await apiClient.get<AccountHealthScoreResponse>(
+  const { data } = await cachedGet<AccountHealthScoreResponse>(
     `${BASE_URL}/account-health-score`, { timeout: 60000 }
   );
   return data;
 }
 
 export async function getGrantsOverview(days = 90): Promise<GrantsOverviewResponse> {
-  const { data } = await apiClient.get<GrantsOverviewResponse>(
+  const { data } = await cachedGet<GrantsOverviewResponse>(
     `${BASE_URL}/grants-overview`, { params: { days }, timeout: 60000 }
   );
   return data;
@@ -891,7 +927,7 @@ export async function getGrantsOverview(days = 90): Promise<GrantsOverviewRespon
 export async function getProjectsOverview(
   filters?: Partial<CommandCenterFilters>,
 ): Promise<ProjectsOverviewResponse> {
-  const { data } = await apiClient.get<ProjectsOverviewResponse>(
+  const { data } = await cachedGet<ProjectsOverviewResponse>(
     `${BASE_URL}/projects-overview`, { params: { days: 180, ...filters }, timeout: 60000 }
   );
   return data;
@@ -900,7 +936,7 @@ export async function getProjectsOverview(
 export async function getGovernanceGrantsOverview(
   filters?: Partial<CommandCenterFilters>,
 ): Promise<GovernanceGrantsOverviewResponse> {
-  const { data } = await apiClient.get<GovernanceGrantsOverviewResponse>(
+  const { data } = await cachedGet<GovernanceGrantsOverviewResponse>(
     `${BASE_URL}/governance-grants-overview`, { params: { days: 180, ...filters }, timeout: 60000 }
   );
   return data;
@@ -909,7 +945,7 @@ export async function getGovernanceGrantsOverview(
 export async function getDataOperationsOverview(
   filters?: Partial<CommandCenterFilters>,
 ): Promise<DataOperationsOverviewResponse> {
-  const { data } = await apiClient.get<DataOperationsOverviewResponse>(
+  const { data } = await cachedGet<DataOperationsOverviewResponse>(
     `${BASE_URL}/data-operations-overview`, { params: { days: 180, ...filters }, timeout: 60000 }
   );
   return data;
@@ -918,14 +954,14 @@ export async function getDataOperationsOverview(
 export async function getPlatformActivityFiltered(
   filters?: Partial<CommandCenterFilters>,
 ): Promise<PlatformActivityResponse> {
-  const { data } = await apiClient.get<PlatformActivityResponse>(
+  const { data } = await cachedGet<PlatformActivityResponse>(
     `${BASE_URL}/platform-activity`, { params: { days: 7, ...filters }, timeout: 60000 }
   );
   return data;
 }
 
 export async function getFilterOptions(): Promise<FilterOptionsResponse> {
-  const { data } = await apiClient.get<FilterOptionsResponse>(
+  const { data } = await cachedGet<FilterOptionsResponse>(
     `${BASE_URL}/filter-options`, { timeout: 30000 }
   );
   return data;
@@ -941,13 +977,14 @@ export async function activateRowTimestamps(
   const { data } = await apiClient.post<RowTimestampActivationResponse>(
     `${BASE_URL}/row-timestamps/activate`, null, { params: { database }, timeout: 60000 }
   );
+  invalidateOrgAccountsCache();
   return data;
 }
 
 export async function getRowTimestampStatus(
   database: string, schema?: string,
 ): Promise<RowTimestampStatusResponse> {
-  const { data } = await apiClient.get<RowTimestampStatusResponse>(
+  const { data } = await cachedGet<RowTimestampStatusResponse>(
     `${BASE_URL}/row-timestamps/status`, { params: { database, schema }, timeout: 30000 }
   );
   return data;
@@ -956,7 +993,7 @@ export async function getRowTimestampStatus(
 export async function getCrossAccountUsage(
   days: number = 30,
 ): Promise<CrossAccountUsageResponse> {
-  const { data } = await apiClient.get<CrossAccountUsageResponse>(
+  const { data } = await cachedGet<CrossAccountUsageResponse>(
     `${BASE_URL}/cross-account/usage`, { params: { days }, timeout: 60000 }
   );
   return data;
@@ -965,7 +1002,7 @@ export async function getCrossAccountUsage(
 export async function getQueryAuditHistory(
   params?: { days?: number; username?: string; query_type?: string; min_duration_ms?: number; limit?: number },
 ): Promise<QueryAuditResponse> {
-  const { data } = await apiClient.get<QueryAuditResponse>(
+  const { data } = await cachedGet<QueryAuditResponse>(
     `${BASE_URL}/audit/query-history`, { params: { days: 7, ...params }, timeout: 60000 }
   );
   return data;
@@ -974,7 +1011,7 @@ export async function getQueryAuditHistory(
 export async function getAccessAuditHistory(
   params?: { days?: number; username?: string; object_name?: string; limit?: number },
 ): Promise<AccessAuditResponse> {
-  const { data } = await apiClient.get<AccessAuditResponse>(
+  const { data } = await cachedGet<AccessAuditResponse>(
     `${BASE_URL}/audit/access-history`, { params: { days: 7, ...params }, timeout: 60000 }
   );
   return data;
@@ -983,7 +1020,7 @@ export async function getAccessAuditHistory(
 export async function getLoginAuditHistory(
   params?: { days?: number; username?: string; is_success?: string; limit?: number },
 ): Promise<LoginAuditResponse> {
-  const { data } = await apiClient.get<LoginAuditResponse>(
+  const { data } = await cachedGet<LoginAuditResponse>(
     `${BASE_URL}/audit/login-history`, { params: { days: 7, ...params }, timeout: 60000 }
   );
   return data;
@@ -1000,7 +1037,7 @@ export async function getLoginAuditHistory(
  * Backend param is `days_back`, not `days`.
  */
 export async function getCreditForecast(days = 90): Promise<any> {
-  const { data } = await apiClient.get(`${BASE_URL}/credit-forecast`, {
+  const { data } = await cachedGet(`${BASE_URL}/credit-forecast`, {
     params: { days_back: days },
     timeout: 60000,
   });
@@ -1012,7 +1049,7 @@ export async function getCreditForecast(days = 90): Promise<any> {
  * Returns warehouses (rows with UPPERCASE Snowflake keys) and total (row count).
  */
 export async function getWarehouseCredits(days = 30): Promise<any> {
-  const { data } = await apiClient.get(`${BASE_URL}/organization/warehouse-credits`, {
+  const { data } = await cachedGet(`${BASE_URL}/organization/warehouse-credits`, {
     params: { days },
     timeout: 60000,
   });
@@ -1030,7 +1067,7 @@ export async function getWarehouseCredits(days = 30): Promise<any> {
  * ENTITY_TYPE, ENTITY_ID, USERNAME, STATUS, DETAILS, CREATED_AT.
  */
 export async function getOrgEvents(days = 7): Promise<any> {
-  const { data } = await apiClient.get(`${BASE_URL}/events`, { params: { days }, timeout: 60000 });
+  const { data } = await cachedGet(`${BASE_URL}/events`, { params: { days }, timeout: 60000 });
   return data;
 }
 
@@ -1040,7 +1077,7 @@ export async function getOrgEvents(days = 7): Promise<any> {
  *           warehouse_utilization, storage_growth_trend, days }.
  */
 export async function getUsageAnalytics(days = 30): Promise<any> {
-  const { data } = await apiClient.get(`${BASE_URL}/usage-analytics`, { params: { days }, timeout: 60000 });
+  const { data } = await cachedGet(`${BASE_URL}/usage-analytics`, { params: { days }, timeout: 60000 });
   return data;
 }
 
@@ -1052,7 +1089,7 @@ export async function getUsageAnalytics(days = 30): Promise<any> {
 
 /** GET /org-accounts/credits/trend — daily org credit trend. */
 export async function getCreditsTrend(days = 30): Promise<CreditTrendResponse> {
-  const { data } = await apiClient.get<CreditTrendResponse>(`${BASE_URL}/credits/trend?days=${days}`);
+  const { data } = await cachedGet<CreditTrendResponse>(`${BASE_URL}/credits/trend?days=${days}`);
   return data;
 }
 
@@ -1063,7 +1100,7 @@ export async function getCreditsTrend(days = 30): Promise<CreditTrendResponse> {
  * (history is CreditTrendPoint[], one row per day).
  */
 export async function getAccountCreditHistory(accountName: string, days = 30): Promise<AccountCreditHistoryResponse> {
-  const { data } = await apiClient.get<AccountCreditHistoryResponse>(
+  const { data } = await cachedGet<AccountCreditHistoryResponse>(
     `${BASE_URL}/credits/history/${encodeURIComponent(accountName)}?days=${days}`
   );
   return data;
@@ -1071,7 +1108,7 @@ export async function getAccountCreditHistory(accountName: string, days = 30): P
 
 /** GET /org-accounts/health/{account_name} — per-account health detail. */
 export async function getAccountHealth(accountName: string): Promise<AccountHealthScoreResponse> {
-  const { data } = await apiClient.get<AccountHealthScoreResponse>(`${BASE_URL}/health/${encodeURIComponent(accountName)}`);
+  const { data } = await cachedGet<AccountHealthScoreResponse>(`${BASE_URL}/health/${encodeURIComponent(accountName)}`);
   return data;
 }
 
@@ -1095,7 +1132,7 @@ export interface AccountMetadataEdit {
 
 /** GET /org-accounts/accounts/{account}/metadata — current governance metadata. */
 export async function getAccountMetadata(account: string): Promise<AccountMetadata> {
-  const { data } = await apiClient.get<AccountMetadata>(
+  const { data } = await cachedGet<AccountMetadata>(
     `${BASE_URL}/accounts/${encodeURIComponent(account)}/metadata`);
   return data;
 }
@@ -1107,6 +1144,7 @@ export async function updateAccountMetadata(
 ): Promise<AccountMetadata> {
   const { data } = await apiClient.post<AccountMetadata>(
     `${BASE_URL}/accounts/${encodeURIComponent(account)}/metadata`, edit);
+  invalidateOrgAccountsCache();
   return data;
 }
 
@@ -1146,7 +1184,7 @@ export interface ErrorsInsightResponse {
 }
 
 export async function getErrorsOverview(days = 7): Promise<ErrorsOverviewResponse> {
-  const { data } = await apiClient.get<ErrorsOverviewResponse>(
+  const { data } = await cachedGet<ErrorsOverviewResponse>(
     `${BASE_URL}/errors-overview`, { params: { days }, timeout: 120000 },
   );
   return data;
@@ -1154,7 +1192,7 @@ export async function getErrorsOverview(days = 7): Promise<ErrorsOverviewRespons
 
 export async function getErrorsInsight(days = 7): Promise<ErrorsInsightResponse> {
   // Cortex inference: allow a generous budget, the endpoint caches for 15 min.
-  const { data } = await apiClient.get<ErrorsInsightResponse>(
+  const { data } = await cachedGet<ErrorsInsightResponse>(
     `${BASE_URL}/errors-overview/insight`, { params: { days }, timeout: 180000 },
   );
   return data;
@@ -1221,14 +1259,14 @@ export interface WarehouseEfficiencyResponse {
 }
 
 export async function getStorageSplit(days = 30): Promise<StorageSplitResponse> {
-  const { data } = await apiClient.get<StorageSplitResponse>(
+  const { data } = await cachedGet<StorageSplitResponse>(
     `${BASE_URL}/storage-split`, { params: { days }, timeout: 120000 },
   );
   return data;
 }
 
 export async function getWarehouseEfficiency(days = 30): Promise<WarehouseEfficiencyResponse> {
-  const { data } = await apiClient.get<WarehouseEfficiencyResponse>(
+  const { data } = await cachedGet<WarehouseEfficiencyResponse>(
     `${BASE_URL}/warehouse-efficiency`, { params: { days }, timeout: 120000 },
   );
   return data;
@@ -1258,14 +1296,14 @@ export interface FinopsInsightResponse {
 
 export async function getStorageInsight(days = 30): Promise<FinopsInsightResponse> {
   // Cortex inference over an ACCOUNT_USAGE scan; the endpoint caches for 15 min.
-  const { data } = await apiClient.get<FinopsInsightResponse>(
+  const { data } = await cachedGet<FinopsInsightResponse>(
     `${BASE_URL}/storage-split/insight`, { params: { days }, timeout: 180000 },
   );
   return data;
 }
 
 export async function getWarehouseInsight(days = 30): Promise<FinopsInsightResponse> {
-  const { data } = await apiClient.get<FinopsInsightResponse>(
+  const { data } = await cachedGet<FinopsInsightResponse>(
     `${BASE_URL}/warehouse-efficiency/insight`, { params: { days }, timeout: 180000 },
   );
   return data;
@@ -1301,7 +1339,7 @@ export interface ActivityInsightResponse {
 
 export async function getPlatformActivityInsight(): Promise<ActivityInsightResponse> {
   // Cortex inference: a cold call can take ~20s; the endpoint caches for 15 min.
-  const { data } = await apiClient.get<ActivityInsightResponse>(
+  const { data } = await cachedGet<ActivityInsightResponse>(
     `${BASE_URL}/platform-activity/insight`, { timeout: 180000 },
   );
   return data;

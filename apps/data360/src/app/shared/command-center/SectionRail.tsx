@@ -30,7 +30,6 @@ import {
   type ScoreCard,
 } from '@/app/services/command-center/score-cards';
 import { getInbox, getMyRequests } from '@/app/services/access-requests';
-import AccountHealthBlock from './AccountHealthBlock';
 import { useAuth } from '@/hooks/useAuth';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -61,18 +60,21 @@ export interface SectionRailProps {
 // figure wherever it appears — the rail is an "overview by axis".
 
 const SECTION_AXES: Record<string, KpiDimension[]> = {
-  // 2026-07 audit taxonomy (Account · Usage & Performance · FinOps · Data
-  // Objects & Models · Data Quality · Security & Governance · Platform
-  // Activity · Projects · Organization).
-  account: ['dq', 'gov', 'cost', 'perf'],
-  'usage-performance': ['perf', 'cost'],
+  // KPI-ownership sweep (2026-08-24): each entry carries AT MOST the one axis
+  // that section OWNS — the old map repeated the same 4 badges under nearly
+  // every entry (~40 duplicated numbers per screen), so no chip meant
+  // anything. Account's pulse is the health block; Platform Activity /
+  // Projects / Organization have no score-card axis of their own — their
+  // numbers live inside their tabs.
+  account: [],
+  'usage-performance': ['perf'],
   finops: ['cost'],
   'data-objects': ['dq'],
   'data-quality': ['dq'],
-  'platform-activity': ['perf'],
-  projects: ['dq', 'gov'],
+  'platform-activity': [],
+  projects: [],
   security: ['gov'],
-  organization: ['gov', 'cost'],
+  organization: [],
 };
 
 const AXIS_SHORT: Record<KpiDimension, string> = {
@@ -81,6 +83,25 @@ const AXIS_SHORT: Record<KpiDimension, string> = {
   cost: 'COST',
   perf: 'PERF',
 };
+
+// The chip value is ONE headline metric, not a composite dimension score.
+// Labelling it by the dimension code ("GOV 0%") reads as "governance is 0%"
+// when the number is really MFA adoption; likewise "PERF 0%" for a 0% failure
+// rate reads as broken when it is perfect. Label the chip by the METRIC.
+const METRIC_SHORT: Record<string, string> = {
+  'MFA adoption': 'MFA',
+  'DMF coverage': 'DMF',
+  Freshness: 'Fresh',
+  'Failure rate': 'Fails',
+  'P95 execution': 'P95',
+  'Total credits': 'Credits',
+};
+
+function metricShort(card: ScoreCard | undefined, dim: KpiDimension): string {
+  const label = card?.metricLabel;
+  if (!label) return AXIS_SHORT[dim];
+  return METRIC_SHORT[label] ?? label.split(/[\s(]/)[0];
+}
 
 // Purge-safe literal class maps — severity buckets follow the shared cockpit
 // convention (emerald OK · amber warn · red blocker · slate unknown).
@@ -232,7 +253,9 @@ export default function SectionRail({
         // a narrow icon-only column that yields its width to the main content.
         'no-scrollbar flex shrink-0 flex-row gap-1 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm dark:border-slate-800 dark:bg-slate-900',
         'md:flex-col md:gap-1 md:overflow-y-auto md:overflow-x-hidden md:p-2',
-        collapsed ? 'md:w-14 md:items-center' : 'md:w-72 xl:w-80',
+        // Slimmed 288/320→224/240px (2026-08-24): entries now carry at most
+        // one chip, so the old width was pure chrome taken from the workspace.
+        collapsed ? 'md:w-14 md:items-center' : 'md:w-56 xl:w-60',
         className,
       )}
     >
@@ -249,9 +272,10 @@ export default function SectionRail({
           ? <PanelRightOpen className="h-4 w-4" aria-hidden />
           : <PanelRightClose className="h-4 w-4 ml-auto" aria-hidden />}
       </button>
-      {/* Wave 2: the shared "Snowflake account health" pulse — vertical rail
-          only, and hidden when collapsed (it duplicates the main content). */}
-      {!collapsed && <AccountHealthBlock className="mb-1 hidden md:block" />}
+      {/* (2026-08-24 ownership sweep) The "Snowflake account health" block was
+          REMOVED from the rail: it repeated six numbers on every tab — four of
+          them also on the Account hero strip, the other two (warehouses, DMF)
+          owned by FinOps and Data Quality. Its fetch is gone with it. */}
       <div
         role="tablist"
         aria-orientation="vertical"
@@ -337,10 +361,14 @@ export default function SectionRail({
                     }
                     const bucket = chipBucket(card);
                     const value = chipValue(card);
+                    // Chip label = the METRIC (MFA, Fails, DMF…), not the
+                    // dimension code — see METRIC_SHORT. Tooltip carries the
+                    // full metric name + which axis it belongs to.
+                    const chipLabel = metricShort(card, dim);
                     const chipTitle =
                       card && card.status === 'ok'
-                        ? `${card.label}: ${value}${card.criticalRecos > 0 ? ` · ${card.criticalRecos} critical` : card.openRecos > 0 ? ` · ${card.openRecos} open recos` : ''}`
-                        : `${AXIS_SHORT[dim]} — no data right now`;
+                        ? `${card.label} · ${card.metricLabel ?? AXIS_SHORT[dim]}: ${value}${card.criticalRecos > 0 ? ` · ${card.criticalRecos} critical` : card.openRecos > 0 ? ` · ${card.openRecos} open recos` : ''}`
+                        : `${card?.metricLabel ?? AXIS_SHORT[dim]} — no data right now`;
                     return (
                       <span
                         key={dim}
@@ -361,7 +389,7 @@ export default function SectionRail({
                           onOpenDimension && 'cursor-pointer',
                         )}
                       >
-                        {AXIS_SHORT[dim]}
+                        {chipLabel}
                         <span className="font-semibold">{value}</span>
                       </span>
                     );

@@ -689,6 +689,10 @@ function ProjectsGovernancePageInner() {
 
   // Pending deployments
   const [pendingDeploys, setPendingDeploys] = useState<any[]>([]);
+  // The approvals queue must not bury the project roster (this page's purpose):
+  // show the most urgent (oldest-requested) few, expand on demand.
+  const [showAllPending, setShowAllPending] = useState(false);
+  const PENDING_PREVIEW = 4;
   // Distinguish "no pending approvals" (empty) from "couldn't load them" (error)
   // so a fetch failure shows an inline retry, not a silently-hidden section.
   const [pendingError, setPendingError] = useState(false);
@@ -825,7 +829,10 @@ function ProjectsGovernancePageInner() {
             </Badge>
           </div>
           <div className="space-y-2">
-            {pendingDeploys.map((d: any, i: number) => {
+            {[...pendingDeploys]
+              .sort((a: any, b: any) => new Date(a?.requested_at || 0).getTime() - new Date(b?.requested_at || 0).getTime())
+              .slice(0, showAllPending ? pendingDeploys.length : PENDING_PREVIEW)
+              .map((d: any, i: number) => {
               const isRejecting = rejectModal?.deploymentId === d.deployment_id;
               const closeReject = () => { setRejectModal(null); setRejectReason(''); };
               return (
@@ -917,6 +924,16 @@ function ProjectsGovernancePageInner() {
               );
             })}
           </div>
+          {pendingDeploys.length > PENDING_PREVIEW && (
+            <button
+              onClick={() => setShowAllPending((v) => !v)}
+              className="mt-3 text-xs font-medium text-amber-700 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-200"
+            >
+              {showAllPending
+                ? 'Show fewer'
+                : `Show all ${pendingDeploys.length} pending approvals →`}
+            </button>
+          )}
         </div>
       )}
 

@@ -1,0 +1,1737 @@
+'use client';
+
+/**
+ * Agentic OS — CENTER canvas: the discussion.
+ *
+ * One prompt bar; the active lifecycle step routes the ask through the
+ * EXISTING governed engines (no new AI paths):
+ *   dashboards → coco draft 'chart'   (tested on real data)
+ *   questions  → coco draft 'sql'     (tested on real data)
+ *   workflow   → coco draft 'etl'     (steps rendered & validated)
+ *   others     → /cortex/agent/propose (governed next actions) when a project
+ *                is selected, else a grounded SQL draft.
+ * Read-only proposals run inline (coco run-sql / GET). Mutating ones are
+ * parked in the right-rail approval queue — nothing mutating runs without a
+ * human decision (same gate philosophy as AgentProposals).
+ * A hand-off section embeds the existing CortexChatContent (the proven
+ * human-approval chat) when an approval is sent to discussion.
+ */
+import { useCallback, useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { Button, Loader, Textarea } from 'rizzui';
+import { toast } from 'react-hot-toast';
+import { PiPaperPlaneRight, PiPlay, PiHandPalm, PiCaretDown, PiCaretUp } from 'react-icons/pi';
+import apiClient from '@/lib/api-client';
+import { useAuth } from '@/hooks/useAuth';
+import { getDatabases, getSchemas, getTables, getTableColumns } from '@/app/services/mapping';
+import { fetchNodeKpis } from '@/app/services/catalog/nodeKpis';
+import { createExploreProject } from '@/app/services/api/exploreDesignApi';
+import { createRelationship } from '@/app/services/explore-design';
+import { createDashboard, createWidget, nlToChart } from '@/app/services/api/biDashboardApi';
+import type { DashboardChartType, BIDashboardChartConfig } from '@/app/services/api/types';
+import ModelFlow from './ModelFlow';
+import PlanFlow from './PlanFlow';
+import AssessmentCard from './AssessmentCard';
+import { runAssessment } from './runAssessment';
+import OpportunitiesCard from './OpportunitiesCard';
+import { scanOpportunities, type ProductOpportunity } from './scanOpportunities';
+import type { ProposedModel, ProposedPlan, TableTile, AssessFinding } from './types';
+import {
+  addEvent,
+  getUnifiedProjects,
+  listEvents,
+  type UnifiedProject,
+} from '@/app/services/api/projectsApi';
+import { generateCompletion } from '@/app/services/cortex';
+import { cocoDraft, type CocoDraftResult, type DraftModule } from '@/app/services/cortex/draft';
+import {
+  cocoRunSql,
+  proposeAgentActions,
+  type ProposedAction,
+} from '@/app/services/cortex/agent';
+import LineageFlow from '@/app/shared/command-center/LineageFlow';
+import ProcessFlow from './ProcessFlow';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
+
+// recharts is heavy — load the chart renderer only when a chart card exists.
+const DynamicChart = dynamic(
+  () => import('@/app/(dashboard)/bi-dashboard/components/DynamicChart'),
+  { ssr: false },
+);
+import CortexChatContent, { type QueuedPrompt } from '../../cortex-chat-content';
+import { STAGE_META, type AgentMessage, type LifecycleStage } from './types';
+import {
+  activeProjectIdAtom,
+  activeStageAtom,
+  approvalsAtom,
+  projectsAtom,
+  groundingTablesAtom,
+  messagesAtom,
+  nextId,
+  touchedStagesAtom,
+} from './store';
+
+const DRAFT_STAGE: Partial<Record<LifecycleStage, DraftModule>> = {
+  dashboards: 'chart',
+  questions: 'sql',
+  workflow: 'etl',
+};
+
+const RISK_TINT: Record<string, string> = {
+  low: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  medium: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  high: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+};
+
+function RowsPreview({ columns, rows }: { columns: string[]; rows: Record<string, unknown>[] }) {
+  if (!rows.length) return <p className="text-xs text-gray-400">0 rows.</p>;
+  const cols = columns.length ? columns : Object.keys(rows[0] ?? {});
+  return (
+    <div className="max-h-56 overflow-auto rounded-md border border-gray-200 dark:border-gray-700">
+      <table className="w-full min-w-max text-left text-xs">
+        <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+          <tr>
+            {cols.map((c) => (
+              <th key={c} className="px-2 py-1.5 font-medium text-gray-600 dark:text-gray-300">
+                {c}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.slice(0, 20).map((r, i) => (
+            <tr key={i} className="border-t border-gray-100 dark:border-gray-800">
+              {cols.map((c) => (
+                <td key={c} className="max-w-[220px] truncate px-2 py-1 text-gray-700 dark:text-gray-300">
+                  {String(r[c] ?? '')}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Governance denials read as wins, not crashes — explain them in words. */
+function governanceNote(error?: string): string | null {
+  if (!error) return null;
+  if (/aggregation policy/i.test(error))
+    return 'Blocked by a governance aggregation policy on this table — only aggregate queries are allowed. That is the governed path working; ask me for an aggregated view instead.';
+  if (/masking policy|row access policy/i.test(error))
+    return 'A masking / row-access policy applies to this data — results are protected for your role.';
+  if (/does not exist or not authorized/i.test(error))
+    return 'The draft referenced an object your role cannot see (or a placeholder) — ground me on real tables from the left rail and retry.';
+  return null;
+}
+
+function DraftCard({
+  draft,
+  onRetryAggregated,
+  onCreateWidget,
+  onCreateWorkflow,
+}: {
+  draft: CocoDraftResult;
+  onRetryAggregated?: () => void;
+  onCreateWidget?: () => void;
+  onCreateWorkflow?: () => void;
+}) {
+  const ok = draft.tested?.status === 'passed';
+  const note = governanceNote(draft.tested?.error);
+  const aggregationBlocked =
+    !ok && /aggregation policy/i.test(draft.tested?.error ?? '') && Boolean(onRetryAggregated);
+
+  // Charts render as REAL charts; SQL answers auto-visualize too when the
+  // result shape fits (≥2 rows, one categorical + numeric measures).
+  const sample = draft.tested?.sample ?? [];
+  let chartConfig: React.ComponentProps<typeof DynamicChart>['config'] | null = null;
+  if (
+    (draft.module === 'chart' || draft.module === 'sql') &&
+    ok &&
+    sample.length > (draft.module === 'sql' ? 1 : 0)
+  ) {
+    const cols = draft.tested?.columns?.length ? draft.tested.columns : Object.keys(sample[0]);
+    const xKey = cols.find((c) => typeof sample[0][c] !== 'number') ?? cols[0];
+    const measures = cols.filter((c) => c !== xKey && typeof sample[0][c] === 'number');
+    if (measures.length) {
+      chartConfig = {
+        chartType: ((draft.draft?.chart_type as string) ?? 'bar') as never,
+        x: xKey,
+        measures: measures.map((c) => ({ column: c })),
+        prefetched: { data: sample },
+      } as unknown as React.ComponentProps<typeof DynamicChart>['config'];
+    }
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-xs">
+        <span
+          className={`rounded-full px-2 py-0.5 font-medium ${
+            ok
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+              : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+          }`}
+        >
+          {draft.module} draft · {ok ? 'tested on real data' : `test ${draft.tested?.status ?? 'unknown'}`}
+        </span>
+        {typeof draft.tested?.sample_rows === 'number' && (
+          <span className="text-gray-500">{draft.tested.sample_rows} sample rows</span>
+        )}
+      </div>
+      {chartConfig && (
+        <div className="h-72 rounded-lg border border-gray-100 p-2 dark:border-gray-800">
+          {typeof draft.draft?.title === 'string' && (
+            <p className="px-1 pb-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+              {draft.draft.title}
+            </p>
+          )}
+          <div className="h-[calc(100%-1.25rem)]">
+            <DynamicChart config={chartConfig} />
+          </div>
+        </div>
+      )}
+      {(!chartConfig || draft.module === 'sql') &&
+        draft.tested?.sample &&
+        draft.tested.sample.length > 0 && (
+          <RowsPreview columns={draft.tested.columns ?? []} rows={draft.tested.sample} />
+        )}
+      {draft.tested?.steps && draft.tested.steps.length > 0 && (
+        <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
+          {draft.tested.steps.map((s) => (
+            <li key={s.step}>
+              {s.status === 'rendered' ? '✓' : '✗'} step {s.step} · {s.action_type}
+              {s.error ? ` — ${s.error}` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+      {note && (
+        <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+          {note}
+        </p>
+      )}
+      {aggregationBlocked && (
+        <Button size="sm" variant="outline" onClick={onRetryAggregated}>
+          Retry as an aggregated query (allowed by the policy)
+        </Button>
+      )}
+      {draft.module === 'chart' && ok && onCreateWidget && (
+        <Button size="sm" onClick={onCreateWidget}>
+          Create as BI widget
+        </Button>
+      )}
+      {draft.module === 'etl' && ok && onCreateWorkflow && (
+        <Button size="sm" onClick={onCreateWorkflow}>
+          Create this workflow
+        </Button>
+      )}
+      {draft.tested?.error && (
+        <p className={`text-xs ${note ? 'text-gray-400' : 'text-red-500'}`}>{draft.tested.error}</p>
+      )}
+      {!draft.draft && <p className="text-xs text-gray-400">The model could not produce a draft.</p>}
+    </div>
+  );
+}
+
+const ADMIN_ROLES = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'];
+
+/**
+ * Route registry pre-check (no more Run→404): the backend's real OpenAPI path
+ * list is fetched once per session; endpoint proposals are validated against
+ * it BEFORE a Run button is offered. Unknown path → disabled honest chip.
+ */
+let routeRegexes: RegExp[] | null = null;
+let routesPromise: Promise<RegExp[]> | null = null;
+async function loadRouteRegistry(): Promise<RegExp[]> {
+  if (routeRegexes) return routeRegexes;
+  routesPromise ??= apiClient
+    .get('/openapi.json', { timeout: 30_000 })
+    .then((res) => {
+      const paths = Object.keys((res.data?.paths ?? {}) as Record<string, unknown>);
+      routeRegexes = paths.map(
+        (p) => new RegExp(`^${p.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[^}]+\}/g, '[^/]+')}$`),
+      );
+      return routeRegexes;
+    })
+    .catch(() => {
+      routesPromise = null;
+      return [];
+    });
+  return routesPromise;
+}
+function routeExists(path: string, regs: RegExp[]): boolean {
+  if (!regs.length) return true; // registry unavailable → don't block, runtime 404 handling remains
+  const clean = path.split('?')[0];
+  return regs.some((r) => r.test(clean));
+}
+
+/** Snowflake session tokens live ~55 min — detect expiry in any caught error. */
+function isAuthExpired(err: unknown): boolean {
+  const s = String((err as Error)?.message ?? err ?? '');
+  return /390114|08001|token has expired|must authenticate|not authenticated|status code 401/i.test(s);
+}
+
+export default function AgentCanvas() {
+  const stage = useAtomValue(activeStageAtom);
+  const [grounding, setGrounding] = useAtom(groundingTablesAtom);
+  const [projectId, setProjectId] = useAtom(activeProjectIdAtom);
+  const [messages, setMessages] = useAtom(messagesAtom);
+  const setApprovals = useSetAtom(approvalsAtom);
+  const setProjectsDir = useSetAtom(projectsAtom);
+  const setTouched = useSetAtom(touchedStagesAtom);
+  const { role } = useAuth();
+  const isAdmin = ADMIN_ROLES.includes(role);
+  const { trackFeatureClick } = useTrackEvent();
+
+  const [prompt, setPrompt] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [projects, setProjects] = useState<UnifiedProject[]>([]);
+  const [running, setRunning] = useState<string | null>(null);
+  const [handOff, setHandOff] = useState<QueuedPrompt | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let alive = true;
+    getUnifiedProjects({ mine_only: true, limit: 12, offset: 0 })
+      .then((res) => {
+        if (alive) {
+          const list = res.projects ?? [];
+          setProjects(list);
+          // Share id→name with the AI Agent panel.
+          setProjectsDir(list.map((p) => ({ project_id: p.project_id, name: p.name })));
+        }
+      })
+      .catch(() => {
+        /* degrade: propose falls back to grounded drafts */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages.length, busy]);
+
+  const push = useCallback(
+    (m: Omit<AgentMessage, 'id' | 'at'>) => {
+      setMessages((prev) => [...prev, { ...m, id: nextId('msg'), at: Date.now() }]);
+      // The discussion IS part of the project trail: every turn is persisted as
+      // an event (EVENT_STORE via /api/data360/track — fire-and-forget), keyed
+      // by stage + active project so it reads like any classic module history.
+      trackFeatureClick('agentic_os_discussion', {
+        turn_role: m.role,
+        kind: m.kind,
+        stage: m.stage,
+        project_id: projectId || null,
+        project_name: projects.find((p) => p.project_id === projectId)?.name ?? null,
+        preview: (m.text ?? '').slice(0, 160),
+      });
+      // With an active project, the turn ALSO lands in the project's own
+      // timeline (PROJECT_EVENTS) — the discussion becomes a stored process,
+      // replayable when the project is reopened, visible in every History
+      // surface like any classic module's events. Guides are skipped (chrome,
+      // not process). Fire-and-forget: persistence must never block the chat.
+      if (projectId && m.kind !== 'guide') {
+        void addEvent(projectId, {
+          module_name: 'agentic_os',
+          event_type: 'DISCUSSION_TURN',
+          event_subtype: m.stage,
+          status: m.kind === 'error' ? 'FAILED' : 'SUCCESS',
+          entity_type: m.role,
+          details: {
+            kind: m.kind,
+            text: (m.text ?? '').slice(0, 600),
+            grounding,
+            ...(m.intent ? { intent: m.intent } : {}),
+          },
+        }).catch(() => {
+          /* timeline persistence is best-effort */
+        });
+      }
+    },
+    [setMessages, trackFeatureClick, projectId, projects, grounding],
+  );
+
+  /**
+   * Read-only source discovery: walk databases → schemas → tables (skipping
+   * the app's own DB and empty/system schemas), ground up to 5 tables of the
+   * richest schema found, and return what was explored. Null when nothing is
+   * readable for this role.
+   */
+  const discoverAndGround = useCallback(async (): Promise<{
+    db: string;
+    schema: string;
+    allTables: string[];
+    picked: string[];
+  } | null> => {
+    try {
+      const dbs = await getDatabases();
+      const ordered = [
+        ...dbs.filter((d) => /DRAFT_SOURCE|SOURCE|RAW|LAKE/i.test(d)),
+        ...dbs.filter((d) => !/DRAFT_SOURCE|SOURCE|RAW|LAKE/i.test(d) && !/^CP_DATA360$/i.test(d)),
+      ];
+      for (const db of ordered.slice(0, 3)) {
+        const schemas = (await getSchemas(db).catch(() => [])).filter(
+          (s) => !/INFORMATION_SCHEMA/i.test(s),
+        );
+        for (const schema of schemas.slice(0, 4)) {
+          const tables = await getTables(db, schema).catch(() => [] as string[]);
+          if (tables.length) {
+            // Facts first, then dims — an analysis grounding needs measures.
+            const ranked = [...tables].sort((a, b) => {
+              const rank = (t: string) => (/^FACT/i.test(t) ? 0 : /^DIM/i.test(t) ? 1 : 2);
+              return rank(a) - rank(b);
+            });
+            const picked = ranked.slice(0, 5).map((t) => `${db}.${schema}.${t}`.toUpperCase());
+            setGrounding(picked);
+            return { db: db.toUpperCase(), schema: schema.toUpperCase(), allTables: tables, picked };
+          }
+        }
+      }
+      return null;
+    } catch (e) {
+      // Expired warehouse session must surface as itself — never as the
+      // misleading "no readable schema for your role".
+      if (isAuthExpired(e)) throw new Error('AUTH_EXPIRED');
+      return null;
+    }
+  }, [setGrounding]);
+
+  /**
+   * The agent DOES safe things itself instead of instructing the user.
+   * Read-only context actions (grounding a schema's tables, grounding one FQN)
+   * execute directly; only mutations wait for validation. Returns true when
+   * the intent was handled.
+   */
+  const tryAutoAct = useCallback(
+    async (text: string): Promise<boolean> => {
+      const ident = '[A-Za-z_][A-Za-z0-9_]*';
+      // "create/I want a project (from this / from DB.SCHEMA)" → the agent
+      // creates a DRAFT project itself: app-registry write only, NO
+      // deployment/DDL — deploys keep requiring human validation. The intent
+      // net is wide on purpose: FR/EN want-verbs, agglutinations ("jeveu") and
+      // common typos included — a mention of a wanted project must never fall
+      // through to a doomed SQL draft.
+      const wantsProject =
+        /\b(projec?t|projet)\b/i.test(text) &&
+        /(create|make|build|start|new|want|need|design|desin|cr[ée]e|nouveau|veu[xt]?|jeveu|voudrais|besoin|g[ée]n[èe]re|lance|fais|donne)/i.test(
+          text,
+        );
+      if (wantsProject) {
+        let tables = grounding;
+        if (!tables.length) {
+          const schemaRef = text.match(new RegExp(`\\b(${ident})\\.(${ident})\\b`));
+          if (schemaRef) {
+            const names = await getTables(schemaRef[1].toUpperCase(), schemaRef[2].toUpperCase()).catch(
+              () => [] as string[],
+            );
+            tables = names
+              .slice(0, 5)
+              .map((t) => `${schemaRef[1]}.${schemaRef[2]}.${t}`.toUpperCase());
+          }
+          if (!tables.length) {
+            const found = await discoverAndGround();
+            tables = found?.picked ?? [];
+          } else {
+            setGrounding(tables);
+          }
+        }
+        if (!tables.length) {
+          push({
+            role: 'agent',
+            stage,
+            kind: 'text',
+            text: 'I could not find readable tables to seed the project — pick some in the left rail and re-ask.',
+          });
+          return true;
+        }
+        const name = `AGENTIC_${tables[0].split('.')[1]}_${Date.now().toString(36).slice(-4).toUpperCase()}`;
+        const created = await createExploreProject({
+          project_name: name,
+          description: `Created by the Agentic OS from: "${text.slice(0, 140)}"`,
+          source_tables: tables.map((f) => {
+            const [database, schema, table] = f.split('.');
+            return { database, schema, table };
+          }),
+          tags: ['agentic-os'],
+        });
+        setProjectId(created.project_id);
+        setTouched((t) => ({ ...t, [stage]: 'done' }));
+        const wantsStar = /[ée]toile|star/i.test(text);
+        const wantsIngestion = /ingest/i.test(text);
+        const nextSteps = [
+          wantsStar
+            ? 'you asked for a star model — go to the Models step and say "propose a star schema", I draft it over these tables'
+            : 'model it at the Models step',
+          wantsIngestion
+            ? 'for ingestion, the Ingestion step recommends the right mode (full/incremental/CDC) per table'
+            : null,
+        ]
+          .filter(Boolean)
+          .join('; ');
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text:
+            `Done — I created draft project ${created.project_name} (${created.project_id}) with ` +
+            `${tables.length} source tables and selected it as the active project. Nothing was deployed — ` +
+            `${nextSteps}; any deployment will wait for your validation.`,
+        });
+        return true;
+      }
+      // "… DB.SCHEMA.TABLE …" → ground that exact table.
+      const fqnMatch = text.match(new RegExp(`\\b(${ident})\\.(${ident})\\.(${ident})\\b`));
+      // "select/ground/pick … DB.SCHEMA …" → ground up to 5 of its tables.
+      const schemaMatch =
+        !fqnMatch &&
+        /select|ground|pick|choisis|s[ée]lectionne|prends|use/i.test(text) &&
+        text.match(new RegExp(`\\b(${ident})\\.(${ident})\\b`));
+      if (fqnMatch) {
+        const fqn = `${fqnMatch[1]}.${fqnMatch[2]}.${fqnMatch[3]}`.toUpperCase();
+        setGrounding((g) => (g.includes(fqn) ? g : [...g.slice(-4), fqn]));
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text: `Done — grounded ${fqn}. Ask me anything about it, or add more tables (5 max).`,
+        });
+        return true;
+      }
+      if (schemaMatch) {
+        const db = schemaMatch[1].toUpperCase();
+        const schema = schemaMatch[2].toUpperCase();
+        try {
+          const tables = await getTables(db, schema);
+          if (!tables.length) {
+            push({
+              role: 'agent',
+              stage,
+              kind: 'text',
+              text: `${db}.${schema} has no tables your role can see — pick another schema in the tree.`,
+            });
+            return true;
+          }
+          const picked = tables.slice(0, 5).map((t) => `${db}.${schema}.${t}`.toUpperCase());
+          setGrounding(picked);
+          push({
+            role: 'agent',
+            stage,
+            kind: 'text',
+            text:
+              `Done — I grounded ${picked.length} of ${tables.length} tables from ${db}.${schema}: ` +
+              `${picked.map((f) => f.split('.')[2]).join(', ')}. ` +
+              `Ask me anything about them, or move to the next step (Models, Questions, Dashboards…).`,
+          });
+          return true;
+        } catch {
+          return false; // schema unreadable → fall through to conversation
+        }
+      }
+      return false;
+    },
+    [push, setGrounding, stage, grounding, discoverAndGround, setProjectId, setTouched],
+  );
+
+  const submit = useCallback(async (textArg?: string) => {
+    const text = (textArg ?? prompt).trim();
+    if (!text || busy) return;
+    setPrompt('');
+    setBusy(true);
+    push({ role: 'user', stage, kind: 'text', text });
+    setTouched((t) => ({ ...t, [stage]: 'done' }));
+    try {
+      // A pending generated artifact + a confirmation word = CREATE it now.
+      // Autonomous creator contract: confirmations execute, they never re-ask.
+      if (
+        pendingModelRef.current &&
+        /^(go|ok|oui|yes|add them|apply|create( it)?|vas[- ]?y|valide|fais[- ]?le)\b/i.test(text)
+      ) {
+        await createModel(pendingModelRef.current);
+        return;
+      }
+      // PRODUCE intent (functional, not audit): scan the estate for data
+      // PRODUCTS to build, each one-click generated. This is the default
+      // "understand my data → build" path.
+      if (
+        /what (products?|can i build|to build)|products? (can i|to) build|\b(produce|build|generate|create|make)\b.*\b(products?|data ?products?|opportunit)/i.test(
+          text,
+        ) ||
+        /\bopportunit|scan.*(product|build|estate)|produis|construis mes? produits?/i.test(text)
+      ) {
+        push({ role: 'agent', stage, kind: 'text', text: 'Scanning your estate for build-ready products…' });
+        const scan = await scanOpportunities();
+        push({ role: 'agent', stage, kind: 'opportunities', opportunities: scan });
+        return;
+      }
+      // Assessment intent: scan the connected account through the 6 stages,
+      // narrated, then post the honest hero + findings card (real endpoints).
+      if (/\b(assess|scan|audit|évalue|analyse mon compte|assessment|health check)\b/i.test(text)) {
+        const stages = [
+          'Stage 1 · Validating connection, role and permissions…',
+          'Stage 2 · Discovering the inventory (databases, schemas, objects, roles, policies)…',
+          'Stage 3 · Analyzing usage, workload and cost…',
+          'Stage 4 · Analyzing security and governance…',
+          'Stage 5 · Inferring domains and data-product opportunities…',
+          'Stage 6 · Generating solutions from findings…',
+        ];
+        for (const s of stages) push({ role: 'agent', stage, kind: 'text', text: s });
+        const report = await runAssessment();
+        push({ role: 'agent', stage, kind: 'assessment', assessment: report });
+        return;
+      }
+      if (await tryAutoAct(text)) return;
+      const draftModule = DRAFT_STAGE[stage];
+      // Short acknowledgements ("go", "ok") are conversation, not data intents —
+      // the draft engine requires a real intent (min length) and would 422.
+      const conversational = text.length < 8;
+      if (conversational) {
+        // Short conversational ack — stay in discussion, role/context-aware.
+        const ctx = grounding.length
+          ? `They HAVE grounded these tables: ${grounding.join(', ')}. Suggest a concrete next ask on them.`
+          : `They have not selected tables or a project yet.`;
+        const res = await generateCompletion({
+          prompt:
+            `You are the Data360 agent at the "${STAGE_META[stage].label}" lifecycle step ` +
+            `(${STAGE_META[stage].hint}). The user's warehouse role is ${role}. ${ctx} ` +
+            `User says: "${text}". Reply briefly and helpfully (max 4 sentences, no markdown headers).`,
+          model: 'mistral-large2',
+        });
+        push({ role: 'agent', stage, kind: 'text', text: res.response });
+      } else if (!grounding.length && !projectId) {
+        // A real data intent with nothing selected: the agent explores the
+        // sources ITSELF (read-only), grounds a rich schema, then answers —
+        // discover → ground → analyze, never "please select".
+        push({ role: 'agent', stage, kind: 'text', text: 'Exploring your sources…' });
+        const discovered = await discoverAndGround();
+        if (!discovered) {
+          push({
+            role: 'agent',
+            stage,
+            kind: 'text',
+            text: `I could not find a readable source schema for your role (${role}) — pick a table in the left rail or select a project and I take it from there.`,
+          });
+        } else {
+          const { db, schema, allTables, picked } = discovered;
+          push({
+            role: 'agent',
+            stage,
+            kind: 'text',
+            text: `I explored your sources and picked ${db}.${schema} (${allTables.length} tables). Grounded: ${picked.map((f) => f.split('.')[2]).join(', ')}.`,
+          });
+          const res = await generateCompletion({
+            prompt:
+              `You are the Data360 agent (user role: ${role}). The available tables in ${db}.${schema} are: ` +
+              `${allTables.slice(0, 40).join(', ')}. The user asks: "${text}". ` +
+              `Answer concretely using these REAL table names (max 8 sentences, no markdown headers). ` +
+              `If they asked what to design/build, propose 3-5 concrete options mapped to specific tables, ` +
+              `then tell them the next step happens right here (draft it at the Questions/Dashboards/Workflow step).`,
+            model: 'mistral-large2',
+          });
+          push({ role: 'agent', stage, kind: 'text', text: res.response });
+        }
+      } else if (draftModule && grounding.length) {
+        const draft = await cocoDraft({
+          module: draftModule,
+          intent: text,
+          tables: grounding,
+        });
+        push({ role: 'agent', stage, kind: 'draft', draft, intent: text });
+        offerGovernanceRemediation(draft, text);
+      } else if (stage === 'models' && grounding.length) {
+        // A modeling ask returns a READY artifact: real columns fetched, the
+        // model generated as strict JSON, previewed as a flow card with a
+        // create button — never prose walls, never questions back.
+        const colEntries = await Promise.all(
+          grounding.map(async (fqn) => {
+            const cols = await getTableColumns('', '', fqn).catch(() => []);
+            return [
+              fqn,
+              cols
+                .map((c) => (c as { name?: string; column_name?: string }).name ?? (c as { column_name?: string }).column_name ?? '')
+                .filter(Boolean)
+                .slice(0, 20),
+            ] as const;
+          }),
+        );
+        const columns = Object.fromEntries(colEntries);
+        const res = await generateCompletion({
+          prompt:
+            `Design a star model over these REAL tables and columns:\n` +
+            colEntries.map(([f, c]) => `${f}: ${c.join(', ')}`).join('\n') +
+            `\nUser intent: "${text}".\nAnswer ONLY a strict JSON object, no prose, shaped ` +
+            `{"fact":"<table fqn>","dims":["<fqn>",...],"joins":[{"from":"<fqn>","to":"<fqn>","key":"<real column>"}]} ` +
+            `using only the tables and columns above.`,
+          model: 'mistral-large2',
+        });
+        const raw = res.response ?? '';
+        try {
+          // The completion arrives double-escaped (\n, \") — unescape before parsing.
+          const unescaped = raw.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+          const jsonStr = unescaped.slice(unescaped.indexOf('{'), unescaped.lastIndexOf('}') + 1);
+          const parsed = JSON.parse(jsonStr) as Omit<ProposedModel, 'columns'>;
+          if (!parsed.fact || !Array.isArray(parsed.joins)) throw new Error('bad shape');
+          const model: ProposedModel = { ...parsed, dims: parsed.dims ?? [], columns };
+          pendingModelRef.current = model;
+          push({
+            role: 'agent',
+            stage,
+            kind: 'model',
+            model,
+            text: 'Ready — model generated on your real columns. Preview below; one click creates it in the project (nothing deploys).',
+          });
+        } catch {
+          push({ role: 'agent', stage, kind: 'text', text: raw.replace(/\\n/g, '\n') });
+        }
+      } else if (projectId) {
+        const res = await proposeAgentActions(projectId, text);
+        // Pre-check every endpoint proposal against the REAL route registry —
+        // unavailable ones are marked now, never offered as a doomed Run.
+        const regs = await loadRouteRegistry();
+        const checked = (res.actions ?? []).map((a) =>
+          a.kind === 'endpoint' && a.endpoint?.path && !routeExists(a.endpoint.path, regs)
+            ? ({ ...a, _rejected: 'route_missing' } as typeof a)
+            : a,
+        );
+        push({
+          role: 'agent',
+          stage,
+          kind: 'proposals',
+          proposals: checked,
+          contextSummary: res.context_summary,
+          text: res.error,
+        });
+      } else if (
+        stage === 'ingestion' &&
+        grounding.length &&
+        /status|freshness|frais|load|charge|profile|quality|signal|score/i.test(text)
+      ) {
+        // Ingestion visual-first: LIVE platform signals per grounded table
+        // (persisted goal-axis KPIs — real data, zero LLM, instant tiles).
+        const tiles: TableTile[] = await Promise.all(
+          grounding.map(async (fqn) => {
+            const [db, sch, tbl] = fqn.split('.');
+            const k = await fetchNodeKpis(db, sch, tbl).catch(() => null);
+            return {
+              fqn,
+              dq: k?.dq ?? null,
+              gov: k?.gov ?? null,
+              cost: k?.cost ?? null,
+              perfMs: k?.perfMs ?? null,
+              trust: k?.trust ?? null,
+            };
+          }),
+        );
+        push({
+          role: 'agent',
+          stage,
+          kind: 'tiles',
+          tiles,
+          text: 'Live platform signals for your grounded tables (— = never computed; use dry-run in the tree to refresh):',
+        });
+      } else if (/plan|phase|steps?|[ée]tapes?|finish|roadmap|process|how (do|to)|comment (faire|finir)/i.test(text)) {
+        // Planning asks answer as a CLICKABLE FLOW, never numbered prose:
+        // each node maps to a lifecycle step and walks the plan on click.
+        const res = await generateCompletion({
+          prompt:
+            `Grounded tables: ${grounding.join(', ')}. User (role ${role}) asks: "${text}". ` +
+            `Answer ONLY a strict JSON object, no prose: {"steps":[{"title":"<short>", ` +
+            `"stage":"sources|models|ingestion|workflow|dashboards|questions|dependencies", ` +
+            `"detail":"<one concrete actionable ask the user could send at that step>"}]} — max 6 steps, ` +
+            `each mapped to the right lifecycle stage, grounded on the real table names. ` +
+            `For dashboards steps the detail must be ONE single chart ask (one metric by one dimension, ` +
+            `e.g. "bar chart of total X by Y"); for questions steps ONE single question.`,
+          model: 'mistral-large2',
+        });
+        const raw = (res.response ?? '').replace(/\\n/g, '\n').replace(/\\"/g, '"');
+        try {
+          const parsed = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) as ProposedPlan;
+          if (!Array.isArray(parsed.steps) || !parsed.steps.length) throw new Error('bad');
+          push({
+            role: 'agent',
+            stage,
+            kind: 'plan',
+            plan: parsed,
+            text: 'Plan ready — click any step to jump there with the ask prefilled:',
+          });
+        } catch {
+          push({ role: 'agent', stage, kind: 'text', text: raw });
+        }
+      } else {
+        const draft = await cocoDraft({
+          module: 'sql',
+          intent: text,
+          tables: grounding,
+        });
+        push({ role: 'agent', stage, kind: 'draft', draft, intent: text });
+        offerGovernanceRemediation(draft, text);
+      }
+    } catch (err) {
+      if (isAuthExpired(err)) {
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text:
+            'Your warehouse session has expired (tokens last ~55 minutes). Reload the page to sign in ' +
+            'again, then re-ask — your grounding and the governed flow pick up right where you left off.',
+        });
+      } else {
+        push({
+          role: 'agent',
+          stage,
+          kind: 'error',
+          text: err instanceof Error ? err.message : 'The agent call failed.',
+        });
+      }
+    } finally {
+      setBusy(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt, busy, stage, grounding, projectId, role, push, setTouched, tryAutoAct]);
+
+  /**
+   * Non-stop agentic: a governance denial never dead-ends. The agent knows the
+   * user's role — when it is allowed to fix the blocking policy, the governed
+   * remediation is proposed AND pre-selected into the validation queue
+   * (mutating → still needs the human click; read-only retry offered inline).
+   */
+  function offerGovernanceRemediation(draft: CocoDraftResult, intent: string) {
+    const err = draft.tested?.error ?? '';
+    if (draft.tested?.status === 'passed' || !/aggregation policy/i.test(err)) return;
+    if (!isAdmin) {
+      push({
+        role: 'agent',
+        stage,
+        kind: 'text',
+        text: `Your role (${role}) cannot change this policy — ask a security admin, or retry with an aggregated query (the policy allows those).`,
+      });
+      return;
+    }
+    const target = grounding.join(', ') || 'the grounded tables';
+    setApprovals((prev) => {
+      if (prev.some((a) => a.status === 'pending' && a.label.includes('aggregation policy'))) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          id: nextId('appr'),
+          stage,
+          label: `Adjust the aggregation policy blocking ${target}`,
+          rationale: `As ${role} you are allowed to relax or unset this policy. The change is drafted and executed only after your confirmation in the validation chat.`,
+          risk: 'high',
+          handOffTab: 'cortex-chat',
+          prompt: `An aggregation policy blocks row-level reads on ${target} (error: ${err.slice(0, 160)}). As ${role}, draft the exact ALTER/UNSET statements to relax it for my analysis of: "${intent}". Show me the statements and wait for my GO before anything runs.`,
+          status: 'pending',
+        },
+      ];
+    });
+    toast('Remediation proposed — pre-selected in the validation rail (your role allows it).', {
+      icon: '🛡️',
+    });
+  }
+
+  /** Read-only proposal → run inline. Mutating → park for human validation. */
+  const actOnProposal = useCallback(
+    async (msgId: string, idx: number, action: ProposedAction) => {
+      const key = `${msgId}:${idx}`;
+      // A path with an unfilled {param} template is guaranteed to 404 — treat
+      // it as discussion material, not a runnable.
+      const templatePath =
+        action.kind === 'endpoint' && /\{[^}]+\}/.test(action.endpoint?.path ?? '');
+      const readonlySql = action.kind === 'coco_sql' && action.sql && !action._rejected;
+      const readonlyGet =
+        action.kind === 'endpoint' && action.endpoint?.method === 'GET' && !templatePath;
+      if (readonlySql || readonlyGet) {
+        setRunning(key);
+        try {
+          if (readonlySql) {
+            const res = await cocoRunSql(action.sql as string, 100);
+            push({
+              role: 'agent',
+              stage,
+              kind: 'rows',
+              text: `Ran: ${action.label}`,
+              rows: (res as unknown as { rows?: Record<string, unknown>[] }).rows ?? [],
+              rowColumns: (res as unknown as { columns?: string[] }).columns ?? [],
+            });
+          } else {
+            const res = await apiClient.get(action.endpoint!.path);
+            const data = res.data?.data ?? res.data;
+            const rows = Array.isArray(data) ? data : [data];
+            push({
+              role: 'agent',
+              stage,
+              kind: 'rows',
+              text: `Fetched: ${action.label}`,
+              rows: rows.filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null).slice(0, 50),
+              rowColumns: [],
+            });
+          }
+        } catch (err) {
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          if (status === 404 || status === 501) {
+            // Honest unavailability, not a crash: the proposed read isn't wired
+            // on this backend (same convention as InsightActionButton).
+            push({
+              role: 'agent',
+              stage,
+              kind: 'text',
+              text: `"${action.label}" isn't available on this backend yet (${status}) — the agent proposed it, but no route serves it. Pick another proposal or rephrase.`,
+            });
+          } else {
+            push({
+              role: 'agent',
+              stage,
+              kind: 'error',
+              text: `${action.label} failed: ${err instanceof Error ? err.message : 'error'}`,
+            });
+          }
+        } finally {
+          setRunning(null);
+        }
+        return;
+      }
+      // Mutating (or server-rejected write SQL) → right-rail approval queue.
+      setApprovals((prev) => [
+        ...prev,
+        {
+          id: nextId('appr'),
+          stage,
+          label: action.label,
+          rationale: action.rationale,
+          risk: action.risk,
+          handOffTab: 'cortex-chat',
+          prompt: `${action.label}${action.rationale ? ` — ${action.rationale}` : ''}`,
+          status: 'pending',
+        },
+      ]);
+      toast('Parked for validation — decide in the right rail.', { icon: '🛡️' });
+    },
+    [push, setApprovals, stage],
+  );
+
+  // Reused-as-process: opening a project restores its stored discussion from
+  // the PROJECT_EVENTS timeline — the conversation continues where the project
+  // left off, across sessions and users.
+  const restoredForRef = useRef<string>('');
+  useEffect(() => {
+    if (!projectId || restoredForRef.current === projectId) return;
+    restoredForRef.current = projectId;
+    void listEvents(projectId, {
+      module_name: 'agentic_os',
+      event_type: 'DISCUSSION_TURN',
+      limit: 100,
+    })
+      .then((res) => {
+        const events = (Array.isArray(res) ? res : (res as { events?: unknown[] })?.events ?? [])
+          .filter((e): e is Record<string, unknown> => typeof e === 'object' && e !== null)
+          .sort((a, b) => String(a.timestamp ?? '').localeCompare(String(b.timestamp ?? '')));
+        if (!events.length) return;
+        // Restore the stored grounding too — the process resumes with its
+        // context, not just its transcript.
+        for (let i = events.length - 1; i >= 0; i--) {
+          const g = (events[i].details as { grounding?: string[] } | undefined)?.grounding;
+          if (Array.isArray(g) && g.length) {
+            setGrounding((cur) => (cur.length ? cur : g));
+            break;
+          }
+        }
+        const restored: AgentMessage[] = events.map((e) => {
+          const details = (e.details ?? {}) as { text?: string; kind?: string };
+          return {
+            id: nextId('hist'),
+            role: e.entity_type === 'user' ? 'user' : 'agent',
+            stage: (String(e.event_subtype ?? 'sources') as LifecycleStage) ?? 'sources',
+            kind: 'text',
+            text: details.text ?? '',
+            at: Date.parse(String(e.timestamp ?? '')) || Date.now(),
+          };
+        });
+        setMessages((prev) => {
+          if (prev.some((m) => m.id.startsWith('hist'))) return prev;
+          const divider: AgentMessage = {
+            id: nextId('hist_div'),
+            role: 'agent',
+            stage,
+            kind: 'guide',
+            text: `Restored ${restored.length} turns from this project's stored discussion — the process continues where it left off. Validate each step on the process map below; Run process replays it read-only; Export turns builds a training set.`,
+            at: Date.now(),
+          };
+          const flowCard: AgentMessage = {
+            id: nextId('hist_flow'),
+            role: 'agent',
+            stage,
+            kind: 'flow',
+            text: 'Process map — click a step to validate/continue it:',
+            at: Date.now(),
+          };
+          return [...restored, divider, flowCard, ...prev];
+        });
+      })
+      .catch(() => {
+        /* no stored discussion — fresh start */
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // Guided discussion: entering a step for the first time, the agent opens it
+  // (what this step is, what your role can do here). On Dependencies with a
+  // grounded object, the lineage canvas is posted automatically.
+  useEffect(() => {
+    setMessages((prev) => {
+      if (prev.some((m) => m.kind === 'guide' && m.stage === stage)) return prev;
+      const additions: AgentMessage[] = [
+        {
+          id: nextId('guide'),
+          role: 'agent',
+          stage,
+          kind: 'guide',
+          text: STAGE_META[stage].guide,
+          at: Date.now(),
+        },
+      ];
+      if (stage === 'dependencies' && grounding.length) {
+        additions.push({
+          id: nextId('lin'),
+          role: 'agent',
+          stage,
+          kind: 'lineage',
+          text: `Lineage for ${grounding[grounding.length - 1]}:`,
+          lineageFqn: grounding[grounding.length - 1],
+          at: Date.now(),
+        });
+      }
+      return [...prev, ...additions];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
+
+  /** The last generated model awaiting validation ("go"/"add them" creates it). */
+  const pendingModelRef = useRef<ProposedModel | null>(null);
+
+  /**
+   * AUTO-GENERATE a full product from one opportunity: create the project with
+   * the schema's tables as sources, then (star_model/data_product) generate and
+   * write the relationships — every artifact real and audited, nothing deployed.
+   * This is the "produce products" chain, exercising all creators end to end.
+   */
+  const [buildingOppId, setBuildingOppId] = useState<string | null>(null);
+  const buildProduct = useCallback(
+    async (opp: ProductOpportunity) => {
+      setBuildingOppId(opp.id);
+      try {
+        const sources = [opp.fact, ...opp.dims].filter(Boolean) as string[];
+        const created = await createExploreProject({
+          project_name: `PRODUCT_${opp.schema}_${Date.now().toString(36).slice(-4).toUpperCase()}`.toUpperCase(),
+          description: `Auto-generated by the Agentic OS: ${opp.title}`,
+          source_tables: sources.map((f) => {
+            const [database, schema, table] = f.split('.');
+            return { database, schema, table };
+          }),
+          tags: ['agentic-os', 'auto-product'],
+        });
+        setProjectId(created.project_id);
+        setGrounding(sources.slice(0, 5));
+
+        let relMsg = '';
+        if ((opp.kind === 'star_model' || opp.kind === 'data_product') && opp.fact && opp.dims.length) {
+          // Real columns → pick a shared join key per dimension, write relationships.
+          const factCols = (await getTableColumns('', '', opp.fact).catch(() => [])).map(
+            (c) => (c as { name?: string }).name ?? '',
+          );
+          let ok = 0;
+          for (const dim of opp.dims) {
+            const dimCols = (await getTableColumns('', '', dim).catch(() => [])).map(
+              (c) => (c as { name?: string }).name ?? '',
+            );
+            const key =
+              factCols.find((c) => c && dimCols.includes(c) && /_?ID$|_KEY$|_?CODE$/i.test(c)) ??
+              factCols.find((c) => c && dimCols.includes(c));
+            if (!key) continue;
+            try {
+              await createRelationship(created.project_id, {
+                source_table: opp.fact.split('.').slice(-1)[0],
+                source_column: key,
+                target_table: dim.split('.').slice(-1)[0],
+                target_column: key,
+                cardinality: 'many_to_one',
+              });
+              ok += 1;
+            } catch {
+              /* skip unjoinable dim */
+            }
+          }
+          relMsg = ` and wrote ${ok}/${opp.dims.length} star relationships`;
+        }
+
+        if (projectId || created.project_id) {
+          void addEvent(created.project_id, {
+            module_name: 'agentic_os',
+            event_type: 'PRODUCT_GENERATED',
+            status: 'SUCCESS',
+            details: { kind: opp.kind, schema: opp.schema, sources: sources.length },
+          }).catch(() => {});
+        }
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text:
+            `Built ${created.project_name} (${created.project_id}) — ${sources.length} source tables${relMsg}. ` +
+            `It's grounded and active: ask "propose a star schema" (Models), "chart total by store" ` +
+            `(Dashboards), or "draft the pipeline" (Workflow) — each generates the next real artifact. Nothing deployed.`,
+        });
+        toast(`Product built — ${created.project_name}`, { icon: '📦' });
+      } catch (e) {
+        push({
+          role: 'agent',
+          stage,
+          kind: 'error',
+          text: `Build failed: ${e instanceof Error ? e.message : 'error'}`,
+        });
+      } finally {
+        setBuildingOppId(null);
+      }
+    },
+    [projectId, setProjectId, setGrounding, push, stage],
+  );
+
+  /** One agentic BI board per session — widgets created from chart drafts land there. */
+  const agenticBoardRef = useRef<{ project_id: string; page_id: string; name: string } | null>(null);
+
+  /**
+   * CREATOR path for pipelines: a rendered ETL draft becomes a REAL workflow.
+   * The draft's steps are already the engine's shape (action_type + payload,
+   * wired by input_step) — creation is a direct governed write. Execution and
+   * scheduling stay behind human validation in the Workflow module.
+   */
+  const createWorkflowFromDraft = useCallback(
+    async (draft: CocoDraftResult, intent: string) => {
+      const steps = ((draft.draft?.steps ?? []) as {
+        action_type: string;
+        step_name?: string;
+        payload?: Record<string, unknown>;
+      }[]).map((s) => ({
+        action_type: s.action_type,
+        step_name: s.step_name ?? undefined,
+        payload: s.payload ?? {},
+      }));
+      if (!steps.length) {
+        toast('This draft has no steps to create.', { icon: 'ℹ️' });
+        return;
+      }
+      const name = `AGENTIC_WF_${Date.now().toString(36).slice(-4).toUpperCase()}`;
+      try {
+        // Direct contract call — the legacy createWorkflow service still sends
+        // workflow_name/step_order, which the backend 422s (parallel API
+        // generations; census gap #23). POST /workflow wants project_name +
+        // {action_type, step_name, payload} steps.
+        const res = await apiClient.post('/workflow', {
+          project_name: name,
+          description: `Created by the Agentic OS from: "${intent.slice(0, 140)}"`,
+          steps,
+          tags: ['agentic-os'],
+        });
+        const data = (res.data?.data ?? res.data ?? {}) as { project_id?: string };
+        if (projectId) {
+          void addEvent(projectId, {
+            module_name: 'agentic_os',
+            event_type: 'WORKFLOW_CREATED',
+            status: 'SUCCESS',
+            details: { workflow: name, workflow_project: data.project_id ?? null, steps: steps.length, intent },
+          }).catch(() => {});
+        }
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text: `Created — workflow ${name} (${steps.length} steps${data.project_id ? `, ${data.project_id}` : ''}). Open Workflow to see the canvas; running or scheduling it waits for your validation.`,
+        });
+        toast(`Workflow ${name} created (${steps.length} steps).`, { icon: '⚙️' });
+      } catch (e) {
+        push({
+          role: 'agent',
+          stage,
+          kind: 'error',
+          text: `Workflow creation failed: ${e instanceof Error ? e.message : 'error'}`,
+        });
+      }
+    },
+    [projectId, push, stage],
+  );
+
+  /**
+   * CREATOR path for charts: a passed chart draft becomes a REAL BI widget.
+   * nl-to-chart builds a validated table-based config from the same intent,
+   * then the widget is written to a session dashboard through the existing BI
+   * API. Draft board only — publishing stays behind human validation.
+   */
+  const createChartWidget = useCallback(
+    async (intent: string) => {
+      const src = grounding[0];
+      if (!src) {
+        toast('Ground a table first — the widget needs a real source.', { icon: 'ℹ️' });
+        return;
+      }
+      const [db, schema] = src.split('.');
+      const res = await nlToChart(intent, db, schema).catch(() => null);
+      if (!res?.valid || !res.chart_config) {
+        push({
+          role: 'agent',
+          stage,
+          kind: 'text',
+          text: `The BI engine could not validate a widget config for this ask${
+            res?.validation_errors?.length ? ` — ${res.validation_errors.map((e) => e.msg).join('; ')}` : ''
+          }. Refine the ask or build it in the BI editor.`,
+        });
+        return;
+      }
+      if (!agenticBoardRef.current) {
+        const board = await createDashboard({
+          project_name: `AGENTIC_BOARD_${Date.now().toString(36).slice(-4).toUpperCase()}`,
+          description: 'Created by the Agentic OS from tested chart drafts',
+          tags: ['agentic-os'],
+        });
+        agenticBoardRef.current = {
+          project_id: board.project_id,
+          page_id: board.default_page_id,
+          name: `AGENTIC_BOARD`,
+        };
+      }
+      const cfg = res.chart_config as unknown as BIDashboardChartConfig & { chartType?: string };
+      const created = await createWidget(agenticBoardRef.current.project_id, {
+        page_id: agenticBoardRef.current.page_id,
+        widget_type: 'chart',
+        chart_type: ((cfg.chartType as string) ?? 'bar') as DashboardChartType,
+        title: intent.slice(0, 60),
+        chart_config: cfg,
+        position_x: 0,
+        position_y: 0,
+        width: 6,
+        height: 4,
+      });
+      if (projectId) {
+        void addEvent(projectId, {
+          module_name: 'agentic_os',
+          event_type: 'WIDGET_CREATED',
+          status: 'SUCCESS',
+          details: { widget_id: created.widget_id, dashboard: agenticBoardRef.current.project_id, intent },
+        }).catch(() => {});
+      }
+      push({
+        role: 'agent',
+        stage,
+        kind: 'text',
+        text: `Created — widget "${intent.slice(0, 60)}" on the agentic BI board (${agenticBoardRef.current.project_id}). Open BI Dashboard to arrange or publish it — publishing waits for your validation.`,
+      });
+      toast('Widget created on the agentic BI board.', { icon: '📊' });
+    },
+    [grounding, stage, push, projectId],
+  );
+
+  /**
+   * CREATE the generated model in the project — real relationships through the
+   * existing E&D API (each one an audited project event, visible in the E&D
+   * modeling canvas). The click on the card IS the validation. No deployment.
+   */
+  const createModel = useCallback(
+    async (model: ProposedModel) => {
+      let pid = projectId;
+      if (!pid) {
+        const created = await createExploreProject({
+          project_name: `AGENTIC_MODEL_${Date.now().toString(36).slice(-4).toUpperCase()}`,
+          description: 'Created by the Agentic OS to hold a generated model',
+          source_tables: [model.fact, ...model.dims].map((f) => {
+            const [database, schema, table] = f.split('.');
+            return { database, schema, table };
+          }),
+          tags: ['agentic-os'],
+        });
+        pid = created.project_id;
+        setProjectId(pid);
+      }
+      let ok = 0;
+      const failures: string[] = [];
+      for (const j of model.joins) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await createRelationship(pid, {
+            source_table: j.from.split('.').slice(-1)[0],
+            source_column: j.key,
+            target_table: j.to.split('.').slice(-1)[0],
+            target_column: j.key,
+            cardinality: 'many_to_one',
+          });
+          ok += 1;
+        } catch (e) {
+          failures.push(`${j.from}→${j.to} (${j.key}): ${e instanceof Error ? e.message : 'error'}`);
+        }
+      }
+      pendingModelRef.current = null;
+      push({
+        role: 'agent',
+        stage,
+        kind: 'text',
+        text:
+          `Created — ${ok}/${model.joins.length} relationships written to the project (audited events). ` +
+          `Open Explore & Design to see the ERD live${failures.length ? `. Failed: ${failures.join('; ')}` : ''}. ` +
+          `Deployment still waits for your validation.`,
+      });
+      toast(`Model created — ${ok} relationships in the project.`, { icon: '✅' });
+    },
+    [projectId, setProjectId, push, stage],
+  );
+
+  /**
+   * Replay executor — "automated via deployment, like other projects": re-runs
+   * the STORED user turns of the restored process through the normal governed
+   * pipeline. Read-only outcomes re-materialize on fresh data; every mutating
+   * step parks in the validation rail exactly like live. Bounded (≤5 turns),
+   * sequential, traced as PROCESS_REPLAY events in the project timeline.
+   */
+  const [replaying, setReplaying] = useState(false);
+  const replayProcess = useCallback(async () => {
+    if (!projectId || replaying) return;
+    const turns = messages
+      .filter((m) => m.id.startsWith('hist') && m.role === 'user' && (m.text ?? '').trim())
+      .slice(0, 5);
+    if (!turns.length) {
+      toast('No stored user turns to replay for this project.', { icon: 'ℹ️' });
+      return;
+    }
+    setReplaying(true);
+    void addEvent(projectId, {
+      module_name: 'agentic_os',
+      event_type: 'PROCESS_REPLAY',
+      status: 'STARTED',
+      details: { turns: turns.length },
+    }).catch(() => {});
+    push({
+      role: 'agent',
+      stage,
+      kind: 'text',
+      text: `Replaying this process — ${turns.length} stored turns, read-only; anything mutating waits for you.`,
+    });
+    try {
+      for (const t of turns) {
+        // eslint-disable-next-line no-await-in-loop
+        await submit(t.text as string);
+      }
+      void addEvent(projectId, {
+        module_name: 'agentic_os',
+        event_type: 'PROCESS_REPLAY',
+        status: 'SUCCESS',
+        details: { turns: turns.length },
+      }).catch(() => {});
+    } finally {
+      setReplaying(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, replaying, messages, stage, push]);
+
+  /** Train-from-process: the stored pairs (intent → tested outcome) as JSONL. */
+  const exportTraining = useCallback(() => {
+    const pairs: { prompt: string; completion: string; stage: string }[] = [];
+    for (let i = 0; i < messages.length - 1; i++) {
+      const u = messages[i];
+      const a = messages[i + 1];
+      if (u.role === 'user' && a.role === 'agent' && a.kind !== 'guide' && (u.text ?? '').trim()) {
+        pairs.push({
+          prompt: u.text ?? '',
+          completion: (a.text ?? '') || `[${a.kind}]`,
+          stage: u.stage,
+        });
+      }
+    }
+    if (!pairs.length) {
+      toast('No prompt→outcome pairs in this discussion yet.', { icon: 'ℹ️' });
+      return;
+    }
+    const blob = new Blob([pairs.map((p) => JSON.stringify(p)).join('\n')], {
+      type: 'application/jsonl',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `agentic-process-${projectId || 'session'}-training.jsonl`;
+    link.click();
+    URL.revokeObjectURL(url);
+    if (projectId) {
+      void addEvent(projectId, {
+        module_name: 'agentic_os',
+        event_type: 'EXPORT_TRAINING_SET',
+        status: 'SUCCESS',
+        details: { pairs: pairs.length },
+      }).catch(() => {});
+    }
+    toast(`Training set exported — ${pairs.length} grounded pairs (JSONL, fine-tune ready).`, {
+      icon: '🎓',
+    });
+  }, [messages, projectId]);
+
+  // Pane-decoupling events: right rail hands approvals off to the validation
+  // chat; left rail prefills the prompt with a step starter.
+  useEffect(() => {
+    const onHandOff = (e: Event) => {
+      const detail = (e as CustomEvent<{ text: string }>).detail;
+      if (!detail?.text) return;
+      setHandOff({ text: detail.text, ts: Date.now() });
+      setChatOpen(true);
+    };
+    const onPrefill = (e: Event) => {
+      const detail = (e as CustomEvent<{ text: string }>).detail;
+      if (detail?.text) setPrompt(detail.text);
+    };
+    window.addEventListener('agentic-os:handoff', onHandOff);
+    window.addEventListener('agentic-os:prefill', onPrefill);
+    return () => {
+      window.removeEventListener('agentic-os:handoff', onHandOff);
+      window.removeEventListener('agentic-os:prefill', onPrefill);
+    };
+  }, []);
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* Context line */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-gray-200 px-3 py-2 text-xs text-gray-500 dark:border-gray-700">
+        <span className="font-medium text-gray-700 dark:text-gray-200">
+          {STAGE_META[stage].label}
+        </span>
+        <span aria-hidden>·</span>
+        <span>{STAGE_META[stage].hint}</span>
+        <span
+          className="rounded-full border border-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:border-gray-700"
+          title="The agent proposes only what this role is allowed to do"
+        >
+          as {role}
+        </span>
+        {projectId && (
+          <>
+            <button
+              type="button"
+              onClick={() => void replayProcess()}
+              disabled={replaying || busy}
+              className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              title="Replay the stored process read-only on fresh data — mutations still wait for you"
+            >
+              {replaying ? 'Replaying…' : 'Run process'}
+            </button>
+            <button
+              type="button"
+              onClick={exportTraining}
+              className="rounded-full border border-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-600 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+              title="Export this process's prompt→outcome pairs as a fine-tune-ready JSONL"
+            >
+              Export turns
+            </button>
+          </>
+        )}
+        <span className="ml-auto">
+          <select
+            aria-label="Project context"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className="rounded-md border border-gray-200 bg-transparent px-1.5 py-1 text-xs dark:border-gray-700 dark:bg-gray-900"
+          >
+            <option value="">No project (grounded drafts)</option>
+            {projects.map((p) => (
+              <option key={p.project_id} value={p.project_id}>
+                {p.name ?? p.project_id}
+              </option>
+            ))}
+          </select>
+        </span>
+      </div>
+
+      {/* Thread */}
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+        {messages.length === 0 && (
+          <div className="mx-auto max-w-md pt-10 text-center text-sm text-gray-400">
+            <p className="font-medium text-gray-500 dark:text-gray-300">
+              One discussion, seven steps.
+            </p>
+            <p className="mt-1">
+              Pick a step on the left, ground the agent on your tables, then ask.
+              Read-only actions run here; anything that writes waits for your
+              validation on the right.
+            </p>
+          </div>
+        )}
+        {messages.map((m) => (
+          <div
+            key={m.id}
+            className={`max-w-[92%] rounded-xl border px-3 py-2 text-sm ${
+              m.role === 'user'
+                ? 'ml-auto border-primary/20 bg-primary/5'
+                : m.kind === 'guide'
+                  ? 'border-dashed border-primary/30 bg-primary/[0.03] text-gray-600 dark:text-gray-300'
+                  : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900'
+            }`}
+          >
+            {m.text && (
+              <p
+                className={`whitespace-pre-line ${m.kind === 'error' ? 'text-red-600 dark:text-red-400' : ''}`}
+              >
+                {m.text.replace(/\\n/g, '\n').replace(/\*\*/g, '')}
+              </p>
+            )}
+            {m.kind === 'model' && m.model && (
+              <div className="mt-2 space-y-2">
+                <ModelFlow model={m.model} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      const mod = m.model as ProposedModel;
+                      const j = mod.joins[0];
+                      void submit(
+                        `Preview 10 sample rows validating the star model: join ${mod.fact} with ${mod.dims[0] ?? ''}${j ? ` on ${j.key}` : ''} (aggregate-safe if a policy applies)`,
+                      );
+                    }}
+                  >
+                    Preview joined sample
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => void createModel(m.model as ProposedModel)}
+                    disabled={busy}
+                  >
+                    Create this model in the project
+                  </Button>
+                  <span className="text-[10px] text-gray-400">
+                    creation free (registry) · execution costed after approval — dry-run first
+                  </span>
+                </div>
+              </div>
+            )}
+            {m.kind === 'plan' && m.plan && <PlanFlow plan={m.plan} />}
+            {m.kind === 'opportunities' && m.opportunities && (
+              <div className="mt-2">
+                <OpportunitiesCard
+                  scan={m.opportunities}
+                  busyId={buildingOppId}
+                  onBuild={(o) => void buildProduct(o)}
+                />
+              </div>
+            )}
+            {m.kind === 'assessment' && m.assessment && (
+              <div className="mt-2">
+                <AssessmentCard
+                  report={m.assessment}
+                  onGenerateSolution={(f: AssessFinding) => {
+                    // Route the finding into the OS's governed creator/propose
+                    // flow: prefill a concrete remediation ask, stay gated.
+                    const ask =
+                      f.recommendation ||
+                      `Propose a governed remediation for: ${f.title}${f.object ? ` (on ${f.object})` : ''}`;
+                    setPrompt(ask);
+                    toast('Finding sent to the solution flow — review, preview, then validate.', {
+                      icon: '🛠️',
+                    });
+                  }}
+                />
+              </div>
+            )}
+            {m.kind === 'tiles' && m.tiles && (
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {m.tiles.map((t) => (
+                  <div
+                    key={t.fqn}
+                    className="rounded-lg border border-gray-200 p-2 dark:border-gray-700"
+                  >
+                    <p className="truncate text-xs font-semibold" title={t.fqn}>
+                      {t.fqn.split('.').slice(-1)[0]}
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-1.5 text-[10px]">
+                      {(
+                        [
+                          ['DQ', t.dq],
+                          ['GOV', t.gov],
+                          ['COST', t.cost],
+                          ['TRUST', t.trust],
+                        ] as const
+                      ).map(([label, v]) => (
+                        <span
+                          key={label}
+                          className={`rounded-full px-1.5 py-0.5 font-medium ${
+                            v == null
+                              ? 'bg-gray-100 text-gray-400 dark:bg-gray-800'
+                              : v >= 70
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                : v >= 40
+                                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                                  : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                          }`}
+                        >
+                          {label} {v == null ? '—' : Math.round(v)}
+                        </span>
+                      ))}
+                      <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-gray-500 dark:bg-gray-800">
+                        PERF {t.perfMs == null ? '—' : `${Math.round(t.perfMs)}ms`}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {m.kind === 'proposals' && (
+              <div className="mt-2 space-y-2">
+                {m.contextSummary && (
+                  <p className="text-xs text-gray-500">{m.contextSummary}</p>
+                )}
+                {(m.proposals ?? []).map((a, idx) => {
+                  const routeMissing = a._rejected === 'route_missing';
+                  const mutating = !(
+                    (a.kind === 'coco_sql' && a.sql && !a._rejected) ||
+                    (a.kind === 'endpoint' && a.endpoint?.method === 'GET' && !routeMissing)
+                  );
+                  const key = `${m.id}:${idx}`;
+                  return (
+                    <div
+                      key={key}
+                      className="rounded-lg border border-gray-200 p-2 dark:border-gray-700"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                          {a.label}
+                        </span>
+                        {a.risk && (
+                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${RISK_TINT[a.risk] ?? ''}`}>
+                            {a.risk}
+                          </span>
+                        )}
+                        {routeMissing ? (
+                          <span
+                            className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-400 dark:bg-gray-800"
+                            title="Pre-checked against the live route registry: this backend has no route for it"
+                          >
+                            not on this backend
+                          </span>
+                        ) : (
+                        <Button
+                          size="sm"
+                          variant={mutating ? 'outline' : 'solid'}
+                          isLoading={running === key}
+                          onClick={() => actOnProposal(m.id, idx, a)}
+                        >
+                          {mutating ? (
+                            <>
+                              <PiHandPalm className="mr-1 h-3.5 w-3.5" aria-hidden /> Validate
+                            </>
+                          ) : (
+                            <>
+                              <PiPlay className="mr-1 h-3.5 w-3.5" aria-hidden /> Run
+                            </>
+                          )}
+                        </Button>
+                        )}
+                      </div>
+                      {a.rationale && (
+                        <p className="mt-1 text-xs text-gray-500">{a.rationale}</p>
+                      )}
+                    </div>
+                  );
+                })}
+                {(m.proposals ?? []).length === 0 && (
+                  <p className="text-xs text-gray-400">No governed action proposed.</p>
+                )}
+              </div>
+            )}
+            {m.kind === 'draft' && m.draft && (
+              <div className="mt-2">
+                <DraftCard
+                  draft={m.draft}
+                  onRetryAggregated={
+                    m.intent
+                      ? () =>
+                          void submit(
+                            `Aggregated answer only (an aggregation policy applies — use GROUP BY / aggregate functions, no raw rows): ${m.intent}`,
+                          )
+                      : undefined
+                  }
+                  onCreateWidget={m.intent ? () => void createChartWidget(m.intent as string) : undefined}
+                  onCreateWorkflow={
+                    m.intent
+                      ? () => void createWorkflowFromDraft(m.draft as CocoDraftResult, m.intent as string)
+                      : undefined
+                  }
+                />
+              </div>
+            )}
+            {m.kind === 'rows' && (
+              <div className="mt-2">
+                <RowsPreview columns={m.rowColumns ?? []} rows={m.rows ?? []} />
+              </div>
+            )}
+            {m.kind === 'flow' && <ProcessFlow messages={messages} />}
+            {m.kind === 'lineage' && m.lineageFqn && (
+              <div className="mt-2 h-64 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+                <LineageFlow
+                  object={m.lineageFqn.split('.')[2] ?? m.lineageFqn}
+                  db={m.lineageFqn.split('.')[0]}
+                  schema={m.lineageFqn.split('.')[1]}
+                />
+              </div>
+            )}
+          </div>
+        ))}
+        {busy && (
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <Loader size="sm" /> The agent is working on real data…
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      {/* Hand-off chat (the proven human-approval surface), collapsible */}
+      {handOff && (
+        <div className="shrink-0 border-t border-gray-200 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={() => setChatOpen((o) => !o)}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800"
+          >
+            {chatOpen ? <PiCaretDown aria-hidden /> : <PiCaretUp aria-hidden />}
+            Validation discussion
+          </button>
+          {chatOpen && (
+            <div className="max-h-[45vh] overflow-y-auto border-t border-gray-100 dark:border-gray-800">
+              <CortexChatContent variant="landing" queuedPrompt={handOff} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Prompt bar */}
+      <div className="shrink-0 border-t border-gray-200 p-2 dark:border-gray-700">
+        <div className="flex items-end gap-2">
+          <Textarea
+            aria-label="Ask the agent"
+            placeholder={`Ask at the ${STAGE_META[stage].label} step…`}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+            rows={2}
+            className="flex-1"
+          />
+          <Button aria-label="Send" onClick={() => void submit()} isLoading={busy}>
+            <PiPaperPlaneRight className="h-4 w-4" aria-hidden />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

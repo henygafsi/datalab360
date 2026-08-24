@@ -5,6 +5,7 @@ import { useCacheInvalidation, CACHE_KEYS, CacheKey } from '@/hooks/useCacheInva
 import { atom, useSetAtom, useAtomValue } from 'jotai';
 import Link from 'next/link';
 import { invalidateMyPermissions } from '@/hooks/useCanPerform';
+import { invalidateDedup } from '@/app/services/request-dedup';
 
 /**
  * Cache keys that mutate the Action-RBAC allow-set. The backend tags every D360
@@ -96,6 +97,11 @@ export function CacheInvalidationProvider({
     if (keys.some((k) => RBAC_INVALIDATION_KEYS.has(k))) {
       invalidateMyPermissions();
     }
+
+    // Bridge to the client-side GET dedup cache (services/request-dedup):
+    // any server-signalled mutation drops every short-TTL cached GET, so the
+    // dedup layer can never serve data older than the last real change event.
+    invalidateDedup('');
 
     // Update the invalidated keys atom
     setInvalidatedKeys((prev: Set<string>) => {

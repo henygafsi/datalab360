@@ -76,7 +76,10 @@ export function Board({
   return (
     <div
       className={cn(
-        'grid flex-1 content-start grid-cols-12 gap-3 pr-0.5',
+        // min-h-0 + overflow-y-auto make the docstring true: the board is the
+        // ONE internal scroll surface when a tab's cells exceed the frame —
+        // the page itself never scrolls (zero-scroll contract, 2026-08-24).
+        'grid min-h-0 flex-1 content-start grid-cols-12 gap-3 overflow-y-auto pr-0.5',
         className,
       )}
     >

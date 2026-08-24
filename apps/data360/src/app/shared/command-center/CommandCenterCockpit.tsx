@@ -79,6 +79,9 @@ const IDLE = { status: 'idle', data: null } as const;
 export interface CommandCenterCockpitArgs {
   /** Global time window (days) driving the strip's own fetches. */
   days: number;
+  /** Fetch gate — false while the consuming strip is not rendered (any tab
+   *  other than `account`). Fetches fire lazily when it flips true. */
+  enabled?: boolean;
   /** Shell-fetched state — reused instead of refetched when available. */
   summary: SummaryResponse | null;
   moduleHealth: ModuleHealthResponse | null;
@@ -93,6 +96,7 @@ export interface CommandCenterCockpit {
 
 export function useCommandCenterCockpit({
   days,
+  enabled = true,
   summary,
   moduleHealth,
   costData,
@@ -167,12 +171,13 @@ export function useCommandCenterCockpit({
     setPerfState(IDLE);
   }, [days]);
 
-  // Eager pre-load. 'error' is sticky, so a failing backend is hit at most
-  // once per time window.
+  // Pre-load, gated on `enabled` (strip visible). 'error' is sticky, so a
+  // failing backend is hit at most once per time window.
   useEffect(() => {
+    if (!enabled) return;
     if (overviewState.status === 'idle') void loadOverview();
     if (perfState.status === 'idle') void loadPerf();
-  }, [overviewState.status, perfState.status, loadOverview, loadPerf]);
+  }, [enabled, overviewState.status, perfState.status, loadOverview, loadPerf]);
 
   // ── Severity derivations (KPI dots) — shell data first ─────────────────────
 

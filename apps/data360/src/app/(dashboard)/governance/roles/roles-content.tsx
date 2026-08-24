@@ -45,9 +45,11 @@ export function RolesSurface() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
-        <ImportButton title="Import Roles" />
-        <AddRoleButton onAddRoleSuccess={handleAddRoleSuccess} />
+      {/* Compact toolbar actions (w-auto): the default w-full container-query
+          breakpoint doesn't fire in the embedded governance surface. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <ImportButton title="Import Roles" className="w-auto" />
+        <AddRoleButton onAddRoleSuccess={handleAddRoleSuccess} className="w-auto" />
       </div>
       {/* Per-page KPI strip — roles · D360 roles · users (honest —). */}
       <GovernanceKpiStrip scope="roles" />

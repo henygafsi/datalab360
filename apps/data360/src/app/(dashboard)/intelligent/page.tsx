@@ -36,7 +36,7 @@ import Breadcrumb from '@/components/ui/Breadcrumb';
 import FullscreenPanel, { FullscreenExpandButton } from '@/components/ui/FullscreenPanel';
 import { usePagedRows, TablePager } from '@/components/ui/TablePager';
 import IntelligentCockpit, { IntelligentKpiStrip } from './components/IntelligentCockpit';
-import AskLanding from './components/AskLanding';
+import AgenticOSShell from './components/agentic-os/AgenticOSShell';
 import IntelligentActionSurface from './components/IntelligentActionSurface';
 
 // Import content components
@@ -368,7 +368,8 @@ export default function IntelligentPage() {
     <div className="flex h-[calc(100dvh-222px)] min-h-[520px] items-stretch gap-4 overflow-hidden">
     <div className="min-w-0 flex-1 space-y-5 overflow-y-auto pb-4 pr-1">
       <Breadcrumb items={[{ label: 'Intelligent Analytics', href: '/intelligent' }]} />
-      {/* Header */}
+      {/* Header — hidden on the agentic home: the OS shell IS the surface */}
+      {activeTab !== 'home' && (
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-3">
@@ -395,12 +396,13 @@ export default function IntelligentPage() {
           Refresh
         </Button>
       </div>
+      )}
 
-      {/* Unified intelligence KPI strip — click a KPI to open its cockpit axis */}
-      <IntelligentKpiStrip />
+      {/* Unified intelligence KPI strip — workbench views only; the agentic
+          home stays a pure discussion surface (agentic-only display). */}
+      {activeTab !== 'home' && <IntelligentKpiStrip />}
 
-      {/* KPI overview — above the content on tab views (unchanged); on the
-          chat-first home it renders BELOW the chat + suggestions instead. */}
+      {/* KPI overview — above the content on tab views (unchanged). */}
       {activeTab !== 'home' && kpiOverview}
 
       {/* Main Content Card with Tabs — expandable to a fullscreen deep-dive */}
@@ -491,10 +493,11 @@ export default function IntelligentPage() {
           )}
         </nav>
 
-        {/* Tab Content */}
-        <div role="tabpanel" className="p-6">
+        {/* Tab Content — the agentic home is edge-to-edge (the shell brings
+            its own chrome); workbench tabs keep their padding. */}
+        <div role="tabpanel" className={activeTab === 'home' ? 'p-0' : 'p-6'}>
           {/* Chat-first home: persisted AI chat + data-aware suggestions */}
-          {activeTab === 'home' && <AskLanding />}
+          {activeTab === 'home' && <AgenticOSShell />}
           {/* Agentic command surface: all AI capabilities as governed actions */}
           {activeTab === 'actions' && <IntelligentActionSurface />}
           {activeTab === 'semantic-models' && <SemanticModelsContent />}
@@ -773,11 +776,10 @@ export default function IntelligentPage() {
       </div>
       </FullscreenPanel>
 
-      {/* On the chat-first home the KPI overview lives under the hero */}
-      {activeTab === 'home' && kpiOverview}
-
       {/* Feature highlights — demoted to a one-line collapsible (actions first,
-          prose second): the 3 former hero cards now expand on demand. */}
+          prose second): the 3 former hero cards now expand on demand.
+          Hidden on the agentic home (agentic-only display). */}
+      {activeTab !== 'home' && (
       <details className="group rounded-xl border border-muted bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
         <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200 [&::-webkit-details-marker]:hidden">
           <PiSparkle className="h-4 w-4 text-purple" aria-hidden />
@@ -812,17 +814,21 @@ export default function IntelligentPage() {
           </div>
         </div>
       </details>
+      )}
 
-      {/* Related Modules */}
+      {/* Related Modules — workbench views only */}
+      {activeTab !== 'home' && (
       <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
         <span>Related:</span>
         <a href="/workflow" className="text-blue-600 dark:text-blue-400 hover:underline">Workflow (ETL Blocks)</a>
         <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Semantic Models)</a>
       </div>
+      )}
     </div>
 
-    {/* Docked right cockpit: score / recos / models / robotize / history / governance */}
-    <IntelligentCockpit kpis={kpis} />
+    {/* Docked right cockpit — workbench views only: the agentic home has its
+        own validation rail; two right rails would compete (agentic-only). */}
+    {activeTab !== 'home' && <IntelligentCockpit kpis={kpis} />}
     </div>
     </ErrorBoundary>
   );
