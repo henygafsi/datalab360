@@ -61,7 +61,7 @@ function asObjects(v: unknown): AccessInsightObject[] {
 
 export async function getAccessInsights(): Promise<AccessInsights> {
   try {
-    const res = await apiClient.get(PATH, { timeout: 60_000 });
+    const res = await apiClient.get(PATH, { timeout: 180_000 });
     const payload = (res.data?.data ?? res.data) as Partial<AccessInsights>;
     return {
       top_objects: asObjects(payload?.top_objects),

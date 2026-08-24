@@ -467,7 +467,7 @@ export function WarehouseCtaGroup() {
 
   const load = useCallback(async () => {
     try {
-      const res = await apiClient.get(WH_API, { timeout: 60_000 });
+      const res = await apiClient.get(WH_API, { timeout: 180_000 });
       const payload = (res.data?.data ?? res.data) as { items?: WarehouseRow[] };
       setList({ status: 'ready', items: Array.isArray(payload?.items) ? payload.items : [] });
     } catch (e) {
@@ -588,7 +588,7 @@ export function WarehouseCtaGroup() {
             variant: 'warning',
           }}
           onAction={() =>
-            apiClient.post(`${WH_API}/${encodeURIComponent(suspendTarget.name)}/suspend`, {}, { timeout: 60_000 })
+            apiClient.post(`${WH_API}/${encodeURIComponent(suspendTarget.name)}/suspend`, {}, { timeout: 180_000 })
           }
           onDone={() => void load()}
         />
@@ -615,7 +615,7 @@ export function WarehouseCtaGroup() {
             apiClient.patch(
               `${WH_API}/${encodeURIComponent(autoSuspendTarget.name)}/auto-suspend`,
               { seconds: 60 },
-              { timeout: 60_000 },
+              { timeout: 180_000 },
             )
           }
           onDone={() => void load()}
@@ -647,7 +647,7 @@ export function WarehouseCtaGroup() {
             apiClient.post(
               `${WH_API}/${encodeURIComponent(resizeTarget.name)}/resize`,
               { size: resizeDown.token },
-              { timeout: 60_000 },
+              { timeout: 180_000 },
             )
           }
           onDone={() => void load()}

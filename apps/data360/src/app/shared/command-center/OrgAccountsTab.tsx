@@ -347,7 +347,7 @@ export default function OrgAccountsTab({ onNavigateTab }: { onNavigateTab?: (id:
     }
     let cancelled = false;
     apiClient
-      .get('/org-accounts/accounts/audit', { params: { days: 30 }, timeout: 60000 })
+      .get('/org-accounts/accounts/audit', { params: { days: 30 }, timeout: 180_000 })
       .then((res) => {
         if (cancelled) return;
         const d = res.data as unknown;

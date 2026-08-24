@@ -46,12 +46,12 @@ export interface ObsActionVerifyResult {
 }
 
 export async function getObsActions(): Promise<ObsActionCatalog> {
-  const res = await apiClient.get('/observability/actions', { timeout: 60_000 });
+  const res = await apiClient.get('/observability/actions', { timeout: 180_000 });
   return (res.data?.data ?? res.data) as ObsActionCatalog;
 }
 
 export async function verifyObsActions(): Promise<ObsActionVerifyResult> {
-  const res = await apiClient.post('/observability/actions/verify', {}, { timeout: 120_000 });
+  const res = await apiClient.post('/observability/actions/verify', {}, { timeout: 180_000 });
   return (res.data?.data ?? res.data) as ObsActionVerifyResult;
 }
 

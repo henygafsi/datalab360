@@ -56,7 +56,7 @@ export interface CocoDraftRequest {
 /** Generate a draft proposal and test it on real data (5-30s). */
 export async function cocoDraft(req: CocoDraftRequest): Promise<CocoDraftResult> {
   try {
-    const res = await apiClient.post('/cortex/coco/draft', req, { timeout: 120_000 });
+    const res = await apiClient.post('/cortex/coco/draft', req, { timeout: 180_000 });
     return (res.data?.data ?? res.data) as CocoDraftResult;
   } catch (err) {
     throw toServiceError(err, 'cocoDraft');

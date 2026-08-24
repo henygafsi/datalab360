@@ -46,12 +46,12 @@ export interface CcActionVerifyResult {
 }
 
 export async function getCcActions(): Promise<CcActionCatalog> {
-  const res = await apiClient.get('/command-center/actions', { timeout: 60_000 });
+  const res = await apiClient.get('/command-center/actions', { timeout: 180_000 });
   return (res.data?.data ?? res.data) as CcActionCatalog;
 }
 
 export async function verifyCcActions(): Promise<CcActionVerifyResult> {
-  const res = await apiClient.post('/command-center/actions/verify', {}, { timeout: 120_000 });
+  const res = await apiClient.post('/command-center/actions/verify', {}, { timeout: 180_000 });
   return (res.data?.data ?? res.data) as CcActionVerifyResult;
 }
 

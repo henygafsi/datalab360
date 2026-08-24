@@ -49,12 +49,12 @@ export interface ProjectActionVerifyResult {
 }
 
 export async function getProjectActions(): Promise<ProjectActionCatalog> {
-  const res = await apiClient.get('/projects/actions', { timeout: 60_000 });
+  const res = await apiClient.get('/projects/actions', { timeout: 180_000 });
   return (res.data?.data ?? res.data) as ProjectActionCatalog;
 }
 
 export async function verifyProjectActions(): Promise<ProjectActionVerifyResult> {
-  const res = await apiClient.post('/projects/actions/verify', {}, { timeout: 120_000 });
+  const res = await apiClient.post('/projects/actions/verify', {}, { timeout: 180_000 });
   return (res.data?.data ?? res.data) as ProjectActionVerifyResult;
 }
 

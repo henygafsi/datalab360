@@ -50,7 +50,7 @@ export async function getAccountHealth(): Promise<AccountHealth> {
 
 async function fetchAccountHealth(): Promise<AccountHealth> {
   try {
-    const res = await apiClient.get(PATH, { timeout: 60_000 });
+    const res = await apiClient.get(PATH, { timeout: 180_000 });
     const payload = (res.data?.data ?? res.data) as AccountHealth;
     return {
       chips: payload?.chips ?? {

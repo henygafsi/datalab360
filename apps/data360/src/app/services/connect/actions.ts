@@ -46,12 +46,12 @@ export interface ConnectActionVerifyResult {
 }
 
 export async function getConnectActions(): Promise<ConnectActionCatalog> {
-  const res = await apiClient.get('/connect/actions', { timeout: 60_000 });
+  const res = await apiClient.get('/connect/actions', { timeout: 180_000 });
   return (res.data?.data ?? res.data) as ConnectActionCatalog;
 }
 
 export async function verifyConnectActions(): Promise<ConnectActionVerifyResult> {
-  const res = await apiClient.post('/connect/actions/verify', {}, { timeout: 120_000 });
+  const res = await apiClient.post('/connect/actions/verify', {}, { timeout: 180_000 });
   return (res.data?.data ?? res.data) as ConnectActionVerifyResult;
 }
 

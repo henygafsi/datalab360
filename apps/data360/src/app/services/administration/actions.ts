@@ -43,12 +43,12 @@ export interface AdminActionVerifyResult {
 }
 
 export async function getAdminActions(): Promise<AdminActionCatalog> {
-  const res = await apiClient.get('/api/administration/actions', { timeout: 60_000 });
+  const res = await apiClient.get('/api/administration/actions', { timeout: 180_000 });
   return (res.data?.data ?? res.data) as AdminActionCatalog;
 }
 
 export async function verifyAdminActions(): Promise<AdminActionVerifyResult> {
-  const res = await apiClient.post('/api/administration/actions/verify', {}, { timeout: 120_000 });
+  const res = await apiClient.post('/api/administration/actions/verify', {}, { timeout: 180_000 });
   return (res.data?.data ?? res.data) as AdminActionVerifyResult;
 }
 

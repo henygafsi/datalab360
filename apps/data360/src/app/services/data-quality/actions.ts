@@ -46,12 +46,12 @@ export interface DataQualityActionVerifyResult {
 }
 
 export async function getDataQualityActions(): Promise<DataQualityActionCatalog> {
-  const res = await apiClient.get('/data-quality/actions', { timeout: 60_000 });
+  const res = await apiClient.get('/data-quality/actions', { timeout: 180_000 });
   return (res.data?.data ?? res.data) as DataQualityActionCatalog;
 }
 
 export async function verifyDataQualityActions(): Promise<DataQualityActionVerifyResult> {
-  const res = await apiClient.post('/data-quality/actions/verify', {}, { timeout: 120_000 });
+  const res = await apiClient.post('/data-quality/actions/verify', {}, { timeout: 180_000 });
   return (res.data?.data ?? res.data) as DataQualityActionVerifyResult;
 }
 

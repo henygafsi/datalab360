@@ -77,7 +77,7 @@ export interface RunAnalysisResponse {
 export async function runQueryAnalysis(hours: number = 5): Promise<RunAnalysisResponse> {
   const response = await apiClient.post(API.cortex.queryAnalyticsRun(), null, {
     params: { hours },
-    timeout: 120000,
+    timeout: 180_000,
   });
   return response.data;
 }

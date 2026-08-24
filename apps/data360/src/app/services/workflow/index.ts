@@ -492,7 +492,7 @@ export async function getWorkflowDeployments(options?: {
 
   const response = await apiClient.get(
     `${API.workflow.deployments(workflowId)}?${params.toString()}`,
-    { timeout: 15000 }
+    { timeout: 180_000 }
   );
 
   const raw: unknown = response.data?.deployments ?? response.data?.scheduled_deployments ?? [];

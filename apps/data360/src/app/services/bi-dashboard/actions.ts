@@ -46,12 +46,12 @@ export interface BiActionVerifyResult {
 }
 
 export async function getBiActions(): Promise<BiActionCatalog> {
-  const res = await apiClient.get('/bi-dashboard/actions', { timeout: 60_000 });
+  const res = await apiClient.get('/bi-dashboard/actions', { timeout: 180_000 });
   return (res.data?.data ?? res.data) as BiActionCatalog;
 }
 
 export async function verifyBiActions(): Promise<BiActionVerifyResult> {
-  const res = await apiClient.post('/bi-dashboard/actions/verify', {}, { timeout: 120_000 });
+  const res = await apiClient.post('/bi-dashboard/actions/verify', {}, { timeout: 180_000 });
   return (res.data?.data ?? res.data) as BiActionVerifyResult;
 }
 
