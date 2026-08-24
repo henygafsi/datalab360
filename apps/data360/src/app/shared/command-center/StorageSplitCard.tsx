@@ -191,7 +191,7 @@ export default function StorageSplitCard({ days = 30 }: { days?: number }) {
       {/* WHEN — daily history */}
       {history.length > 1 && (
         <div className="mb-3 h-36">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={256}>
             <AreaChart data={history}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 10 }} />

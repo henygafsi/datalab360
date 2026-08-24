@@ -236,7 +236,7 @@ export interface DwhProposalResponse {
 export async function getDwhProposal(days = 30): Promise<DwhProposalResponse> {
   const { data } = await apiClient.get<DwhProposalResponse>(
     `${PREFIX}/dwh-proposal`,
-    { params: { days }, timeout: 120000 },
+    { params: { days }, timeout: 180_000 },
   );
   return data;
 }

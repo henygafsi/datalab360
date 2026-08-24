@@ -825,7 +825,7 @@ function ModulesTab() {
               </p>
               {tile.hasData && tile.sparkData.length > 1 ? (
                 <div className="mt-1 h-7">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height={256}>
                     <LineChart data={tile.sparkData}>
                       <Line
                         type="monotone"
@@ -860,7 +860,7 @@ function ModulesTab() {
           </h3>
           {usageTrend.length > 0 ? (
             <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={192}>
                 <AreaChart data={usageTrend}>
                   <defs>
                     <linearGradient id="modUsageGrad" x1="0" y1="0" x2="0" y2="1">
@@ -900,7 +900,7 @@ function ModulesTab() {
           </h3>
           {issuesByModule.length > 0 ? (
             <div className="relative h-48">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={256}>
                 <PieChart>
                   <Pie
                     data={issuesByModule}

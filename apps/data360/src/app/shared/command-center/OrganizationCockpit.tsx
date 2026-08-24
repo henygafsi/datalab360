@@ -685,7 +685,7 @@ function OrgDeepDive({ tab, days, onClose }: { tab: OrgDetailTab; days: number; 
 
       {chart && chart.length > 0 && (
         <div className="h-40 border-b border-slate-200 p-3 dark:border-slate-700">
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height={256}>
             <BarChart data={chart}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} interval={0} angle={-20} textAnchor="end" height={50} />

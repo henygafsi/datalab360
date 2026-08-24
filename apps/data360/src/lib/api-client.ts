@@ -65,7 +65,7 @@ async function getCachedSession(): Promise<SnowflakeSession | null> {
 // Create axios instance with base configuration
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_CONFIG.BASE_URL,
-  timeout: 900000, // 15 min — matches the backend's 15-min statement guard; cold ACCOUNT_USAGE scans on org accounts legitimately run for minutes (org-account audit 2026-07-12). The backend owns the real cancel; the client must not cut a live query short.
+  timeout: 180000, // 15 min — matches the backend's 15-min statement guard; cold ACCOUNT_USAGE scans on org accounts legitimately run for minutes (org-account audit 2026-07-12). The backend owns the real cancel; the client must not cut a live query short.
   headers: {
     'Content-Type': 'application/json',
   },
@@ -482,7 +482,7 @@ export function getApiErrorMessage(error: unknown): string {
 export async function createServerApiClient(headers?: Record<string, string>): Promise<AxiosInstance> {
   const serverClient = axios.create({
     baseURL: API_CONFIG.BASE_URL,
-    timeout: 900000,  // 15 min — matches the backend statement guard (see apiClient above)
+    timeout: 180000,  // 15 min — matches the backend statement guard (see apiClient above)
     headers: {
       'Content-Type': 'application/json',
       ...headers,

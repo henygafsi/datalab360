@@ -48,12 +48,12 @@ export interface GovernanceActionVerifyResult {
 }
 
 export async function getGovernanceActions(): Promise<GovernanceActionCatalog> {
-  const res = await apiClient.get('/gouvernance/actions', { timeout: 60_000 });
+  const res = await apiClient.get('/gouvernance/actions', { timeout: 180_000 });
   return (res.data?.data ?? res.data) as GovernanceActionCatalog;
 }
 
 export async function verifyGovernanceActions(): Promise<GovernanceActionVerifyResult> {
-  const res = await apiClient.post('/gouvernance/actions/verify', {}, { timeout: 120_000 });
+  const res = await apiClient.post('/gouvernance/actions/verify', {}, { timeout: 180_000 });
   return (res.data?.data ?? res.data) as GovernanceActionVerifyResult;
 }
 
