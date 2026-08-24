@@ -31,7 +31,7 @@ export function TabGrid({
   className?: string;
 }) {
   return (
-    <div className={cn('flex h-full min-h-0 flex-col gap-3', className)}>
+    <div className={cn('flex min-h-0 flex-col gap-3', className)}>
       {children}
     </div>
   );
@@ -76,10 +76,11 @@ export function Board({
   return (
     <div
       className={cn(
-        // min-h-0 + overflow-y-auto make the docstring true: the board is the
-        // ONE internal scroll surface when a tab's cells exceed the frame —
-        // the page itself never scrolls (zero-scroll contract, 2026-08-24).
-        'grid min-h-0 flex-1 content-start grid-cols-12 gap-3 overflow-y-auto pr-0.5',
+        // Grows to content height and lets the ONE ancestor scroll surface
+        // (the tabpanel) handle overflow — no nested scrollbars (2026-08-24
+        // single-scroll model: the shell stays fixed, the content region is
+        // the only thing that scrolls, and it scrolls once).
+        'grid content-start grid-cols-12 gap-3',
         className,
       )}
     >
