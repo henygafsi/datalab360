@@ -184,14 +184,24 @@ export default function GovernanceOnePager() {
   // ── Derived ──────────────────────────────────────────────────────────────
   const s = data?.score_summary;
   const score = num(s?.score);
-  const visibleCards = useMemo(
+  // One row of cards, not a wall (2026-08-24): the strip used to render up to
+  // 17 cards over three wrapped rows, half with truncated labels. Keep the
+  // first 7 (one xl row — the backend orders them by importance) as clickable
+  // filter cards; everything else folds into the "More metrics" disclosure.
+  const MAX_STRIP_CARDS = 7;
+  const nonNullCards = useMemo(
     () => (data?.kpi_cards ?? []).filter((c) => c.value !== null && c.value !== undefined),
     [data],
   );
+  const visibleCards = useMemo(
+    () => nonNullCards.slice(0, MAX_STRIP_CARDS),
+    [nonNullCards],
+  );
   const hiddenCards = useMemo<GovIntelKpiCard[]>(() => {
+    const overflow = nonNullCards.slice(MAX_STRIP_CARDS);
     const nulls = (data?.kpi_cards ?? []).filter((c) => c.value === null || c.value === undefined);
-    return [...nulls, ...(data?.more_metrics ?? [])];
-  }, [data]);
+    return [...overflow, ...nulls, ...(data?.more_metrics ?? [])];
+  }, [data, nonNullCards]);
 
   // Score breakdown → contributors (numeric entries only, lowest first).
   const contributors = useMemo(() => {
@@ -282,7 +292,9 @@ export default function GovernanceOnePager() {
               title={`${k.label} — click to filter the findings audit`}
               className="cursor-pointer rounded-xl border border-slate-200 bg-white p-2.5 text-left transition hover:border-blue-400 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900"
             >
-              <div className="truncate text-[10px] uppercase tracking-wide text-slate-400" title={k.label}>{k.label}</div>
+              {/* line-clamp-2 not truncate: half the labels were unreadable
+                  ("GOVERNANCE SC…", "USERS BYPASSIN…"). */}
+              <div className="line-clamp-2 min-h-[26px] text-[10px] uppercase leading-[13px] tracking-wide text-slate-400" title={k.label}>{k.label}</div>
               <div className={cn('mt-0.5 text-lg font-semibold tabular-nums', toneClass(k.tone))}>
                 {fmtKpi(k.value, k.unit)}
               </div>

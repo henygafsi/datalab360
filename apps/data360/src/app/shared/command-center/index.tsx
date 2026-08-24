@@ -684,6 +684,41 @@ const SectionCard = memo(function SectionCard({
   );
 });
 
+/**
+ * LazyDetails — a `<details>` disclosure whose children only MOUNT after the
+ * first open. React renders `<details>` children into the DOM regardless of
+ * the open state (CSS hides them), so their useEffects fire and fetch data for
+ * invisible panels — on the Organization tab that was ~12 eager network calls
+ * (several 408-timing-out) behind a closed disclosure. The latch keeps content
+ * mounted after the first open so re-collapsing doesn't refetch.
+ */
+function LazyDetails({
+  summary,
+  className,
+  contentClassName,
+  children,
+}: {
+  summary: React.ReactNode;
+  className?: string;
+  contentClassName?: string;
+  children: React.ReactNode;
+}) {
+  const [opened, setOpened] = useState(false);
+  return (
+    <details
+      className={className}
+      onToggle={(e) => {
+        if ((e.target as HTMLDetailsElement).open) setOpened(true);
+      }}
+    >
+      <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+        {summary}
+      </summary>
+      <div className={contentClassName}>{opened ? children : null}</div>
+    </details>
+  );
+}
+
 function LoadingSection() {
   return (
     <div className="space-y-4 p-4">
@@ -1509,6 +1544,10 @@ function CommandCenterDashboardInner() {
   // deep-links to its owning section's audit tables instead).
   const cockpit = useCommandCenterCockpit({
     days: filters.days,
+    // The strip only renders on the `account` tab (see the KpiStrip gate
+    // below) — don't burn its 2 fetches (overview-kpis + warehouse-performance)
+    // while any other tab is active (e.g. restored from localStorage).
+    enabled: activeTab === 'account',
     summary,
     moduleHealth,
     costData,
@@ -2292,7 +2331,7 @@ function CommandCenterDashboardInner() {
            privilege distribution, recent grant changes — GRANTS_TO_ROLES).
            No popups, no page scroll. */
         return (
-          <div className="flex h-full min-h-0 flex-col gap-3">
+          <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
             {/* Governance ONE-PAGER (2026-07-13 refactor): compact executive
                 cockpit — header (score · health · freshness) · KPI strip ·
                 findings audit (server-paginated) + score breakdown + events ·
@@ -2305,11 +2344,11 @@ function CommandCenterDashboardInner() {
             <div className="min-h-0 flex-1">
               <GovernanceOnePager />
             </div>
-            <details className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-700">
-              <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
-                Detailed panels (governance cockpit · security audit · grants · access · map)
-              </summary>
-              <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+            <LazyDetails
+              className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-700"
+              summary="Detailed panels (governance cockpit · security audit · grants · access · map)"
+              contentClassName="border-t border-slate-200 p-3 dark:border-slate-700"
+            >
                 <div className="mb-3 min-h-0 xl:h-[640px] xl:overflow-y-auto">
                   <GovernanceCockpit filters={filters} />
                 </div>
@@ -2338,8 +2377,7 @@ function CommandCenterDashboardInner() {
                     <SecurityMap days={filters.days} />
                   </MoreDrawer>
                 </div>
-              </div>
-            </details>
+            </LazyDetails>
           </div>
         );
       case 'actions':
@@ -2359,13 +2397,13 @@ function CommandCenterDashboardInner() {
            now lives behind a collapsed disclosure so no evidence disappears. */
         return (
           <Suspense fallback={<LoadingSection />}>
-            <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
               <OrganizationCockpit />
-              <details className="rounded-xl border border-slate-200 dark:border-slate-700">
-                <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
-                  Detailed panels (org summary · accounts · connected-account audit)
-                </summary>
-                <div className="grid grid-cols-1 gap-3 border-t border-slate-200 p-3 dark:border-slate-700 xl:grid-cols-2">
+              <LazyDetails
+                className="rounded-xl border border-slate-200 dark:border-slate-700"
+                summary="Detailed panels (org summary · accounts · connected-account audit)"
+                contentClassName="grid grid-cols-1 gap-3 border-t border-slate-200 p-3 dark:border-slate-700 xl:grid-cols-2"
+              >
                   <div className="min-h-0 xl:overflow-y-auto"><OrgSummaryTab /></div>
                   <div className="min-h-0 xl:overflow-y-auto">
                     <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Org accounts</h3>
@@ -2379,8 +2417,7 @@ function CommandCenterDashboardInner() {
                     <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Accounts &amp; audit</h3>
                     <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
                   </div>
-                </div>
-              </details>
+              </LazyDetails>
             </div>
           </Suspense>
         );
@@ -3187,14 +3224,19 @@ const OverviewTab = memo(function OverviewTab({
   // The three advisors (Snowflake insights · AI advisor · top problems) live
   // in a single collapsible, bounded-height panel — expanded by default but
   // capped at a scrollable summary rather than a full-page wall of lists.
-  const [aiRecosOpen, setAiRecosOpen] = useState(true);
+  // Collapsed by default (2026-08-24): open-on-mount shipped a ~500px stuck
+  // "analyzing…" skeleton above the fold while Cortex warmed (up to 60s).
+  // Opening it is one click and fetches on demand ({aiRecosOpen && …} below).
+  const [aiRecosOpen, setAiRecosOpen] = useState(false);
 
   // Details "2nd page" — the heavy detail cards (Recent activity · Storage ·
   // Module health · Tasks) converge behind ONE button-tab bar so page 1 stays a
   // compact cockpit (KPIs + hero + maturity + recos) and each detail opens on
   // demand instead of stacking into a long scroll. Mirrors the governance
   // one-pager's deep-dive button-tabs.
-  const [detailView, setDetailView] = useState<'activity' | 'storage' | 'health' | 'tasks' | 'composition'>('activity');
+  // 'activity' removed (2026-08-24): the feed's single home is Platform
+  // Activity — the Account copy was the same fetch rendered twice.
+  const [detailView, setDetailView] = useState<'storage' | 'health' | 'tasks' | 'composition'>('health');
 
   // Sync hero range picker to the global Time Range whenever the parent
   // changes it. Without this, the user clicks "7d" in the global filter
@@ -3730,7 +3772,6 @@ const OverviewTab = memo(function OverviewTab({
       <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
         <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
         {([
-          { id: 'activity', label: 'Recent activity' },
           { id: 'storage', label: 'Storage' },
           { id: 'health', label: 'Module health' },
           { id: 'tasks', label: 'Tasks' },
@@ -4191,46 +4232,10 @@ const OverviewTab = memo(function OverviewTab({
 
         </GridCell>
         )}
-        {detailView === 'activity' && (
-        <GridCell className="xl:col-span-12">
-      {/* Recent Activity — radar widget removed (obsKpis was dead state) */}
-      <div className="grid grid-cols-1 gap-6">
-        <SectionCard title="Recent Activity">
-          {(() => {
-            const evRows = coalesceActivityEvents(
-              Array.isArray(activityFeed?.events) ? activityFeed.events : []
-            );
-            return evRows.length > 0 ? (
-              <SmartAuditTable
-                rows={
-                  evRows.map((evt: any) => ({
-                    module: safeStr(evt.module),
-                    username: safeStr(evt.username),
-                    event_type: safeStr(evt.event_type),
-                    status: safeStr(evt.status),
-                    count: evt.count,
-                    timestamp: evt.timestamp ?? null,
-                  })) as SmartRow[]
-                }
-                subtitle="ACTIVITY_FEED"
-                pageSize={10}
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
-                  No recent activity
-                </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  User events appear here as soon as someone interacts with a
-                  module.
-                </p>
-              </div>
-            );
-          })()}
-        </SectionCard>
-      </div>
-        </GridCell>
-        )}
+        {/* (2026-08-24 ownership sweep) The 'Recent activity' detail was
+            removed: it rendered the SAME activity-feed fetch that Platform
+            Activity owns — one metric, one home; the rail's Platform
+            Activity entry is one click away. */}
       </Board>
     </TabGrid>
   );
@@ -4616,7 +4621,10 @@ const ProjectsTab = memo(function ProjectsTab({
           )}
         </SectionCard>
 
-        {/* Deployment Status */}
+        {/* Deployment Status — R4: the card renders only when deployments
+            exist; the table below already says "No deployments in this
+            period", so an empty donut frame added nothing but height. */}
+        {statusPieData.length > 0 && (
         <SectionCard title="Deployment Status">
           {statusPieData.length > 0 ? (
             <div className="h-64">
@@ -4653,8 +4661,10 @@ const ProjectsTab = memo(function ProjectsTab({
             </p>
           )}
         </SectionCard>
+        )}
 
-        {/* Daily Execution Runs */}
+        {/* Daily Execution Runs — R4: rendered only when runs exist. */}
+        {executionDaily.length > 0 && (
         <SectionCard title="Daily Execution Runs">
           {executionDaily.length > 0 ? (
             <div className="h-64">
@@ -4691,13 +4701,18 @@ const ProjectsTab = memo(function ProjectsTab({
             </p>
           )}
         </SectionCard>
+        )}
       </div>
 
         </GridCell>
+        {/* Project status mix + deployment duration/step detail — the whole
+            cell renders only when it has something to say (R4): a one-slice
+            status donut duplicates the Total-Projects KPI, and the duration
+            chart shares executionDaily with the runs chart above. */}
+        {(statusByProjectData.length > 1 || executionDaily.length > 0) && (
         <GridCell>
-      {/* Project status mix + deployment duration/step detail — all from
-          fields the projects-overview endpoint already returns. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {statusByProjectData.length > 1 && (
         <SectionCard title="Projects by Status">
           {statusByProjectData.length > 0 ? (
             <div className="h-64">
@@ -4728,7 +4743,9 @@ const ProjectsTab = memo(function ProjectsTab({
             </p>
           )}
         </SectionCard>
+        )}
 
+        {executionDaily.length > 0 && (
         <SectionCard title="Deployment Duration & Steps">
           {executionDaily.length > 0 ? (
             <div className="h-64">
@@ -4784,9 +4801,11 @@ const ProjectsTab = memo(function ProjectsTab({
             </p>
           )}
         </SectionCard>
+        )}
       </div>
 
         </GridCell>
+        )}
         <GridCell>
       {/* Recent Deployments Audit Table */}
       <div id="cc-recent-deployments">
@@ -5445,18 +5464,25 @@ const CostTab = memo(function CostTab({
           icon={BarChart3}
           color="violet"
         />
-        <KpiCard
-          label={`AI Spend (${periodDays}d)`}
-          value={cortexCredits > 0 ? Number(cortexCredits).toLocaleString() : null}
-          icon={Zap}
-          color="purple"
-        />
-        <KpiCard
-          label="Capacity"
-          value={balance.capacity ?? null}
-          icon={DollarSign}
-          color="green"
-        />
+        {/* R4 (2026-08-24): absent metrics collapse instead of shipping "—"
+            cards — AI Spend / Capacity render only when the backend has a
+            value. */}
+        {cortexCredits > 0 && (
+          <KpiCard
+            label={`AI Spend (${periodDays}d)`}
+            value={Number(cortexCredits).toLocaleString()}
+            icon={Zap}
+            color="purple"
+          />
+        )}
+        {balance.capacity != null && Number(balance.capacity) > 0 && (
+          <KpiCard
+            label="Capacity"
+            value={balance.capacity}
+            icon={DollarSign}
+            color="green"
+          />
+        )}
       </div>
 
       {/* Iter 4 — additional KPI tiles (Credits Today / Active Warehouses / Estimated Savings) */}
@@ -5478,12 +5504,14 @@ const CostTab = memo(function CostTab({
             source: 'data warehouse metering history',
           }}
         />
-        <KpiCard
-          label="Estimated Savings"
-          value={optimization.estimated_savings != null ? estimatedSavings.toLocaleString() : null}
-          icon={Sparkles}
-          color="green"
-        />
+        {optimization.estimated_savings != null && (
+          <KpiCard
+            label="Estimated Savings"
+            value={estimatedSavings.toLocaleString()}
+            icon={Sparkles}
+            color="green"
+          />
+        )}
       </div>
 
       {/* Compute & infrastructure KPIs (folded from the dead ComputeTab). */}
@@ -5491,24 +5519,10 @@ const CostTab = memo(function CostTab({
 
       </KpiZone>
 
-      {/* Cost-spike CTA — when spend rose materially vs the prior period, link to
-          the observability cost dashboard to drill into the drivers. */}
-      {(data?.credit_trend_pct ?? 0) > 20 && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
-          <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
-            <TrendingUp className="h-4 w-4 flex-shrink-0" />
-            <span>
-              Credit consumption is up {data?.credit_trend_pct}% vs the previous {periodDays}d.
-            </span>
-          </div>
-          <a
-            href="/observability"
-            className="inline-flex flex-shrink-0 items-center gap-0.5 rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30"
-          >
-            Review cost drivers →
-          </a>
-        </div>
-      )}
+      {/* (2026-08-24) The cost-spike banner was removed: it restated the Δ%
+          already on the Credits KPI card, and "Review cost drivers" already
+          exists in the Recommended-next-steps card — same fact, three
+          renderings, ~70px of band. */}
 
       <Board>
         <GridCell>
@@ -7782,10 +7796,16 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
   return (
     <TabGrid>
       <KpiZone>
-        {/* Query performance KPIs (QUERY_HISTORY) then data-operations KPIs
-            (COPY_HISTORY / TASK_HISTORY) — each lane loads independently. */}
-        <PerformanceTab data={perf} loading={perfLoading} zone="kpis" />
-        <DataOperationsTab data={ops} loading={opsLoading} zone="kpis" />
+        {/* Band swaps with the lane (2026-08-24): the two KPI sets used to
+            stack permanently (11 cards, two rows, ~220px on every lane).
+            Query KPIs show on the query/warehouse lanes, data-ops KPIs on the
+            operations lane — never both. */}
+        {usageTab !== 'operations' && (
+          <PerformanceTab data={perf} loading={perfLoading} zone="kpis" />
+        )}
+        {usageTab === 'operations' && (
+          <DataOperationsTab data={ops} loading={opsLoading} zone="kpis" />
+        )}
       </KpiZone>
       <Board>
         <GridCell>
@@ -8206,7 +8226,24 @@ const DataQualityTab = memo(function DataQualityTab({ days }: { days: number }) 
     );
   }
 
-  const kpis = Array.isArray(detail.kpis) ? detail.kpis : [];
+  const allKpis = Array.isArray(detail.kpis) ? detail.kpis : [];
+  // R4 collapse (2026-08-24): when DMF monitoring is OFF, four cards all
+  // restate the same fact as separate zeros (monitored=0, coverage=0%,
+  // measurements=0, distinct metrics=0). Keep ONE — coverage_pct (its 0% is
+  // the setup signal; the "Enable DMF monitoring" CTA lives in the recos
+  // panel beside the table) — and drop the three redundant zeros.
+  const kpiVal = (key: string) =>
+    Number(allKpis.find((k) => k.key === key)?.value ?? 0);
+  const dmfOff =
+    kpiVal('monitored_tables') === 0 && kpiVal('dmf_measurements') === 0;
+  const kpis = dmfOff
+    ? allKpis.filter(
+        (k) =>
+          !['monitored_tables', 'dmf_measurements', 'distinct_metrics'].includes(
+            k.key,
+          ),
+      )
+    : allKpis;
   const tableCols = detail.table?.columns ?? [];
   const tableRows = (detail.table?.rows ?? []) as Array<Record<string, any>>;
   const sources = detail.sources ?? [];
@@ -8368,6 +8405,9 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
   /** Switch the parent dashboard to another tab (for same-page CTA targets). */
   onNavigateTab?: (id: string) => void;
 }) {
+  // Lane gating (2026-08-24 zero-scroll): the tab used to stack TEN panels
+  // (~2 086px). Feed = the activity tables; Usage = charts/heatmap/notifs.
+  const [paView, setPaView] = useState<'feed' | 'usage'>('feed');
   const { totalEvents, totalSessions, uniqueUsersTotal } = useMemo(() => {
     const ea = Array.isArray(platformData?.event_activity)
       ? platformData.event_activity
@@ -8522,8 +8562,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
   return (
     <TabGrid>
       <KpiZone>
-      {/* KPI Cards — 6 base + 3 Iter-5 cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-9">
+      {/* KPI Cards — the 4 app-telemetry metrics this tab OWNS */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiCard
           label="Total Events"
           value={totalEvents}
@@ -8548,43 +8588,12 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
           icon={Layers}
           color="cyan"
         />
-        <KpiCard
-          label="Roles"
-          value={platformData?.governance_stats?.roles ?? null}
-          icon={Shield}
-          color="amber"
-        />
-        <KpiCard
-          label="Permissions"
-          value={platformData?.governance_stats?.permissions ?? null}
-          icon={Lock}
-          color="rose"
-        />
-        {/* `totals` (bytes/credits/avg-query) isn't part of this backend's
-            platform-activity payload — render honest "—" rather than a fake 0. */}
-        <KpiCard
-          label="Bytes Scanned"
-          value={totals.bytes_scanned != null ? formatBytes(bytesScanned) : null}
-          icon={Database}
-          color="blue"
-        />
-        <KpiCard
-          label="Credits Consumed"
-          value={
-            totals.credits_consumed != null
-              ? creditsConsumed.toLocaleString()
-              : null
-          }
-          icon={Zap}
-          color="amber"
-        />
-        <KpiCard
-          label="Avg Query ms"
-          value={totals.avg_query_ms != null ? avgQueryMs.toLocaleString() : null}
-          icon={Timer}
-          color="violet"
-        />
       </div>
+      {/* KPI-ownership sweep (2026-08-24): Roles/Permissions belong to
+          Security; Bytes Scanned / Credits / Avg Query ms belong to FinOps and
+          Usage & Performance (here they only ever rendered "—" — the payload
+          doesn't carry them). This tab owns Data360 app telemetry, nothing
+          else. */}
 
       </KpiZone>
 
@@ -8597,7 +8606,38 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         title="Recommended platform actions"
       />
 
+      {/* Lane bar — gates the board so panels never stack past the fold. */}
+      <div
+        role="tablist"
+        aria-label="Platform activity views"
+        className="flex shrink-0 items-center gap-1 border-b border-gray-200 dark:border-gray-700"
+      >
+        {(
+          [
+            { id: 'feed', label: 'Activity feed' },
+            { id: 'usage', label: 'Usage & modules' },
+          ] as const
+        ).map((v) => (
+          <button
+            key={v.id}
+            role="tab"
+            type="button"
+            aria-selected={paView === v.id}
+            onClick={() => setPaView(v.id)}
+            className={cn(
+              'rounded-t-lg px-3 py-1.5 text-xs font-medium transition-colors',
+              paView === v.id
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800',
+            )}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+
       <Board>
+        {paView === 'feed' && (
         <GridCell>
       {/* COCO's narrative digest of the same EVENT_STORE the KPIs below count —
           one smart card, self-loading (GET /platform-activity/insight). First
@@ -8606,6 +8646,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
       <ActivityDigestCard />
 
         </GridCell>
+        )}
+        {paView === 'usage' && (
         <GridCell className="xl:col-span-6">
       {/* User Sessions Trend */}
       <SectionCard
@@ -8663,6 +8705,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
       </SectionCard>
 
         </GridCell>
+        )}
+        {paView === 'feed' && (
         <GridCell className="xl:col-span-6">
       {/* Full Activity Feed as Audit Table */}
       <SmartAuditTable
@@ -8673,6 +8717,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
       />
 
         </GridCell>
+        )}
+        {paView === 'usage' && (
         <GridCell>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Module Usage Distribution */}
@@ -8757,6 +8803,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
       </div>
 
         </GridCell>
+        )}
+        {paView === 'usage' && (
         <GridCell>
       {/* Iter 5 — Heatmap + Top Users + Client Types */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -8848,6 +8896,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
       </div>
 
         </GridCell>
+        )}
+        {paView === 'usage' && (
         <GridCell>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <SectionCard title="Activity by Client Type">
@@ -8905,6 +8955,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
       </div>
 
         </GridCell>
+        )}
+        {paView === 'feed' && (
         <GridCell>
       {/* Recent Platform Audit */}
       {platformData?.recent_audit && platformData.recent_audit.length > 0 && (
@@ -8916,6 +8968,7 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         />
       )}
         </GridCell>
+        )}
       </Board>
     </TabGrid>
   );

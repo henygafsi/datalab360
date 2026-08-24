@@ -4,6 +4,7 @@
  */
 
 import apiClient from '@/lib/api-client';
+import { dedupGet } from '@/app/services/request-dedup';
 import type {
   SummaryResponse,
   ModuleHealthResponse,
@@ -19,6 +20,25 @@ import type {
 } from './types';
 
 const PREFIX = '/command-center';
+
+// Client-side GET dedup for the shared command-center reads (summary,
+// module-health, activity-feed, …): several components fetch these
+// independently per page load / tab revisit (the index's own 120s refs only
+// cover its OWN fetchers). Same-key calls collapse into one request; the SSE
+// invalidation bridge (CacheInvalidationProvider) clears this cache on every
+// server-signalled mutation. Backend caches most of these 30 min anyway.
+const CC_GET_TTL_MS = 120_000;
+
+function ccCachedGet<T>(
+  url: string,
+  params?: Record<string, unknown>,
+): Promise<T> {
+  const key = `cc:${url}:${params ? JSON.stringify(params) : ''}`;
+  return dedupGet(key, CC_GET_TTL_MS, async () => {
+    const { data } = await apiClient.get<T>(url, { params });
+    return data;
+  });
+}
 
 // =============================================================================
 // Overview KPIs — consolidated single-call payload for Account-overview → Overview
@@ -114,8 +134,19 @@ function emptyOverviewKpiPayload(range: OverviewRange): OverviewKpiPayload {
   };
 }
 
+/** Deduped: useOverviewKpis (account tab) and the cockpit KPI strip both
+ *  request this on the same load — one request serves both. 30s TTL keeps the
+ *  hook's 60s refresh poll effective. */
 export async function getOverviewKpis(
   range: OverviewRange = '30d'
+): Promise<OverviewKpiPayload> {
+  return dedupGet(`cc:overview-kpis:${range}`, 30_000, () =>
+    fetchOverviewKpisRaw(range),
+  );
+}
+
+async function fetchOverviewKpisRaw(
+  range: OverviewRange
 ): Promise<OverviewKpiPayload> {
   try {
     const res = await apiClient.get(`${PREFIX}/overview-kpis`, {
@@ -343,10 +374,7 @@ export interface FilterParams {
 export async function getSummary(
   params?: FilterParams
 ): Promise<SummaryResponse> {
-  const { data } = await apiClient.get<SummaryResponse>(`${PREFIX}/summary`, {
-    params: buildParams(params || {}),
-  });
-  return data;
+  return ccCachedGet<SummaryResponse>(`${PREFIX}/summary`, buildParams(params || {}));
 }
 
 /** Per-module health status */
@@ -354,13 +382,10 @@ export async function getModuleHealth(params?: {
   days?: number;
   module?: string;
 }): Promise<ModuleHealthResponse> {
-  const { data } = await apiClient.get<ModuleHealthResponse>(
+  return ccCachedGet<ModuleHealthResponse>(
     `${PREFIX}/module-health`,
-    {
-      params: buildParams(params || {}),
-    }
+    buildParams(params || {})
   );
-  return data;
 }
 
 /** Unified activity feed across all modules */
@@ -368,39 +393,30 @@ export async function getActivityFeed(
   limit = 50,
   params?: { days?: number; module_name?: string; username?: string }
 ): Promise<ActivityFeedResponse> {
-  const { data } = await apiClient.get<ActivityFeedResponse>(
+  return ccCachedGet<ActivityFeedResponse>(
     `${PREFIX}/activity-feed`,
-    {
-      params: buildParams({ limit, ...params }),
-    }
+    buildParams({ limit, ...params })
   );
-  return data;
 }
 
 /** Snowflake infrastructure snapshot */
 export async function getInfrastructure(params?: {
   days?: number;
 }): Promise<InfrastructureResponse> {
-  const { data } = await apiClient.get<InfrastructureResponse>(
+  return ccCachedGet<InfrastructureResponse>(
     `${PREFIX}/infrastructure`,
-    {
-      params: buildParams(params || {}),
-    }
+    buildParams(params || {})
   );
-  return data;
 }
 
 /** Pipeline & ingestion health */
 export async function getPipelines(params?: {
   days?: number;
 }): Promise<PipelinesResponse> {
-  const { data } = await apiClient.get<PipelinesResponse>(
+  return ccCachedGet<PipelinesResponse>(
     `${PREFIX}/pipelines`,
-    {
-      params: buildParams(params || {}),
-    }
+    buildParams(params || {})
   );
-  return data;
 }
 
 /** Comprehensive cost intelligence */
@@ -413,13 +429,10 @@ export async function getCostBreakdown(
     user?: string;
   }
 ): Promise<CostBreakdownResponse> {
-  const { data } = await apiClient.get<CostBreakdownResponse>(
+  return ccCachedGet<CostBreakdownResponse>(
     `${PREFIX}/cost-breakdown`,
-    {
-      params: buildParams({ days, ...params }),
-    }
+    buildParams({ days, ...params })
   );
-  return data;
 }
 
 // =============================================================================
@@ -784,9 +797,10 @@ export interface GovIntelParams {
 /** Fetch the governance cockpit payload. Never throws — degraded payload on error. */
 export async function getGovernanceIntelligence(params: GovIntelParams = {}): Promise<GovIntelResponse | null> {
   try {
-    const { data } = await apiClient.get<GovIntelResponse>(
-      '/account-overview/governance/intelligence', { params });
-    return data;
+    return await ccCachedGet<GovIntelResponse>(
+      '/account-overview/governance/intelligence',
+      params as Record<string, unknown>,
+    );
   } catch {
     return null;
   }

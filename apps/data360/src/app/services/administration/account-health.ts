@@ -15,6 +15,7 @@
  */
 import axios from 'axios';
 import apiClient from '@/lib/api-client';
+import { dedupGet } from '@/app/services/request-dedup';
 
 const PATH = '/api/administration/account-health';
 
@@ -40,7 +41,14 @@ export class AccountHealthUnavailableError extends Error {
   }
 }
 
+/** Deduped: AccountHealthBlock (rail) + MaturityLadderStrip (account tab)
+ *  both fetch this on the same load — one request serves both (120s TTL,
+ *  matching the backend's 5-min shared cache). */
 export async function getAccountHealth(): Promise<AccountHealth> {
+  return dedupGet('admin:account-health', 120_000, () => fetchAccountHealth());
+}
+
+async function fetchAccountHealth(): Promise<AccountHealth> {
   try {
     const res = await apiClient.get(PATH, { timeout: 60_000 });
     const payload = (res.data?.data ?? res.data) as AccountHealth;

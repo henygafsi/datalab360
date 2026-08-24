@@ -743,7 +743,11 @@ function LiveTableSub({ loader, title, subtitle }: { loader: () => Promise<{ dat
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (loading) return <div className="h-48 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" />;
-  return <AuditTable rows={rows} title={title} subtitle={subtitle} />;
+  // pageSize is mandatory here (2026-08-24): without it AuditTable renders
+  // EVERY fetched row — the Objects sub-tab ships up to 1 000 rows
+  // (getTableStorage(1000)) into an unbounded container, the single worst
+  // scroll/DOM offender in the app. Filters/search still cover the full set.
+  return <AuditTable rows={rows} title={title} subtitle={subtitle} pageSize={15} />;
 }
 
 export default function SnowflakeObjectsTab() {

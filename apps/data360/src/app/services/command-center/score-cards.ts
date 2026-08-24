@@ -19,6 +19,7 @@
  */
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
+import { dedupGet } from '@/app/services/request-dedup';
 
 const PREFIX = '/command-center';
 
@@ -219,11 +220,16 @@ async function fetchKpiDimension(
 async function fetchRecommendations(
   days?: number,
 ): Promise<RecommendationsResponse> {
-  const { data } = await apiClient.get<RecommendationsResponse>(
-    `${PREFIX}/recommendations`,
-    { params: days != null ? { days } : undefined },
-  );
-  return data;
+  // Same endpoint + same dedup key as getCommandCenterRecommendations
+  // (recommendations.ts) — the rail and the account-tab advisors share ONE
+  // request per window instead of three concurrent identical GETs.
+  return dedupGet(`cc:recos:${days ?? 'default'}`, 60_000, async () => {
+    const { data } = await apiClient.get<RecommendationsResponse>(
+      `${PREFIX}/recommendations`,
+      { params: days != null ? { days } : undefined },
+    );
+    return data;
+  });
 }
 
 /**
