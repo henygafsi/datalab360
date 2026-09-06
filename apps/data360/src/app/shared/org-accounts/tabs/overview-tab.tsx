@@ -156,11 +156,11 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
   // crud_router.py:809 while these comments claimed it didn't). Dropping a
   // monitor removes a SPEND GUARD → explicit inline confirm, action-gated.
   const { allowed: canCreateRm, loading: rmPermLoading } = useCanPerform('org_accounts', 'create');
-  // Gate on 'write': the deployed allow-set exposes read/write only (verified
-  // via /my-permissions — no 'delete'/'create' actions exist, so exact-match
-  // gating on those is always false; NB the existing 'create' gate above has
-  // the same latent issue). Backend re-gates DROP as orgadmin-only anyway.
-  const { allowed: canDeleteRm } = useCanPerform('org_accounts', 'write');
+  // AO-015: my-permissions now expands coarse read/write rows into the
+  // granular action registry (verified locally: org_accounts carries
+  // 'delete'), so the semantically-correct gate works. Falls back closed on
+  // pre-AO-015 deployments; backend re-gates DROP as orgadmin-only anyway.
+  const { allowed: canDeleteRm } = useCanPerform('org_accounts', 'delete');
   const [rmToDrop, setRmToDrop] = useState<string | null>(null);
   const [rmDropBusy, setRmDropBusy] = useState(false);
   const rmCreateDenied = !canCreateRm && !rmPermLoading;
