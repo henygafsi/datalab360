@@ -713,15 +713,29 @@ export interface CreateResourceMonitorResponse {
 /**
  * Create a resource monitor.
  * POST /org-accounts/resource-monitors { name, credit_quota, frequency, suspend_at_pct }.
- *
- * NOTE: there is NO backend DELETE endpoint for resource monitors yet, so the
- * UI exposes create only — no drop control is rendered.
  */
 export async function createResourceMonitor(
   request: CreateResourceMonitorRequest,
 ): Promise<CreateResourceMonitorResponse> {
   const { data } = await apiClient.post<CreateResourceMonitorResponse>(
     `${BASE_URL}/resource-monitors`, request, { timeout: 180_000 }
+  );
+  invalidateOrgAccountsCache();
+  return data;
+}
+
+/**
+ * Drop a resource monitor (DROP RESOURCE MONITOR — orgadmin-gated server-side,
+ * audited, 404 when absent). Removing a monitor removes a SPEND GUARD: the UI
+ * must confirm explicitly before calling this.
+ * DELETE /org-accounts/resource-monitors/{name} (crud_router.py:809).
+ */
+export async function deleteResourceMonitor(
+  name: string,
+): Promise<{ success: boolean; name: string; message?: string }> {
+  const { data } = await apiClient.delete<{ success: boolean; name: string; message?: string }>(
+    `${BASE_URL}/resource-monitors/${encodeURIComponent(name)}`,
+    { timeout: 180_000 },
   );
   invalidateOrgAccountsCache();
   return data;

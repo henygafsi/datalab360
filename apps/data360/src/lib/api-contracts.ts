@@ -887,8 +887,10 @@ export const API = {
     warehouseAutoSuspend: (name: string)                => `/org-accounts/warehouses/${enc(name)}/auto-suspend`,
     /** POST /org-accounts/warehouses/{name}/suspend — ALTER WAREHOUSE SUSPEND. */
     warehouseSuspend:     (name: string)                => `/org-accounts/warehouses/${enc(name)}/suspend`,
-    /** GET/POST /org-accounts/resource-monitors — list / create a resource monitor (no DELETE route). */
+    /** GET/POST /org-accounts/resource-monitors — list / create a resource monitor. */
     resourceMonitors:     ()                            => '/org-accounts/resource-monitors',
+    /** DELETE /org-accounts/resource-monitors/{name} — DROP RESOURCE MONITOR (crud_router.py:809; contract desync fixed 2026-09-06). */
+    resourceMonitorDelete: (name: string)               => `/org-accounts/resource-monitors/${enc(name)}`,
   },
 
   /** Admin — backend: /admin/* (platform-level admin endpoints, admin-role only). */
