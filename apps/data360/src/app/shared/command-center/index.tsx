@@ -145,13 +145,12 @@ import { useCanPerform } from '@/hooks/useCanPerform';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 import KpiStrip from '@/app/shared/cockpit/KpiStrip';
 import { useCommandCenterCockpit } from './CommandCenterCockpit';
-import SectionRail from './SectionRail';
+import SectionTabs from './SectionTabs';
 import AccessRequestsCard from './AccessRequestsCard';
 import { TabGrid, KpiZone, Board, Cell as GridCell, MoreDrawer } from './TabGridKit';
 import {
   getKpiDimensionDetail,
   ScoreCardsUnavailableError,
-  type KpiDimension,
   type KpiDimensionResponse,
 } from '@/app/services/command-center/score-cards';
 
@@ -752,14 +751,54 @@ function KpiRowSkeleton({ count = 6 }: { count?: number }) {
   );
 }
 
-function TabErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+/**
+ * TabErrorState — a CALM "still computing / temporarily unavailable" panel,
+ * not an alarming red error. On large Snowflake accounts these cross-account
+ * ACCOUNT_USAGE scans legitimately exceed the API's cold-scan window; the
+ * result caches once it lands, so a retry usually resolves it. A genuine
+ * error (permission, invalid identifier) passes `tone="error"` for the red
+ * treatment. Replaces the stacking "Failed to load …" toasts (2026-08-24).
+ */
+function TabErrorState({
+  message,
+  onRetry,
+  tone = 'computing',
+}: {
+  message: string;
+  onRetry: () => void;
+  tone?: 'computing' | 'error';
+}) {
+  const err = tone === 'error';
   return (
-    <div className="m-4 flex flex-col items-center justify-center gap-3 rounded-xl border border-red-100 bg-red-50 p-8 text-center dark:border-red-900/50 dark:bg-red-950/40">
-      <AlertTriangle className="h-6 w-6 text-red-500" />
-      <p className="text-sm font-medium text-red-700 dark:text-red-300">{message}</p>
+    <div
+      className={cn(
+        'm-4 flex flex-col items-center justify-center gap-2 rounded-xl border p-8 text-center',
+        err
+          ? 'border-red-100 bg-red-50 dark:border-red-900/50 dark:bg-red-950/40'
+          : 'border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/40',
+      )}
+    >
+      {err ? (
+        <AlertTriangle className="h-6 w-6 text-red-500" />
+      ) : (
+        <RefreshCw className="h-6 w-6 text-amber-500" />
+      )}
+      <p className={cn('text-sm font-medium', err ? 'text-red-700 dark:text-red-300' : 'text-amber-800 dark:text-amber-200')}>
+        {err ? message : 'Still computing for this account'}
+      </p>
+      {!err && (
+        <p className="max-w-md text-xs text-amber-700 dark:text-amber-300">
+          {message}. This account&apos;s scan is taking longer than the live window; it caches once ready, so a retry usually resolves it.
+        </p>
+      )}
       <button
         onClick={onRetry}
-        className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50"
+        className={cn(
+          'mt-1 inline-flex items-center gap-1.5 rounded-md border bg-white px-3 py-1.5 text-xs font-medium',
+          err
+            ? 'border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50'
+            : 'border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50',
+        )}
       >
         <RefreshCw className="h-3.5 w-3.5" /> Retry
       </button>
@@ -1819,8 +1858,8 @@ function CommandCenterDashboardInner() {
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
       };
-    } catch (err) {
-      toast.error('Failed to load governance & grants data');
+    } catch {
+      /* toast removed 2026-08-24: slow-endpoint 500s degrade inline (skeleton→empty), not as stacking popups */
     } finally {
       setTabLoading((p) => ({ ...p, 'governance-grants': false }));
     }
@@ -1839,8 +1878,8 @@ function CommandCenterDashboardInner() {
       // Stamps the MERGED tab's cache key ('usage-performance') — this lane is
       // fetched together with fetchPerformance for the Usage & Performance tab.
       tabDataCache.current['usage-performance'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
-    } catch (err) {
-      toast.error('Failed to load data operations overview');
+    } catch {
+      /* toast removed: inline degrade */
     } finally {
       setTabLoading((p) => ({ ...p, 'data-ops': false }));
     }
@@ -1863,8 +1902,8 @@ function CommandCenterDashboardInner() {
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
       };
-    } catch (err) {
-      toast.error('Failed to load performance data');
+    } catch {
+      /* toast removed: inline degrade */
     } finally {
       setTabLoading((p) => ({ ...p, performance: false }));
     }
@@ -1881,12 +1920,10 @@ function CommandCenterDashboardInner() {
           end_date: filters.end_date,
         }),
         // Cortex spend is a secondary overlay on the FinOps tab — if it fails
-        // the primary cost breakdown still renders. Surface the failure as a
-        // non-blocking toast (instead of silently swallowing) then degrade to
-        // null so the tab stays usable.
+        // the primary cost breakdown still renders. Degrade silently to null
+        // (no toast: it's an optional overlay; the AI-Spend KPI just hides).
         getCortexCosts(filters.days, filters).catch((e) => {
           console.warn('[CommandCenter] cortex-costs failed:', e);
-          toast.error(getApiErrorMessage(e) || 'Could not load AI cost overlay');
           return null;
         }),
       ]);
@@ -1929,8 +1966,8 @@ function CommandCenterDashboardInner() {
       setInfra(data);
       setLastUpdated(new Date());
       tabDataCache.current['compute'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
-    } catch (err) {
-      toast.error('Failed to load compute data');
+    } catch {
+      /* toast removed: inline degrade */
     } finally {
       setTabLoading((p) => ({ ...p, compute: false }));
     }
@@ -1974,8 +2011,8 @@ function CommandCenterDashboardInner() {
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
       };
-    } catch (err) {
-      toast.error('Failed to load platform activity');
+    } catch {
+      /* toast removed: inline degrade */
     } finally {
       setTabLoading((p) => ({ ...p, 'platform-activity': false }));
     }
@@ -2191,7 +2228,6 @@ function CommandCenterDashboardInner() {
   // it collapses to a horizontal strip on small screens.
 
   const activeTabDef = tabs.find((t) => t.id === activeTab) ?? tabs[0];
-  const ActiveIcon = activeTabDef.icon;
   const sectionRefresh: Record<string, (() => void) | undefined> = {
     account: fetchOverview,
     'usage-performance': () => {
@@ -2210,16 +2246,6 @@ function CommandCenterDashboardInner() {
     'platform-activity': fetchPlatformActivity,
   };
   const onSectionRefresh = sectionRefresh[activeTabDef.id];
-
-  // Rail axis chips → the SECTION whose audit tables own that dimension
-  // (the docked cockpit-axis overlay was deleted — metrics drill into real
-  // data, causes and actions live in the sections' audit tables).
-  const DIMENSION_TO_SECTION: Record<KpiDimension, string> = {
-    dq: 'data-quality',
-    gov: 'security',
-    cost: 'finops',
-    perf: 'usage-performance',
-  };
 
   // ONLY the active section's body is computed + rendered. All 9 sections'
   // content is preserved verbatim from the one-pager — just re-disposed
@@ -2331,7 +2357,7 @@ function CommandCenterDashboardInner() {
            privilege distribution, recent grant changes — GRANTS_TO_ROLES).
            No popups, no page scroll. */
         return (
-          <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
+          <div className="flex min-h-0 flex-col gap-3">
             {/* Governance ONE-PAGER (2026-07-13 refactor): compact executive
                 cockpit — header (score · health · freshness) · KPI strip ·
                 findings audit (server-paginated) + score breakdown + events ·
@@ -2383,7 +2409,7 @@ function CommandCenterDashboardInner() {
       case 'actions':
         return (
           <Suspense fallback={<LoadingSection />}>
-            <div className="min-h-0 flex-1 overflow-y-auto p-1">
+            <div className="min-h-0 flex-1 p-1">
               <CcActionSurface />
             </div>
           </Suspense>
@@ -2397,7 +2423,7 @@ function CommandCenterDashboardInner() {
            now lives behind a collapsed disclosure so no evidence disappears. */
         return (
           <Suspense fallback={<LoadingSection />}>
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
               <OrganizationCockpit />
               <LazyDetails
                 className="rounded-xl border border-slate-200 dark:border-slate-700"
@@ -2478,42 +2504,31 @@ function CommandCenterDashboardInner() {
         </div>
       </motion.div>
 
-      {/* ── Main row: viewport-fit frame + docked panels + SectionRail.
-          On small screens the rail collapses to a horizontal strip ABOVE
-          the frame (order-first / md:order-last). ── */}
-      <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 md:flex-row md:gap-4">
-        {/* ── Main column: ONLY the active section, in the frame ── */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* Frame header: active section identity + its refresh. */}
-          <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
-            <ActiveIcon className="h-4 w-4 text-slate-400" aria-hidden />
-            <h2
-              id={`cc-sec-h-${activeTabDef.id}`}
-              className="text-sm font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300"
-            >
-              {activeTabDef.label}
-            </h2>
-            {onSectionRefresh && (
-              <button
-                type="button"
-                onClick={onSectionRefresh}
-                title={`Refresh ${activeTabDef.label}`}
-                aria-label={`Refresh ${activeTabDef.label}`}
-                className="ml-auto rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-              >
-                <RefreshCw className={cn('h-3.5 w-3.5', tabLoading[activeTabDef.id] && 'animate-spin')} />
-              </button>
-            )}
-          </div>
+      {/* ── Horizontal section tabs (2026-08-24): full-width, highly visible,
+          replacing the old right-edge vertical rail that stole ~300px of
+          analytical width and read as a hidden second sidebar. ── */}
+      <SectionTabs
+        sections={tabs}
+        activeId={activeTabDef.id}
+        onSelect={goToTab}
+        days={filters.days}
+        onRefresh={onSectionRefresh ?? undefined}
+        refreshing={!!tabLoading[activeTabDef.id]}
+        className="mb-3"
+      />
 
-          {/* Inner scroll — the ONLY scrolling surface for section content
-              (the page itself never scrolls). */}
+      {/* ── Content: full-width, ONE clean scroll surface (the page shell —
+          sidebar, header, tabs — stays fixed; only this region scrolls, and
+          nothing nested inside it scrolls independently). ── */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* Inner scroll — the ONLY scrolling surface for section content. */}
           <div
             ref={panelScrollRef}
             id={`cc-panel-${activeTabDef.id}`}
             role="tabpanel"
             aria-labelledby={`cc-rail-tab-${activeTabDef.id}`}
-            className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+            className="relative flex min-h-0 flex-1 flex-col overflow-y-auto pr-1"
           >
             {/* ── Error Banner ──────────────────────────────────────────── */}
             {error && (
@@ -2584,21 +2599,6 @@ function CommandCenterDashboardInner() {
             <div className="min-h-0 flex-1">{activeBody}</div>
           </div>
         </div>
-
-        {/* Actions right-bar removed (spec §3) — contextual actions live in the
-            GovernanceCockpit right bar / section audit tables. */}
-
-        {/* ── SectionRail: overview by axis + the section navigation ── */}
-        <SectionRail
-          sections={tabs}
-          activeId={activeTabDef.id}
-          onSelect={goToTab}
-          days={filters.days}
-          onOpenDimension={(dim) => goToTab(DIMENSION_TO_SECTION[dim])}
-          // #69/#70: the page scrolls (growth contract) — the rail must
-          // FOLLOW or its column reads as a giant dead zone when scrolled.
-          className="order-first md:order-last md:sticky md:top-4 md:max-h-[calc(100dvh-2rem)] md:self-start md:overflow-y-auto"
-        />
       </div>
     </div>
   );
