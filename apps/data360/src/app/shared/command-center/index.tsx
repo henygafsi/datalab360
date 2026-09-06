@@ -68,8 +68,6 @@ import {
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
-  PieChart,
-  Pie,
   Cell,
   BarChart,
   Bar,
@@ -146,6 +144,7 @@ import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } 
 import KpiStrip from '@/app/shared/cockpit/KpiStrip';
 import { useCommandCenterCockpit } from './CommandCenterCockpit';
 import SectionTabs from './SectionTabs';
+import ContextPanel from './ContextPanel';
 import AccessRequestsCard from './AccessRequestsCard';
 import { TabGrid, KpiZone, Board, Cell as GridCell, MoreDrawer } from './TabGridKit';
 import {
@@ -1572,6 +1571,9 @@ function CommandCenterDashboardInner() {
   // healthScore state removed: never fetched, never read — pure dead prop.
 
   // Global filters — default to Last 30d (no start_date/end_date so preset button highlights)
+  // Contextual AI panel (mission §5) — closed by default; the single AI entry
+  // point for this page (the global chat bubble is hidden on this route).
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [filters, setFilters] = useState<CommandCenterFilters>({
     days: 30,
   });
@@ -2485,23 +2487,9 @@ function CommandCenterDashboardInner() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {lastUpdated && (
-            <span className="hidden text-[11px] text-slate-400 dark:text-slate-500 sm:block">
-              Updated {relativeTime(lastUpdated.toISOString())}
-            </span>
-          )}
-          {/* Account-level Command Center has no single project to score, so the
-              per-project ADN badge self-hides (projectId=null → renders nothing).
-              The slot is kept for placement parity; no fabricated account ADN. */}
-          <div className="hidden lg:block">
-            <AdnHeaderBadge projectId={null} />
-          </div>
-          {/* The standalone "Actions" panel was removed (governance-refactor
-              spec §3): actions now live only in the dynamic contextual right
-              bar (AxisCockpit / GovernanceCockpit RightBar) — no duplicated
-              action surface. */}
-        </div>
+        {/* Right side of the band intentionally empty — period, freshness and
+            the AI entry point live in the analytical header row below (one
+            home each; the dead AdnHeaderBadge slot was removed). */}
       </motion.div>
 
       {/* ── Horizontal section tabs (2026-08-24): full-width, highly visible,
@@ -2514,13 +2502,71 @@ function CommandCenterDashboardInner() {
         days={filters.days}
         onRefresh={onSectionRefresh ?? undefined}
         refreshing={!!tabLoading[activeTabDef.id]}
-        className="mb-3"
       />
 
-      {/* ── Content: full-width, ONE clean scroll surface (the page shell —
-          sidebar, header, tabs — stays fixed; only this region scrolls, and
-          nothing nested inside it scrolls independently). ── */}
-      <div className="flex min-h-0 flex-1 flex-col">
+      {/* ── Analytical header row (mission §2): the ONE home for the global
+          time window, honest freshness, and the AI entry point. Every tab
+          inherits this window (filters.days) — no per-card date pickers. ── */}
+      <div className="mb-2 mt-2 flex shrink-0 flex-wrap items-center gap-2">
+        <div
+          role="group"
+          aria-label="Time window"
+          className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900"
+        >
+          {TIME_PRESETS.map((p) => {
+            const active = p.days === filters.days && !filters.start_date;
+            return (
+              <button
+                key={p.days}
+                type="button"
+                aria-pressed={active}
+                onClick={() => {
+                  const { start_date: _s, end_date: _e, ...rest } = filters;
+                  setFilters({ ...rest, days: p.days });
+                }}
+                className={cn(
+                  'rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  active
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
+                )}
+              >
+                {p.label.replace('Last ', '')}
+              </button>
+            );
+          })}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {lastUpdated && (
+            <span
+              className="hidden text-[11px] text-slate-400 dark:text-slate-500 sm:block"
+              title="When this browser last fetched data. Source freshness varies per panel — ACCOUNT_USAGE views can lag up to a few hours."
+            >
+              Fetched {relativeTime(lastUpdated.toISOString())}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setAiPanelOpen((o) => !o)}
+            aria-expanded={aiPanelOpen}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+              aiPanelOpen
+                ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
+            )}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-violet-500" aria-hidden />
+            Ask AI
+          </button>
+        </div>
+      </div>
+
+      {/* ── Content row: reporting surface (ONE clean scroll) + the contextual
+          AI panel (closed by default; docked on xl so it never covers the
+          charts). The shell — sidebar, header, tabs, analytical row — stays
+          fixed; only the reporting surface scrolls. ── */}
+      <div className="flex min-h-0 flex-1 gap-3">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Inner scroll — the ONLY scrolling surface for section content. */}
           <div
@@ -2599,6 +2645,25 @@ function CommandCenterDashboardInner() {
             <div className="min-h-0 flex-1">{activeBody}</div>
           </div>
         </div>
+
+        {/* ── Contextual AI panel (mission §5): closed by default, opened by
+            Ask AI. Context (account · role · tab · window) travels with it;
+            the hosted advisors are the EXISTING explanation/evidence/action
+            surfaces (they degrade on their own — an AI outage never blocks
+            the reporting beside it). ── */}
+        <ContextPanel
+          open={aiPanelOpen}
+          onClose={() => setAiPanelOpen(false)}
+          context={{
+            account: cxSession?.user?.account_name,
+            role: cxSession?.user?.role,
+            tabLabel: activeTabDef.label,
+            days: filters.days,
+          }}
+        >
+          <SnowflakeInsightsAdvisor />
+          <AiAdvisor days={filters.days} />
+        </ContextPanel>
       </div>
     </div>
   );
@@ -3224,19 +3289,12 @@ const OverviewTab = memo(function OverviewTab({
   // The three advisors (Snowflake insights · AI advisor · top problems) live
   // in a single collapsible, bounded-height panel — expanded by default but
   // capped at a scrollable summary rather than a full-page wall of lists.
-  // Collapsed by default (2026-08-24): open-on-mount shipped a ~500px stuck
-  // "analyzing…" skeleton above the fold while Cortex warmed (up to 60s).
-  // Opening it is one click and fetches on demand ({aiRecosOpen && …} below).
-  const [aiRecosOpen, setAiRecosOpen] = useState(false);
 
   // Details "2nd page" — the heavy detail cards (Recent activity · Storage ·
   // Module health · Tasks) converge behind ONE button-tab bar so page 1 stays a
   // compact cockpit (KPIs + hero + maturity + recos) and each detail opens on
   // demand instead of stacking into a long scroll. Mirrors the governance
   // one-pager's deep-dive button-tabs.
-  // 'activity' removed (2026-08-24): the feed's single home is Platform
-  // Activity — the Account copy was the same fetch rendered twice.
-  const [detailView, setDetailView] = useState<'storage' | 'health' | 'tasks' | 'composition'>('health');
 
   // Sync hero range picker to the global Time Range whenever the parent
   // changes it. Without this, the user clicks "7d" in the global filter
@@ -3430,137 +3488,11 @@ const OverviewTab = memo(function OverviewTab({
         <ProvisionKpisBanner onProvisioned={() => void refreshKpis()} />
       )}
 
-      {/* ── Density mandate 2026-07: the ONE hero KPI band of the Account tab
-          is the 8-tile KpiStrip the shell renders above this tab (Active
-          users · Credits · Query fail % · Failed logins · Storage · Active
-          projects · Modules healthy · Open alerts — each with its drill-down).
-          Every other tile lives in the single "All metrics" drawer below,
-          grouped Health & Posture / Operations & Security — content
-          preserved, honest "—" kept. Exact duplicates of hero tiles
-          (Active Users · Credits · Active Projects · Failed Logins ·
-          Open Alerts) were REMOVED here, not duplicated. ── */}
-      <KpiZone>
-        <MoreDrawer label="All metrics" count={11}>
-          {/* ── Health & posture ─────────────────────────────────────── */}
-          <section>
-            <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Health &amp; posture
-            </h2>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-              <KpiCard
-                label="Workspace Health"
-                value={qualityScore != null ? `${qualityScore}%` : null}
-                icon={CheckCircle}
-                color="green"
-              />
-              <KpiCard
-                label="Warehouse Health"
-                value={
-                  provisioned && kpis?.snowflake_health_pct != null
-                    ? `${kpis.snowflake_health_pct}%`
-                    : null
-                }
-                icon={Gauge}
-                color="blue"
-              />
-              <KpiCard
-                label="Optimization Score"
-                value={
-                  provisioned && kpis?.optimization_score_pct != null
-                    ? `${kpis.optimization_score_pct}%`
-                    : null
-                }
-                icon={Zap}
-                color="amber"
-              />
-              <KpiCard
-                label="MFA / AI Models"
-                value={
-                  mfaCoverage != null || aiModels != null
-                    ? `${mfaCoverage != null ? `${mfaCoverage}%` : '—'} · ${aiModels != null ? aiModels : '—'}`
-                    : null
-                }
-                icon={Shield}
-                color="rose"
-              />
-              {/* Modules ACTIVE (enabled/total from the KPI cache) — distinct
-                  from the hero band's Modules HEALTHY (status counts). */}
-              <KpiCard
-                label="Modules Active"
-                value={
-                  provisioned && kpis?.modules_total != null
-                    ? `${kpis?.modules_active ?? 0}/${kpis.modules_total}`
-                    : null
-                }
-                icon={Layers}
-                color="indigo"
-                onActivate={() => onNavigateTab?.('modules')}
-              />
-            </div>
-          </section>
-
-          {/* ── Operations & security ────────────────────────────────── */}
-          <section>
-            <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Operations &amp; security
-            </h2>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-              <KpiCard
-                label="Connected Accounts"
-                value={provisioned ? kpis?.connected_accounts ?? null : null}
-                icon={Database}
-                color="cyan"
-                onActivate={() => onNavigateTab?.('organization')}
-              />
-              <KpiCard
-                label="Deploy Success (30d)"
-                value={
-                  provisioned && deploySuccessRate !== null
-                    ? `${deploySuccessRate}%`
-                    : '—'
-                }
-                icon={Rocket}
-                color="green"
-              />
-              <KpiCard
-                label="Task Failure (24h)"
-                value={
-                  provisioned && taskFailureRate !== null
-                    ? `${taskFailureRate}%`
-                    : '—'
-                }
-                icon={AlertTriangle}
-                color={
-                  provisioned && (taskFailureRate ?? 0) > 0 ? 'rose' : 'green'
-                }
-              />
-              <KpiCard
-                label="AI Spend"
-                value={provisioned ? cortexSpend.toLocaleString() : null}
-                icon={Sparkles}
-                color="violet"
-                onActivate={() => onNavigateTab?.('finops')}
-              />
-              <KpiCard
-                label="Adoption Rate"
-                value={
-                  hasPlatformSummary && adoptionRate !== null
-                    ? `${adoptionRate}%`
-                    : '—'
-                }
-                icon={Users}
-                color="blue"
-              />
-              <KpiCard
-                label="Security Policies"
-                value={hasSecuritySummary ? securityPolicies : '—'}
-                icon={ShieldCheck}
-                color="indigo"
-              />
-            </div>
-          </section>
-        </MoreDrawer>
-      </KpiZone>
+      {/* (2026-08-24 KPI ownership) The 11-tile 'All metrics' drawer was
+          removed: every tile was another tab's detail metric (AI Spend ->
+          FinOps, Task failure -> Usage, Deploy success -> Projects, Adoption
+          -> Activity, Policies/MFA -> Security…). The shell strip above now
+          carries the 5 health signals this tab OWNS. */}
 
       {/* Tab-level actionable CTAs — drill into cost, enforce MFA, enable
           modules. Each is gated on a real signal (no fake prompts). */}
@@ -3710,17 +3642,7 @@ const OverviewTab = memo(function OverviewTab({
       ) : null}
 
         </GridCell>
-        <GridCell>
-      {/* ── Executive overview: real cross-tab Data360 × Snowflake summary
-             (live endpoints; replaces the cards gated on the dead KPI cache).
-             Collapsed into the "down-bar" one-pager idiom — its top cards
-             (active users · projects · credits · alerts · modules) restate the
-             hero KPI strip, so it opens on demand rather than adding scroll. ── */}
-      <MoreDrawer label="Executive cross-module summary">
-        <ExecutiveOverview days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
-      </MoreDrawer>
 
-        </GridCell>
         <GridCell className="xl:col-span-6">
       {/* ── What changed this week? — cost-spike anomalies (z-score) from the
              last 7 days. Separate signal from the recommendations panels below;
@@ -3729,115 +3651,28 @@ const OverviewTab = memo(function OverviewTab({
 
         </GridCell>
         <GridCell className="xl:col-span-6">
-      {/* ── AI recommendations: Snowflake-feature insights · ready module
-             actions · top cross-tab problems. Compacted into ONE collapsible,
-             bounded-height panel (scrollable summary) so the Overview stays
-             skimmable instead of a long stacked wall of lists. Data is real;
-             only the display is tightened. ── */}
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
-        <button
-          type="button"
-          onClick={() => setAiRecosOpen((o) => !o)}
-          aria-expanded={aiRecosOpen}
-          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40"
-        >
-          <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            <Sparkles className="h-3.5 w-3.5" />
-            AI recommendations
-          </span>
-          {aiRecosOpen ? (
-            <ChevronUp className="h-4 w-4 text-slate-400" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-slate-400" />
-          )}
-        </button>
-        {aiRecosOpen && (
-          <div className="max-h-[28rem] space-y-4 overflow-y-auto border-t border-slate-100 px-4 py-4 dark:border-slate-800">
-            <SnowflakeInsightsAdvisor />
-            <AiAdvisor days={globalDays ?? 30} />
-            <TopProblemsPanel
-              days={globalDays ?? 30}
-              limit={4}
-              onNavigateTab={onNavigateTab}
-            />
-          </div>
-        )}
-      </section>
+      {/* ── Top issues right now (mission ROW3): the cross-domain problem
+          queue, inline — each row carries its CTA. The AI advisors moved to
+          the contextual Ask-AI panel (one AI home, closed by default). ── */}
+      <TopProblemsPanel
+        days={globalDays ?? 30}
+        limit={5}
+        onNavigateTab={onNavigateTab}
+      />
+        </GridCell>
 
-        </GridCell>
-        <GridCell>
-      {/* ── Details "2nd page": ONE button-tab bar. Only the selected detail
-          renders below, so the cockpit above stays a compact one-pager instead
-          of a long scroll of stacked cards. ── */}
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
-        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
-        {([
-          { id: 'storage', label: 'Storage' },
-          { id: 'health', label: 'Module health' },
-          { id: 'tasks', label: 'Tasks' },
-          { id: 'composition', label: 'Composition' },
-        ] as const).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setDetailView(t.id)}
-            aria-pressed={detailView === t.id}
-            className={cn(
-              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-              detailView === t.id
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-        </GridCell>
-        {detailView === 'storage' && (
-        <GridCell className="xl:col-span-12">
-      {/* Storage breakdown (database/total vs stage vs failsafe) — from the
-          cached KPI payload; shows "—" until OVERVIEW_KPIS is provisioned. */}
-      <SectionCard title="Storage Breakdown">
-        {provisioned ? (
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-lg bg-blue-50 p-4 text-center dark:bg-blue-900/20">
-              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                {fmtBytes(storageTotalBytes)}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Total</p>
-            </div>
-            <div className="rounded-lg bg-violet-50 p-4 text-center dark:bg-violet-900/20">
-              <p className="text-xl font-bold text-violet-600 dark:text-violet-400">
-                {fmtBytes(stageBytes)}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Stage</p>
-            </div>
-            <div className="rounded-lg bg-amber-50 p-4 text-center dark:bg-amber-900/20">
-              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">
-                {fmtBytes(failsafeBytes)}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Failsafe
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="py-6 text-center text-sm text-gray-400">
-            Storage breakdown appears once the KPI cache is provisioned.
-          </p>
-        )}
-      </SectionCard>
-
-        </GridCell>
-        )}
-        {detailView === 'health' && (
-        <GridCell className="xl:col-span-12">
+        {/* (2026-08-24) 'Storage' detail removed — exact duplicate of FinOps'
+            StorageSplitCard (Credits/Storage -> FinOps ownership). */}
+                <GridCell className="xl:col-span-12">
       {/* Module Health Grid */}
       {moduleHealth && Array.isArray(moduleHealth.modules) && moduleHealth.modules.length > 0 && (
         <SectionCard title="Module Health">
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-3 2xl:grid-cols-4">
-            {moduleHealth.modules.map((m) => {
+            {/* Ranked ascending by health — the weakest module reads first
+                (mission: ranking answers 'where should I look'). */}
+            {[...moduleHealth.modules]
+              .sort((a, b) => (typeof a.health_score === 'number' ? a.health_score : 101) - (typeof b.health_score === 'number' ? b.health_score : 101))
+              .map((m) => {
               // Backend uses status_reason (e.g. "4 stages, 0 streams, 0 tasks");
               // older builds returned key_metric. Pick whichever is populated.
               const subtitle =
@@ -3923,315 +3758,11 @@ const OverviewTab = memo(function OverviewTab({
       )}
 
         </GridCell>
-        )}
-        {/* The workspace/account composite (project-mix + module-usage charts)
-            is the 'Composition' detail tab — gated so it only shows under its
-            own button-tab instead of floating between the tab bar and the
-            active detail. Still an in-grid drawer (its content is oversized). */}
-        {detailView === 'composition' && (
-        <MoreDrawer label="Workspace & account composite" inline>
-      {/* ── Workspace Overview composite + Snowflake Account Overview rail ── */}
-      {(() => {
-        const projectsByType =
-          (kpis?.projects_by_type as Record<string, number> | null) ??
-          ((summary as unknown as { platform?: { projects_by_type?: Record<string, number> | null } })
-            ?.platform?.projects_by_type ?? null);
-        const modulesByType =
-          (kpis?.module_usage_7d as Record<string, number> | null) ??
-          ((summary as unknown as { platform?: { modules_by_type?: Record<string, number> | null } })
-            ?.platform?.modules_by_type ?? null);
-        const deployments30d =
-          kpis?.deployments_30d ??
-          ((summary as unknown as { platform?: { deployments_30d?: number } })
-            ?.platform?.deployments_30d ?? null);
-        // Real 24h workflow-run count from the cached KPI payload. (The old
-        // summary.platform.workflow_runs_30d read was phantom — not in any
-        // response type — so the value was always the 24h figure anyway.)
-        const workflowRuns24h = kpis?.workflow_runs_24h ?? null;
-
-        const toDonutData = (rec: Record<string, number> | null) => {
-          if (!rec) return [];
-          return Object.entries(rec).map(([name, value]) => ({
-            name,
-            value: Number(value) || 0,
-          }));
-        };
-        const projectsDonut = toDonutData(projectsByType);
-        const modulesDonut = toDonutData(modulesByType);
-        const DONUT_COLORS = [
-          '#3B82F6',
-          '#10B981',
-          '#F59E0B',
-          '#EF4444',
-          '#8B5CF6',
-          '#06B6D4',
-          '#EC4899',
-        ];
-
-        const DonutOrEmpty = ({
-          data,
-          label,
-        }: {
-          data: Array<{ name: string; value: number }>;
-          label: string;
-        }) => {
-          if (!data || data.length === 0) {
-            return (
-              <div className="flex h-24 items-center justify-center text-[11px] text-gray-400">
-                No data
-              </div>
-            );
-          }
-          return (
-            <div className="h-24">
-              <ResponsiveContainer width="100%" height={96}>
-                <PieChart>
-                  <Pie
-                    data={data}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={22}
-                    outerRadius={40}
-                    paddingAngle={2}
-                  >
-                    {data.map((_, i) => (
-                      <Cell
-                        key={`${label}-${i}`}
-                        fill={DONUT_COLORS[i % DONUT_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: '#1F2937',
-                      border: 'none',
-                      borderRadius: 6,
-                      fontSize: 11,
-                      color: '#F9FAFB',
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          );
-        };
-
-        const topModules: Array<{ name: string; count: number }> = (() => {
-          const fromSummary =
-            (summary as unknown as {
-              platform?: { top_modules?: Array<{ name: string; count: number }> | null };
-            })?.platform?.top_modules ?? null;
-          if (Array.isArray(fromSummary) && fromSummary.length > 0) {
-            return fromSummary.slice(0, 5).map((m) => ({
-              name: safeStr(m?.name),
-              count: Number(m?.count) || 0,
-            }));
-          }
-          if (
-            moduleHealth &&
-            Array.isArray(moduleHealth.modules) &&
-            moduleHealth.modules.length > 0
-          ) {
-            return moduleHealth.modules.slice(0, 5).map((m) => ({
-              name: safeStr(m.module),
-              count: Number(m.events_7d) || 0,
-            }));
-          }
-          return [];
-        })();
-
-        // Recommendations may arrive as either strings or structured objects
-        // ({ title, description, category, priority, impact }). Normalise to
-        // a plain string before rendering so React never receives a raw object
-        // as a child (this used to crash the Overview tab).
-        type RecoObject = {
-          title?: string;
-          description?: string;
-          category?: string;
-          priority?: string;
-          impact?: string;
-          message?: string;
-        };
-        const toRecoString = (r: unknown): string | null => {
-          if (typeof r === 'string') return r.trim() || null;
-          if (r && typeof r === 'object') {
-            const o = r as RecoObject;
-            const head = o.title || o.message || '';
-            const tail = o.description || '';
-            const combined = [head, tail].filter(Boolean).join(' — ');
-            return combined.trim() || null;
-          }
-          return null;
-        };
-        const recommendations: string[] = (() => {
-          const fromSummary =
-            (summary as unknown as { recommendations?: unknown[] | null })
-              ?.recommendations ?? null;
-          if (Array.isArray(fromSummary) && fromSummary.length > 0) {
-            const mapped = fromSummary.map(toRecoString).filter((s): s is string => !!s);
-            if (mapped.length > 0) return mapped.slice(0, 5);
-          }
-          // obsKpis fallback removed along with the dead getIntelligentKpis call.
-          return [];
-        })();
-
-        return (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Workspace Overview composite — spans 2 cols */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900 lg:col-span-2">
-              <div className="mb-4 flex items-center gap-2">
-                <Database className="h-4 w-4 text-blue-500" />
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Data360 Workspace Overview
-                </h3>
-              </div>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-                  <p className="mb-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Projects by Type
-                  </p>
-                  <DonutOrEmpty data={projectsDonut} label="projects" />
-                </div>
-                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-                  <p className="mb-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Modules Active
-                  </p>
-                  <DonutOrEmpty data={modulesDonut} label="modules" />
-                </div>
-                <div className="flex flex-col justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-                  <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Deployments (30d)
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                    {deployments30d ?? '—'}
-                  </p>
-                </div>
-                <div className="flex flex-col justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-                  <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Workflow Runs (24h)
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                    {workflowRuns24h ?? '—'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Snowflake Account Overview — right rail */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Cloud className="h-4 w-4 text-blue-500" />
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                    Account Overview
-                  </h3>
-                </div>
-                <a
-                  href="/account-overview?tab=snowflake-accounts"
-                  className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:text-blue-400 dark:hover:bg-blue-900/20"
-                >
-                  View Connected Accounts
-                </a>
-              </div>
-              <dl className="grid grid-cols-1 gap-y-2 text-xs">
-                {[
-                  ['Account name', kpis?.account_name],
-                  ['Account locator', kpis?.account_locator],
-                  ['Region', kpis?.region],
-                  ['Edition', kpis?.edition],
-                  ['Current role', kpis?.current_role],
-                  ['Subscription end', kpis?.subscription_end],
-                ].map(([label, value]) => (
-                  <div
-                    key={String(label)}
-                    className="flex items-center justify-between gap-2 border-b border-gray-100 py-1 last:border-0 dark:border-gray-800"
-                  >
-                    <dt className="text-gray-500 dark:text-gray-400">
-                      {label}
-                    </dt>
-                    <dd className="truncate font-medium text-gray-800 dark:text-gray-200">
-                      {value ? String(value) : '—'}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-
-            {/* Top Apps */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-              <div className="mb-3 flex items-center gap-2">
-                <Layers className="h-4 w-4 text-blue-500" />
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Top Apps
-                </h3>
-              </div>
-              {topModules.length === 0 ? (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  No module activity yet.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {topModules.map((m, i) => (
-                    <li
-                      key={`${m.name}-${i}`}
-                      className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800"
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        <Activity className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                        <span className="truncate text-xs text-gray-800 dark:text-gray-200">
-                          {m.name}
-                        </span>
-                      </div>
-                      <Badge size="sm" variant="flat" color="info">
-                        {m.count}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* Top Recommendations */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900 lg:col-span-2">
-              <div className="mb-3 flex items-center gap-2">
-                <Zap className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Top Recommendations
-                </h3>
-              </div>
-              {recommendations.length === 0 ? (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  No active recommendations.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {recommendations.map((r, i) => (
-                    <li
-                      key={`reco-${i}`}
-                      className="flex items-start gap-2 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
-                    >
-                      <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-500" />
-                      <span className="text-xs text-gray-700 dark:text-gray-300">
-                        {r}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-        </MoreDrawer>
-        )}
-        {detailView === 'tasks' && (
-        <GridCell className="xl:col-span-12">
-      {/* Snowflake Tasks Quick View */}
-      <TasksQuickWidget />
-
-        </GridCell>
-        )}
+        {/* (2026-08-24) 'Composition' detail removed — decorative donuts; the
+            project mix is owned by Projects and module usage by Platform
+            Activity (one home per metric). */}
+        {/* (2026-08-24) 'Tasks' detail removed — task runs/failures are owned
+            by Usage & Performance's Data-operations lane (trend + active + failed). */}
         {/* (2026-08-24 ownership sweep) The 'Recent activity' detail was
             removed: it rendered the SAME activity-feed fetch that Platform
             Activity owns — one metric, one home; the rail's Platform
@@ -4455,7 +3986,7 @@ const ProjectsTab = memo(function ProjectsTab({
     pending_approval: '#F59E0B',
     approved: '#3B82F6',
     failed: '#EF4444',
-    rejected: '#9CA3AF',
+    rejected: '#64748B',
     cancelled: '#6B7280',
   };
 
@@ -4530,18 +4061,6 @@ const ProjectsTab = memo(function ProjectsTab({
           color="blue"
         />
         <KpiCard
-          label="Explore Design"
-          value={byType.explore_design ?? null}
-          icon={Database}
-          color="violet"
-        />
-        <KpiCard
-          label="Workflows"
-          value={byType.workflow ?? null}
-          icon={GitBranch}
-          color="amber"
-        />
-        <KpiCard
           label="Pending Approvals"
           value={summary.pending_approvals ?? null}
           icon={Clock}
@@ -4557,23 +4076,11 @@ const ProjectsTab = memo(function ProjectsTab({
           icon={CheckCircle}
           color="green"
         />
-      </div>
-
-      {/* Secondary KPI row — fields the backend already computes but the UI
-          never surfaced (failed deployments / total deployment volume /
-          unique members across projects). */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <KpiCard
           label="Failed Deployments"
           value={summary.failed_deployments ?? null}
           icon={XCircle}
           color="red"
-        />
-        <KpiCard
-          label="Deployment Volume"
-          value={summary.deployments_period ?? null}
-          icon={Upload}
-          color="cyan"
         />
         <KpiCard
           label="Unique Members"
@@ -4582,7 +4089,10 @@ const ProjectsTab = memo(function ProjectsTab({
           color="indigo"
         />
       </div>
-
+      {/* 2026-08-24 single-KPI-row mandate: "Explore Design"/"Workflows"
+          (the composition — carried by the Projects-by-Type ranking below)
+          and "Deployment Volume" (the deployments table's own row count)
+          were folded out; two stacked rows became one decisional row. */}
       </KpiZone>
 
       <Board>
@@ -4594,24 +4104,17 @@ const ProjectsTab = memo(function ProjectsTab({
           {typePieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={typePieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...typePieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {typePieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Projects" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -4629,17 +4132,16 @@ const ProjectsTab = memo(function ProjectsTab({
           {statusPieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={statusPieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...statusPieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={18}>
                     {statusPieData.map((_entry, i) => (
                       <Cell
                         key={i}
@@ -4649,10 +4151,9 @@ const ProjectsTab = memo(function ProjectsTab({
                         }
                       />
                     ))}
-                  </Pie>
-                  <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  
+                  </Bar>
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -4673,9 +4174,9 @@ const ProjectsTab = memo(function ProjectsTab({
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
-                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                  <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar
                     dataKey="success"
@@ -4717,24 +4218,17 @@ const ProjectsTab = memo(function ProjectsTab({
           {statusByProjectData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={statusByProjectData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...statusByProjectData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {statusByProjectData.map((_entry, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Projects" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -4754,16 +4248,16 @@ const ProjectsTab = memo(function ProjectsTab({
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
                   <YAxis
                     yAxisId="left"
-                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                    tick={{ fill: '#64748B', fontSize: 11 }}
                   />
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                    tick={{ fill: '#64748B', fontSize: 11 }}
                   />
                   <Tooltip content={<ChartTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -5459,41 +4953,6 @@ const CostTab = memo(function CostTab({
           }}
         />
         <KpiCard
-          label="Daily Avg"
-          value={dailyTrend.length > 0 ? dailyAvg.toLocaleString() : null}
-          icon={BarChart3}
-          color="violet"
-        />
-        {/* R4 (2026-08-24): absent metrics collapse instead of shipping "—"
-            cards — AI Spend / Capacity render only when the backend has a
-            value. */}
-        {cortexCredits > 0 && (
-          <KpiCard
-            label={`AI Spend (${periodDays}d)`}
-            value={Number(cortexCredits).toLocaleString()}
-            icon={Zap}
-            color="purple"
-          />
-        )}
-        {balance.capacity != null && Number(balance.capacity) > 0 && (
-          <KpiCard
-            label="Capacity"
-            value={balance.capacity}
-            icon={DollarSign}
-            color="green"
-          />
-        )}
-      </div>
-
-      {/* Iter 4 — additional KPI tiles (Credits Today / Active Warehouses / Estimated Savings) */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-        <KpiCard
-          label="Credits Today"
-          value={lastTrend.credits != null ? creditsToday.toLocaleString() : null}
-          icon={Zap}
-          color="amber"
-        />
-        <KpiCard
           label="Active Warehouses"
           value={activeWarehouses.toLocaleString()}
           icon={Server}
@@ -5504,6 +4963,8 @@ const CostTab = memo(function CostTab({
             source: 'data warehouse metering history',
           }}
         />
+        {/* Conditional decision tiles — render only when the backend has a
+            real value (never a "—" placeholder card). */}
         {optimization.estimated_savings != null && (
           <KpiCard
             label="Estimated Savings"
@@ -5512,11 +4973,21 @@ const CostTab = memo(function CostTab({
             color="green"
           />
         )}
+        {cortexCredits > 0 && (
+          <KpiCard
+            label={`AI Spend (${periodDays}d)`}
+            value={Number(cortexCredits).toLocaleString()}
+            icon={Zap}
+            color="purple"
+          />
+        )}
       </div>
-
-      {/* Compute & infrastructure KPIs (folded from the dead ComputeTab). */}
-      <ComputeTab data={infra} loading={infraLoading} zone="kpis" />
-
+      {/* 2026-08-24 single-KPI-row mandate: "Daily Avg" (derivable from the
+          trend line below), "Credits Today" (one-day slice of that trend),
+          "Capacity" (not a spend decision; contract detail lives in the
+          Budgets lane) and the ComputeTab pair (Top Consumer duplicates the
+          Top-Warehouses ranking, Replication DBs lives in the Infrastructure
+          lane) were removed — three stacked KPI rows became one. */}
       </KpiZone>
 
       {/* (2026-08-24) The cost-spike banner was removed: it restated the Δ%
@@ -5593,8 +5064,8 @@ const CostTab = memo(function CostTab({
           <ResponsiveContainer width="100%" height={256}>
             <AreaChart data={dailyTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+              <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} />
+              <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
               <Tooltip content={<ChartTooltip />} />
               <Area
                 type="monotone"
@@ -5667,9 +5138,9 @@ const CostTab = memo(function CostTab({
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                    tick={{ fill: '#64748B', fontSize: 11 }}
                   />
-                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                  <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Area
@@ -5758,24 +5229,17 @@ const CostTab = memo(function CostTab({
           {categoryPieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={categoryPieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...categoryPieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {categoryPieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Credits" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -5788,12 +5252,12 @@ const CostTab = memo(function CostTab({
             <ResponsiveContainer width="100%" height={256}>
               <BarChart data={topWarehouses.slice(0, 10)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} />
                 <YAxis
                   type="category"
                   dataKey="name"
                   width={120}
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
@@ -5816,24 +5280,17 @@ const CostTab = memo(function CostTab({
           {storagePieData.length > 0 ? (
             <div className="h-48">
               <ResponsiveContainer width="100%" height={192}>
-                <PieChart>
-                  <Pie
-                    data={storagePieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={40}
-                    outerRadius={70}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...storagePieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {storagePieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="TB" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -6234,8 +5691,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
             <ResponsiveContainer width="100%" height={256}>
               <ComposedChart data={loginTrend}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
                   dataKey="success"
@@ -6331,27 +5788,22 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
           {clientTypes.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={clientTypes.map((c: any) => ({
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                <BarChart
+                  data={clientTypes
+                    .map((c: any) => ({
                       name: c.client_type || 'Unknown',
                       value: c.login_count,
-                    }))}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
-                  >
-                    {clientTypes.map((_: any, i: number) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    }))
+                    .sort((a: { value: number }, b: { value: number }) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                  layout="vertical"
+                  margin={{ left: 4, right: 24 }}
+                >
+                  <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Logins" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -6618,24 +6070,17 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
           {policyPieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={policyPieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...policyPieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {policyPieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Policies" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -6650,27 +6095,22 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
           {objectCoverage.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={objectCoverage.map((o: any) => ({
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                <BarChart
+                  data={objectCoverage
+                    .map((o: any) => ({
                       name: o.object_type,
                       value: o.grant_count,
-                    }))}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
-                  >
-                    {objectCoverage.map((_: any, i: number) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    }))
+                    .sort((a: { value: number }, b: { value: number }) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                  layout="vertical"
+                  margin={{ left: 4, right: 24 }}
+                >
+                  <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Grants" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -6688,12 +6128,12 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={roleGrantDist.slice(0, 15)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} />
                 <YAxis
                   type="category"
                   dataKey="role_name"
                   width={140}
-                  tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  tick={{ fill: '#64748B', fontSize: 10 }}
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
@@ -6714,12 +6154,12 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis
                   dataKey="privilege"
-                  tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  tick={{ fill: '#64748B', fontSize: 10 }}
                   angle={-45}
                   textAnchor="end"
                   height={80}
                 />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
                   dataKey="grant_count"
@@ -6985,16 +6425,14 @@ const DataOperationsTab = memo(function DataOperationsTab({
           icon={Database}
           color="green"
         />
-        <KpiCard
-          label="Data Volume"
-          value={
-            loadingSummary.total_bytes != null
-              ? `${(loadingSummary.total_bytes / 1073741824).toFixed(2)} GB`
-              : null
-          }
-          icon={Box}
-          color="violet"
-        />
+        {loadingSummary.total_bytes != null && loadingSummary.total_bytes > 0 && (
+          <KpiCard
+            label="Data Volume"
+            value={`${(loadingSummary.total_bytes / 1073741824).toFixed(2)} GB`}
+            icon={Box}
+            color="violet"
+          />
+        )}
         <KpiCard
           label="Load Success"
           value={
@@ -7034,16 +6472,16 @@ const DataOperationsTab = memo(function DataOperationsTab({
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
                 <YAxis
                   yAxisId="left"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
@@ -7149,9 +6587,9 @@ const DataOperationsTab = memo(function DataOperationsTab({
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
                   dataKey="success"
@@ -7169,7 +6607,7 @@ const DataOperationsTab = memo(function DataOperationsTab({
                 />
                 <Bar
                   dataKey="skipped"
-                  fill="#9CA3AF"
+                  fill="#64748B"
                   name="Skipped"
                   stackId="a"
                   radius={[4, 4, 0, 0]}
@@ -7361,7 +6799,10 @@ const PerformanceTab = memo(function PerformanceTab({
 
   if (zone === 'kpis') {
     return (
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+      /* 2026-08-24 KPI trim: "Slow Queries" was the LENGTH of a server-capped
+         list (read as exactly 50 — misleading); "Query Types" count is
+         answered by the distribution chart beside it. */
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <KpiCard
           label="Total Queries"
           value={totalQueries.toLocaleString()}
@@ -7369,28 +6810,21 @@ const PerformanceTab = memo(function PerformanceTab({
           color="blue"
         />
         <KpiCard
-          label="P50 Latency"
-          value={`${(avgP50 / 1000).toFixed(1)}s`}
-          icon={Gauge}
-          color="green"
-        />
-        <KpiCard
           label="P95 Latency"
           value={`${(avgP95 / 1000).toFixed(1)}s`}
           icon={Gauge}
           color="amber"
+          help={{
+            title: 'P95 execution latency',
+            definition: '95% of queries in the window completed faster than this.',
+            source: 'QUERY_HISTORY percentiles',
+          }}
         />
         <KpiCard
-          label="Slow Queries"
-          value={slowQueries.length}
-          icon={AlertTriangle}
-          color="red"
-        />
-        <KpiCard
-          label="Query Types"
-          value={queryTypes.length}
-          icon={Cpu}
-          color="violet"
+          label="P50 Latency"
+          value={`${(avgP50 / 1000).toFixed(1)}s`}
+          icon={Gauge}
+          color="green"
         />
       </div>
     );
@@ -7406,14 +6840,14 @@ const PerformanceTab = memo(function PerformanceTab({
           <ResponsiveContainer width="100%" height={256}>
             <ComposedChart data={queryPerf}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+              <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} />
               <YAxis
-                tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                tick={{ fill: '#64748B', fontSize: 11 }}
                 label={{
                   value: 'ms',
                   angle: -90,
                   position: 'insideLeft',
-                  fill: '#9CA3AF',
+                  fill: '#64748B',
                 }}
               />
               <Tooltip content={<ChartTooltip />} />
@@ -7455,12 +6889,12 @@ const PerformanceTab = memo(function PerformanceTab({
             <ResponsiveContainer width="100%" height={256}>
               <BarChart data={queryTypes.slice(0, 8)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} />
                 <YAxis
                   type="category"
                   dataKey="type"
                   width={100}
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
@@ -7475,43 +6909,9 @@ const PerformanceTab = memo(function PerformanceTab({
         </SectionCard>
       </GridCell>
 
-      <GridCell className="xl:col-span-6">
-        {/* Compilation vs Execution */}
-        <SectionCard title="Compile vs Execute Time">
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height={256}>
-              <AreaChart data={queryPerf}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
-                />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <Tooltip content={<ChartTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="avg_compile_ms"
-                  stroke="#8B5CF6"
-                  fill="#8B5CF6"
-                  fillOpacity={0.2}
-                  name="Compile"
-                  stackId="1"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="avg_exec_ms"
-                  stroke="#3B82F6"
-                  fill="#3B82F6"
-                  fillOpacity={0.2}
-                  name="Execute"
-                  stackId="1"
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionCard>
-      </GridCell>
+      {/* (2026-08-24) 'Compile vs Execute' AreaChart removed — avg compile/exec
+          are already the P50/P95 story told by the latency trend beside it;
+          two charts told the same tale (mission: fuse same-story charts). */}
 
       {/* Slow Queries Audit Table */}
       {slowQueries.length > 0 && (
@@ -7636,12 +7036,12 @@ const ComputeTab = memo(function ComputeTab({
             <ResponsiveContainer width="100%" height={288}>
               <BarChart data={sorted.slice(0, 12)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} />
                 <YAxis
                   type="category"
                   dataKey="warehouse_name"
                   width={130}
-                  tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  tick={{ fill: '#64748B', fontSize: 10 }}
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
@@ -7965,18 +7365,21 @@ const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
               source: 'Data360 projects (project_type=explore_design)',
             }}
           />
-          <KpiCard
-            label="Semantic Models"
-            value={semanticModels}
-            icon={Sparkles}
-            color="violet"
-            help={{
-              title: 'Semantic models',
-              definition:
-                'Cortex Analyst semantic models (YAML) available on this account.',
-              source: 'semantic-models stage listing',
-            }}
-          />
+          {/* R4: a modeling feature not in use is a setup state, not a 0-KPI. */}
+          {typeof semanticModels === 'number' && semanticModels > 0 && (
+            <KpiCard
+              label="Semantic Models"
+              value={semanticModels}
+              icon={Sparkles}
+              color="violet"
+              help={{
+                title: 'Semantic models',
+                definition:
+                  'Cortex Analyst semantic models (YAML) available on this account.',
+                source: 'semantic-models stage listing',
+              }}
+            />
+          )}
           <KpiCard
             label="Tasks Failed (7d)"
             value={tasksFailed7d}
@@ -8299,9 +7702,19 @@ const DataQualityTab = memo(function DataQualityTab({ days }: { days: number }) 
                       : (v: unknown) => safeCellValue(v),
                 }))}
               />
-              <p className="mt-1 text-[10px] text-gray-400">
-                Source: {sources.join(' · ') || '—'}
-              </p>
+              <div className="mt-1 flex items-center justify-between">
+                <p className="text-[10px] text-gray-400">
+                  Source: {sources.join(' · ') || '—'}
+                </p>
+                {/* Overview shows a bounded page — the exhaustive dataset
+                    lives in the Data Quality module (mission §9). */}
+                <a
+                  href="/data-quality"
+                  className="text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  Explore all measurements →
+                </a>
+              </div>
             </>
           ) : (
             <SectionCard title="DMF Measurements">
@@ -8668,9 +8081,9 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
                   dataKey="date"
                   type="category"
                   interval="preserveStartEnd"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
                   dataKey="sessions"
@@ -8726,24 +8139,17 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
           {modulePieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={modulePieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...modulePieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {modulePieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Events" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -8770,13 +8176,13 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     type="number"
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
                   <YAxis
                     type="category"
                     dataKey="name"
                     width={110}
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar
@@ -8869,13 +8275,13 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     type="number"
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
                   <YAxis
                     type="category"
                     dataKey="user"
                     width={90}
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar
@@ -8904,24 +8310,17 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
           {clientTypesPie.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={clientTypesPie}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...clientTypesPie].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {clientTypesPie.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Events" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (

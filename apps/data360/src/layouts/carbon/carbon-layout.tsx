@@ -28,7 +28,14 @@ export default function CarbonLayout({
   const pathname = usePathname();
   // /intelligent is the Agentic OS — it carries its own discussion + validation
   // chat, so the floating global chat would be a competing second chat there.
-  const hideGlobalChat = pathname?.startsWith('/intelligent') ?? false;
+  // /account-overview (2026-08-24 refactor) carries its own contextual Ask-AI
+  // panel — one coherent AI entry point, not a competing floating bubble.
+  const hideGlobalChat =
+    (pathname?.startsWith('/intelligent') || pathname?.startsWith('/account-overview')) ?? false;
+  // The Account Overview control plane budgets every vertical pixel for the
+  // analytical workspace — the marketing footer (~73px) is chrome there.
+  // Privacy/Terms/Support stay reachable from every other page's footer.
+  const hideFooter = pathname?.startsWith('/account-overview') ?? false;
 
   if (status === 'loading') {
     return (
@@ -95,7 +102,8 @@ export default function CarbonLayout({
           </div>
         </main>
 
-        {/* Footer */}
+        {/* Footer (hidden on the Account Overview control plane) */}
+        {!hideFooter && (
         <footer className="border-t border-slate-200/60 bg-white/50 px-6 py-5 backdrop-blur-sm dark:border-slate-800/60 dark:bg-slate-900/50 md:px-8 lg:px-10 xl:px-12 2xl:px-16">
           <div className="flex flex-col items-center justify-between gap-3 md:flex-row">
             <div className="flex items-center gap-3">
@@ -117,6 +125,7 @@ export default function CarbonLayout({
             </div>
           </div>
         </footer>
+        )}
       </motion.div>
 
       {/* Global Chat Sidebar — all pages except the Agentic OS (/intelligent),
