@@ -2374,12 +2374,13 @@ function CommandCenterDashboardInner() {
             </div>
             <LazyDetails
               className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-700"
-              summary="Detailed panels (governance cockpit · security audit · grants · access · map)"
+              summary="Detailed panels (security audit · grants · access requests · map)"
               contentClassName="border-t border-slate-200 p-3 dark:border-slate-700"
             >
-                <div className="mb-3 min-h-0 xl:h-[640px] xl:overflow-y-auto">
-                  <GovernanceCockpit filters={filters} />
-                </div>
+                {/* (2026-09-06) GovernanceCockpit removed here: it rendered the
+                    SAME /governance/intelligence aggregate as the one-pager
+                    above — identical KPIs + findings table fetched twice per
+                    visit. The four drawers below carry the UNIQUE surfaces. */}
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                   <MoreDrawer label="Detailed security audit" className="col-span-2 md:col-span-1">
                     {tabError.security && !tabLoading['security'] ? (
@@ -2427,25 +2428,17 @@ function CommandCenterDashboardInner() {
           <Suspense fallback={<LoadingSection />}>
             <div className="flex min-h-0 flex-1 flex-col gap-3">
               <OrganizationCockpit />
-              <LazyDetails
-                className="rounded-xl border border-slate-200 dark:border-slate-700"
-                summary="Detailed panels (org summary · accounts · connected-account audit)"
-                contentClassName="grid grid-cols-1 gap-3 border-t border-slate-200 p-3 dark:border-slate-700 xl:grid-cols-2"
-              >
-                  <div className="min-h-0 xl:overflow-y-auto"><OrgSummaryTab /></div>
-                  <div className="min-h-0 xl:overflow-y-auto">
-                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Org accounts</h3>
-                    <OrgAccountsTab onNavigateTab={goToTab} />
-                  </div>
-                  <div className="min-h-0 xl:overflow-y-auto">
-                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connected Accounts</h3>
-                    <SnowflakeAccountsTab onNavigateTab={goToTab} />
-                  </div>
-                  <div className="min-h-0 xl:overflow-y-auto">
-                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Accounts &amp; audit</h3>
-                    <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
-                  </div>
-              </LazyDetails>
+              {/* (2026-09-06 non-redundancy rule) The four legacy panels that
+                  lived behind a disclosure here (OrgSummaryTab, OrgAccountsTab,
+                  SnowflakeAccountsTab, SnowflakeAccountsAuditSection — ~17
+                  tables, 3 renderings of the same account list) were removed.
+                  Every question they answered has a canonical home:
+                  account portfolio → the cockpit table above (server-paged);
+                  org credit/storage → FinOps + the cockpit Cost lane;
+                  logins/access audit → Security & Governance;
+                  query audit → Usage & Performance;
+                  role hierarchy → Security (grants drawer);
+                  D360 activity by role/module → Platform Activity. */}
             </div>
           </Suspense>
         );
@@ -7637,8 +7630,19 @@ const DataQualityTab = memo(function DataQualityTab({ days }: { days: number }) 
   // panel beside the table) — and drop the three redundant zeros.
   const kpiVal = (key: string) =>
     Number(allKpis.find((k) => k.key === key)?.value ?? 0);
+  // AO-004 (2026-09-06): the payload now carries explicit dmf_available /
+  // dmf_configured flags — "not configured" and "not available on this
+  // edition" are different states, and neither means 0% quality. Prefer the
+  // flags when the deployed backend sends them; fall back to inference.
+  const dmfFlags = detail as unknown as {
+    dmf_available?: boolean;
+    dmf_configured?: boolean;
+  };
   const dmfOff =
-    kpiVal('monitored_tables') === 0 && kpiVal('dmf_measurements') === 0;
+    dmfFlags.dmf_configured != null
+      ? !dmfFlags.dmf_configured
+      : kpiVal('monitored_tables') === 0 && kpiVal('dmf_measurements') === 0;
+  const dmfUnavailable = dmfFlags.dmf_available === false;
   const kpis = dmfOff
     ? allKpis.filter(
         (k) =>
