@@ -72,3 +72,32 @@ test('M2 — the relation list is deduplicated', async () => {
   const storesRel = aside.locator('li', { hasText: /→\s*DIM_STORES\.STORE_ID/i });
   await expect(storesRel).toHaveCount(1);
 });
+
+test('M3 — column masking (CLS) is a real governance action', async () => {
+  await page.goto(`/studio/apps/${APP}`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('tab', { name: 'Access' }).click();
+  await expect(page.getByText(/Column masking \(CLS\)/i)).toBeVisible({ timeout: 60_000 });
+  // mask an arbitrary column by name (masking often targets PII, not RLS candidates)
+  await page.getByLabel('Column to mask').fill('EMAIL');
+  await page.getByRole('button', { name: /^Mask$/ }).click();
+  await expect(page.getByRole('button', { name: /Stop masking EMAIL/i })).toBeVisible();
+  // the honest limits are stated, not hidden
+  await expect(page.getByText(/adapt the column type before applying/i)).toBeVisible();
+});
+
+test('M4 — masking reaches the plan request (columns_masked)', async () => {
+  // still on the Access tab; map one principal so the plan has a `who`
+  const sel = page
+    .locator('select')
+    .filter({ has: page.locator('option', { hasText: /no access/i }) })
+    .first();
+  await sel.selectOption({ index: 1 });
+  const reqP = page.waitForRequest(
+    (r) => r.url().includes('/access/plan') && r.method() === 'POST',
+    { timeout: 30_000 },
+  );
+  await page.getByRole('button', { name: /Prepare the change/i }).click();
+  const body = (await reqP).postData() ?? '';
+  expect(body).toContain('columns_masked');
+  expect(body).toContain('EMAIL');
+});

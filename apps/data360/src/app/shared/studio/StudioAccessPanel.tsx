@@ -105,6 +105,10 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
   const [principalsNote, setPrincipalsNote] = useState<string | null>(null);
   const [mapping, setMapping] = useState<RoleMapping>({});
   const [policy, setPolicy] = useState<PolicyMapping>({});
+  /** column-level security: masked columns + the roles that still see them in
+   *  clear (defaults to the privileged pair, admin + approve). */
+  const [maskedCols, setMaskedCols] = useState<string[]>([]);
+  const [unmaskedGrants, setUnmaskedGrants] = useState<string[]>(['approve', 'admin']);
 
   const load = useCallback(async () => {
     try {
@@ -218,11 +222,21 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
       })
       .filter(Boolean);
 
+    // rows (RLS) and masked columns (CLS) travel in ONE restrictions object:
+    // the masking policy is generated per masked column, and the roles NOT in
+    // unmasked_grant_types see the value hidden.
+    const restrictions: Record<string, unknown> = {};
+    if (rows.length) restrictions.rows = rows;
+    if (maskedCols.length) {
+      restrictions.columns_masked = maskedCols;
+      restrictions.unmasked_grant_types = unmaskedGrants;
+    }
+
     void run('plan', async () => {
       const res = (await planDraftAccess(draftId, {
         who,
         grant_types,
-        ...(rows.length ? { restrictions: { rows } } : {}),
+        ...(Object.keys(restrictions).length ? { restrictions } : {}),
       } as never)) as { reuse?: typeof planDecisions; plan?: { reuse?: typeof planDecisions } };
       // the draft-scoped route nests the decisions under `plan`
       setPlanDecisions(res?.plan?.reuse ?? res?.reuse ?? []);
@@ -277,6 +291,13 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
         policy={policy}
         onPolicy={(col, gt, vals) =>
           setPolicy((pp) => ({ ...pp, [col]: { ...(pp[col] ?? {}), [gt]: vals } }))
+        }
+        masking={{ columns: maskedCols, unmasked: unmaskedGrants }}
+        onToggleMask={(col) =>
+          setMaskedCols((cs) => (cs.includes(col) ? cs.filter((c) => c !== col) : [...cs, col]))
+        }
+        onToggleUnmask={(gt) =>
+          setUnmaskedGrants((gs) => (gs.includes(gt) ? gs.filter((g) => g !== gt) : [...gs, gt]))
         }
         footer={(<>
 

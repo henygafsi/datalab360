@@ -1226,14 +1226,24 @@ export default function StudioModelInspector({
                       : ''}
                   </span>
                   {onOpenAccess && (
-                    <button
-                      type="button"
-                      onClick={onOpenAccess}
-                      className="text-xs text-accent-700 hover:underline dark:text-accent-400"
-                      title="Plan the restriction in Access — the policy attaches to the data role, reused by every functional role"
-                    >
-                      restrict rows by {c.column}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={onOpenAccess}
+                        className="text-xs text-accent-700 hover:underline dark:text-accent-400"
+                        title="Plan the row restriction in Governance — it attaches to the data role, reused by every functional role"
+                      >
+                        restrict rows by {c.column}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onOpenAccess}
+                        className="text-xs text-accent-700 hover:underline dark:text-accent-400"
+                        title="Mask this column (CLS) in Governance — hidden for the base roles, kept clear for admin & approve"
+                      >
+                        mask {c.column}
+                      </button>
+                    </>
                   )}
                 </p>
               ));

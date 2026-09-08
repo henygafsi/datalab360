@@ -21,7 +21,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Eye, RefreshCw } from 'lucide-react';
+import { Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { Database, KeyRound, Search, ShieldCheck, Users } from 'lucide-react';
 import {
   simulateRlsPlan,
@@ -53,6 +53,9 @@ export default function StudioGovernanceMap({
   onMap,
   policy,
   onPolicy,
+  masking,
+  onToggleMask,
+  onToggleUnmask,
   footer,
 }: {
   draftId: string;
@@ -66,8 +69,14 @@ export default function StudioGovernanceMap({
   onMap: (name: string, grantType: string) => void;
   policy: PolicyMapping;
   onPolicy: (column: string, grantType: string, values: string[] | '*') => void;
+  /** column-level security: which columns are hidden, and which Data360
+   *  roles still see them in clear (defaults to admin + approve). */
+  masking: { columns: string[]; unmasked: string[] };
+  onToggleMask: (column: string) => void;
+  onToggleUnmask: (grantType: string) => void;
   footer?: React.ReactNode;
 }) {
+  const [maskInput, setMaskInput] = useState('');
   const [q, setQ] = useState('');
   /** the role whose values are being painted — 'view' is the common case */
   const [paintRole, setPaintRole] = useState('view');
@@ -487,6 +496,116 @@ export default function StudioGovernanceMap({
           Values come from the data actually observed in each column. The rules compose ONE data
           role for this application, which the Data360 roles reuse — nothing is applied here; an
           administrator reviews and runs the change below.
+        </p>
+      </section>
+
+      {/* ── column masking (CLS) — which columns are hidden, and who still
+             sees them in clear. The SAME layered access role carries it. ── */}
+      <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+        <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <EyeOff aria-hidden className="h-3.5 w-3.5" />
+          Column masking (CLS) — hide a column, keep it clear for some roles
+        </p>
+
+        {/* who keeps seeing the real value */}
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Seen in clear by</p>
+        <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="Roles that see masked columns unmasked">
+          {grantTypes.map((g) => {
+            const on = masking.unmasked.includes(g.id);
+            return (
+              <button
+                key={g.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => onToggleUnmask(g.id)}
+                className={`rounded-lg px-2.5 py-1 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                  on
+                    ? 'bg-accent-600 font-medium text-white'
+                    : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                }`}
+              >
+                {g.label ?? g.id}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* which columns are masked — any column by name, plus quick-picks */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <input
+            value={maskInput}
+            onChange={(e) => setMaskInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && maskInput.trim()) {
+                onToggleMask(maskInput.trim().toUpperCase());
+                setMaskInput('');
+              }
+            }}
+            placeholder="column to mask (e.g. EMAIL)"
+            aria-label="Column to mask"
+            className="h-8 w-56 rounded-lg border border-slate-200 bg-white px-2 font-mono text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          />
+          <button
+            type="button"
+            disabled={!maskInput.trim()}
+            onClick={() => {
+              onToggleMask(maskInput.trim().toUpperCase());
+              setMaskInput('');
+            }}
+            className="h-8 rounded-lg border border-slate-200 px-2.5 text-[13px] text-slate-700 hover:border-slate-300 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
+          >
+            Mask
+          </button>
+          {columns.length > 0 && (
+            <span className="text-xs text-slate-400 dark:text-slate-500">or pick:</span>
+          )}
+          {columns.slice(0, 8).map((c) => (
+            <button
+              key={c.column}
+              type="button"
+              onClick={() => onToggleMask(c.column)}
+              className={`rounded-full border px-2 py-0.5 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                masking.columns.includes(c.column)
+                  ? 'border-accent-500 bg-accent-50 text-accent-700 dark:bg-accent-900/20 dark:text-accent-300'
+                  : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
+              }`}
+            >
+              {c.column}
+            </button>
+          ))}
+        </div>
+
+        {/* what is masked now */}
+        {masking.columns.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {masking.columns.map((col) => (
+              <span
+                key={col}
+                className="inline-flex items-center gap-1 rounded-lg border border-accent-500 bg-accent-50 px-2 py-0.5 font-mono text-xs text-accent-700 dark:bg-accent-900/20 dark:text-accent-300"
+              >
+                {col}
+                <button
+                  type="button"
+                  aria-label={`Stop masking ${col}`}
+                  onClick={() => onToggleMask(col)}
+                  className="text-accent-500 hover:text-accent-700 dark:hover:text-accent-200"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          {masking.columns.length === 0
+            ? 'No column masked — every role reads the real value.'
+            : `${masking.columns.length} column(s) masked · seen in clear by ${
+                masking.unmasked.map((u) => grantLabel(grantTypes, u)).join(', ') || 'no one'
+              }.`}{' '}
+          The masking policy is written for text columns — adapt the column type before applying. There
+          is no row-style preview for masking: it is prepared as a high-risk change below and takes
+          effect only once an administrator applies it.
         </p>
       </section>
 
