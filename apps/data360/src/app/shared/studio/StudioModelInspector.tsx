@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Link2, RefreshCw, Search, ShieldCheck, Sparkles, X } from 'lucide-react';
 import {
+  getQuality,
   getTableColumns,
   grainText,
   patchModel,
@@ -138,6 +139,17 @@ export default function StudioModelInspector({
     toCol: '',
     card: 'many_to_one',
   });
+  /** extra column pairs of a COMPOSITE relation — one source can point at a
+   *  target through several columns, and the right side need not be a
+   *  declared PK. */
+  const [relPairs, setRelPairs] = useState<Array<{ fromCol: string; toCol: string }>>([]);
+  /** the verdict of the LAST check-and-declare — counted on the real data */
+  const [relCheck, setRelCheck] = useState<
+    | null
+    | 'running'
+    | { verdict: string; orphans?: number; leftRows?: number; orphanPct?: number; scope?: string }
+    | { note: string }
+  >(null);
   const [addCol, setAddCol] = useState<{ open: boolean; name: string; type: string; expr: string }>(
     { open: false, name: '', type: 'TEXT', expr: '' },
   );
@@ -256,6 +268,76 @@ export default function StudioModelInspector({
     act(k.decision_id ?? 'kpi', async () => {
       await decideKpi(k.decision_id ?? '', 'rejected');
       setKpiDecided((m) => ({ ...m, [k.decision_id ?? '']: 'discarded' }));
+    });
+
+  /** CHECK & DECLARE, for real: declare the relation through the validated
+   *  patch (entity-level, composite columns supported), then run the
+   *  cross-table referential-integrity check and show ITS verdict —
+   *  orphans counted on the real data. No AI, no tab change: the reader
+   *  stays exactly where they were, in front of the model. */
+  const checkAndDeclareRel = (t2: StudioTarget) =>
+    act('rel', async () => {
+      setRelCheck(null);
+      const pairs = [{ fromCol: rel.fromCol, toCol: rel.toCol }, ...relPairs].filter(
+        (pr) => pr.fromCol && pr.toCol,
+      );
+      const leftEntity = target?.entity_id ?? rawId;
+      const rightEntity = t2.entity_id ?? '';
+      await patchModel(
+        draftId,
+        [
+          {
+            op: 'add',
+            path: '/understanding/relationships/-',
+            value: {
+              left: { entity_id: leftEntity, columns: pairs.map((pr) => pr.fromCol) },
+              right: { entity_id: rightEntity, columns: pairs.map((pr) => pr.toCol) },
+              cardinality: rel.card,
+              status: 'declared_not_enforced',
+              evidence: {
+                source: 'declared by the modeller',
+                basis: `${pairs.map((pr) => pr.fromCol).join('+')} was declared to match ${pairs
+                  .map((pr) => pr.toCol)
+                  .join('+')} on ${t2.name}`,
+              },
+            },
+          },
+        ] as never,
+        true,
+        `declare the relation ${name} → ${t2.name}`,
+      );
+      setRelCheck('running');
+      try {
+        const q = await getQuality(draftId, true);
+        const cols = pairs.map((pr) => pr.fromCol.toUpperCase()).sort().join(',');
+        const hit = (q.cross_table?.checks ?? []).find((c) => {
+          const l = c.left as { target?: string; columns?: string[] } | undefined;
+          const r = c.right as { target?: string; columns?: string[] } | undefined;
+          return (
+            l?.target === target?.name &&
+            r?.target === t2.name &&
+            (l?.columns ?? []).map((x) => x.toUpperCase()).sort().join(',') === cols
+          );
+        });
+        if (hit) {
+          const ev = (hit.evidence ?? {}) as { orphans?: number; left_rows?: number; orphan_pct?: number };
+          setRelCheck({
+            verdict: String(hit.verdict ?? ''),
+            orphans: ev.orphans,
+            leftRows: ev.left_rows,
+            orphanPct: ev.orphan_pct,
+            scope: String(hit.sample_vs_full ?? ''),
+          });
+        } else {
+          setRelCheck({
+            note: 'Declared. The integrity check has no verdict yet — it runs once both tables are loaded.',
+          });
+        }
+      } catch {
+        setRelCheck({
+          note: 'Declared. The integrity check could not run right now — it is not lost, Quality carries it.',
+        });
+      }
     });
 
   const act = async (key: string, fn: () => Promise<unknown>) => {
@@ -1123,23 +1205,94 @@ export default function StudioModelInspector({
                   ))}
                 </select>
               </label>
-              {onAskAi && (
+            </div>
+          )}
+
+          {/* COMPOSITE: one source can point at a target through several
+              columns — each extra pair joins the declaration. The right
+              side need not be a declared PK. */}
+          {rel.to && (
+            <div className="mt-1.5 space-y-1">
+              {relPairs.map((pr, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <select
+                    value={pr.fromCol}
+                    aria-label={`Additional column ${i + 2} of ${name}`}
+                    onChange={(e) =>
+                      setRelPairs((ps) => ps.map((x, xi) => (xi === i ? { ...x, fromCol: e.target.value } : x)))
+                    }
+                    className="h-8 w-[42%] truncate rounded-lg border border-slate-200 bg-white px-1.5 font-mono text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  >
+                    <option value="">column…</option>
+                    {cols.map((c) => (
+                      <option key={c.name} value={c.name}>{c.name}</option>
+                    ))}
+                  </select>
+                  <span aria-hidden className="text-xs text-slate-400">→</span>
+                  <select
+                    value={pr.toCol}
+                    aria-label={`Additional matching column ${i + 2}`}
+                    onChange={(e) =>
+                      setRelPairs((ps) => ps.map((x, xi) => (xi === i ? { ...x, toCol: e.target.value } : x)))
+                    }
+                    className="h-8 w-[42%] truncate rounded-lg border border-slate-200 bg-white px-1.5 font-mono text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  >
+                    <option value="">column…</option>
+                    {((view?.targets ?? []).find((t) => t.target_id === rel.to)?.columns ?? []).map((c) => (
+                      <option key={c.name} value={c.name}>{c.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    aria-label={`Remove column pair ${i + 2}`}
+                    onClick={() => setRelPairs((ps) => ps.filter((_, xi) => xi !== i))}
+                    className="rounded p-1 text-slate-400 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                  >
+                    <X aria-hidden className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  disabled={!rel.to || !rel.fromCol || !rel.toCol}
-                  title="The AI checks uniqueness and orphans on the real data before you declare it"
+                  onClick={() => setRelPairs((ps) => [...ps, { fromCol: '', toCol: '' }])}
+                  className="text-xs text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400"
+                >
+                  + another column pair (composite key)
+                </button>
+                <button
+                  type="button"
+                  disabled={!rel.to || !rel.fromCol || !rel.toCol || busy === 'rel'}
+                  title="Declares the relation, then counts the orphans on the real data — a key that does not hold is told, not hidden. The matched column need not be a declared PK."
                   onClick={() => {
                     const t2 = (view?.targets ?? []).find((t) => t.target_id === rel.to);
-                    onAskAi(
-                      `Declare the relation ${target.name}.${rel.fromCol} → ${t2?.name}.${rel.toCol} as ${CARD_WORDS[rel.card] ?? rel.card}. ` +
-                        `First check on the real data that ${t2?.name}.${rel.toCol} is unique (a primary key) and that every ${target.name}.${rel.fromCol} value exists there (a valid foreign key). ` +
-                        `If the check fails, refuse and say how many rows break it.`,
-                    );
+                    if (t2) void checkAndDeclareRel(t2);
                   }}
-                  className="h-7 rounded-lg bg-accent-600 px-2.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-40"
+                  className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent-600 px-3 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
                 >
+                  {busy === 'rel' || relCheck === 'running' ? (
+                    <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />
+                  ) : null}
                   Check &amp; declare
                 </button>
+              </div>
+              {relCheck && relCheck !== 'running' && (
+                <p
+                  role="status"
+                  className={`rounded-lg px-2.5 py-1.5 text-[13px] ${
+                    'verdict' in relCheck
+                      ? relCheck.verdict === 'pass'
+                        ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200'
+                        : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'
+                      : 'bg-slate-50 text-slate-600 dark:bg-slate-800/60 dark:text-slate-300'
+                  }`}
+                >
+                  {'verdict' in relCheck
+                    ? relCheck.verdict === 'pass'
+                      ? `Checked on the real data: ${relCheck.orphans ?? 0} orphan(s) of ${(relCheck.leftRows ?? 0).toLocaleString()} rows — the key holds.`
+                      : `The key does NOT hold: ${(relCheck.orphans ?? 0).toLocaleString()} orphan(s) of ${(relCheck.leftRows ?? 0).toLocaleString()} rows (${Math.round((relCheck.orphanPct ?? 0) * 100) / 100}%). The relation stays declared so Quality can point at the rows.`
+                    : relCheck.note}
+                </p>
               )}
             </div>
           )}

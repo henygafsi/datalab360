@@ -254,18 +254,22 @@ test('chain: modify → render → export → reopen, verified server-side', asy
   await expect(field).toBeVisible({ timeout: 45_000 });
   await field.fill(next);
   await field.blur();
-  await page.waitForTimeout(7_000);
 
-  // persisted? ask the SERVER, not the input
-  expect(await readTitle(), 'the edit must reach the draft, not just the input').toBe(next);
+  // persisted? ask the SERVER, not the input — polled, because under the
+  // full suite the save can take longer than any fixed wait
+  await expect
+    .poll(readTitle, { timeout: 60_000, message: 'the edit must reach the draft' })
+    .toBe(next);
 
   // RENDU — the surface shows what was saved
   await expect(page.getByText(next, { exact: false }).first()).toBeVisible({ timeout: 30_000 });
 
   // RÉOUVERTURE — a full reload restores it from the server
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(12_000);
-  expect(await readTitle(), 'reopening must restore the saved value').toBe(next);
+  await expect
+    .poll(readTitle, { timeout: 60_000, message: 'reopening must restore the saved value' })
+    .toBe(next);
+  await page.waitForTimeout(8_000); // let the rails hydrate before clicking them
   await expect(page.getByText(next, { exact: false }).first()).toBeVisible({ timeout: 30_000 });
 
   // restore the fixture — a campaign must not leave the app renamed
@@ -274,9 +278,10 @@ test('chain: modify → render → export → reopen, verified server-side', asy
   if (await restore.count()) {
     await restore.fill(before);
     await restore.blur();
-    await page.waitForTimeout(7_000);
   }
-  expect(await readTitle(), 'the fixture is left as it was found').toBe(before);
+  await expect
+    .poll(readTitle, { timeout: 60_000, message: 'the fixture is left as it was found' })
+    .toBe(before);
 });
 
 test('the AI leg is capped by the free envelope, and says so honestly', async () => {

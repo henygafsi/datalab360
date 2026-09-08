@@ -1847,6 +1847,9 @@ export interface TargetColumn {
 }
 
 export interface StudioTarget {
+  /** the understanding entity this target was built from — relations at
+   *  the understanding level are declared through it */
+  entity_id?: string;
   target_id: string;
   name: string;
   kind?: 'fact' | 'dimension' | string;
