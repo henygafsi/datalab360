@@ -21,7 +21,7 @@
  *     it exists, the technical name otherwise.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Coins, HeartPulse, KeyRound, Link2, Pencil, RefreshCw } from 'lucide-react';
 import {
   getSourceCard,
@@ -97,6 +97,23 @@ export default function StudioSourceCard({
     void load();
   }, [load]);
 
+  // the ingestion block (COPY_HISTORY + lineage) is prepared in the
+  // background — the card answers immediately with processing.status
+  // "deferred". Pull the prepared value on its own, a few bounded retries,
+  // rather than making the reader click refresh.
+  const retryRef = useRef(0);
+  useEffect(() => {
+    if (typeof card !== 'object' || card == null) return;
+    const p = card.processing as { status?: string; retry_after_seconds?: number } | null;
+    if (p?.status !== 'deferred' || retryRef.current >= 3) return;
+    const secs = Math.max(3, Math.min(30, Number(p.retry_after_seconds) || 5));
+    const t = setTimeout(() => {
+      retryRef.current += 1;
+      void load();
+    }, secs * 1000);
+    return () => clearTimeout(t);
+  }, [card, load]);
+
   if (card === 'loading')
     return <div className="mt-2 h-40 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" aria-hidden />;
   if (card === 'error' || card == null)
@@ -169,6 +186,15 @@ export default function StudioSourceCard({
   const cost = c.storage_cost;
   const usd = cost?.monthly_usd;
   const a = cost?.assumptions;
+  const proc = (c.processing ?? null) as {
+    status?: string;
+    reason?: string;
+    retry_after_seconds?: number;
+    ingestion_type?: string;
+    cadence?: string;
+    last_run?: string;
+    pipeline_name?: string;
+  } | null;
 
   return (
     <div className="mt-2 space-y-3 text-[13px]">
@@ -422,6 +448,35 @@ export default function StudioSourceCard({
           ))}
         </section>
       )}
+
+      {/* ingestion — prepared in the background (COPY_HISTORY + lineage are
+          heavy to read); the card never blocks on it. It says "preparing"
+          and fills in on its own, rather than showing a stuck skeleton. */}
+      {proc &&
+        (proc.status === 'deferred' || proc.ingestion_type || proc.last_run || proc.pipeline_name) && (
+          <section className="rounded-lg border border-slate-200 p-2.5 dark:border-slate-800">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Ingestion
+            </p>
+            {proc.status === 'deferred' ? (
+              <p className="mt-1 inline-flex items-center gap-1.5 text-[13px] text-slate-500 dark:text-slate-400">
+                <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />
+                Preparing the ingestion history — it appears here on its own, no need to wait.
+              </p>
+            ) : (
+              <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-300">
+                {[
+                  proc.ingestion_type,
+                  proc.cadence,
+                  proc.last_run ? `last run ${proc.last_run}` : null,
+                  proc.pipeline_name,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || '—'}
+              </p>
+            )}
+          </section>
+        )}
     </div>
   );
 }
