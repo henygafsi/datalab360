@@ -1,13 +1,15 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
 
-import StudioSourceOnboarding from '@/app/shared/studio/StudioSourceOnboarding';
+import StudioSourcesHome from '@/app/shared/studio/sources/StudioSourcesHome';
 
 /**
- * /studio/source — the minimalist source journey: connector grid (real
- * catalog, multi-select) → pick the data → source KPIs from metadata only
- * → one understand & quality run. Standard dashboard auth; heavy admin
- * configuration stays in /data-source-connection.
+ * /studio/source — connections & objects, as a lifecycle surface:
+ * two dense local views (Connections / Objects in use, ?view=) with the
+ * connection sheet and the object/columns sheet opening in place, and the
+ * guided add journey behind the one primary « Add a source » action.
+ * Standard dashboard auth; heavy admin configuration stays in
+ * /data-source-connection.
  */
 export const metadata: Metadata = {
   title: 'Studio — Sources',
@@ -16,7 +18,7 @@ export const metadata: Metadata = {
 export default function StudioSourcePage() {
   return (
     <Suspense fallback={null}>
-      <StudioSourceOnboarding />
+      <StudioSourcesHome />
     </Suspense>
   );
 }

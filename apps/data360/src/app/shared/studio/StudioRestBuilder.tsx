@@ -22,6 +22,7 @@ import {
   ingestRestConnector,
   previewRest,
   saveRestConnector,
+  updateRestConnector,
   type RestConfig,
   type RestConnector,
   type RestPreset,
@@ -66,21 +67,42 @@ function Field({
   );
 }
 
-export default function StudioRestBuilder({ onClose }: { onClose?: () => void }) {
+export default function StudioRestBuilder({
+  onClose,
+  connector,
+  onSaved,
+}: {
+  onClose?: () => void;
+  /** Edit mode: the SAVED connector being modified. The active
+   *  configuration is never touched before an explicit Save — preview
+   *  tests the draft as typed, and an empty secret means « keep the
+   *  stored one », never « clear it ». */
+  connector?: RestConnector | null;
+  onSaved?: (c: RestConnector) => void;
+}) {
+  const editing = Boolean(connector?.connector_id);
+  const initAuth = (connector?.auth ?? {}) as {
+    type?: string;
+    username?: string;
+    token_url?: string;
+    client_id?: string;
+  };
+  const initEp = (connector?.endpoints ?? [])[0];
   const [meta, setMeta] = useState<RestPresetsView | null>(null);
-  const [presetId, setPresetId] = useState<string>('generic');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [authType, setAuthType] = useState('bearer');
+  const [name, setName] = useState(connector?.name ?? '');
+  const [presetId, setPresetId] = useState<string>(connector?.preset ?? 'generic');
+  const [baseUrl, setBaseUrl] = useState(connector?.base_url ?? '');
+  const [authType, setAuthType] = useState(initAuth.type ?? 'bearer');
   const [secretVal, setSecretVal] = useState('');
-  const [username, setUsername] = useState('');
-  const [tokenUrl, setTokenUrl] = useState('');
-  const [clientId, setClientId] = useState('');
-  const [path, setPath] = useState('/');
-  const [rowPath, setRowPath] = useState('');
-  const [table, setTable] = useState('');
+  const [username, setUsername] = useState(initAuth.username ?? '');
+  const [tokenUrl, setTokenUrl] = useState(initAuth.token_url ?? '');
+  const [clientId, setClientId] = useState(initAuth.client_id ?? '');
+  const [path, setPath] = useState(initEp?.path ?? '/');
+  const [rowPath, setRowPath] = useState(initEp?.row_path ?? '');
+  const [table, setTable] = useState(initEp?.target_table ?? '');
   const [busy, setBusy] = useState<string | null>(null);
   const [preview, setPreview] = useState<RestPreview | null>(null);
-  const [saved, setSaved] = useState<RestConnector | null>(null);
+  const [saved, setSaved] = useState<RestConnector | null>(connector ?? null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
@@ -109,28 +131,67 @@ export default function StudioRestBuilder({ onClose }: { onClose?: () => void })
 
   const secretKey = (preset?.secret_keys ?? ['token'])[0] ?? 'token';
 
-  const buildConfig = (): RestConfig => ({
-    preset: presetId,
-    base_url: baseUrl.trim(),
-    auth: {
+  const buildConfig = (): RestConfig => {
+    const auth: RestConfig['auth'] = {
+      ...((editing ? (connector?.auth as RestConfig['auth']) : undefined) ?? {}),
       type: authType,
       ...(authType === 'basic' ? { username: username.trim() } : {}),
       ...(authType === 'oauth2_client_credentials'
         ? { token_url: tokenUrl.trim(), client_id: clientId.trim() }
         : {}),
-    },
-    pagination: (preset?.pagination as Record<string, unknown>) ?? { type: 'none' },
-    endpoints: [
-      {
-        id: 'main',
-        path: path.trim() || '/',
-        method: 'GET',
-        row_path: rowPath.trim(),
-        target_table: table.trim() || 'REST_TABLE',
-      },
-    ],
-    target: { database: 'DATA360_LITE', schema: 'REST_API', mode: 'replace' },
-  });
+    };
+    if (editing && connector) {
+      // The PUT REPLACES the stored definition — so the draft config must
+      // START from what is stored and only override what this form shows.
+      // Empty form fields mean « unchanged » (the tranche's semantics);
+      // params/headers/schedule and endpoints 2..n are never displayed
+      // here, so they are carried over verbatim, and the stored target,
+      // pagination and preset stay unless actually edited.
+      const stored = connector;
+      const ep0 = (stored.endpoints ?? [])[0];
+      return {
+        name: name.trim() || stored.name,
+        preset: presetId || stored.preset,
+        base_url: baseUrl.trim() || stored.base_url,
+        auth,
+        pagination:
+          (stored.pagination as Record<string, unknown>) ??
+          (preset?.pagination as Record<string, unknown>) ??
+          { type: 'none' },
+        endpoints: [
+          {
+            ...(ep0 ?? {}),
+            id: ep0?.id ?? 'main',
+            method: (ep0?.method as 'GET' | 'POST' | undefined) ?? 'GET',
+            path: path.trim() || ep0?.path || '/',
+            row_path: rowPath.trim() || ep0?.row_path,
+            target_table: table.trim() || ep0?.target_table || 'REST_TABLE',
+          },
+          ...(stored.endpoints ?? []).slice(1),
+        ],
+        target:
+          (stored.target as RestConfig['target']) ??
+          { database: 'DATA360_LITE', schema: 'REST_API', mode: 'append' },
+      };
+    }
+    return {
+      ...(name.trim() ? { name: name.trim() } : {}),
+      preset: presetId,
+      base_url: baseUrl.trim(),
+      auth,
+      pagination: (preset?.pagination as Record<string, unknown>) ?? { type: 'none' },
+      endpoints: [
+        {
+          id: 'main',
+          path: path.trim() || '/',
+          method: 'GET',
+          row_path: rowPath.trim(),
+          target_table: table.trim() || 'REST_TABLE',
+        },
+      ],
+      target: { database: 'DATA360_LITE', schema: 'REST_API', mode: 'replace' },
+    };
+  };
 
   const buildSecrets = (): RestSecrets => (secretVal ? { [secretKey]: secretVal } : {});
 
@@ -152,11 +213,22 @@ export default function StudioRestBuilder({ onClose }: { onClose?: () => void })
   const runSave = async () => {
     setBusy('save');
     setMsg(null);
-    const r = await saveRestConnector({ config: buildConfig(), secrets: buildSecrets() });
+    const r = editing
+      ? await updateRestConnector(connector!.connector_id!, {
+          config: buildConfig(),
+          secrets: buildSecrets(),
+        })
+      : await saveRestConnector({ config: buildConfig(), secrets: buildSecrets() });
     setBusy(null);
     if (r.ok && r.connector) {
       setSaved(r.connector);
-      setMsg({ ok: true, text: 'Connector saved — it is reusable now. Ingest when you are ready.' });
+      setMsg({
+        ok: true,
+        text: editing
+          ? `Configuration updated${secretVal ? ' — the secret was rotated.' : ' — the stored secret is kept unchanged.'}`
+          : 'Connector saved — it is reusable now. Ingest when you are ready.',
+      });
+      onSaved?.(r.connector);
     } else {
       setMsg({ ok: false, text: `${r.error?.error_code ? `${r.error.error_code}: ` : ''}${r.error?.message ?? 'Save failed.'}` });
     }
@@ -183,7 +255,7 @@ export default function StudioRestBuilder({ onClose }: { onClose?: () => void })
     >
       <div className="mb-2 flex items-center gap-2">
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Build a REST connection
+          {editing ? `Edit « ${connector?.name ?? connector?.connector_id} »` : 'Build a REST connection'}
         </h3>
         {onClose && (
           <button
@@ -218,6 +290,7 @@ export default function StudioRestBuilder({ onClose }: { onClose?: () => void })
       )}
 
       <div className="mt-2 flex flex-wrap gap-2.5">
+        <Field label="Name (business — renamable)" value={name} onChange={setName} width="w-56" placeholder="Orders API" />
         <Field label="Base URL" value={baseUrl} onChange={setBaseUrl} placeholder={preset?.base_url_hint ?? 'https://api.example.com/v1'} />
         <label className="block">
           <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">Auth</span>
@@ -247,7 +320,11 @@ export default function StudioRestBuilder({ onClose }: { onClose?: () => void })
             </>
           )}
           <Field
-            label={`${SECRET_LABEL[secretKey] ?? secretKey} (write-only — never shown again)`}
+            label={
+              editing
+                ? `${SECRET_LABEL[secretKey] ?? secretKey} (empty = keep the stored one)`
+                : `${SECRET_LABEL[secretKey] ?? secretKey} (write-only — never shown again)`
+            }
             type="password"
             value={secretVal}
             onChange={setSecretVal}
@@ -339,6 +416,8 @@ export default function StudioRestBuilder({ onClose }: { onClose?: () => void })
       <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
         The secret travels in a header, is stored encrypted apart from the definition, and is never
         shown again. Preview writes nothing; ingest is bounded and says when the source has more.
+        {editing &&
+          ' Preview tests the draft exactly as typed — it cannot borrow the stored secret, so type it to test; saving without it keeps the stored one.'}
       </p>
     </section>
   );

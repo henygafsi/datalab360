@@ -1458,6 +1458,195 @@ export const API = {
      *  deferred stays unresolved and blocks only its dependents. */
     draftDecision: (draftId: string) =>
       `/studio/drafts/${encodeURIComponent(draftId)}/decisions`,
+
+    /* ── Sources: connections, bounded discovery, rich cards ──────────
+     * Contracted 2026-09-08 (paths previously hardcoded in studio-api.ts —
+     * identical strings, no behavioral change). */
+    /** GET /studio/sources?include_catalog= — reusable sources the caller
+     *  is entitled to (permission-filtered, never credentials). */
+    sources: (includeCatalog = false) =>
+      `/studio/sources${includeCatalog ? '?include_catalog=true' : ''}`,
+    /** GET /studio/sources/catalog — connector catalog whose integration
+     *  status is derived from the actually-mounted routes (honest). */
+    sourcesCatalog: () => '/studio/sources/catalog',
+    /** GET /studio/sources/{database}/objects?schema=&limit= — bounded
+     *  discovery of ONE authorised database → {objects[], truncated, note}. */
+    sourcesObjects: (database: string, opts?: { schema?: string; limit?: number }) =>
+      `/studio/sources/${enc(database)}/objects${qs({ schema: opts?.schema, limit: opts?.limit })}`,
+    /** GET /studio/sources/{database}/declared-keys?schemas= — declared
+     *  PK/FK per schema (SHOW only: metadata, no warehouse needed). */
+    sourcesDeclaredKeys: (database: string, schemas: string) =>
+      `/studio/sources/${enc(database)}/declared-keys${qs({ schemas })}`,
+    /** GET /studio/sources/card?fqn= — rich card of ONE connected source
+     *  WITHOUT a draft (account-scope words, health, storage cost with its
+     *  assumptions, ingestion, load history — no relations/scan blocks:
+     *  those need an application's understanding). */
+    sourcesCardGlobal: (fqn: string, opts?: { includeOps?: boolean; includeHistory?: boolean }) =>
+      `/studio/sources/card${qs({
+        fqn,
+        include_ops: opts?.includeOps ? 'true' : undefined,
+        include_history: opts?.includeHistory ? 'true' : undefined,
+      })}`,
+    /** GET /studio/drafts/{id}/sources/card?entity_id=|fqn=&include_ops&
+     *  include_history — the same card WITH the application's understanding
+     *  (relations, sample DQ, KPI candidates). */
+    sourcesCard: (
+      draftId: string,
+      opts: { entityId?: string; fqn?: string; includeOps?: boolean; includeHistory?: boolean },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/sources/card${qs({
+        entity_id: opts.entityId,
+        fqn: opts.fqn,
+        include_ops: opts.includeOps ? 'true' : undefined,
+        include_history: opts.includeHistory ? 'true' : undefined,
+      })}`,
+    /** PUT /studio/sources/metadata {fqn, draft_id?, description?,
+     *  business_terms?, notes?, columns?} — MERGE: only sent fields are
+     *  written, "" clears one; the company's words are never overwritten. */
+    sourcesMetadata: () => '/studio/sources/metadata',
+    /** POST /studio/datalake/scan — budgeted multi-database scan. */
+    datalakeScan: () => '/studio/datalake/scan',
+
+    /* REST connector builder (persisted, reusable; secrets write-only). */
+    /** GET — presets + auth/pagination types + bounds. */
+    restPresets: () => '/studio/connectors/rest/presets',
+    /** POST {config, secrets, endpoint_id?, rows?} — bounded preview,
+     *  writes nothing; a 422 refusal is a product answer. */
+    restPreview: () => '/studio/connectors/rest/preview',
+    /** GET (list saved connectors — definitions + secrets set|missing,
+     *  never values) · POST (persist one). */
+    restConnectors: () => '/studio/connectors/rest',
+    /** GET | PUT one saved connector — an empty secret on PUT means
+     *  "unchanged", never "clear". */
+    restConnector: (id: string) => `/studio/connectors/rest/${enc(id)}`,
+    /** POST {endpoint_ids?, max_rows?} — full bounded ingest. */
+    restIngest: (id: string) => `/studio/connectors/rest/${enc(id)}/ingest`,
+
+    /** GET | PUT /studio/preview-policy — the account's free-preview
+     *  envelope (ACCOUNTADMIN raises limits, with who/when/why recorded). */
+    previewPolicy: () => '/studio/preview-policy',
+
+    /* ── Connections as first-class objects + versioned attachments ────
+     * Backend tranche SOURCES 2026-09-08 (19 routes, schema_version
+     * studio.connections.v1 / studio.source_objects.v1). One registry —
+     * legacy /connect and REST-builder rows appear in the same list with
+     * managed_by; there is no second connection manager. */
+    connections: {
+      /** GET — form schemas per type; only native adapters are `usable`
+       *  (snowflake_session, postgresql, mysql, oracle, databricks,
+       *  iceberg, rest_api); others carry capabilities.missing + note. */
+      types: () => '/studio/connections/types',
+      /** GET ?q&type&environment&sort&offset&limit&with_usage — the
+       *  Connections view; sf:session always first. */
+      list: (p?: {
+        q?: string;
+        type?: string;
+        environment?: string;
+        sort?: string;
+        offset?: number;
+        limit?: number;
+        withUsage?: boolean;
+      }) =>
+        `/studio/connections${qs({
+          q: p?.q,
+          type: p?.type,
+          environment: p?.environment,
+          sort: p?.sort,
+          offset: p?.offset,
+          limit: p?.limit,
+          with_usage: p?.withUsage ? 'true' : undefined,
+        })}`,
+      /** POST {type, name, environment, params, secrets} — nothing is
+       *  tested at creation; 422 CONNECTION_INVALID names each field. */
+      create: () => '/studio/connections',
+      /** GET — the sheet: dependencies (≤30 named + hidden counted, never
+       *  guessed), history, configured vs verified capabilities, form. */
+      detail: (id: string) => `/studio/connections/${enc(id)}`,
+      /** PUT — NON-sensitive edits only ({expected_version, name,
+       *  environment, description}); 409 CONNECTION_VERSION_MISMATCH,
+       *  422 SENSITIVE_CHANGE_NEEDS_DRAFT for params/secrets. */
+      update: (id: string) => `/studio/connections/${enc(id)}`,
+      /** DELETE ?confirm=true — 409 CONNECTION_IN_USE{dependencies,
+       *  options} / DEPENDENCIES_UNKNOWN / CONFIRM_REQUIRED. */
+      remove: (id: string, confirm = false) =>
+        `/studio/connections/${enc(id)}${confirm ? '?confirm=true' : ''}`,
+      /** PUT {expected_version, params, secrets, clear_secrets} — the
+       *  sensitive DRAFT: the active config is untouched; an empty/absent
+       *  secret means UNCHANGED; clearing is explicit. DELETE discards. */
+      draft: (id: string) => `/studio/connections/${enc(id)}/draft`,
+      /** POST {target: active|draft, objects[≤5], budget_s} — the bounded
+       *  explicit diagnostic with DISTINCT checks (network, auth,
+       *  execution_context, metadata_discovery, read_selected_objects,
+       *  write always not_tested); proof persisted, stale on version bump. */
+      test: (id: string) => `/studio/connections/${enc(id)}/test`,
+      /** GET — before apply: dependencies, active runs, pooled sessions,
+       *  rollback honesty. */
+      impact: (id: string) => `/studio/connections/${enc(id)}/impact`,
+      /** POST {expected_version, confirm:true} — 409 NO_DRAFT /
+       *  CONFIRM_REQUIRED{impact} / DRAFT_NOT_TESTED / ACTIVE_RUNS; then
+       *  auto-verification of the applied config. */
+      apply: (id: string) => `/studio/connections/${enc(id)}/apply`,
+      /** GET ?schema&q&limit&cursor&selected= — paginated discovery under
+       *  the CONNECTION's identity; `selected` refs come back flagged on
+       *  every page. */
+      objects: (
+        id: string,
+        p?: { schema?: string; q?: string; limit?: number; cursor?: string; selected?: string },
+      ) =>
+        `/studio/connections/${enc(id)}/objects${qs({
+          schema: p?.schema,
+          q: p?.q,
+          limit: p?.limit,
+          cursor: p?.cursor,
+          selected: p?.selected,
+        })}`,
+      /** POST {ref, rows, draft_id} — bounded preview consuming the
+       *  free envelope; scope says method, bounds and freshness. */
+      preview: (id: string) => `/studio/connections/${enc(id)}/preview`,
+    },
+    /** GET /studio/drafts/{id}/sources?q&sort&offset&limit — the Objects-
+     *  in-use view (persisted state only, NO scan). */
+    draftSources: (
+      draftId: string,
+      p?: { q?: string; sort?: string; offset?: number; limit?: number },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/sources${qs({
+        q: p?.q,
+        sort: p?.sort,
+        offset: p?.offset,
+        limit: p?.limit,
+      })}`,
+    /** POST {objects[{ref|fqn, connection_id, business_name, kind}],
+     *  expected_version} — versioned attach; publishes NOTHING (model:
+     *  false, jobs:false); existing understanding kept + stale_for. */
+    draftSourcesAttach: (draftId: string) => `/studio/drafts/${enc(draftId)}/sources/attach`,
+    /** GET — the object & columns sheet (header with copyable path,
+     *  synthesis, columns with mapping+anomalies+actions, preview
+     *  on_demand, usage with lineage_known honesty). */
+    draftSourceObject: (draftId: string, ref: string) =>
+      `/studio/drafts/${enc(draftId)}/sources/${enc(ref)}/object`,
+    /** PATCH — business_name freely; a BINDING change needs an explicit
+     *  new object + confirm (previous kept in previous_bindings, impacts
+     *  listed; never re-associated by similar name). */
+    draftSource: (draftId: string, ref: string) =>
+      `/studio/drafts/${enc(draftId)}/sources/${enc(ref)}`,
+    /** DELETE ?confirm&resolution&expected_version — detach ≠ delete;
+     *  409 SOURCE_IN_USE{dependencies, options[replace|suspend_jobs|
+     *  keep_broken]}; affected jobs become suspended/broken_source. */
+    draftSourceDetach: (
+      draftId: string,
+      ref: string,
+      p?: { confirm?: boolean; resolution?: string; expectedVersion?: number },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/sources/${enc(ref)}${qs({
+        confirm: p?.confirm ? 'true' : undefined,
+        resolution: p?.resolution,
+        expected_version: p?.expectedVersion,
+      })}`,
+    /** POST — bounded read of current columns vs analysed: added/removed/
+     *  type_changed/rename_candidates (to_confirm) + impacts. */
+    draftSourceSchemaCheck: (draftId: string, ref: string) =>
+      `/studio/drafts/${enc(draftId)}/sources/${enc(ref)}/schema-check`,
   },
 
   /**

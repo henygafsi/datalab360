@@ -213,6 +213,15 @@
     @apply flex min-h-full flex-col overflow-x-hidden text-sm text-gray-600 dark:bg-gray-950;
   }
 
+  /* @tailwindcss/forms gives every native <select> py-2 + leading-6
+     (8px + 24px + 8px = 40px of content) — inside the app's fixed-height
+     controls (h-8 = 32px) that CLIPS the value vertically: the reported
+     « text half displayed in every select box ». Drop the vertical padding
+     and let the browser center the value at any box height. */
+  select {
+    @apply py-0 leading-normal;
+  }
+
   input::-ms-clear,
   input::-ms-reveal {
     @apply hidden;

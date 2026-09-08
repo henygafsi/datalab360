@@ -11,7 +11,7 @@
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { API_CONFIG } from '@/config/database.config';
-import { dedupGet } from '@/app/services/request-dedup';
+import { dedupGet, invalidateDedup } from '@/app/services/request-dedup';
 
 /**
  * THE studio mutation transport — fetch-based AND SERIALIZED.
@@ -41,7 +41,7 @@ const STUDIO_MUTATION_BASE = /^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test
   : API_CONFIG.BASE_URL;
 
 function studioMutate<T>(
-  method: 'POST' | 'PUT' | 'DELETE',
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body: unknown,
   timeoutMs = 120_000,
@@ -125,7 +125,7 @@ export interface StudioSource {
 
 export async function getStudioSources(): Promise<StudioSource[]> {
   return dedupGet('studio:v1:sources', 120_000, async () => {
-    const { data } = await apiClient.get<{ sources?: StudioSource[] }>('/studio/sources');
+    const { data } = await apiClient.get<{ sources?: StudioSource[] }>(API.studio.sources());
     return Array.isArray(data?.sources) ? data.sources : [];
   });
 }
@@ -141,7 +141,7 @@ export interface CatalogConnector {
 export async function getStudioSourcesCatalog(): Promise<CatalogConnector[]> {
   return dedupGet('studio:v1:catalog', 300_000, async () => {
     const { data } = await apiClient.get<{ connectors?: CatalogConnector[]; items?: CatalogConnector[] }>(
-      '/studio/sources/catalog',
+      API.studio.sourcesCatalog(),
     );
     return (data?.connectors ?? data?.items ?? []) as CatalogConnector[];
   });
@@ -168,7 +168,7 @@ export async function getStudioObjects(database: string): Promise<{
       objects?: StudioObject[];
       truncated?: boolean;
       note?: string | null;
-    }>(`/studio/sources/${encodeURIComponent(database)}/objects`);
+    }>(API.studio.sourcesObjects(database));
     return {
       objects: Array.isArray(data?.objects) ? data.objects : [],
       truncated: data?.truncated,
@@ -419,7 +419,7 @@ export async function scanDatalake(body: {
   domains: string[];
   databases?: string[];
 }): Promise<DatalakeScan> {
-  return studioMutate<DatalakeScan>('POST', '/studio/datalake/scan', body, 180_000);
+  return studioMutate<DatalakeScan>('POST', API.studio.datalakeScan(), body, 180_000);
 }
 
 export async function understand(body: {
@@ -2642,7 +2642,7 @@ function restDetail(e: unknown): { error_code?: string; message?: string; [k: st
 }
 
 export async function getRestPresets(): Promise<RestPresetsView> {
-  const { data } = await apiClient.get<RestPresetsView>('/studio/connectors/rest/presets', {
+  const { data } = await apiClient.get<RestPresetsView>(API.studio.restPresets(), {
     timeout: 30_000,
   });
   return data ?? {};
@@ -2657,7 +2657,7 @@ export async function previewRest(body: {
   rows?: number;
 }): Promise<{ ok: boolean; preview?: RestPreview; error?: { error_code?: string; message?: string } }> {
   try {
-    const data = await studioMutate<RestPreview>('POST', '/studio/connectors/rest/preview', body, 60_000);
+    const data = await studioMutate<RestPreview>('POST', API.studio.restPreview(), body, 60_000);
     return { ok: true, preview: data };
   } catch (e) {
     return { ok: false, error: restDetail(e) };
@@ -2669,11 +2669,68 @@ export async function saveRestConnector(body: {
   secrets: RestSecrets;
 }): Promise<{ ok: boolean; connector?: RestConnector; error?: { error_code?: string; message?: string } }> {
   try {
-    const data = await studioMutate<RestConnector>('POST', '/studio/connectors/rest', body, 60_000);
+    const data = await studioMutate<RestConnector>('POST', API.studio.restConnectors(), body, 60_000);
+    invalidateSourcesCaches();
     return { ok: true, connector: data };
   } catch (e) {
     return { ok: false, error: restDetail(e) };
   }
+}
+
+/** The saved, reusable REST connectors — definitions and which secret keys
+ *  are set, never a secret value. Short TTL: a save must show up promptly. */
+export async function listRestConnectors(): Promise<RestConnector[]> {
+  return dedupGet('studio:v1:rest-connectors', 60_000, async () => {
+    const { data } = await apiClient.get<{ connectors?: RestConnector[]; items?: RestConnector[] }>(
+      API.studio.restConnectors(),
+      { timeout: 30_000 },
+    );
+    const list = data?.connectors ?? data?.items;
+    return Array.isArray(list) ? list : [];
+  });
+}
+
+/** Read ONE saved REST connector (definition + secrets set|missing). */
+export async function getRestConnector(connectorId: string): Promise<RestConnector | null> {
+  try {
+    const { data } = await apiClient.get<RestConnector>(API.studio.restConnector(connectorId), {
+      timeout: 30_000,
+    });
+    return data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Update a saved REST connector. Secret semantics are the backend's: a
+ *  secret NOT sent stays unchanged (rotation only on send) — the form must
+ *  never treat an empty field as "clear". */
+export async function updateRestConnector(
+  connectorId: string,
+  body: { config: RestConfig; secrets?: RestSecrets },
+): Promise<{ ok: boolean; connector?: RestConnector; error?: { error_code?: string; message?: string } }> {
+  try {
+    const data = await studioMutate<RestConnector>(
+      'PUT',
+      API.studio.restConnector(connectorId),
+      body,
+      60_000,
+    );
+    invalidateSourcesCaches();
+    return { ok: true, connector: data };
+  } catch (e) {
+    return { ok: false, error: restDetail(e) };
+  }
+}
+
+/** Every mutation that creates/updates/removes a connection or its objects
+ *  must call this — the dedup TTLs (60–300 s) would otherwise keep serving
+ *  the pre-mutation lists. */
+export function invalidateSourcesCaches(): void {
+  invalidateDedup('studio:v1:sources');
+  invalidateDedup('studio:v1:catalog');
+  invalidateDedup('studio:v1:objects:');
+  invalidateDedup('studio:v1:rest-connectors');
 }
 
 export async function ingestRestConnector(
@@ -2693,10 +2750,13 @@ export async function ingestRestConnector(
   try {
     const data = await studioMutate<{ run_id?: string; status?: string; rows_loaded?: number }>(
       'POST',
-      `/studio/connectors/rest/${encodeURIComponent(connectorId)}/ingest`,
+      API.studio.restIngest(connectorId),
       body,
       180_000,
     );
+    // the ingest creates/updates tables and moves last_sync — the cached
+    // lists must not serve the pre-ingest truth for another 60 s
+    invalidateSourcesCaches();
     return { ok: true, result: data };
   } catch (e) {
     return { ok: false, error: restDetail(e) };
@@ -2784,13 +2844,27 @@ export async function getSourceCard(
   draftId: string,
   opts: { entityId?: string; fqn?: string; includeHistory?: boolean },
 ): Promise<SourceCard> {
-  const q = new URLSearchParams();
-  if (opts.entityId) q.set('entity_id', opts.entityId);
-  if (opts.fqn) q.set('fqn', opts.fqn);
-  q.set('include_ops', 'true');
-  if (opts.includeHistory) q.set('include_history', 'true');
   const { data } = await apiClient.get<SourceCard>(
-    `/studio/drafts/${encodeURIComponent(draftId)}/sources/card?${q.toString()}`,
+    API.studio.sourcesCard(draftId, {
+      entityId: opts.entityId,
+      fqn: opts.fqn,
+      includeOps: true,
+      includeHistory: opts.includeHistory,
+    }),
+    { timeout: 120_000 },
+  );
+  return data ?? {};
+}
+
+/** The same rich card WITHOUT a draft (account scope): the company's words,
+ *  health, storage cost with its assumptions, ingestion and load history —
+ *  no relations nor scan blocks (those need an application's understanding). */
+export async function getAccountSourceCard(
+  fqn: string,
+  opts?: { includeHistory?: boolean },
+): Promise<SourceCard> {
+  const { data } = await apiClient.get<SourceCard>(
+    API.studio.sourcesCardGlobal(fqn, { includeOps: true, includeHistory: opts?.includeHistory }),
     { timeout: 120_000 },
   );
   return data ?? {};
@@ -2806,7 +2880,7 @@ export async function setSourceMetadata(body: {
   notes?: string;
   columns?: Record<string, { description?: string; business_terms?: string[] }>;
 }): Promise<Record<string, unknown>> {
-  return studioMutate('PUT', '/studio/sources/metadata', body, 30_000);
+  return studioMutate('PUT', API.studio.sourcesMetadata(), body, 30_000);
 }
 
 /* ── Preview policy (free envelope) ────────────────────────────────── */
@@ -2828,7 +2902,7 @@ export interface PreviewPolicy {
 
 export async function getPreviewPolicy(): Promise<PreviewPolicy> {
   return dedupGet('studio:v1:preview-policy', 300_000, async () => {
-    const { data } = await apiClient.get<PreviewPolicy>('/studio/preview-policy');
+    const { data } = await apiClient.get<PreviewPolicy>(API.studio.previewPolicy());
     return data ?? {};
   });
 }
@@ -2843,5 +2917,5 @@ export async function setPreviewPolicy(body: {
   ai_calls_per_hour?: number;
   reason?: string;
 }): Promise<PreviewPolicy> {
-  return studioMutate<PreviewPolicy>('PUT', '/studio/preview-policy', body, 30_000);
+  return studioMutate<PreviewPolicy>('PUT', API.studio.previewPolicy(), body, 30_000);
 }
