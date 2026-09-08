@@ -33,6 +33,7 @@ import {
   getStudioSources,
   getStudioSourcesCatalog,
   scanDatalake,
+  getPreviewUsage,
   suggestSources,
   type CatalogConnector,
   type StudioSource,
@@ -172,6 +173,22 @@ export default function SourcesStep({
   const [discovery, setDiscovery] = useState<Discovery>({ kind: 'idle' });
   const [deepSearching, setDeepSearching] = useState<string | null>(null);
   const [deepError, setDeepError] = useState<string | null>(null);
+  /** THE BASKET: one sweep over every available database, ranked against
+   *  the need — high picks pre-checked, the rest one click away. AI first,
+   *  manual always possible; the scan budget refusal is shown, not hidden. */
+  /** the free-preview envelope for THIS journey — how many table scans are
+   *  left before the policy stops. Read so the reader sees the ceiling
+   *  before hitting it, not only after. */
+  const [scanBudget, setScanBudget] = useState<{ used: number; limit: number } | null>(null);
+  const [basket, setBasket] = useState<
+    | null
+    | 'running'
+    | {
+        items: Array<{ fqn: string; relevance: string; db: string; sourceId: string; checked: boolean }>;
+        scanned: string[];
+        stopped?: string;
+      }
+  >(null);
   const discovered = useRef(false);
 
   /** Iteration B: when name-match finds nothing, the user can point the
@@ -215,6 +232,83 @@ export default function SourcesStep({
     } finally {
       setDeepSearching(null);
     }
+  };
+
+  const scanAll = async () => {
+    if (basket === 'running') return;
+    setBasket('running');
+    setDeepError(null);
+    void getPreviewUsage()
+      .then((u) => u.objects_per_draft && setScanBudget({ used: u.objects_per_draft.used ?? 0, limit: u.objects_per_draft.limit ?? 0 }))
+      .catch(() => undefined);
+    try {
+      let scanDraftId = draft.draftId ?? null;
+      if (!scanDraftId) {
+        scanDraftId = await createDraftDirect({ title: draft.need.text.slice(0, 80) || 'New application' });
+        if (scanDraftId) onPatch({ draftId: scanDraftId });
+      }
+      const avail = (sources ?? []).filter((x) => (x.status ?? 'available') === 'available');
+      const nameOf = (x: (typeof avail)[number]) => x.label || x.id.replace(/^sf:db:/, '');
+      const byDb = new Map(avail.map((x) => [nameOf(x), x.id]));
+      const dbs = avail.map(nameOf);
+      const items: NonNullable<Exclude<typeof basket, null | 'running'>>['items'] = [];
+      const scanned: string[] = [];
+      let stopped: string | undefined;
+      // the route takes at most 5 databases per call — sweep in batches
+      // until done or until the scan budget says no (shown, not hidden)
+      for (let i = 0; i < dbs.length; i += 5) {
+        const slice = dbs.slice(i, i + 5);
+        try {
+          const { suggestions } = await suggestSources({
+            need: draft.need.text,
+            domain_id: draft.need.domainId ?? undefined,
+            draft_id: scanDraftId,
+            databases: slice,
+          });
+          scanned.push(...slice);
+          for (const sg of suggestions) {
+            if (sg.relevance !== 'high' && sg.relevance !== 'medium') continue;
+            const db = sg.fqn.split('.')[0] ?? '';
+            const sourceId = byDb.get(db) ?? '';
+            if (!sourceId) continue;
+            items.push({
+              fqn: sg.fqn,
+              relevance: String(sg.relevance),
+              db,
+              sourceId,
+              checked: Boolean(sg.preselect) || sg.relevance === 'high',
+            });
+          }
+        } catch (e) {
+          const detail = (e as { response?: { data?: { detail?: { message?: string } } } })
+            ?.response?.data?.detail;
+          stopped = detail?.message
+            ? `The scan reached ${scanned.length} of ${dbs.length} databases, then the free-preview envelope was spent: ${detail.message} This is an account policy — an administrator raises it in Administration; the tables already found are kept.`
+            : `The scan stopped after ${scanned.length} of ${dbs.length} databases.`;
+          break;
+        }
+      }
+      items.sort((a, b) => (a.relevance === b.relevance ? 0 : a.relevance === 'high' ? -1 : 1));
+      setBasket({ items, scanned, stopped });
+    } finally {
+      setBasket((b) => (b === 'running' ? { items: [], scanned: [], stopped: 'The scan did not answer.' } : b));
+    }
+  };
+
+  const acceptBasket = () => {
+    if (basket === null || basket === 'running') return;
+    const picks = basket.items.filter((x) => x.checked);
+    if (picks.length === 0) return;
+    const conns = [...new Set([...draft.sources.connectionIds, ...picks.map((x) => x.sourceId)])];
+    const objects = [
+      ...draft.sources.objects,
+      ...picks
+        .filter((x) => !draft.sources.objects.some((o) => o.name === x.fqn))
+        .map((x) => ({ connectionId: x.sourceId, name: x.fqn })),
+    ];
+    onPatch({ sources: { connectionIds: conns, objects } });
+    setDiscovery({ kind: 'found', tables: picks.length, dbs: [...new Set(picks.map((x) => x.db))] });
+    setBasket(null);
   };
 
   const load = useCallback(() => {
@@ -420,12 +514,39 @@ export default function SourcesStep({
           <Sparkles aria-hidden className="h-3 w-3 shrink-0 text-accent-500" />
           Data360 found {discovery.tables} table(s) in {discovery.dbs.join(', ')} that look like
           this need (matched by name — adjust freely, the analysis will confirm).
+          {/* a name-match is a start, not the ceiling — the full sweep stays
+              one click away even when something was found */}
+          <button
+            type="button"
+            disabled={basket === 'running' || (sources ?? []).length === 0}
+            onClick={() => void scanAll()}
+            className="ml-1 inline-flex items-center gap-1 rounded-lg border border-accent-400 px-2 py-0.5 text-xs font-medium text-accent-700 hover:bg-accent-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-300 dark:hover:bg-accent-900/30"
+          >
+            {basket === 'running' && <RefreshCw aria-hidden className="h-3 w-3 animate-spin" />}
+            {basket === 'running' ? 'Scanning every database…' : 'Scan them all for a fuller basket'}
+          </button>
+          {scanBudget && (
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              {Math.max(0, scanBudget.limit - scanBudget.used)} of {scanBudget.limit} free scans left
+              on this application
+            </span>
+          )}
         </p>
       )}
       {discovery.kind === 'none' && (
         <div className="space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900">
           <p className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-            No table NAME matches this need — pick manually below, or
+            No table NAME matches this need.
+            <button
+              type="button"
+              disabled={basket === 'running' || (sources ?? []).length === 0}
+              onClick={() => void scanAll()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+            >
+              {basket === 'running' && <RefreshCw aria-hidden className="h-3 w-3 animate-spin" />}
+              {basket === 'running' ? 'Scanning every database…' : 'Scan them all and propose a basket'}
+            </button>
+            or pick manually below, or
             <Link
               href={routes.studioSource}
               className="font-medium text-accent-600 hover:underline dark:text-accent-400"
@@ -461,6 +582,94 @@ export default function SourcesStep({
             </p>
           )}
         </div>
+      )}
+
+      {/* THE PROPOSED BASKET — the AI swept the catalog against the need.
+          High picks come pre-checked; everything stays one click to add or
+          drop, and manual selection below never goes away. */}
+      {basket !== null && basket !== 'running' && (
+        <section
+          aria-label="Proposed source basket"
+          className="rounded-lg border border-accent-200 bg-white p-2.5 dark:border-accent-900/50 dark:bg-slate-950"
+        >
+          <p className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <Sparkles aria-hidden className="h-3.5 w-3.5 text-accent-500" />
+            <span className="font-medium text-slate-800 dark:text-slate-200">
+              {basket.items.length} table(s) ranked across {basket.scanned.length} database(s)
+            </span>
+            — matched on names against the need; the analysis will confirm.
+            <button
+              type="button"
+              onClick={() => setBasket(null)}
+              className="ml-auto text-xs text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+            >
+              dismiss
+            </button>
+          </p>
+          {basket.stopped && (
+            <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+              {basket.stopped}
+            </p>
+          )}
+          {basket.items.length > 0 && (
+            <>
+              <ul className="mt-1.5 grid max-h-56 grid-cols-1 gap-0.5 overflow-auto sm:grid-cols-2">
+                {basket.items.map((it) => (
+                  <li key={it.fqn}>
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                      <input
+                        type="checkbox"
+                        checked={it.checked}
+                        onChange={() =>
+                          setBasket((b) =>
+                            b && b !== 'running'
+                              ? {
+                                  ...b,
+                                  items: b.items.map((x) =>
+                                    x.fqn === it.fqn ? { ...x, checked: !x.checked } : x,
+                                  ),
+                                }
+                              : b,
+                          )
+                        }
+                        className="h-3.5 w-3.5 accent-accent-600"
+                      />
+                      <span className="min-w-0 truncate font-mono text-slate-700 dark:text-slate-200">
+                        {it.fqn.split('.').slice(1).join('.')}
+                      </span>
+                      <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                        <span className="text-slate-400">{it.db}</span>
+                        <span
+                          className={`rounded-full px-1.5 py-px text-xs ${
+                            it.relevance === 'high'
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                              : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                          }`}
+                        >
+                          {it.relevance}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                disabled={!basket.items.some((x) => x.checked)}
+                onClick={acceptBasket}
+                className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+              >
+                Add the {basket.items.filter((x) => x.checked).length} selected to my sources
+              </button>
+            </>
+          )}
+          {basket.items.length === 0 && !basket.stopped && (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Nothing in the scanned catalogs looks related to this need — pick manually below or
+              bring the data in first.
+            </p>
+          )}
+        </section>
       )}
 
       {/* ── Flow bar: the selected connections, visible and editable ── */}
