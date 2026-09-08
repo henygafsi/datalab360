@@ -19,11 +19,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Link2, RefreshCw, Search, ShieldCheck, Sparkles, X } from 'lucide-react';
 import {
+  deriveColumn,
   getQuality,
   getTableColumns,
   grainText,
   patchModel,
   suggestRls,
+  type DerivedColumnPreview,
   type SourceColumnsPage,
   type ModelGrain,
   type ModelTable,
@@ -151,6 +153,11 @@ export default function StudioModelInspector({
   >(null);
   const [addCol, setAddCol] = useState<{ open: boolean; name: string; type: string; expr: string }>(
     { open: false, name: '', type: 'TEXT', expr: '' },
+  );
+  /** the AI-derived column: type it in words → free preview (SQL + probe) →
+   *  confirm persists and regenerates the producer job. */
+  const [derive, setDerive] = useState<{ nl: string; preview: DerivedColumnPreview | 'loading' | null }>(
+    { nl: '', preview: null },
   );
   /* governance names + RLS candidates — fetched on demand (live counts) */
   const [gov, setGov] = useState<RlsSuggestion | 'loading' | 'error' | null>(null);
@@ -327,6 +334,44 @@ export default function StudioModelInspector({
     } finally {
       setBusy(null);
     }
+  };
+
+  /** translate plain words → SQL against this table's real columns; a free
+   *  preview that writes nothing (probe + referenced columns for review). */
+  const translateColumn = async () => {
+    if (!target || !derive.nl.trim()) return;
+    setError(null);
+    setDerive((d) => ({ ...d, preview: 'loading' }));
+    try {
+      const p = await deriveColumn(draftId, {
+        target_id: target.target_id,
+        natural_language: derive.nl.trim(),
+        name: addCol.name.trim().toUpperCase() || undefined,
+        type: addCol.type.trim() || undefined,
+        confirm: false,
+      });
+      setDerive((d) => ({ ...d, preview: p }));
+    } catch (e) {
+      setDerive((d) => ({ ...d, preview: null }));
+      setError(errText(e));
+    }
+  };
+  /** persist the previewed column — regenerates the producer job's SQL. */
+  const addDerived = () => {
+    if (!target || !derive.preview || derive.preview === 'loading') return;
+    const updatedAt = (view as { updated_at?: string } | null)?.updated_at;
+    void act('derive', async () => {
+      await deriveColumn(draftId, {
+        target_id: target.target_id,
+        natural_language: derive.nl.trim(),
+        name: addCol.name.trim().toUpperCase() || undefined,
+        type: addCol.type.trim() || undefined,
+        confirm: true,
+        ...(updatedAt ? { expected_updated_at: updatedAt } : {}),
+      });
+      setDerive({ nl: '', preview: null });
+      setAddCol({ open: false, name: '', type: 'TEXT', expr: '' });
+    });
   };
 
   const confirmGrain = () => {
@@ -550,6 +595,75 @@ export default function StudioModelInspector({
           >
             {busy === 'addcol' ? 'Adding…' : 'Add'}
           </button>
+
+          {/* …or describe it — the AI writes the SQL from this table's REAL
+              columns, previews a bounded sample (free), and only persists
+              on confirm (which regenerates the producer job). */}
+          <div className="w-full border-t border-slate-100 pt-2 dark:border-slate-800">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              …or describe it and let the AI write the SQL
+            </p>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              <input
+                value={derive.nl}
+                onChange={(e) => setDerive((d) => ({ ...d, nl: e.target.value }))}
+                placeholder="e.g. margin = (net_amount − cost) / net_amount"
+                aria-label="Describe the column in words"
+                className="h-7 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-[13px] dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+              />
+              <button
+                type="button"
+                disabled={!derive.nl.trim() || !addCol.name.trim() || derive.preview === 'loading'}
+                title={
+                  !addCol.name.trim()
+                    ? 'Name the column first'
+                    : 'Translates to SQL and probes a sample — nothing is written until you add it'
+                }
+                onClick={() => void translateColumn()}
+                className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-accent-500 px-2.5 text-[13px] font-medium text-accent-700 hover:bg-accent-50 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-300 dark:hover:bg-accent-900/30"
+              >
+                {derive.preview === 'loading' ? (
+                  <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles aria-hidden className="h-3.5 w-3.5" />
+                )}
+                Translate with AI
+              </button>
+            </div>
+            {derive.preview && derive.preview !== 'loading' && (
+              <div className="mt-1.5 rounded-lg border border-slate-100 p-2 dark:border-slate-800">
+                <p className="break-words font-mono text-[13px] text-slate-700 dark:text-slate-200">
+                  {derive.preview.expression_sql ?? derive.preview.expression_typed ?? '—'}
+                </p>
+                {(derive.preview.referenced_columns?.length ?? 0) > 0 && (
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    uses {derive.preview.referenced_columns!.join(', ')}
+                  </p>
+                )}
+                {derive.preview.probe?.samples && derive.preview.probe.samples.length > 0 ? (
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    type {derive.preview.probe.type ?? '—'} · sample{' '}
+                    {derive.preview.probe.samples.slice(0, 3).map((s) => String(s).slice(0, 18)).join(', ')}
+                  </p>
+                ) : derive.preview.probe?.state === 'unavailable' ? (
+                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                    sample unavailable — {derive.preview.probe.reason ?? 'the warehouse could not probe it'}
+                  </p>
+                ) : null}
+                <p className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                  translated by {derive.preview.translation?.model ?? 'the model'} · preview is free
+                </p>
+                <button
+                  type="button"
+                  disabled={busy === 'derive'}
+                  onClick={addDerived}
+                  className="mt-1.5 inline-flex h-7 items-center gap-1.5 rounded-lg bg-accent-600 px-2.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-40"
+                >
+                  {busy === 'derive' ? 'Adding…' : 'Add this column'}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

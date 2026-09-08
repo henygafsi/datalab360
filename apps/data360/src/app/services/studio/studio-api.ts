@@ -948,6 +948,46 @@ export async function getModel(
   return data;
 }
 
+/** A derived column translated from plain words (or a typed expression) —
+ *  the backend translates against the target's REAL columns, validates it
+ *  like a hand-typed expression, and probes a bounded sample. confirm:false
+ *  is a free preview (persists nothing); confirm:true writes the column and
+ *  regenerates the producer job's SQL. */
+export interface DerivedColumnPreview {
+  name?: string;
+  expression_typed?: string;
+  expression_sql?: string;
+  referenced_columns?: string[];
+  translation?: { proposal?: string; model?: string };
+  probe?: { type?: string; samples?: unknown[]; query_id?: string; state?: string; reason?: string };
+  persisted?: boolean;
+  confirm_hint?: string;
+  credits_charged?: number;
+  updated_at?: string;
+  [k: string]: unknown;
+}
+
+export async function deriveColumn(
+  draftId: string,
+  body: {
+    target_id: string;
+    natural_language: string;
+    name?: string;
+    type?: string;
+    rows?: number;
+    model?: string;
+    confirm?: boolean;
+    expected_updated_at?: string;
+  },
+): Promise<DerivedColumnPreview> {
+  return studioMutate(
+    'POST',
+    `/studio/drafts/${encodeURIComponent(draftId)}/model/derived-column`,
+    body,
+    120_000,
+  );
+}
+
 /** Per-table ingestion + lineage, loaded lazily (role cache 15 min). */
 export async function getModelTableOps(
   draftId: string,

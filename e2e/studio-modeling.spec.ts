@@ -108,6 +108,26 @@ test("M6 — the right bar leads with the table's meaning, not only technical", 
   await expect(aside.getByText(/What this table means/i)).toBeVisible();
 });
 
+test('M7 — Add-a-column translates a description to SQL with AI', async () => {
+  await openFact(page);
+  const aside = page.locator('aside').filter({ hasText: /Relations/i }).first();
+  await aside.getByRole('button', { name: 'Add a column', exact: true }).click();
+  await expect(aside.getByText(/let the AI write the SQL/i)).toBeVisible();
+  await aside.getByLabel('Name', { exact: true }).fill('MARGIN_PCT');
+  await aside
+    .getByLabel('Describe the column in words')
+    .fill('margin = (net_amount - cost) / net_amount');
+  const reqP = page.waitForRequest(
+    (r) => r.url().includes('/model/derived-column') && r.method() === 'POST',
+    { timeout: 30_000 },
+  );
+  await aside.getByRole('button', { name: /Translate with AI/i }).click();
+  const body = (await reqP).postData() ?? '';
+  expect(body).toContain('natural_language');
+  expect(body.toLowerCase()).toContain('margin');
+  expect(body).toMatch(/"confirm":\s*false/);
+});
+
 test('M4 — masking reaches the plan request (columns_masked)', async () => {
   // self-contained: land on Access, mask EMAIL, then map a principal
   await page.goto(`/studio/apps/${APP}`, { waitUntil: 'domcontentloaded' });
