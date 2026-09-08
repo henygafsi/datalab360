@@ -2513,6 +2513,112 @@ export async function getPreviewUsage(): Promise<PreviewUsage> {
   });
 }
 
+/* ── Rich source card + its editable functional metadata ──────────── */
+
+export interface SourceCardHealthSignal {
+  signal?: string;
+  verdict?: string;
+  days_since_last_load?: number;
+  cadence?: string;
+  expected_max_days?: number;
+  rows?: number;
+  bytes?: number;
+  rows_last_7d?: number;
+  rows_previous_7d?: number;
+  ratio?: number;
+  direction?: string;
+  failures?: number;
+  loads?: number;
+  last_errors?: Array<{ file?: string; error_count?: number; first_error?: string; at?: string }>;
+  evidence?: Record<string, unknown>;
+}
+
+export interface SourceCard {
+  entity_id?: string;
+  name?: string;
+  fqn?: string;
+  table_type?: string;
+  description?: string | null;
+  description_source?: string;
+  /** the company's own words — editable, feeds the LLM */
+  functional?: {
+    description?: string | null;
+    business_terms?: string[];
+    notes?: string | null;
+    columns?: Record<string, { description?: string | null; business_terms?: string[] }>;
+    source?: 'user' | 'none' | string;
+    scope?: string | null;
+  };
+  health?: { overall?: string; evaluated?: number; of?: number; signals?: SourceCardHealthSignal[] };
+  /** never a bare amount — always its assumptions (price × factor, active bytes) */
+  storage_cost?: {
+    state?: 'estimated' | 'unavailable' | string;
+    bytes?: number;
+    gb?: number;
+    monthly_usd_standard?: number;
+    monthly_usd?: number;
+    assumptions?: {
+      standard_price_usd_per_tb_month?: number;
+      factor?: number;
+      currency?: string;
+      formula?: string;
+      scope?: string;
+    };
+    reason?: string;
+  };
+  /** functional sentences, not technical edges */
+  relationships?: Array<{
+    relationship_id?: string;
+    role?: 'references' | 'referenced_by' | string;
+    sentence?: string;
+    with?: { entity_id?: string; name?: string };
+    cardinality?: string;
+    status?: string;
+    duplication_risk?: boolean;
+  }>;
+  load_pattern?: ModelTable['load_pattern'];
+  sample_dq?: ModelTable['sample_dq'];
+  kpi_candidates?: ModelTable['kpi_candidates'];
+  processing?: Record<string, unknown> | null;
+  load_history?: {
+    status?: string;
+    days?: number;
+    loads?: number;
+    rows_loaded?: number;
+    failures?: number;
+    daily?: Array<{ day?: string; rows?: number; errors?: number; loads?: number }>;
+  };
+}
+
+export async function getSourceCard(
+  draftId: string,
+  opts: { entityId?: string; fqn?: string; includeHistory?: boolean },
+): Promise<SourceCard> {
+  const q = new URLSearchParams();
+  if (opts.entityId) q.set('entity_id', opts.entityId);
+  if (opts.fqn) q.set('fqn', opts.fqn);
+  q.set('include_ops', 'true');
+  if (opts.includeHistory) q.set('include_history', 'true');
+  const { data } = await apiClient.get<SourceCard>(
+    `/studio/drafts/${encodeURIComponent(draftId)}/sources/card?${q.toString()}`,
+    { timeout: 120_000 },
+  );
+  return data ?? {};
+}
+
+/** MERGE — only sent fields are written; "" clears one. The company's words
+ *  are authoritative and never overwritten by a rescan. */
+export async function setSourceMetadata(body: {
+  fqn: string;
+  draft_id?: string;
+  description?: string;
+  business_terms?: string[];
+  notes?: string;
+  columns?: Record<string, { description?: string; business_terms?: string[] }>;
+}): Promise<Record<string, unknown>> {
+  return studioMutate('PUT', '/studio/sources/metadata', body, 30_000);
+}
+
 /* ── Preview policy (free envelope) ────────────────────────────────── */
 
 export interface PreviewPolicy {
