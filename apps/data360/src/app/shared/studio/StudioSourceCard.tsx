@@ -204,6 +204,16 @@ export default function StudioSourceCard({
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
             What this source means, in your words
           </p>
+          {/* provenance at the point of display — the truth rule */}
+          {fx?.source === 'user' ? (
+            <span className="rounded-full bg-accent-600/10 px-1.5 py-px text-xs text-accent-800 dark:bg-accent-900/30 dark:text-accent-200" title="Written by your organisation — the AI never overwrites it">
+              your words
+            </span>
+          ) : fx?.description ? (
+            <span className="rounded-full bg-sky-50 px-1.5 py-px text-xs text-sky-700 dark:bg-sky-900/30 dark:text-sky-300" title="Proposed — confirm or reword it; your version then becomes the truth">
+              proposed
+            </span>
+          ) : null}
           {!editing && (
             <button
               type="button"

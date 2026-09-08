@@ -219,3 +219,31 @@ export async function syncKnowledge(
 ): Promise<{ status?: string; written?: number; stale_marked?: number }> {
   return studioMutate('POST', API.studio.knowledgeSync(draftId, force), undefined, 60_000);
 }
+
+/* ── the business glossary (words feed every AI step) ──────────────── */
+
+export interface GlossaryTerm {
+  term: string;
+  meaning?: string;
+  synonyms?: string[];
+}
+
+export async function getGlossary(draftId?: string): Promise<GlossaryTerm[]> {
+  try {
+    const { data } = await apiClient.get<{ terms?: GlossaryTerm[] }>(
+      API.studio.glossary(draftId),
+      { timeout: 30_000 },
+    );
+    return Array.isArray(data?.terms) ? data.terms : [];
+  } catch {
+    return [];
+  }
+}
+
+/** MERGE-style: send the terms to write; an EMPTY meaning removes one. */
+export async function putGlossary(
+  terms: GlossaryTerm[],
+  draftId?: string,
+): Promise<Record<string, unknown>> {
+  return studioMutate('PUT', API.studio.glossary(draftId), { terms }, 30_000);
+}

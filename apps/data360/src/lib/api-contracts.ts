@@ -1506,6 +1506,10 @@ export const API = {
     sourcesMetadata: () => '/studio/sources/metadata',
     /** POST /studio/datalake/scan — budgeted multi-database scan. */
     datalakeScan: () => '/studio/datalake/scan',
+    /** GET | PUT /studio/glossary?draft_id= — the business glossary
+     *  {terms[{term, meaning, synonyms?}]}; an empty meaning removes the
+     *  term; application scope wins over account scope. */
+    glossary: (draftId?: string) => `/studio/glossary${qs({ draft_id: draftId })}`,
 
     /* REST connector builder (persisted, reusable; secrets write-only). */
     /** GET — presets + auth/pagination types + bounds. */

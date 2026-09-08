@@ -55,6 +55,7 @@ import StudioWorkflowsPanel from '@/app/shared/studio/StudioWorkflowsPanel';
 import StudioDetectionsPanel from '@/app/shared/studio/StudioDetectionsPanel';
 import StudioKnowledgeHeader from '@/app/shared/studio/StudioKnowledgeHeader';
 import StudioAccessProfilesPanel from '@/app/shared/studio/StudioAccessProfilesPanel';
+import StudioGlossary from '@/app/shared/studio/StudioGlossary';
 import ObjectsPanel from '@/app/shared/studio/sources/ObjectsPanel';
 import {
   LIFECYCLE_CLS,
@@ -2324,6 +2325,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           {tab === 'knowledge' && (
             <div className="space-y-2">
               {draftId && <StudioKnowledgeHeader draftId={draftId} />}
+              {draftId && <StudioGlossary draftId={draftId} />}
               <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
                 <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                   <div className="flex flex-wrap items-center justify-between gap-2">
