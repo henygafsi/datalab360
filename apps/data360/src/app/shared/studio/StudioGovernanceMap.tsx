@@ -126,8 +126,11 @@ export default function StudioGovernanceMap({
           ))}
         </div>
         <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-          A person is never granted a table directly: the data permission sits once on the access
-          role, and the five Data360 roles reuse it.
+          People → Data360 roles → the access role and its policies. A person is never granted a
+          table directly: the data permission sits once on the access role, and the five Data360
+          roles reuse it. <span className="font-medium">Access to the application means READING it
+          — that is the Viewer default.</span> The higher roles add what someone may DO: edit,
+          operate, approve, delete.
         </p>
       </section>
 
@@ -140,7 +143,7 @@ export default function StudioGovernanceMap({
               People and roles that exist
             </p>
             <span className="ml-auto text-xs text-slate-500 dark:text-slate-400">
-              {mapped} mapped
+              {mapped} with access
             </span>
           </div>
 
@@ -189,10 +192,11 @@ export default function StudioGovernanceMap({
                       onChange={(e) => onMap(p.name, e.target.value)}
                       className="h-8 w-36 shrink-0 rounded-lg border border-slate-200 bg-white px-1.5 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                     >
-                      <option value="">not mapped</option>
+                      <option value="">no access</option>
                       {grantTypes.map((g) => (
                         <option key={g.id} value={g.id}>
                           {g.label ?? g.id}
+                          {g.id === 'view' ? ' (default — reads the app)' : ''}
                         </option>
                       ))}
                     </select>
