@@ -36,8 +36,10 @@ async function login(p: Page) {
 async function openFact(p: Page) {
   await p.goto(`/studio/apps/${APP}`, { waitUntil: 'domcontentloaded' });
   await p.getByRole('tab', { name: 'Model' }).click();
-  await p.waitForTimeout(2000);
-  await p.getByText('FACT_TRANSACTIONS', { exact: false }).first().click();
+  // wait for the node to actually render (cold canvas can exceed a fixed wait)
+  const node = p.getByText('FACT_TRANSACTIONS', { exact: false }).first();
+  await node.waitFor({ state: 'visible', timeout: 45_000 });
+  await node.click();
   // the inspector aside with Relations
   await p.locator('aside').filter({ hasText: /Relations/i }).first().waitFor({ timeout: 30_000 });
 }
@@ -93,6 +95,17 @@ test('M5 — the target star draws its relations as edges', async () => {
   // target mode returned edges:[] before — now the real target↔target
   // relations must be drawn (at least one edge path)
   await expect(page.locator('.react-flow__edge').first()).toBeVisible({ timeout: 20_000 });
+});
+
+test("M6 — the right bar leads with the table's meaning, not only technical", async () => {
+  await page.goto(`/studio/apps/${APP}`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('tab', { name: 'Model' }).click();
+  const node = page.getByText('FACT_TRANSACTIONS', { exact: false }).first();
+  await node.waitFor({ state: 'visible', timeout: 45_000 });
+  await node.click();
+  const aside = page.locator('aside').filter({ hasText: /Relations/i }).first();
+  await aside.waitFor({ timeout: 30_000 });
+  await expect(aside.getByText(/What this table means/i)).toBeVisible();
 });
 
 test('M4 — masking reaches the plan request (columns_masked)', async () => {

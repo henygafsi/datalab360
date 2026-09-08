@@ -157,6 +157,9 @@ export default function StudioModelInspector({
   /* relations of a target are capped so the LINK builder below stays
    * reachable without scrolling a hub table's full list */
   const [relLimit, setRelLimit] = useState(6);
+  /* the descriptive fiche of a target, opened in place in the right bar —
+   * the right bar led with technical detail only, never the meaning */
+  const [sheetOpen, setSheetOpen] = useState(false);
   /* a SOURCE table's columns, searchable and bounded */
   const [colQuery, setColQuery] = useState('');
   const [colLimit, setColLimit] = useState(25);
@@ -194,6 +197,9 @@ export default function StudioModelInspector({
     return [];
   }, [target, srcTable]);
 
+  /** the understanding entity a target was built from — carries the
+   *  company's functional words (description/business terms) */
+  const targetEntity = target ? tables.find((t) => t.entity_id === target.entity_id) : undefined;
   const grain = target ? target.grain : srcTable?.grain;
   const grainObj: ModelGrain | null = grain && typeof grain === 'object' ? (grain as ModelGrain) : null;
   const grainKeys = grainKeysOf(grain as ModelTable['grain']);
@@ -446,6 +452,47 @@ export default function StudioModelInspector({
           </button>
         )}
       </div>
+
+      {/* WHAT IT MEANS — the right bar led with technical detail only; the
+          functional description (the company's own words, feeding the AI)
+          now leads, with the full rich sheet one click away. */}
+      {target && (
+        <div className="mt-2 rounded-lg border border-slate-100 p-2.5 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              What this table means
+            </p>
+            {(target.entity_id || target.target_fqn) && (
+              <button
+                type="button"
+                onClick={() => setSheetOpen((v) => !v)}
+                aria-expanded={sheetOpen}
+                className="ml-auto text-xs font-medium text-accent-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+              >
+                {sheetOpen ? 'Hide full sheet' : 'Full sheet'}
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-300">
+            {targetEntity?.description || (
+              <span className="text-slate-400 dark:text-slate-500">
+                No functional description yet — open the full sheet to add one in your words; it feeds
+                the AI at model edit.
+              </span>
+            )}
+          </p>
+          {sheetOpen && (target.entity_id || target.target_fqn) && (
+            <div className="mt-1.5">
+              <StudioSourceCard
+                draftId={draftId}
+                entityId={target.entity_id}
+                fqn={target.entity_id ? undefined : target.target_fqn}
+                onChanged={onApplied}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {addCol.open && target && (
         <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-slate-100 p-2 dark:border-slate-800">
