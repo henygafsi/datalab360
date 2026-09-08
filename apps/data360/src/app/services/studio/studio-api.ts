@@ -414,6 +414,108 @@ export interface DatalakeScan {
 
 /** Bounded datalake discovery across up to 5 domains — coverage said per
  *  domain, uncovered domains named, never silently dropped. */
+/* ── content-based discovery: the truth of discovery ───────────────── */
+
+export interface ContentScanProgress {
+  tables_total?: number;
+  tables_done?: number;
+  current?: string | null;
+  percent?: number;
+}
+
+export interface ContentScanBudget {
+  tables_max?: number;
+  rows_per_table?: number;
+  seconds?: number;
+  queries_per_table?: number;
+  ai_calls_max?: number;
+  /** the backend's honest per-table estimate — shown, better than a guess */
+  expected_seconds_per_table?: string;
+  cost_note?: string;
+}
+
+export interface ContentScanTable {
+  fqn: string;
+  row_count_approx?: number | null;
+  columns?: Array<{
+    name: string;
+    type?: string;
+    semantic?: { semantic?: string; confidence?: number; evidence?: string[]; name_hint?: string };
+    pk_evidence?: {
+      unique_ratio?: number;
+      null_ratio?: number;
+      sample_rows?: number;
+      declared?: boolean;
+      status?: string;
+    } | null;
+    fk_candidates?: Array<{
+      to?: string;
+      join_coverage_sampled?: number;
+      matched?: number;
+      of?: number;
+      ambiguous?: boolean;
+    }>;
+    sample_dq?: Array<{ rule?: string; value?: unknown; verdict?: string; population?: unknown; method?: string }>;
+    ai_meaning?: string;
+  }>;
+  domain_relevance?: {
+    score?: number;
+    relevance?: 'high' | 'medium' | 'low' | 'unrelated' | string;
+    evidence?: Array<{ kind?: string; matched?: unknown; examples?: unknown }>;
+    ai_score?: number;
+  };
+  model_sketch?: {
+    role?: 'fact' | 'dimension' | 'bridge' | 'unknown' | string;
+    why?: string;
+    grain_candidate?: string[] | string;
+    measures?: string[];
+    time_fields?: string[];
+    links?: unknown[];
+    referenced_by?: unknown[];
+  };
+  ai?: { business_meaning?: string; role?: string; domain_relevance?: string; relevance_evidence?: string };
+}
+
+export interface ContentScanView {
+  scan_id?: string;
+  status?: 'queued' | 'running' | 'done' | 'partial' | 'failed' | string;
+  progress?: ContentScanProgress;
+  budget?: ContentScanBudget;
+  result?: {
+    tables?: ContentScanTable[];
+    ai?: { model?: string; calls?: number; tables_named?: number; errors?: unknown[] };
+  };
+  truncated?: boolean;
+  next?: Record<string, unknown>;
+  poll?: string;
+}
+
+/** 202 — the scan runs server-side; poll getContentScan for progress. */
+export async function startContentScan(body: {
+  databases: string[];
+  draft_id?: string | null;
+  need?: string;
+  domain_id?: string | null;
+  max_tables?: number;
+  sample_rows?: number;
+  budget_s?: number;
+  use_ai?: boolean;
+}): Promise<ContentScanView> {
+  return studioMutate<ContentScanView>('POST', API.studio.scanContent(), body, 60_000);
+}
+
+export async function getContentScan(scanId: string, columns = false): Promise<ContentScanView> {
+  const { data } = await apiClient.get<ContentScanView>(
+    API.studio.scanContentStatus(scanId, columns),
+    { timeout: 30_000 },
+  );
+  return data ?? {};
+}
+
+export async function cancelContentScan(scanId: string): Promise<void> {
+  await studioMutate('POST', API.studio.scanContentCancel(scanId), undefined, 30_000);
+}
+
 export async function scanDatalake(body: {
   need: string;
   domains: string[];

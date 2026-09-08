@@ -173,6 +173,7 @@ export default function StudioWorkflowsPanel({
                     <td className="px-2 py-2">
                       <button
                         type="button"
+                        data-workflow-id={aid}
                         onClick={() => setOpenId(aid)}
                         title="Open the workflow editor"
                         className="rounded font-medium text-slate-900 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-100 dark:hover:text-accent-400"

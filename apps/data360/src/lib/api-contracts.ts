@@ -1506,6 +1506,21 @@ export const API = {
     sourcesMetadata: () => '/studio/sources/metadata',
     /** POST /studio/datalake/scan — budgeted multi-database scan. */
     datalakeScan: () => '/studio/datalake/scan',
+    /* Content-based discovery (2026-09-09, 423/423): the TRUTH of
+     * discovery — semantics inferred from sampled VALUES (names can lie
+     * or be encrypted: `opaque_encrypted` is first-class), PKs proven by
+     * uniqueness, FKs by sampled join coverage, per-column sample DQ and
+     * a fact/dimension sketch. 202 + durable progress; AI reads MASKED
+     * profiles only. */
+    /** POST {databases[≤10], draft_id?, need?, max_tables, sample_rows,
+     *  budget_s, use_ai} → 202 {scan_id, progress, poll}. */
+    scanContent: () => '/studio/sources/scan-content',
+    /** GET ?columns= — status queued|running|done|partial|failed +
+     *  result.tables[] ranked by CONTENT relevance (all truth:inferred). */
+    scanContentStatus: (scanId: string, columns = false) =>
+      `/studio/sources/scan-content/${enc(scanId)}${columns ? '?columns=true' : ''}`,
+    /** POST — stop a running scan; what was read is kept. */
+    scanContentCancel: (scanId: string) => `/studio/sources/scan-content/${enc(scanId)}/cancel`,
     /** GET | PUT /studio/glossary?draft_id= — the business glossary
      *  {terms[{term, meaning, synonyms?}]}; an empty meaning removes the
      *  term; application scope wins over account scope. */

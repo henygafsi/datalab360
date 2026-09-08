@@ -30,13 +30,17 @@ import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
 import StudioLimitControl from '@/app/shared/studio/StudioLimitControl';
 import {
   createDraftDirect,
+  getContentScan,
   getStudioObjects,
   getStudioSources,
   getStudioSourcesCatalog,
   scanDatalake,
   getPreviewUsage,
+  startContentScan,
   suggestSources,
   type CatalogConnector,
+  type ContentScanProgress,
+  type ContentScanView,
   type StudioSource,
 } from '@/app/services/studio/studio-api';
 import EmptyState from '@/components/ui/EmptyState';
@@ -185,11 +189,25 @@ export default function SourcesStep({
     | null
     | 'running'
     | {
-        items: Array<{ fqn: string; relevance: string; db: string; sourceId: string; checked: boolean }>;
+        items: Array<{
+          fqn: string;
+          relevance: string;
+          db: string;
+          sourceId: string;
+          checked: boolean;
+          /** content evidence: role sketch, proven key, matched values */
+          role?: string;
+          why?: string;
+          score?: number;
+        }>;
         scanned: string[];
         stopped?: string;
       }
   >(null);
+  /** live progress of the server-side CONTENT scan */
+  const [scanProgress, setScanProgress] = useState<ContentScanProgress | null>(null);
+  /** the backend's own per-table time estimate, shown while it runs */
+  const [scanEta, setScanEta] = useState<string | null>(null);
   const discovered = useRef(false);
 
   /** Iteration B: when name-match finds nothing, the user can point the
@@ -235,9 +253,15 @@ export default function SourcesStep({
     }
   };
 
+  /** THE discovery path (user directive): the server reads sampled VALUES
+   *  — column semantics (names can lie or be encrypted), PKs proven by
+   *  uniqueness, FKs by join coverage, per-column sample DQ and a
+   *  fact/dimension sketch — and ranks by CONTENT relevance to the need.
+   *  202 + polling; a budget stop is said and raisable, never hidden. */
   const scanAll = async () => {
     if (basket === 'running') return;
     setBasket('running');
+    setScanProgress(null);
     setDeepError(null);
     void getPreviewUsage()
       .then((u) => u.objects_per_draft && setScanBudget({ used: u.objects_per_draft.used ?? 0, limit: u.objects_per_draft.limit ?? 0 }))
@@ -252,46 +276,92 @@ export default function SourcesStep({
       const nameOf = (x: (typeof avail)[number]) => x.label || x.id.replace(/^sf:db:/, '');
       const byDb = new Map(avail.map((x) => [nameOf(x), x.id]));
       const dbs = avail.map(nameOf);
-      const items: NonNullable<Exclude<typeof basket, null | 'running'>>['items'] = [];
-      const scanned: string[] = [];
-      let stopped: string | undefined;
-      // the route takes at most 5 databases per call — sweep in batches
-      // until done or until the scan budget says no (shown, not hidden)
-      for (let i = 0; i < dbs.length; i += 5) {
-        const slice = dbs.slice(i, i + 5);
-        try {
-          const { suggestions } = await suggestSources({
-            need: draft.need.text,
-            domain_id: draft.need.domainId ?? undefined,
-            draft_id: scanDraftId,
-            databases: slice,
-          });
-          scanned.push(...slice);
-          for (const sg of suggestions) {
-            if (sg.relevance !== 'high' && sg.relevance !== 'medium') continue;
-            const db = sg.fqn.split('.')[0] ?? '';
-            const sourceId = byDb.get(db) ?? '';
-            if (!sourceId) continue;
-            items.push({
-              fqn: sg.fqn,
-              relevance: String(sg.relevance),
-              db,
-              sourceId,
-              checked: Boolean(sg.preselect) || sg.relevance === 'high',
-            });
-          }
-        } catch (e) {
-          const detail = (e as { response?: { data?: { detail?: { message?: string } } } })
-            ?.response?.data?.detail;
-          stopped = detail?.message
-            ? `The scan reached ${scanned.length} of ${dbs.length} databases, then the free-preview envelope was spent: ${detail.message} This is an account policy — an administrator raises it in Administration; the tables already found are kept.`
-            : `The scan stopped after ${scanned.length} of ${dbs.length} databases.`;
-          break;
-        }
+      // the scan takes at most 10 databases — the bound is SAID below
+      const target = dbs.slice(0, 10);
+
+      const start = await startContentScan({
+        databases: target,
+        draft_id: scanDraftId,
+        need: draft.need.text,
+        domain_id: draft.need.domainId ?? undefined,
+        use_ai: true,
+      });
+      if (!start.scan_id) throw new Error('The content scan did not start.');
+      setScanEta(start.budget?.expected_seconds_per_table ?? null);
+
+      let view: ContentScanView = start;
+      for (
+        let i = 0;
+        i < 200 && !['done', 'partial', 'failed'].includes(String(view.status));
+        i++
+      ) {
+        await new Promise((r) => setTimeout(r, 3000));
+        view = await getContentScan(start.scan_id);
+        setScanProgress(view.progress ?? null);
       }
-      items.sort((a, b) => (a.relevance === b.relevance ? 0 : a.relevance === 'high' ? -1 : 1));
-      setBasket({ items, scanned, stopped });
+
+      const tables = view.result?.tables ?? [];
+      const items: NonNullable<Exclude<typeof basket, null | 'running'>>['items'] = tables
+        .filter((t) => ['high', 'medium'].includes(String(t.domain_relevance?.relevance)))
+        .map((t) => {
+          const db = t.fqn.split('.')[0] ?? '';
+          const pkCol = (t.columns ?? []).find(
+            (c) => c.pk_evidence && (c.pk_evidence.unique_ratio ?? 0) >= 0.99,
+          );
+          const evid = (t.domain_relevance?.evidence ?? [])
+            .slice(0, 3)
+            .map((ev) => `${ev.kind}: ${String(ev.matched ?? '')}`)
+            .join(' · ');
+          return {
+            fqn: t.fqn,
+            relevance: String(t.domain_relevance?.relevance ?? 'medium'),
+            db,
+            sourceId: byDb.get(db) ?? `sf:db:${db}`,
+            checked: t.domain_relevance?.relevance === 'high',
+            role: t.model_sketch?.role,
+            score: t.domain_relevance?.score,
+            why: [
+              t.ai?.business_meaning ?? t.model_sketch?.why,
+              pkCol ? `key proven on ${pkCol.name} (${Math.round((pkCol.pk_evidence?.unique_ratio ?? 0) * 100)}% unique in sample)` : null,
+              evid || null,
+            ]
+              .filter(Boolean)
+              .join(' — '),
+          };
+        });
+      items.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+      const aiErrors = view.result?.ai?.errors ?? [];
+      const stopped =
+        [
+          view.status === 'failed' ? 'The scan failed — what was read before the failure is kept.' : null,
+          view.status === 'partial' || view.truncated
+            ? 'The budget stopped the scan before every table — what was read is kept, and the limit is raisable below.'
+            : null,
+          dbs.length > target.length
+            ? `${dbs.length - target.length} database(s) beyond the 10-per-scan bound were not read — run the scan again to cover them.`
+            : null,
+          aiErrors.length > 0
+            ? 'The AI naming envelope ran out — deterministic content profiles are kept for those tables.'
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' ') || undefined;
+
+      setBasket({ items, scanned: target, stopped });
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: { message?: string } } } })
+        ?.response?.data?.detail;
+      setBasket({
+        items: [],
+        scanned: [],
+        stopped: detail?.message
+          ? `${detail.message} This is an account policy — raise it below; nothing was read.`
+          : 'The content scan did not answer.',
+      });
     } finally {
+      setScanProgress(null);
+      setScanEta(null);
       setBasket((b) => (b === 'running' ? { items: [], scanned: [], stopped: 'The scan did not answer.' } : b));
     }
   };
@@ -524,8 +594,13 @@ export default function SourcesStep({
             className="ml-1 inline-flex items-center gap-1 rounded-lg border border-accent-400 px-2 py-0.5 text-xs font-medium text-accent-700 hover:bg-accent-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-300 dark:hover:bg-accent-900/30"
           >
             {basket === 'running' && <RefreshCw aria-hidden className="h-3 w-3 animate-spin" />}
-            {basket === 'running' ? 'Scanning every database…' : 'Scan them all for a fuller basket'}
+            {basket === 'running' ? (scanProgress ? `Reading content… ${scanProgress.tables_done ?? 0}/${scanProgress.tables_total ?? '…'}${scanProgress.current ? ` · ${String(scanProgress.current).split('.').slice(-1)[0]}` : ''}` : 'Reading content…') : 'Scan the content for a fuller basket'}
           </button>
+          {basket === 'running' && scanEta && (
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              about {scanEta} per table — it reads a bounded sample, never the whole table
+            </span>
+          )}
           {scanBudget && (
             <span className="text-xs text-slate-400 dark:text-slate-500">
               {Math.max(0, scanBudget.limit - scanBudget.used)} of {scanBudget.limit} free scans left
@@ -545,7 +620,7 @@ export default function SourcesStep({
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
             >
               {basket === 'running' && <RefreshCw aria-hidden className="h-3 w-3 animate-spin" />}
-              {basket === 'running' ? 'Scanning every database…' : 'Scan them all and propose a basket'}
+              {basket === 'running' ? (scanProgress ? `Reading content… ${scanProgress.tables_done ?? 0}/${scanProgress.tables_total ?? '…'}${scanProgress.current ? ` · ${String(scanProgress.current).split('.').slice(-1)[0]}` : ''}` : 'Reading content…') : 'Scan the content and propose a basket'}
             </button>
             or pick manually below, or
             <Link
@@ -598,9 +673,9 @@ export default function SourcesStep({
             <span className="font-medium text-slate-800 dark:text-slate-200">
               {basket.items.length} table(s) ranked across {basket.scanned.length} database(s)
             </span>
-            — a SEED from name matching only. Names can lie (or be cryptic): the truth comes
-            from the CONTENT analysis at the next step — sampled rows, proven keys, column
-            semantics and quality — which re-ranks freely.
+            — by their CONTENT: sampled values, proven keys, column semantics and quality. Names
+            were only the seed; hover a line for its evidence. Everything stays « inferred » until
+            the understanding confirms it.
             <button
               type="button"
               onClick={() => setBasket(null)}
@@ -624,7 +699,10 @@ export default function SourcesStep({
               <ul className="mt-1.5 grid max-h-56 grid-cols-1 gap-0.5 overflow-auto sm:grid-cols-2">
                 {basket.items.map((it) => (
                   <li key={it.fqn}>
-                    <label className="flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                    <label
+                      title={it.why || undefined}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-1.5 py-1 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                    >
                       <input
                         type="checkbox"
                         checked={it.checked}
@@ -646,7 +724,12 @@ export default function SourcesStep({
                         {it.fqn.split('.').slice(1).join('.')}
                       </span>
                       <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                        <span className="text-slate-400">{it.db}</span>
+                        {it.role && it.role !== 'unknown' && (
+                          <span className="rounded-full bg-sky-50 px-1.5 py-px text-xs text-sky-700 dark:bg-sky-900/30 dark:text-sky-300" title="Role sketched from the CONTENT — confirmed at understanding">
+                            {it.role}
+                          </span>
+                        )}
+                        <span className="text-slate-400 dark:text-slate-500">{it.db}</span>
                         <span
                           className={`rounded-full px-1.5 py-px text-xs ${
                             it.relevance === 'high'
