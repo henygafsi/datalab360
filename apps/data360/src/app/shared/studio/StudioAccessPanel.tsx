@@ -94,6 +94,11 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [applyResult, setApplyResult] = useState<string | null>(null);
   const [tests, setTests] = useState<AccessObjectRead[] | null>(null);
+  /** the plan's reuse decisions — "template X already grants READ", the
+   *  honest reason a plan can be right while creating NOTHING */
+  const [planDecisions, setPlanDecisions] = useState<
+    Array<{ subject?: { name?: string }; data360_role?: string; decision?: string; why?: string }>
+  >([]);
   const [showSql, setShowSql] = useState(false);
   /** who exists on the account — the map associates, it never invents */
   const [principals, setPrincipals] = useState<Principal[] | null>(null);
@@ -213,13 +218,15 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
       })
       .filter(Boolean);
 
-    void run('plan', () =>
-      planDraftAccess(draftId, {
+    void run('plan', async () => {
+      const res = (await planDraftAccess(draftId, {
         who,
         grant_types,
         ...(rows.length ? { restrictions: { rows } } : {}),
-      } as never),
-    );
+      } as never)) as { reuse?: typeof planDecisions; plan?: { reuse?: typeof planDecisions } };
+      // the draft-scoped route nests the decisions under `plan`
+      setPlanDecisions(res?.plan?.reuse ?? res?.reuse ?? []);
+    });
   };
 
   return (
@@ -281,7 +288,19 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
           Preparing…
         </p>
       )}
-      {mutations.length === 0 && busy !== 'plan' && (
+      {planDecisions.length > 0 && (
+        <ul className="mt-1 space-y-0.5">
+          {planDecisions.map((r, i) => (
+            <li
+              key={i}
+              className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[13px] text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200"
+            >
+              {r.subject?.name}: already covered as {r.data360_role} — {r.why ?? 'nothing to create'}
+            </li>
+          ))}
+        </ul>
+      )}
+      {mutations.length === 0 && planDecisions.length === 0 && busy !== 'plan' && (
         <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
           Nothing is prepared yet. Map at least one person or role above, then prepare the change —
           an administrator still has to tick and run it.

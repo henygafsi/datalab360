@@ -249,7 +249,9 @@ test('chain: modify → render → export → reopen, verified server-side', asy
   await nameInRail.scrollIntoViewIfNeeded();
   await nameInRail.click();
   const field = page.getByRole('textbox', { name: `New title for ${before}` }).first();
-  await expect(field).toBeVisible({ timeout: 15_000 });
+  // under the full suite the server is warm-cache-busy; alone this appears
+  // in ~2s, under load it can take >15s — the wait matches the worst case
+  await expect(field).toBeVisible({ timeout: 45_000 });
   await field.fill(next);
   await field.blur();
   await page.waitForTimeout(7_000);
