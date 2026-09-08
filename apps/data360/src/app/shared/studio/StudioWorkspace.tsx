@@ -23,6 +23,8 @@ import StudioModelTab from '@/app/shared/studio/StudioModelTab';
 import DynamicChart from '@/app/(dashboard)/bi-dashboard/components/DynamicChart';
 import StudioJobsPanel from '@/app/shared/studio/StudioJobsPanel';
 import StudioQualityPanel from '@/app/shared/studio/StudioQualityPanel';
+import StudioReadyKpis from '@/app/shared/studio/StudioReadyKpis';
+import StudioSourceCard from '@/app/shared/studio/StudioSourceCard';
 import StudioAccessPanel from '@/app/shared/studio/StudioAccessPanel';
 import StudioAppCostBadge from '@/app/shared/studio/StudioAppCostBadge';
 import {
@@ -362,6 +364,8 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
   const [removeArmed, setRemoveArmed] = useState<string | null>(null);
   /* DQ drill: which table's checks are expanded */
   const [dqOpenTable, setDqOpenTable] = useState<string | null>(null);
+  /* the rich source sheet, opened in place under the grid, one at a time */
+  const [sourceSheetFor, setSourceSheetFor] = useState<string | null>(null);
   /* a failing check can hand its fix to the reporting chat, prefilled */
   const [chatPrefill, setChatPrefill] = useState<string | null>(null);
   /* clicking a tile focuses ITS editor in the rail */
@@ -2085,12 +2089,35 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                             {ec.dedup_key?.join(', ') || '—'} · {ec.status ?? 'proposed'}
                           </p>
                         )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSourceSheetFor((cur) => (cur === t.entity_id ? null : (t.entity_id ?? null)))
+                          }
+                          aria-expanded={sourceSheetFor === t.entity_id}
+                          className="mt-1.5 self-start rounded-md text-xs font-medium text-accent-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+                        >
+                          {sourceSheetFor === t.entity_id ? 'Hide full sheet' : 'Full sheet'}
+                        </button>
                       </div>
                     );
                   })}
                 </div>
               )}
             </section>
+
+            {/* the rich source sheet — the SAME fiche the model inspector
+                shows, now reachable for a source already connected */}
+            {sourceSheetFor && draftId && (
+              <div className="rounded-xl border border-accent-200 bg-white p-1 dark:border-accent-900/40 dark:bg-slate-900">
+                <StudioSourceCard
+                  draftId={draftId}
+                  entityId={sourceSheetFor}
+                  fqn={(model?.tables ?? []).find((x) => x.entity_id === sourceSheetFor)?.fqn}
+                  onChanged={() => draftId && void load(draftId)}
+                />
+              </div>
+            )}
 
             {/* the jobs & pipelines TRUTH — what runs, and what honestly
                 does not exist; nothing invented to look complete */}
@@ -2165,6 +2192,15 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                     setJobsFocus(jobId);
                     setTab('jobs');
                   }}
+                  onChanged={() => draftId && void load(draftId)}
+                />
+              )}
+              {draftId && (
+                <StudioReadyKpis
+                  draftId={draftId}
+                  report={report}
+                  tables={model?.tables ?? []}
+                  onExplore={() => setTab('reporting')}
                   onChanged={() => draftId && void load(draftId)}
                 />
               )}

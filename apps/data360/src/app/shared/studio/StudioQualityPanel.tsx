@@ -21,6 +21,7 @@ import {
   replayDlq,
   runJob,
   type DlqItem,
+  type QualityIndicator,
   type QualityView,
 } from '@/app/services/studio/studio-api';
 
@@ -30,6 +31,110 @@ function errText(e: unknown): string {
   if (typeof detail === 'string') return detail;
   if (detail?.message) return detail.message;
   return e instanceof Error ? e.message : 'The action failed.';
+}
+
+/* ── the data-quality SCORE — a composition of explicit gates, never an
+ *    averaged percentage. Each gate is a real measurement with three
+ *    states: pass, to-resolve, or NOT-YET-MEASURED. An unmeasured model
+ *    (no indicators, no checks run) reads "not measured yet" — it never
+ *    shows a green score for an application that holds no data. Open
+ *    quarantine residues are one of the gates the user asked to see here. */
+type GateState = 'pass' | 'fail' | 'na';
+interface QualityGate {
+  id: string;
+  label: string;
+  state: GateState;
+  detail?: string;
+}
+
+function buildGates(ind: Record<string, QualityIndicator>, dlqOpen: DlqItem[] | null): QualityGate[] {
+  const num = (i?: QualityIndicator) => (typeof i?.value === 'number' ? i.value : undefined);
+  const gates: QualityGate[] = [];
+
+  const vol = num(ind.volume);
+  gates.push({
+    id: 'volume',
+    label: 'Data present',
+    state: vol == null ? 'na' : vol > 0 ? 'pass' : 'fail',
+    detail: vol != null ? `${vol.toLocaleString()} row(s) in target` : undefined,
+  });
+
+  const conf = ind.measured_conformity;
+  gates.push({
+    id: 'conformity',
+    label: 'Rows conform to the rules',
+    state:
+      conf?.value == null
+        ? 'na'
+        : conf.numerator != null && conf.denominator != null
+          ? conf.numerator >= conf.denominator
+            ? 'pass'
+            : 'fail'
+          : Number(conf.value) >= 1
+            ? 'pass'
+            : 'fail',
+    detail:
+      conf?.numerator != null && conf?.denominator != null
+        ? `${conf.numerator.toLocaleString()} of ${conf.denominator.toLocaleString()} conform`
+        : undefined,
+  });
+
+  const rej = num(ind.open_rejects);
+  gates.push({
+    id: 'rejects',
+    label: 'No rejected rows',
+    state: rej == null ? 'na' : rej === 0 ? 'pass' : 'fail',
+    detail: rej != null && rej > 0 ? `${rej.toLocaleString()} rejected` : undefined,
+  });
+
+  // the residues the user asked to fold in: open quarantine. null = the read
+  // failed (not measured), [] = genuinely nothing held, [...] = residues.
+  gates.push({
+    id: 'dlq',
+    label: 'Quarantine clear',
+    state: dlqOpen == null ? 'na' : dlqOpen.length === 0 ? 'pass' : 'fail',
+    detail: dlqOpen && dlqOpen.length > 0 ? `${dlqOpen.length} residue(s) held in DLQ` : undefined,
+  });
+
+  const cov = ind.coverage;
+  gates.push({
+    id: 'coverage',
+    label: 'Checks cover the model',
+    state: cov?.value == null ? 'na' : Number(cov.value) > 0 ? 'pass' : 'fail',
+    detail:
+      cov?.numerator != null && cov?.denominator != null
+        ? `${cov.numerator.toLocaleString()} of ${cov.denominator.toLocaleString()} checked`
+        : undefined,
+  });
+
+  return gates;
+}
+
+function GateRow({ g }: { g: QualityGate }) {
+  const tone =
+    g.state === 'pass'
+      ? 'text-emerald-700 dark:text-emerald-300'
+      : g.state === 'fail'
+        ? 'text-red-700 dark:text-red-300'
+        : 'text-slate-400 dark:text-slate-500';
+  const dot =
+    g.state === 'pass'
+      ? 'bg-emerald-500'
+      : g.state === 'fail'
+        ? 'bg-red-500'
+        : 'bg-slate-300 dark:bg-slate-600';
+  return (
+    <li className="flex items-center gap-2 text-xs">
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+      <span
+        className={`font-medium ${g.state === 'na' ? 'text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-200'}`}
+      >
+        {g.label}
+      </span>
+      <span className={tone}>{g.state === 'pass' ? 'pass' : g.state === 'fail' ? 'to resolve' : 'not measured'}</span>
+      {g.detail && <span className="truncate text-slate-400 dark:text-slate-500">· {g.detail}</span>}
+    </li>
+  );
 }
 
 function IndicatorCard({ label, ind }: { label: string; ind?: { value?: number | string; unit?: string; numerator?: number; denominator?: number; note?: string } }) {
@@ -78,7 +183,10 @@ export default function StudioQualityPanel({
       try {
         const [qv, open, resolved] = await Promise.all([
           getQuality(draftId, refresh),
-          getDlq(draftId, 'open').catch(() => []),
+          // null (read failed) must stay distinct from [] (genuinely no
+          // residue) — the score gate reads "not measured", never a green
+          // pass, when the quarantine could not be read.
+          getDlq(draftId, 'open').catch(() => null),
           getDlq(draftId, 'resolved').catch(() => []),
         ]);
         setQ(qv);
@@ -111,8 +219,63 @@ export default function StudioQualityPanel({
   const resolved = dlqResolved ?? [];
   const jobForReplay = open[0]?.job_id ?? targetTables[0]?.producer_job_id ?? null;
 
+  // whether this model has been ANALYSED at all — the honest evaluability
+  // signal is coverage (a level marked "present"), or a real target table
+  // existing. A stray volume of 0 on a not-yet-modelled app is NOT a
+  // measurement: without this guard the score would read "residues to
+  // resolve" for an application that was never built.
+  const coverage = (q as { coverage?: Record<string, { status?: string }> }).coverage ?? {};
+  const measured =
+    Object.values(coverage).some((v) => v?.status === 'present') ||
+    (q.target?.tables?.length ?? 0) > 0;
+  const gates = buildGates(ind, dlqOpen).map((g) =>
+    measured ? g : { ...g, state: 'na' as GateState, detail: undefined },
+  );
+  const evaluated = gates.filter((g) => g.state !== 'na');
+  const passed = evaluated.filter((g) => g.state === 'pass');
+  const failed = evaluated.filter((g) => g.state === 'fail');
+  const verdict =
+    evaluated.length === 0
+      ? {
+          ring: 'border-slate-200 dark:border-slate-800',
+          badge: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+          headline: 'Not measured yet',
+          sub: 'Run the checks below and re-measure to score this model — nothing is assumed clean.',
+        }
+      : failed.length === 0
+        ? {
+            ring: 'border-emerald-200 dark:border-emerald-900/40',
+            badge: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+            headline: 'Ready to explore',
+            sub: `${passed.length} of ${evaluated.length} checks pass — this data is exact.`,
+          }
+        : {
+            ring: 'border-amber-200 dark:border-amber-900/40',
+            badge: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+            headline: 'Residues to resolve',
+            sub: `${passed.length} of ${evaluated.length} checks pass — ${failed.length} still ${failed.length === 1 ? 'holds' : 'hold'} the model back.`,
+          };
+
   return (
     <div className="space-y-3">
+      {/* ── the data-quality SCORE — the readiness verdict, its gates
+             visible one by one (DLQ residues included), no averaged % ── */}
+      <section className={`rounded-xl border bg-white p-4 dark:bg-slate-900 ${verdict.ring}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Data quality score</h3>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${verdict.badge}`}>
+            {verdict.headline}
+            {evaluated.length > 0 ? ` · ${passed.length}/${evaluated.length}` : ''}
+          </span>
+        </div>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{verdict.sub}</p>
+        <ul className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+          {gates.map((g) => (
+            <GateRow key={g.id} g={g} />
+          ))}
+        </ul>
+      </section>
+
       <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
