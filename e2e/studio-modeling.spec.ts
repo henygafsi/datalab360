@@ -85,8 +85,23 @@ test('M3 — column masking (CLS) is a real governance action', async () => {
   await expect(page.getByText(/adapt the column type before applying/i)).toBeVisible();
 });
 
+test('M5 — the target star draws its relations as edges', async () => {
+  await page.goto(`/studio/apps/${APP}`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('tab', { name: 'Model' }).click();
+  await page.locator('.react-flow').first().waitFor({ timeout: 30_000 });
+  await page.waitForTimeout(3000);
+  // target mode returned edges:[] before — now the real target↔target
+  // relations must be drawn (at least one edge path)
+  await expect(page.locator('.react-flow__edge').first()).toBeVisible({ timeout: 20_000 });
+});
+
 test('M4 — masking reaches the plan request (columns_masked)', async () => {
-  // still on the Access tab; map one principal so the plan has a `who`
+  // self-contained: land on Access, mask EMAIL, then map a principal
+  await page.goto(`/studio/apps/${APP}`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('tab', { name: 'Access' }).click();
+  await expect(page.getByText(/Column masking \(CLS\)/i)).toBeVisible({ timeout: 60_000 });
+  await page.getByLabel('Column to mask').fill('EMAIL');
+  await page.getByRole('button', { name: /^Mask$/ }).click();
   const sel = page
     .locator('select')
     .filter({ has: page.locator('option', { hasText: /no access/i }) })

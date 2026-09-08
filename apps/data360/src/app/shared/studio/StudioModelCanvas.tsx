@@ -45,6 +45,7 @@ import {
   type StudioModelView as ModelPayload,
   type StudioReportSpec,
   type StudioTarget,
+  type TargetRelationship,
 } from '@/app/services/studio/studio-api';
 
 /* ── shared column-role vocabulary ──────────────────────────────────── */
@@ -385,6 +386,7 @@ export default function StudioModelCanvas({
   data,
   report,
   targets,
+  targetRelationships,
   rowsByTarget,
   mode = 'sources',
   height = 480,
@@ -397,6 +399,8 @@ export default function StudioModelCanvas({
   report?: StudioReportSpec | null;
   /** The target model (mode 'target' and 'mapping'). */
   targets?: StudioTarget[];
+  /** target↔target relations (the star), drawn as edges in `target` mode. */
+  targetRelationships?: TargetRelationship[];
   /** target_id → rows in the target at the last run (labeled honestly). */
   rowsByTarget?: Map<string, number | null>;
   mode?: 'sources' | 'target' | 'mapping';
@@ -420,7 +424,40 @@ export default function StudioModelCanvas({
         selected: selectedEntity === `t:${t.target_id}`,
         data: targetNodeData(t, rowsByTarget?.get(t.target_id)),
       }));
-      return { nodes, edges: [] };
+      // the STAR — draw the real target↔target relations as edges (this used
+      // to return []). Dedup exact repeats, and let the state read on the
+      // line: solid = checked, dashed = unchecked, red = broken.
+      const tgtIds = new Set(tgts.map((t) => t.target_id));
+      const seen = new Set<string>();
+      const edges: Edge[] = (targetRelationships ?? [])
+        .map((r, i): Edge | null => {
+          const l = r.left?.target_id;
+          const rt = r.right?.target_id;
+          if (!l || !rt || !tgtIds.has(l) || !tgtIds.has(rt)) return null;
+          const lc = (r.left?.columns ?? []).join(', ');
+          const rc = (r.right?.columns ?? []).join(', ');
+          const sig = `${l}|${lc}=>${rt}|${rc}|${r.cardinality ?? ''}`;
+          if (seen.has(sig)) return null;
+          seen.add(sig);
+          const st = String(r.state ?? '').toLowerCase();
+          const broken = st === 'broken';
+          const unchecked = st !== 'valid' && !broken;
+          const stroke = broken ? '#ef4444' : unchecked ? '#94a3b8' : '#64748b';
+          return {
+            id: `trel-${i}`,
+            source: `t:${l}`,
+            target: `t:${rt}`,
+            type: 'smoothstep',
+            label: `${cardinalityGlyph(r.cardinality)}${lc && rc ? ` · ${lc}→${rc}` : ''}${broken ? ' · broken' : unchecked ? ' · unchecked' : ''}`,
+            labelStyle: { fontSize: 11, fill: 'currentColor' },
+            labelBgPadding: [6, 3] as [number, number],
+            labelBgBorderRadius: 4,
+            style: { stroke, strokeWidth: 1.5, ...(unchecked ? { strokeDasharray: '6 4' } : {}) },
+            markerEnd: { type: MarkerType.ArrowClosed, color: stroke },
+          };
+        })
+        .filter((e): e is Edge => e != null);
+      return { nodes, edges };
     }
 
     if (mode === 'mapping') {
@@ -528,7 +565,7 @@ export default function StudioModelCanvas({
       .filter((e): e is Edge => e != null);
 
     return { nodes, edges };
-  }, [model, data, report, targets, rowsByTarget, mode, selectedEntity]);
+  }, [model, data, report, targets, targetRelationships, rowsByTarget, mode, selectedEntity]);
 
   return (
     <div

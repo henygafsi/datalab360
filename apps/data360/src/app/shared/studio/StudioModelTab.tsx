@@ -177,6 +177,7 @@ export default function StudioModelTab({
             report={report}
             data={data}
             targets={targets}
+            targetRelationships={ready?.relationships}
             rowsByTarget={rowsByTarget}
             mode={effMode}
             height={520}
