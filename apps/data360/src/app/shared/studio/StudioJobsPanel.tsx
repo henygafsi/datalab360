@@ -29,7 +29,6 @@ import StudioJobEditor, {
   SCHEDULE_LABEL,
   latestRun,
 } from '@/app/shared/studio/StudioJobEditor';
-import StudioWorkflowsPanel from '@/app/shared/studio/StudioWorkflowsPanel';
 
 function errText(e: unknown): string {
   const detail = (e as { response?: { data?: { detail?: { message?: string } | string; code?: string } } })
@@ -126,6 +125,7 @@ export default function StudioJobsPanel({
   onChanged,
   focusJobId,
   onOpenQuality,
+  onOpenActivation,
 }: {
   draftId: string;
   /** Loads/replays change target data — the parent refreshes its report. */
@@ -134,9 +134,10 @@ export default function StudioJobsPanel({
   focusJobId?: string | null;
   /** Hand-off back to the quality diagnosis. */
   onOpenQuality?: () => void;
+  /** « awaiting activation » is a LINK to the one activation panel. */
+  onOpenActivation?: () => void;
 }) {
   const [view, setView] = useState<TargetsView | 'loading' | 'error' | null>(null);
-  const [kind, setKind] = useState<'loads' | 'automations'>('loads');
   const [openJobId, setOpenJobId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -160,7 +161,6 @@ export default function StudioJobsPanel({
   const [fromQuality, setFromQuality] = useState(false);
   useEffect(() => {
     if (focusJobId) {
-      setKind('loads');
       setOpenJobId(focusJobId);
       setFromQuality(true);
     }
@@ -189,7 +189,7 @@ export default function StudioJobsPanel({
   );
 
   const ready = view != null && typeof view === 'object' ? view : null;
-  const jobs = ready?.jobs ?? [];
+  const jobs = useMemo(() => ready?.jobs ?? [], [ready]);
   const targetById = useMemo(
     () => new Map((ready?.targets ?? []).map((t) => [t.target_id, t])),
     [ready],
@@ -254,30 +254,11 @@ export default function StudioJobsPanel({
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700" role="tablist" aria-label="Process kind">
-          {(
-            [
-              { id: 'loads', label: `Loads${jobs.length ? ` (${jobs.length})` : ''}` },
-              { id: 'automations', label: 'Automations' },
-            ] as const
-          ).map((k) => (
-            <button
-              key={k.id}
-              type="button"
-              role="tab"
-              aria-selected={kind === k.id}
-              onClick={() => setKind(k.id)}
-              className={`rounded-md px-3 py-1 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-                kind === k.id
-                  ? 'bg-accent-600 font-medium text-white'
-                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100'
-              }`}
-            >
-              {k.label}
-            </button>
-          ))}
-        </div>
-        {kind === 'loads' && jobs.length > 6 && (
+        {/* automations moved to the Automation group — one nav, one surface */}
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          Loads{jobs.length ? ` (${jobs.length})` : ''}
+        </h3>
+        {jobs.length > 6 && (
           <label className="relative">
             <Search aria-hidden className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
@@ -299,11 +280,7 @@ export default function StudioJobsPanel({
         )}
       </div>
 
-      {kind === 'automations' ? (
-        <div className="mt-3">
-          <StudioWorkflowsPanel draftId={draftId} />
-        </div>
-      ) : targets.length === 0 ? (
+      {targets.length === 0 ? (
         <div className="mt-3">
           <p className="text-[13px] text-slate-500 dark:text-slate-400">
             No target model yet — the AI proposes facts and dimensions from what was understood;
@@ -419,9 +396,18 @@ export default function StudioJobsPanel({
                       {scheduled ? (
                         <span title="Times in UTC — a schedule starts running when the application is activated">
                           {SCHEDULE_LABEL[j.trigger!.cron_choice!] ?? j.trigger!.cron_choice}
-                          {!j.trigger?.next_run && (
-                            <span className="text-slate-400 dark:text-slate-500"> · awaiting activation</span>
-                          )}
+                          {!j.trigger?.next_run &&
+                            (onOpenActivation ? (
+                              <button
+                                type="button"
+                                onClick={onOpenActivation}
+                                className="ml-1 text-slate-400 underline decoration-dotted hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-500 dark:hover:text-accent-400"
+                              >
+                                awaiting activation
+                              </button>
+                            ) : (
+                              <span className="text-slate-400 dark:text-slate-500"> · awaiting activation</span>
+                            ))}
                         </span>
                       ) : (
                         'Manual'

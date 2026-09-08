@@ -91,14 +91,20 @@ type ReqState =
 
 export default function ActivationStep({
   draft,
+  draftId: draftIdProp,
   onBack,
 }: {
-  draft: JourneyDraft;
-  onPatch: (p: Partial<JourneyDraft>) => void;
+  /** journey mount — the panel derives the application id from the draft */
+  draft?: JourneyDraft;
+  /** workspace mount — the SAME panel, addressed by application id (the
+   *  convergence rule: one activation surface, not one per module) */
+  draftId?: string | null;
+  onPatch?: (p: Partial<JourneyDraft>) => void;
   onNext?: () => void;
   onBack?: () => void;
 }) {
-  const draftId = (draft.preview.reportDraftId ?? draft.draftId) ?? null;
+  const draftId =
+    draftIdProp ?? (draft ? (draft.preview.reportDraftId ?? draft.draftId) : null) ?? null;
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [req, setReq] = useState<ReqState>({ kind: 'idle' });
 

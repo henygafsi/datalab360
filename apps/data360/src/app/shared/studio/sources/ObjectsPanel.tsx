@@ -540,15 +540,22 @@ export default function ObjectsPanel({
   onSelectionChange,
   onAddSource,
   onOpenConnection,
+  fixedAppId,
 }: {
   /** ?object= deep link (a ref). */
   initialSelection?: string | null;
   onSelectionChange?: (ref: string | null) => void;
   onAddSource: () => void;
   onOpenConnection: (connectionId: string) => void;
+  /** Workspace mount: the SAME objects table, pinned to ONE application —
+   *  no selector, no per-browser app memory (the convergence rule: one
+   *  source surface, the bindings identical everywhere). */
+  fixedAppId?: string;
 }) {
-  const [apps, setApps] = useState<StudioDraftSummary[] | 'loading' | 'error'>('loading');
-  const [appId, setAppId] = useState<string | null>(null);
+  const [apps, setApps] = useState<StudioDraftSummary[] | 'loading' | 'error'>(
+    fixedAppId ? [] : 'loading',
+  );
+  const [appId, setAppId] = useState<string | null>(fixedAppId ?? null);
   const [view, setView] = useState<DraftSourcesView | 'loading' | 'error' | null>(null);
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
@@ -561,6 +568,7 @@ export default function ObjectsPanel({
   const gen = useRef(0);
 
   const loadApps = useCallback(() => {
+    if (fixedAppId) return; // pinned mount: the application is given, not picked
     setApps('loading');
     void listDrafts('application')
       .then((ds) => {
@@ -578,7 +586,7 @@ export default function ObjectsPanel({
         setAppId((cur) => cur ?? first?.draft_id ?? null);
       })
       .catch(() => setApps('error'));
-  }, []);
+  }, [fixedAppId]);
   useEffect(() => loadApps(), [loadApps]);
 
   // an in-flight detach of app A must never overwrite app B's list: the
@@ -684,23 +692,27 @@ export default function ObjectsPanel({
 
   const appBar = (
     <div className="flex flex-wrap items-center gap-2">
-      <label htmlFor="sources-app" className="text-xs text-slate-500 dark:text-slate-400">
-        Application
-      </label>
-      <select
-        id="sources-app"
-        value={appId ?? ''}
-        disabled={detachBusy != null}
-        onChange={(e) => pickApp(e.target.value)}
-        className="h-8 max-w-72 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-      >
-        {Array.isArray(apps) &&
-          apps.map((d) => (
-            <option key={d.draft_id} value={d.draft_id}>
-              {d.display_name || d.title || d.need?.slice(0, 60) || d.draft_id}
-            </option>
-          ))}
-      </select>
+      {!fixedAppId && (
+        <>
+          <label htmlFor="sources-app" className="text-xs text-slate-500 dark:text-slate-400">
+            Application
+          </label>
+          <select
+            id="sources-app"
+            value={appId ?? ''}
+            disabled={detachBusy != null}
+            onChange={(e) => pickApp(e.target.value)}
+            className="h-8 max-w-72 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          >
+            {Array.isArray(apps) &&
+              apps.map((d) => (
+                <option key={d.draft_id} value={d.draft_id}>
+                  {d.display_name || d.title || d.need?.slice(0, 60) || d.draft_id}
+                </option>
+              ))}
+          </select>
+        </>
+      )}
       {(ready?.stale_for?.length ?? 0) > 0 && (
         <span
           className="rounded-full bg-amber-50 px-1.5 py-px text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
@@ -725,7 +737,7 @@ export default function ObjectsPanel({
         <QuietAction label="Try again" icon={RefreshCw} onClick={loadApps} />
       </p>
     );
-  if (apps.length === 0)
+  if (!fixedAppId && apps.length === 0)
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <p className="text-[13px] text-slate-600 dark:text-slate-300">

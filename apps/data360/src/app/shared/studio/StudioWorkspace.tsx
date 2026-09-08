@@ -42,12 +42,21 @@ import {
   PieChart as PieChartIcon,
   Plus,
   RefreshCw,
+  Gauge,
   ShieldCheck,
   Table2,
   Workflow as WorkflowIcon,
   X,
   type LucideIcon,
 } from 'lucide-react';
+import StudioOverviewBrief from '@/app/shared/studio/StudioOverviewBrief';
+import StudioWorkflowsPanel from '@/app/shared/studio/StudioWorkflowsPanel';
+import ObjectsPanel from '@/app/shared/studio/sources/ObjectsPanel';
+import {
+  LIFECYCLE_CLS,
+  LIFECYCLE_WORDS,
+  deriveLifecycle,
+} from '@/app/shared/studio/application-lifecycle';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
 import {
   ChartVizView,
@@ -108,17 +117,65 @@ function fmtVal(v: unknown): string {
   return String(v);
 }
 
-type Tab = 'reporting' | 'model' | 'sources' | 'jobs' | 'quality' | 'knowledge' | 'governance';
+type Tab =
+  | 'overview'
+  | 'reporting'
+  | 'model'
+  | 'sources'
+  | 'jobs'
+  | 'quality'
+  | 'knowledge'
+  | 'governance'
+  | 'workflows';
 
-const TABS: Array<{ id: Tab; label: string; icon: LucideIcon }> = [
-  { id: 'reporting', label: 'Reporting', icon: LayoutDashboard },
-  { id: 'sources', label: 'Sources', icon: Database },
-  { id: 'model', label: 'Model', icon: Network },
-  { id: 'jobs', label: 'Jobs', icon: WorkflowIcon },
-  { id: 'quality', label: 'Quality', icon: ShieldCheck },
-  { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
-  { id: 'governance', label: 'Access', icon: ShieldCheck },
+/** The convergence navigation: five first-level views over ONE application
+ *  context — Overview (the brief), Data, Insights, Automation, Access —
+ *  with the former tabs as second-level views. Deep URLs keep the OLD
+ *  ?view= vocabulary working (every tab id stays addressable). */
+const GROUPS: Array<{
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  tabs: Array<{ id: Tab; label: string; icon: LucideIcon }>;
+}> = [
+  { id: 'overview', label: 'Overview', icon: Gauge, tabs: [{ id: 'overview', label: 'Overview', icon: Gauge }] },
+  {
+    id: 'data',
+    label: 'Data',
+    icon: Database,
+    tabs: [
+      { id: 'sources', label: 'Sources', icon: Database },
+      { id: 'model', label: 'Model', icon: Network },
+      { id: 'quality', label: 'Quality', icon: ShieldCheck },
+      { id: 'jobs', label: 'Jobs', icon: WorkflowIcon },
+    ],
+  },
+  {
+    id: 'insights',
+    label: 'Insights',
+    icon: LayoutDashboard,
+    tabs: [
+      { id: 'reporting', label: 'Reporting', icon: LayoutDashboard },
+      { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
+    ],
+  },
+  {
+    id: 'automation',
+    label: 'Automation',
+    icon: WorkflowIcon,
+    tabs: [{ id: 'workflows', label: 'Workflows', icon: WorkflowIcon }],
+  },
+  {
+    id: 'access',
+    label: 'Access',
+    icon: ShieldCheck,
+    tabs: [{ id: 'governance', label: 'Access', icon: ShieldCheck }],
+  },
 ];
+
+const TAB_GROUP: Record<Tab, string> = Object.fromEntries(
+  GROUPS.flatMap((g) => g.tabs.map((t) => [t.id, g.id])),
+) as Record<Tab, string>;
 
 function fmtCount(n?: number | null): string {
   return n == null ? '—' : n.toLocaleString();
@@ -325,27 +382,51 @@ function fullSpecs(arr?: Array<StudioChartSpec | string> | null): StudioChartSpe
  *  shipping it unlabelled passed a preview-capped extract off as the
  *  answer. */
 const VIEW_TO_TAB: Record<string, Tab> = {
+  overview: 'overview',
   reporting: 'reporting',
   model: 'model',
   data: 'sources',
   sources: 'sources',
-  workflows: 'jobs',
+  workflows: 'workflows',
+  automation: 'workflows',
   jobs: 'jobs',
   quality: 'quality',
   access: 'governance',
   knowledge: 'knowledge',
+  insights: 'reporting',
 };
 
 export default function StudioWorkspace({ appId }: { appId?: string }) {
   const params = useSearchParams();
   const router = useRouter();
-  useTrackEvent();
+  const { trackTabSwitch } = useTrackEvent();
 
   const [drafts, setDrafts] = useState<StudioDraftSummary[]>([]);
   const [draftId, setDraftId] = useState<string | null>(appId ?? params.get('draft'));
-  const [tab, setTab] = useState<Tab>(
-    () => VIEW_TO_TAB[params.get('view') ?? ''] ?? 'reporting',
+  const [tab, setTabState] = useState<Tab>(
+    () => VIEW_TO_TAB[params.get('view') ?? ''] ?? 'overview',
   );
+  /** every tab change stays deep-linkable (?view=) — replaceState, no nav */
+  const setTab = useCallback(
+    (t: Tab) => {
+      setTabState(t);
+      trackTabSwitch(`app_${t}`);
+      try {
+        const p = new URLSearchParams(window.location.search);
+        p.set('view', t);
+        window.history.replaceState(null, '', `${window.location.pathname}?${p.toString()}`);
+      } catch {
+        /* SSR/storage quirks — the tab still switches */
+      }
+    },
+    [trackTabSwitch],
+  );
+  /** an « awaiting activation » link ANYWHERE lands on the one panel */
+  const [activationSignal, setActivationSignal] = useState(0);
+  const openActivation = useCallback(() => {
+    setTab('overview');
+    setActivationSignal((n) => n + 1);
+  }, [setTab]);
   const [model, setModel] = useState<ModelPayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tiles, setTiles] = useState<Record<string, TileState>>({});
@@ -537,7 +618,9 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
    * one silent retry first: the cold read right after a backend restart
    * fails transiently while the cache rebuilds. */
   useEffect(() => {
-    if ((tab !== 'sources' && tab !== 'model') || !draftId || dataView !== null) return;
+    // sources now render the pinned ObjectsPanel (its own persisted read) —
+    // the heavy data view is only for the model tab's per-source states
+    if (tab !== 'model' || !draftId || dataView !== null) return;
     setDataView('loading');
     void getDraftData(draftId)
       .then(setDataView)
@@ -1157,24 +1240,23 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
               ) : null;
             })()}
             {draftId && <StudioAppCostBadge draftId={draftId} />}
-            {version && (
-              <span
-                className={`rounded-full px-2 py-0.5 text-xs ${
-                  version.is_draft
-                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                    : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                }`}
-                title={
-                  version.is_draft
-                    ? 'Edits exist after the last publication — the active version is untouched until you publish.'
-                    : 'Every run references this exact published version.'
-                }
-              >
-                {version.is_draft
-                  ? 'unpublished draft'
-                  : `v${version.version_number ?? '?'} active`}
-              </span>
-            )}
+            {(() => {
+              /* ONE lifecycle chip — publish/activation stop being two
+                 unexplained badges; the click lands on the one panel */
+              const lc = deriveLifecycle({ version, activation, issues });
+              return (
+                <button
+                  type="button"
+                  onClick={openActivation}
+                  title={`${lc.reasons.join(' · ')}${
+                    version && !version.is_draft ? ` · version v${version.version_number ?? '?'}` : ''
+                  } — opens the activation panel`}
+                  className={`rounded-full px-2 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${LIFECYCLE_CLS[lc.state]}`}
+                >
+                  {LIFECYCLE_WORDS[lc.state]}
+                </button>
+              );
+            })()}
             {draftId && (version?.is_draft ?? true) && (
               <button
                 type="button"
@@ -1226,29 +1308,61 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
         }
       />
 
-      {/* tab rail */}
-      <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Workspace views">
-        {TABS.map((t) => {
-          const Icon = t.icon;
-          const active = t.id === tab;
+      {/* nav rail — two levels over ONE application context: five groups,
+          the former tabs as second-level views (deep URLs unchanged) */}
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Workspace views">
+          {GROUPS.map((g) => {
+            const Icon = g.icon;
+            const active = TAB_GROUP[tab] === g.id;
+            return (
+              <button
+                key={g.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(g.tabs[0].id)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                  active
+                    ? 'border-accent-500 bg-accent-600 text-white'
+                    : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden />
+                {g.label}
+              </button>
+            );
+          })}
+        </div>
+        {(() => {
+          const group = GROUPS.find((g) => g.id === TAB_GROUP[tab]);
+          if (!group || group.tabs.length < 2) return null;
           return (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setTab(t.id)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-                active
-                  ? 'border-accent-500 bg-accent-600 text-white'
-                  : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" aria-hidden />
-              {t.label}
-            </button>
+            <div className="flex flex-wrap gap-1.5 pl-1" role="tablist" aria-label={`${group.label} views`}>
+              {group.tabs.map((t) => {
+                const Icon = t.icon;
+                const active = t.id === tab;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setTab(t.id)}
+                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-0.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                      active
+                        ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
+                        : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <Icon className="h-3 w-3" aria-hidden />
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
           );
-        })}
+        })()}
       </div>
 
       {loadError ? (
@@ -1257,6 +1371,25 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
         <div className="h-64 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" aria-hidden />
       ) : (
         <>
+          {/* ── OVERVIEW — the intelligence brief + the ONE activation ── */}
+          {tab === 'overview' && draftId && (
+            <StudioOverviewBrief
+              draftId={draftId}
+              model={model}
+              version={version}
+              activation={activation}
+              issues={issues}
+              dq={dq}
+              onGo={(t) => setTab(t)}
+              activationSignal={activationSignal}
+            />
+          )}
+
+          {/* ── AUTOMATION · workflows (detection joins this group next) ── */}
+          {tab === 'workflows' && draftId && (
+            <StudioWorkflowsPanel draftId={draftId} onOpenActivation={openActivation} />
+          )}
+
           {/* ── REPORTING ─────────────────────────────────────────── */}
           {tab === 'reporting' &&
             (report ? (
@@ -1957,229 +2090,21 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
             </div>
           )}
 
-          {/* ── SOURCES ───────────────────────────────────────────── */}
-          {tab === 'sources' && (() => {
-            const dv = typeof dataView === 'object' && dataView !== null ? dataView : null;
-            const dataByFqn = new Map((dv?.sources ?? []).map((s) => [s.fqn, s]));
-            return (
-            <div className="space-y-3">
-            <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Sources</h3>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Every table this application reads — freshness, lineage and a score built only from
-                the signals shown on the row.
-              </p>
-              {(model.tables ?? []).length === 0 ? (
-                <p className="mt-2.5 text-xs text-slate-500 dark:text-slate-400">
-                  No table yet — sources appear once the understanding step has run.
-                </p>
-              ) : (
-                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {(model.tables ?? []).map((t) => {
-                    const s = sourceScore(t);
-                    const dsrc = dataByFqn.get(t.fqn);
-                    const ec = dsrc?.event_contract;
-                    const [, schemaName = '', tableName = ''] = t.fqn.split('.');
-                    const connId = String(dsrc?.connector_id ?? '');
-                    const SrcIcon = /file|storage|stage/.test(connId)
-                      ? BookOpen
-                      : /api|stream/.test(connId)
-                        ? Network
-                        : Database;
-                    return (
-                      <div
-                        key={t.entity_id}
-                        className="flex flex-col rounded-xl border border-slate-200 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-950"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="flex min-w-0 items-center gap-1.5">
-                            <SrcIcon aria-hidden className="h-3.5 w-3.5 shrink-0 text-accent-500" />
-                            <span className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
-                              {t.name}
-                            </span>
-                          </span>
-                          <span className="flex shrink-0 items-center gap-1">
-                            {(dsrc as { is_test_data?: boolean } | undefined)?.is_test_data && (
-                              <span
-                                className="rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-                                title="Sandbox test data — never mixed with your real sources"
-                              >
-                                test data
-                              </span>
-                            )}
-                            {dsrc?.state && (
-                              <span
-                                className={`rounded-full px-1.5 py-0.5 text-xs font-medium ${dataStateClass(dsrc.state)}`}
-                                title={dsrc.state_reason ?? dv?.states_legend?.[dsrc.state] ?? undefined}
-                              >
-                                {dsrc.state}
-                              </span>
-                            )}
-                            {s === null ? (
-                              <span
-                                className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium tabular-nums text-slate-400 dark:bg-slate-800 dark:text-slate-500"
-                                title="Score arrives once freshness and lineage are read"
-                              >
-                                —
-                              </span>
-                            ) : (
-                              <span
-                                className={`rounded-full px-1.5 py-0.5 text-xs font-medium tabular-nums ${scorePillClass(s.score)}`}
-                                title={s.title}
-                              >
-                                {s.score}
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                        <p className="mt-0.5 truncate font-mono text-xs text-slate-400 dark:text-slate-500">
-                          {schemaName}.{tableName}
-                        </p>
-                        {t.description && (
-                          <p
-                            className="mt-1 text-xs leading-snug text-slate-500 line-clamp-2 dark:text-slate-400"
-                            title={t.description}
-                          >
-                            {t.description}
-                            {t.description_source === 'ai' && (
-                              <span className="ml-1 text-[8px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                                ai
-                              </span>
-                            )}
-                          </p>
-                        )}
-                        <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs text-slate-600 dark:text-slate-300">
-                          <div>
-                            <dt className="text-[8px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Rows</dt>
-                            <dd className="tabular-nums">{fmtCount(t.row_count_approx)}</dd>
-                          </div>
-                          <div className="min-w-0">
-                            <dt className="text-[8px] uppercase tracking-wide text-slate-400 dark:text-slate-500">One row is</dt>
-                            <dd className="truncate" title={grainText(t.grain) ?? undefined}>
-                              {grainText(t.grain) ?? '—'}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-[8px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Ingestion</dt>
-                            <dd className="truncate">
-                              {opsInFlight.has(t.fqn)
-                                ? 'reading…'
-                                : `${t.ingestion?.ingestion_type ?? '—'}${
-                                    t.ingestion?.days_since_last_load != null
-                                      ? ` · last load ${t.ingestion.days_since_last_load} d ago`
-                                      : ''
-                                  }`}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-[8px] uppercase tracking-wide text-slate-400 dark:text-slate-500">Lineage</dt>
-                            <dd className="truncate">
-                              {t.lineage?.source
-                                ? `${t.lineage.upstream_count ?? t.lineage.upstream?.length ?? 0}↑ ${t.lineage.downstream_count ?? t.lineage.downstream?.length ?? 0}↓ · risk ${(t.lineage.risk_level ?? '—').toLowerCase()}`
-                                : '—'}
-                            </dd>
-                          </div>
-                        </dl>
-                        {ec && (
-                          <p
-                            className="mt-auto pt-1.5 text-xs text-slate-400 dark:text-slate-500"
-                            title={`Event contract (${ec.status ?? 'proposed'}): schema evolution ${ec.schema_evolution ?? '—'}; late data ${ec.late_data_policy ?? '—'}`}
-                          >
-                            {ec.strategy ?? '—'} · watermark {ec.watermark ?? '—'} · dedup{' '}
-                            {ec.dedup_key?.join(', ') || '—'} · {ec.status ?? 'proposed'}
-                          </p>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSourceSheetFor((cur) => (cur === t.entity_id ? null : (t.entity_id ?? null)))
-                          }
-                          aria-expanded={sourceSheetFor === t.entity_id}
-                          className="mt-1.5 self-start rounded-md text-xs font-medium text-accent-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
-                        >
-                          {sourceSheetFor === t.entity_id ? 'Hide full sheet' : 'Full sheet'}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            {/* the rich source sheet — the SAME fiche the model inspector
-                shows, now reachable for a source already connected */}
-            {sourceSheetFor && draftId && (
-              <div className="rounded-xl border border-accent-200 bg-white p-1 dark:border-accent-900/40 dark:bg-slate-900">
-                <StudioSourceCard
-                  draftId={draftId}
-                  entityId={sourceSheetFor}
-                  fqn={(model?.tables ?? []).find((x) => x.entity_id === sourceSheetFor)?.fqn}
-                  onChanged={() => draftId && void load(draftId)}
-                />
-              </div>
-            )}
-
-            {/* the jobs & pipelines TRUTH — what runs, and what honestly
-                does not exist; nothing invented to look complete */}
-            <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Jobs & pipelines
-              </h3>
-              {dataView === 'loading' || dataView === null ? (
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">reading…</p>
-              ) : dataView === 'error' ? (
-                <div className="mt-2 flex items-center gap-3">
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    The data contract could not be read — the sources above stay usable.
-                  </p>
-                  <QuietAction label="Try again" onClick={() => setDataView(null)} />
-                </div>
-              ) : (
-                <div className="mt-2 space-y-2.5">
-                  {dataView.recommendation?.note && (
-                    <p className="text-xs text-slate-600 dark:text-slate-300">
-                      {dataView.recommendation.ingestion_needed
-                        ? 'Ingestion is needed: '
-                        : ''}
-                      {dataView.recommendation.note}
-                    </p>
-                  )}
-                  {dataView.existing_pipelines.length > 0 && (
-                    <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {dataView.existing_pipelines.map((p, i) => (
-                        <li
-                          key={`${p.fqn ?? i}`}
-                          className="flex flex-wrap items-center gap-x-4 gap-y-0.5 py-1.5 text-xs text-slate-600 dark:text-slate-300"
-                        >
-                          <span className="min-w-0 flex-1 truncate font-mono text-xs">
-                            {(p.fqn ?? '—').split('.').slice(-2).join('.')}
-                          </span>
-                          <span>{p.type ?? '—'}</span>
-                          <span>cadence {p.cadence ?? '—'}</span>
-                          <span>last run {p.last_run ?? '—'}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {dataView.jobs.length === 0 && (
-                    <p className="text-xs text-slate-400 dark:text-slate-500">
-                      No job exists for this application — and none is shown as if it did.
-                    </p>
-                  )}
-                  {dataView.perimeter && (
-                    <p className="text-xs text-slate-400 dark:text-slate-500">
-                      Perimeter: {dataView.perimeter.mode ?? '—'} · sample{' '}
-                      {dataView.perimeter.sample_rows ?? '—'} rows · activation{' '}
-                      {(dataView.perimeter.activation_status ?? '—').replace(/_/g, ' ')}
-                      {dataView.perimeter.note ? ` — ${dataView.perimeter.note}` : ''}
-                    </p>
-                  )}
-                </div>
-              )}
-            </section>
-            </div>
-            );
-          })()}
+          {/* ── SOURCES — the ONE objects surface, pinned to this app ──
+              (the convergence rule: same table, same bindings, same sheets
+              as /studio/source — the card grid this replaced kept a second
+              discovery semantics) */}
+          {tab === 'sources' && draftId && (
+            <ObjectsPanel
+              fixedAppId={draftId}
+              onAddSource={() => router.push(routes.studioSource)}
+              onOpenConnection={(connectionId) =>
+                router.push(
+                  `${routes.studioSource}?view=connections&connection=${encodeURIComponent(connectionId)}`,
+                )
+              }
+            />
+          )}
 
           {/* ── JOBS & QUALITY ────────────────────────────────────── */}
           {/* ── QUALITY — diagnosis of the WHOLE model, rules live in Jobs ── */}
@@ -2380,6 +2305,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
               focusJobId={jobsFocus}
               onChanged={() => draftId && void load(draftId)}
               onOpenQuality={() => setTab('quality')}
+              onOpenActivation={openActivation}
             />
           )}
 

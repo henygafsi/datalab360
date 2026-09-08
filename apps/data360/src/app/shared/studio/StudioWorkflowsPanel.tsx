@@ -135,7 +135,14 @@ function MissingDecision({
   );
 }
 
-export default function StudioWorkflowsPanel({ draftId }: { draftId: string }) {
+export default function StudioWorkflowsPanel({
+  draftId,
+  onOpenActivation,
+}: {
+  draftId: string;
+  /** every « needs activation » word links to the ONE activation panel */
+  onOpenActivation?: () => void;
+}) {
   const [items, setItems] = useState<WorkflowItem[] | 'loading' | 'error'>('loading');
   const [choices, setChoices] = useState<string[]>(['manual', 'hourly', 'daily', 'weekly', 'monthly']);
   const [open, setOpen] = useState<string | null>(null);
@@ -208,6 +215,20 @@ export default function StudioWorkflowsPanel({ draftId }: { draftId: string }) {
         Proposed from this application&apos;s model and objective — one definition with the
         jobs; nothing runs without you, and a missing prerequisite is a decision to take,
         never a broken button.
+        {onOpenActivation && (
+          <>
+            {' '}
+            Schedules only run once the application is activated —{' '}
+            <button
+              type="button"
+              onClick={onOpenActivation}
+              className="text-accent-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+            >
+              open the activation panel
+            </button>
+            .
+          </>
+        )}
       </p>
 
       {items.length === 0 ? (
