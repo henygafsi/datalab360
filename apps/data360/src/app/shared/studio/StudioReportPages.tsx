@@ -203,7 +203,10 @@ export function MoveToPage({
       title="Move this widget to another page"
       onChange={(e) => void onMove(e.target.value)}
       onClick={(e) => e.stopPropagation()}
-      className="h-6 max-w-28 rounded border border-slate-200 bg-white px-1 text-xs text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+      /* Sized to hold a real page name. At max-w-28 the value was clipped
+         mid-word and ran under the tile's icons — a control you cannot
+         read is a control you cannot trust. */
+      className="h-6 w-[104px] shrink-0 truncate rounded border border-slate-200 bg-white px-1 text-xs text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
     >
       {/* the saved page must always be present, even if it vanished from
           the report — otherwise the control renders blank on a widget that
