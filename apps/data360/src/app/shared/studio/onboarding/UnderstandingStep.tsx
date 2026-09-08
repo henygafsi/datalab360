@@ -41,7 +41,9 @@ import {
   generateReport,
   getStudioObjects,
   relEndpoints,
+  suggestSources,
   understandDirect,
+  type SourceSuggestion,
   type StudioDecision,
   type StudioObject,
   type StudioUnderstanding,
@@ -212,6 +214,52 @@ export default function UnderstandingStep({
     });
   };
 
+  /* ── AI table detection: rank the ALREADY-DISCOVERED candidates against
+     the need (no extra database scan — candidates ranking, not name-scan)
+     and PRE-TICK only what the backend marks preselect. It stays a
+     proposal: every chip is visible, editable, and un-tickable — technical
+     noise (migrations, logs) ranks unrelated and is left out. ─────────── */
+  const [aiPick, setAiPick] = useState<'idle' | 'running' | 'done'>('idle');
+  const [aiPickError, setAiPickError] = useState<string | null>(null);
+  const [suggestionByFqn, setSuggestionByFqn] = useState<Record<string, SourceSuggestion>>({});
+
+  const aiPickTables = async () => {
+    if (aiPick === 'running' || byDb == null) return;
+    const candidates = byDb.flatMap((d) => d.objects.map((o) => ({ fqn: o.fqn })));
+    if (candidates.length === 0) return;
+    setAiPick('running');
+    setAiPickError(null);
+    try {
+      const { suggestions } = await suggestSources({
+        need: draft.need.text,
+        domain_id: draft.need.domainId ?? undefined,
+        draft_id: draft.draftId ?? undefined,
+        candidates,
+      });
+      const map: Record<string, SourceSuggestion> = {};
+      for (const s of suggestions) map[s.fqn] = s;
+      setSuggestionByFqn(map);
+      // preselect is the ONLY preselect signal — ranked-high alone never ticks
+      const auto = suggestions.filter((s) => s.preselect).slice(0, MAX_PICKS);
+      if (auto.length > 0) {
+        const next = auto.map((s) => ({ database: s.fqn.split('.')[0] ?? '', fqn: s.fqn }));
+        setPicks(next);
+        setAnalysis({ kind: 'idle' });
+        onPatch({
+          sources: {
+            ...draft.sources,
+            objects: next.map((p) => ({ connectionId: p.database, name: p.fqn })),
+          },
+        });
+      }
+      setAiPick('done');
+    } catch (e) {
+      // a budget refusal is a product answer (the envelope panel can raise it)
+      setAiPickError(toErrorMessage(e));
+      setAiPick('idle');
+    }
+  };
+
   const analyze = async () => {
     if (picks.length === 0 || analysis.kind === 'running') return;
     setAnalysis({ kind: 'running' });
@@ -348,7 +396,7 @@ export default function UnderstandingStep({
     <div className="space-y-3">
       <PlainQuestionHeader
         question="Did we understand your data right?"
-        detail={`Pick up to ${MAX_PICKS} tables that matter for “${draft.need.text || 'your goal'}”, then let the analysis propose what they mean. You confirm — nothing is decided for you.`}
+        detail={`Let the AI detect the tables that matter for “${draft.need.text || 'your goal'}” — or pick up to ${MAX_PICKS} yourself. One analysis run profiles them AND runs the sample quality checks (keys, duplicates, nulls) in the same pass, then proposes the model. You confirm — nothing is decided for you.`}
       />
 
       {/* 1 · explicit table picks from the /studio object discovery */}
@@ -358,6 +406,16 @@ export default function UnderstandingStep({
             <TableProperties className="h-4 w-4 text-slate-400" aria-hidden />
             Tables to analyze · {picks.length}/{MAX_PICKS}
           </h3>
+          <button
+            type="button"
+            disabled={aiPick === 'running' || byDb == null || (byDb ?? []).every((d) => d.objects.length === 0)}
+            onClick={() => void aiPickTables()}
+            title="Ranks the discovered tables against your need — technical noise ranks unrelated. A proposal: you can untick anything."
+            className="inline-flex items-center gap-1.5 rounded-lg border border-accent-500 px-2.5 py-1 text-xs font-medium text-accent-700 hover:bg-accent-50 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-300 dark:hover:bg-accent-900/30"
+          >
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+            {aiPick === 'running' ? 'Detecting…' : 'Let the AI pick'}
+          </button>
           <label className="relative ml-auto">
             <Search
               aria-hidden
@@ -439,6 +497,22 @@ export default function UnderstandingStep({
                             <span className="min-w-0 flex-1 truncate font-medium text-slate-800 dark:text-slate-200">
                               {o.schema}.{o.table}
                             </span>
+                            {(() => {
+                              const s = suggestionByFqn[o.fqn];
+                              if (!s || (s.relevance !== 'high' && s.relevance !== 'medium')) return null;
+                              return (
+                                <span
+                                  className={`shrink-0 rounded-full px-1.5 py-px text-[10px] ${
+                                    s.relevance === 'high'
+                                      ? 'bg-accent-600/10 text-accent-700 dark:text-accent-300'
+                                      : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                                  }`}
+                                  title={(s.reasons ?? []).join(' · ') || `relevance: ${s.relevance}`}
+                                >
+                                  {s.relevance}
+                                </span>
+                              );
+                            })()}
                             <span className="shrink-0 tabular-nums text-xs text-slate-500 dark:text-slate-400">
                               {fmtRows(o.approx_row_count)}
                             </span>
@@ -451,6 +525,18 @@ export default function UnderstandingStep({
               );
             })}
           </div>
+        )}
+        {aiPick === 'done' && (
+          <p role="status" className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {picks.length > 0
+              ? `The AI pre-ticked ${picks.length} table(s) it marked relevant to your need — the chips say why on hover. Untick anything; nothing runs before Analyze.`
+              : 'No table was confidently matched to your need — pick manually, or reword the need.'}
+          </p>
+        )}
+        {aiPickError && (
+          <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+            {aiPickError}
+          </p>
         )}
         {skippedSources > 0 && (
           <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
