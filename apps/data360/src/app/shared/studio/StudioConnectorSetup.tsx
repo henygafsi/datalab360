@@ -29,7 +29,12 @@ import {
   createAwsStage,
   createAzureStage,
   createGcsStage,
+  customApiIngest,
+  databricksIngest,
+  databricksTest,
   mysqlIngest,
+  oracleIngest,
+  oracleTest,
   postgresIngest,
   setupAwsStorageIntegration,
   setupAzureStorageIntegration,
@@ -426,6 +431,197 @@ export default function StudioConnectorSetup({
             >
               {busy && <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />}
               Create the stage
+            </button>
+            {resultBlock}
+          </>
+        ),
+      },
+    ];
+  } else if (id === 'conn.databricks') {
+    const canConnect = Boolean(f.host && f.http_path && f.access_token);
+    steps = [
+      {
+        id: 'conn',
+        label: 'Connection',
+        title: 'Connect the Databricks warehouse',
+        subtitle: 'A personal access token with read on the catalog is enough.',
+        canContinue: canConnect,
+        blockedReason: 'Host, HTTP path and token are needed.',
+        content: (
+          <>
+            <div className="flex flex-wrap gap-2.5">
+              <Field label="Host" value={f.host ?? ''} onChange={set('host')} width="w-80" placeholder="dbc-xxxx.cloud.databricks.com" />
+              <Field label="HTTP path" value={f.http_path ?? ''} onChange={set('http_path')} width="w-80" placeholder="/sql/1.0/warehouses/abc123" />
+              <Field label="Access token" type="password" value={f.access_token ?? ''} onChange={set('access_token')} width="w-80" />
+            </div>
+            <button
+              type="button"
+              disabled={busy || !canConnect}
+              onClick={() =>
+                void run(async () => {
+                  const r = await databricksTest({ host: f.host!, http_path: f.http_path!, access_token: f.access_token! });
+                  return { ok: Boolean(r.ok), text: r.ok ? 'Connected — the warehouse answered.' : 'The warehouse did not accept the connection.' };
+                })
+              }
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-accent-500 px-3 py-1.5 text-[13px] font-medium text-accent-700 hover:bg-accent-50 disabled:opacity-40 dark:text-accent-300 dark:hover:bg-accent-900/30"
+            >
+              {busy && <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+              Test the connection
+            </button>
+            {resultBlock}
+          </>
+        ),
+      },
+      {
+        id: 'load',
+        label: 'Load',
+        title: 'Load a catalog’s tables',
+        subtitle: 'Names the catalog and schema; leave tables empty to load the whole schema.',
+        content: (
+          <>
+            <div className="flex flex-wrap gap-2.5">
+              <Field label="Catalog" value={f.catalog ?? ''} onChange={set('catalog')} />
+              <Field label="Schema" value={f.schema_name ?? ''} onChange={set('schema_name')} />
+              <Field label="Tables (optional)" value={f.tables ?? ''} onChange={set('tables')} width="w-full max-w-lg" placeholder="orders, customers" />
+            </div>
+            <button
+              type="button"
+              disabled={busy || !(canConnect && f.catalog && f.schema_name)}
+              onClick={() =>
+                void run(async () => {
+                  const r = await databricksIngest({
+                    host: f.host!, http_path: f.http_path!, access_token: f.access_token!,
+                    catalog: f.catalog!, schema_name: f.schema_name!,
+                    ...(f.tables?.trim() ? { tables: f.tables.split(',').map((t) => t.trim()).filter(Boolean) } : {}),
+                  });
+                  return { ok: true, text: `${r.message}${r.tables ? ` — ${r.tables.length} table(s).` : ''}` };
+                })
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-40"
+            >
+              {busy && <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+              Load from Databricks
+            </button>
+            {resultBlock}
+          </>
+        ),
+      },
+    ];
+  } else if (id === 'conn.oracle_database') {
+    const canConnect = Boolean(f.host && f.service_name && f.username);
+    steps = [
+      {
+        id: 'conn',
+        label: 'Connection',
+        title: 'Connect the Oracle database',
+        canContinue: canConnect,
+        blockedReason: 'Host, service name and user are needed.',
+        content: (
+          <>
+            <div className="flex flex-wrap gap-2.5">
+              <Field label="Host" value={f.host ?? ''} onChange={set('host')} placeholder="db.internal" />
+              <Field label="Port" value={f.port ?? '1521'} onChange={set('port')} width="w-24" />
+              <Field label="Service name" value={f.service_name ?? ''} onChange={set('service_name')} placeholder="ORCLPDB1" />
+              <Field label="User" value={f.username ?? ''} onChange={set('username')} />
+              <Field label="Password" type="password" value={f.password ?? ''} onChange={set('password')} />
+            </div>
+            <button
+              type="button"
+              disabled={busy || !canConnect}
+              onClick={() =>
+                void run(async () => {
+                  const r = await oracleTest({
+                    host: f.host!, port: Number(f.port ?? '1521') || 1521,
+                    service_name: f.service_name!, username: f.username!, password: f.password ?? '',
+                  });
+                  return {
+                    ok: Boolean(r.ok),
+                    text: r.ok ? `Connected — Oracle ${r.version ?? ''}, ${r.table_count ?? '?'} table(s) visible.` : 'Oracle did not accept the connection.',
+                  };
+                })
+              }
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-accent-500 px-3 py-1.5 text-[13px] font-medium text-accent-700 hover:bg-accent-50 disabled:opacity-40 dark:text-accent-300 dark:hover:bg-accent-900/30"
+            >
+              {busy && <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+              Test the connection
+            </button>
+            {resultBlock}
+          </>
+        ),
+      },
+      {
+        id: 'load',
+        label: 'Load',
+        title: 'Load the tables',
+        subtitle: 'Comma-separated names, or leave empty to load every table.',
+        content: (
+          <>
+            <Field label="Tables (optional)" value={f.tables ?? ''} onChange={set('tables')} width="w-full max-w-lg" placeholder="SALES.ORDERS, SALES.CUSTOMERS" />
+            <button
+              type="button"
+              disabled={busy || !canConnect}
+              onClick={() =>
+                void run(async () => {
+                  const r = await oracleIngest({
+                    host: f.host!, port: Number(f.port ?? '1521') || 1521,
+                    service_name: f.service_name!, username: f.username!, password: f.password ?? '',
+                    ...(f.tables?.trim() ? { tables: f.tables.split(',').map((t) => t.trim()).filter(Boolean) } : {}),
+                  });
+                  return { ok: true, text: (r as { message?: string }).message ?? 'Loaded from Oracle.' };
+                })
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-40"
+            >
+              {busy && <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+              Load from Oracle
+            </button>
+            {resultBlock}
+          </>
+        ),
+      },
+    ];
+  } else if (id === 'conn.custom_rest_api') {
+    steps = [
+      {
+        id: 'conn',
+        label: 'Endpoint',
+        title: 'Point at the JSON API',
+        subtitle: 'Fetched server-side and landed as a table. The row path picks the array inside the response.',
+        canContinue: Boolean(f.url && f.target_table),
+        blockedReason: 'A URL and a target table name are needed.',
+        content: (
+          <div className="flex flex-wrap gap-2.5">
+            <Field label="URL" value={f.url ?? ''} onChange={set('url')} width="w-full max-w-lg" placeholder="https://api.example.com/v1/orders" />
+            <Field label="Row path (optional)" value={f.json_path ?? ''} onChange={set('json_path')} placeholder="data.items" />
+            <Field label="Target table" value={f.target_table ?? ''} onChange={set('target_table')} placeholder="EXT_ORDERS" />
+          </div>
+        ),
+      },
+      {
+        id: 'load',
+        label: 'Load',
+        title: 'Fetch and land it',
+        content: (
+          <>
+            <button
+              type="button"
+              disabled={busy || !(f.url && f.target_table)}
+              onClick={() =>
+                void run(async () => {
+                  const r = await customApiIngest({
+                    url: f.url!,
+                    ...(f.json_path?.trim() ? { json_path: f.json_path.trim() } : {}),
+                    target_database: 'DATA360_LITE',
+                    target_table: f.target_table!.trim(),
+                    mode: 'replace',
+                  });
+                  return { ok: true, text: `${r.status ?? 'Loaded'} — ${r.rows_loaded ?? 0} row(s) into ${r.table ?? f.target_table}.` };
+                })
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-40"
+            >
+              {busy && <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+              Fetch and load
             </button>
             {resultBlock}
           </>
