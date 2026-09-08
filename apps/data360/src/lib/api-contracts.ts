@@ -1526,6 +1526,43 @@ export const API = {
      *  envelope (ACCOUNTADMIN raises limits, with who/when/why recorded). */
     previewPolicy: () => '/studio/preview-policy',
 
+    /* ── the ApplicationContext (convergence 2026-09-08, 420/420):
+     * ONE versioned context read per application — 7 questions, truth on
+     * every artifact, server lifecycle, the Intelligence Brief, the
+     * detection registry and continuous knowledge. PROJECT_STATE stays the
+     * only store; these are its common read. ── */
+    /** GET ?view=full|overview|llm&module=&with_knowledge= — why/data/
+     *  trust/model/insight/action/control + versions{} + overview{...,
+     *  attention[], next_best_action, questions{}}; llm = the filtered
+     *  module view (≤8k chars, no SQL/rows/secrets). */
+    draftContext: (
+      draftId: string,
+      p?: { view?: 'full' | 'overview' | 'llm'; module?: string; withKnowledge?: boolean },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/context${qs({
+        view: p?.view,
+        module: p?.module,
+        with_knowledge: p?.withKnowledge ? 'true' : undefined,
+      })}`,
+    /** GET ?since= — {events, changed[], invalidated[], attached[],
+     *  detached[], latest, versions, lifecycle}. */
+    contextChanges: (draftId: string, since?: string) =>
+      `/studio/drafts/${enc(draftId)}/context/changes${qs({ since })}`,
+    /** GET — the detection registry: detectors[{signal, explain, evidence,
+     *  severity, affected, recommended_action, activation_state, truth}]. */
+    detections: (draftId: string) => `/studio/drafts/${enc(draftId)}/detections`,
+    /** POST ?confirm= — dry-run by default; only bounded reads execute
+     *  here, anything costly answers manual{do}. */
+    detectionAct: (draftId: string, detectorId: string, confirm = false) =>
+      `/studio/drafts/${enc(draftId)}/detections/${enc(detectorId)}/act${confirm ? '?confirm=true' : ''}`,
+    /** GET — continuous knowledge: counts{confirmed, proposed, rejected,
+     *  stale}, items, updated_from{...}, account_wide apart. */
+    knowledge: (draftId: string) => `/studio/drafts/${enc(draftId)}/knowledge`,
+    /** POST ?force= — explicit re-derivation (also runs in the background
+     *  after relevant writes). */
+    knowledgeSync: (draftId: string, force = false) =>
+      `/studio/drafts/${enc(draftId)}/knowledge/sync${force ? '?force=true' : ''}`,
+
     /** GET /studio/blocks/catalog?family= — the ETL block catalogue
      *  (config_schema[], availability, editable_in{jobs[], workflows[]})
      *  backed by the platform's real blocks. */

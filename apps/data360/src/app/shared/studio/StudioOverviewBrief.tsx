@@ -36,11 +36,17 @@ import {
   type WorkflowItem,
 } from '@/app/services/studio/studio-api';
 import { getDraftSources, type DraftSourcesView } from '@/app/services/studio/connections';
+import {
+  getApplicationContext,
+  type ApplicationContext,
+  type ServerLifecycle,
+} from '@/app/services/studio/context';
 import ActivationStep from '@/app/shared/studio/onboarding/ActivationStep';
 import {
   LIFECYCLE_CLS,
   LIFECYCLE_WORDS,
   deriveLifecycle,
+  type LifecycleState,
 } from '@/app/shared/studio/application-lifecycle';
 
 type GoTab =
@@ -81,6 +87,7 @@ export default function StudioOverviewBrief({
   activationSignal?: number;
 }) {
   const [summary, setSummary] = useState<DraftSummary | null>(null);
+  const [ctx, setCtx] = useState<ApplicationContext | null>(null);
   const [sources, setSources] = useState<DraftSourcesView | 'error' | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowItem[] | 'error' | null>(null);
   const [activationOpen, setActivationOpen] = useState(false);
@@ -94,6 +101,9 @@ export default function StudioOverviewBrief({
   }, [activationSignal]);
 
   const load = useCallback(() => {
+    // the server Intelligence Brief IS the context — everything else is a
+    // graceful fallback while a payload is missing
+    void getApplicationContext(draftId, { view: 'overview' }).then(setCtx);
     void getDraftSummary(draftId).then(setSummary);
     void getDraftSources(draftId, { limit: 1 })
       .then(setSources)
@@ -120,15 +130,58 @@ export default function StudioOverviewBrief({
   const dqObj = typeof dq === 'object' && dq != null ? dq : null;
   const dqFailing = (dqObj?.checks ?? []).filter((c) => c.verdict === 'fail');
 
-  const lifecycle = deriveLifecycle({
-    version,
-    activation,
-    issues,
-    anyScheduleActive: activeSchedules > 0,
-  });
+  /* SERVER lifecycle when computed (the only true rule) — client
+     derivation only while the app was not rewritten since deployment */
+  const serverLc: ServerLifecycle | null =
+    (ctx?.overview?.lifecycle ?? ctx?.lifecycle ?? null) as ServerLifecycle | null;
+  const lifecycle =
+    serverLc?.state && LIFECYCLE_WORDS[serverLc.state as LifecycleState]
+      ? {
+          state: serverLc.state as LifecycleState,
+          reasons:
+            (serverLc.reasons?.length ? serverLc.reasons : null) ??
+            (serverLc.next?.step
+              ? [`next: ${serverLc.next.step}${serverLc.next.why ? ` — ${serverLc.next.why}` : ''}`]
+              : []),
+          derived: false,
+        }
+      : deriveLifecycle({
+          version,
+          activation,
+          issues,
+          anyScheduleActive: activeSchedules > 0,
+        });
+  const attention = ctx?.overview?.attention ?? [];
+  const serverNext = ctx?.overview?.next_best_action ?? null;
+  const questions = ctx?.overview?.questions ?? null;
 
-  /* the ONE next best action — first real blocker wins */
+  /** the server's next_best_action names a module — map its word to a tab */
+  const actionToTab = (action?: string): GoTab | 'activation' | null => {
+    const a = (action ?? '').toLowerCase();
+    if (!a) return null;
+    if (a.includes('activation')) return 'activation';
+    if (a.includes('source') || a.includes('understand')) return 'sources';
+    if (a.includes('quality') || a.includes('dq')) return 'quality';
+    if (a.includes('report') || a.includes('insight')) return 'reporting';
+    if (a.includes('model') || a.includes('relation') || a.includes('definition')) return 'model';
+    if (a.includes('job') || a.includes('load')) return 'jobs';
+    if (a.includes('workflow') || a.includes('automation') || a.includes('alert')) return 'workflows';
+    if (a.includes('access') || a.includes('profile') || a.includes('grant')) return 'governance';
+    if (a.includes('knowledge')) return 'knowledge';
+    return null;
+  };
+
+  /* the ONE next best action — the SERVER's word when it has one, the
+     client's blocker derivation as fallback */
   const next: NextAction = (() => {
+    if (serverNext?.action) {
+      const go = actionToTab(serverNext.action) ?? 'reporting';
+      return {
+        words: `${serverNext.action}${serverNext.why ? ` — ${serverNext.why}` : ''}`,
+        go,
+        label: go === 'activation' ? 'Open activation' : 'Open it',
+      };
+    }
     const blocking = (issues ?? []).filter((i) => i.severity === 'blocking');
     if (blocking.length > 0)
       return {
@@ -249,10 +302,12 @@ export default function StudioOverviewBrief({
   ];
 
   const goal =
+    ctx?.overview?.goal ??
+    ctx?.overview?.title ??
     (summary?.title as string | undefined) ??
     (summary?.need as string | undefined) ??
     null;
-  const ctx = summary?.context ?? null;
+  const bizCtx = summary?.context ?? null;
 
   return (
     <div className="space-y-3">
@@ -300,12 +355,29 @@ export default function StudioOverviewBrief({
               Goal ·{' '}
             </span>
             {goal}
-            {ctx?.industry_id ? (
+            {bizCtx?.industry_id ? (
               <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">
-                {String(ctx.industry_id)}
-                {ctx.category_id ? ` › ${String(ctx.category_id)}` : ''}
+                {String(bizCtx.industry_id)}
+                {bizCtx.category_id ? ` › ${String(bizCtx.category_id)}` : ''}
               </span>
             ) : null}
+          </p>
+        )}
+        {questions && (
+          <p className="mt-1.5 flex flex-wrap gap-1" aria-label="The seven questions">
+            {Object.entries(questions).map(([k, ok]) => (
+              <span
+                key={k}
+                className={`rounded-full px-1.5 py-px text-[10px] uppercase tracking-wide ${
+                  ok
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                    : 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
+                }`}
+                title={ok ? `${k}: answered by the context` : `${k}: not answered yet`}
+              >
+                {k}
+              </span>
+            ))}
           </p>
         )}
         <ul className={`${goal ? 'mt-2 border-t border-slate-100 pt-2 dark:border-slate-800' : ''} divide-y divide-slate-100 dark:divide-slate-800`}>
@@ -332,6 +404,33 @@ export default function StudioOverviewBrief({
           })}
         </ul>
       </section>
+
+      {/* ── attention — the server's list, severity said, never a badge ── */}
+      {attention.length > 0 && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Needs your attention
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {attention.slice(0, 6).map((a, i) => (
+              <li key={i} className="flex items-start gap-2 text-[13px]">
+                <span
+                  className={`mt-px shrink-0 rounded-full px-1.5 py-px text-xs ${
+                    a.severity === 'critical'
+                      ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                      : a.severity === 'warning'
+                        ? 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                  }`}
+                >
+                  {a.severity ?? 'info'}
+                </span>
+                <span className="text-slate-700 dark:text-slate-200">{a.what ?? a.kind ?? '—'}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* ── next best action — ONE, from real blockers ────────────────── */}
       <section className="rounded-xl border border-accent-200 bg-accent-50/40 p-4 dark:border-accent-900/50 dark:bg-accent-900/10">

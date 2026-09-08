@@ -42,6 +42,7 @@ import {
   PieChart as PieChartIcon,
   Plus,
   RefreshCw,
+  Bell,
   Gauge,
   ShieldCheck,
   Table2,
@@ -51,6 +52,8 @@ import {
 } from 'lucide-react';
 import StudioOverviewBrief from '@/app/shared/studio/StudioOverviewBrief';
 import StudioWorkflowsPanel from '@/app/shared/studio/StudioWorkflowsPanel';
+import StudioDetectionsPanel from '@/app/shared/studio/StudioDetectionsPanel';
+import StudioKnowledgeHeader from '@/app/shared/studio/StudioKnowledgeHeader';
 import ObjectsPanel from '@/app/shared/studio/sources/ObjectsPanel';
 import {
   LIFECYCLE_CLS,
@@ -126,7 +129,8 @@ type Tab =
   | 'quality'
   | 'knowledge'
   | 'governance'
-  | 'workflows';
+  | 'workflows'
+  | 'detection';
 
 /** The convergence navigation: five first-level views over ONE application
  *  context — Overview (the brief), Data, Insights, Automation, Access —
@@ -163,7 +167,10 @@ const GROUPS: Array<{
     id: 'automation',
     label: 'Automation',
     icon: WorkflowIcon,
-    tabs: [{ id: 'workflows', label: 'Workflows', icon: WorkflowIcon }],
+    tabs: [
+      { id: 'workflows', label: 'Workflows', icon: WorkflowIcon },
+      { id: 'detection', label: 'Detection & alerts', icon: Bell },
+    ],
   },
   {
     id: 'access',
@@ -389,6 +396,8 @@ const VIEW_TO_TAB: Record<string, Tab> = {
   sources: 'sources',
   workflows: 'workflows',
   automation: 'workflows',
+  detection: 'detection',
+  alerts: 'detection',
   jobs: 'jobs',
   quality: 'quality',
   access: 'governance',
@@ -1385,10 +1394,11 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
             />
           )}
 
-          {/* ── AUTOMATION · workflows (detection joins this group next) ── */}
+          {/* ── AUTOMATION · workflows + the detection registry ────────── */}
           {tab === 'workflows' && draftId && (
             <StudioWorkflowsPanel draftId={draftId} onOpenActivation={openActivation} />
           )}
+          {tab === 'detection' && draftId && <StudioDetectionsPanel draftId={draftId} />}
 
           {/* ── REPORTING ─────────────────────────────────────────── */}
           {tab === 'reporting' &&
@@ -2312,6 +2322,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           {/* ── KNOWLEDGE ─────────────────────────────────────────── */}
           {tab === 'knowledge' && (
             <div className="space-y-2">
+              {draftId && <StudioKnowledgeHeader draftId={draftId} />}
               <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
                 <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                   <div className="flex flex-wrap items-center justify-between gap-2">

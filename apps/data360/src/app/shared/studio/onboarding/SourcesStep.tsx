@@ -500,7 +500,7 @@ export default function SourcesStep({
     <div className="space-y-3">
       <PlainQuestionHeader
         question="Where does this data live?"
-        detail="Data360 looks for this data itself — what it finds is pre-selected, and you adjust freely."
+        detail="Data360 looks for this data itself — a name-based seed here, then the analysis reads real content (keys, semantics, quality) and decides. What it finds is pre-selected, and you adjust freely."
       />
 
       {/* ── Discovery outcome — honest about how it was found ── */}
@@ -598,7 +598,9 @@ export default function SourcesStep({
             <span className="font-medium text-slate-800 dark:text-slate-200">
               {basket.items.length} table(s) ranked across {basket.scanned.length} database(s)
             </span>
-            — matched on names against the need; the analysis will confirm.
+            — a SEED from name matching only. Names can lie (or be cryptic): the truth comes
+            from the CONTENT analysis at the next step — sampled rows, proven keys, column
+            semantics and quality — which re-ranks freely.
             <button
               type="button"
               onClick={() => setBasket(null)}
