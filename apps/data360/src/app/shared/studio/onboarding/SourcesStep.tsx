@@ -27,6 +27,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
+import StudioLimitControl from '@/app/shared/studio/StudioLimitControl';
 import {
   createDraftDirect,
   getStudioObjects,
@@ -607,9 +608,14 @@ export default function SourcesStep({
             </button>
           </p>
           {basket.stopped && (
-            <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-              {basket.stopped}
-            </p>
+            <>
+              <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                {basket.stopped}
+              </p>
+              {/* raise the limit RIGHT HERE — the answer to "where do I set
+                  it?" is where you hit it, admin-gated and recorded */}
+              <StudioLimitControl onChanged={() => void scanAll()} />
+            </>
           )}
           {basket.items.length > 0 && (
             <>

@@ -2519,6 +2519,14 @@ export interface PreviewPolicy {
   policy_id?: string;
   version?: string;
   limits?: Record<string, number>;
+  defaults?: Record<string, number>;
+  /** who raised a limit for this account, and why — recorded, shown */
+  account_override?: { limits?: Record<string, number>; by?: string; at?: string; reason?: string } | null;
+  adjustable?: {
+    limits?: string[];
+    bounds?: Record<string, { min?: number; max?: number }>;
+    with?: string;
+  };
   eligible_ops?: string[];
 }
 
@@ -2527,4 +2535,17 @@ export async function getPreviewPolicy(): Promise<PreviewPolicy> {
     const { data } = await apiClient.get<PreviewPolicy>('/studio/preview-policy');
     return data ?? {};
   });
+}
+
+/** Raise a preview limit for the account — ACCOUNTADMIN only; a 403
+ *  APPROVAL_REQUIRED or a 422 bounds error is a legitimate answer the
+ *  caller renders, not an exception to swallow. It is a spending decision,
+ *  recorded with who/when/why. */
+export async function setPreviewPolicy(body: {
+  objects_per_draft?: number;
+  ai_calls_per_draft?: number;
+  ai_calls_per_hour?: number;
+  reason?: string;
+}): Promise<PreviewPolicy> {
+  return studioMutate<PreviewPolicy>('PUT', '/studio/preview-policy', body, 30_000);
 }
