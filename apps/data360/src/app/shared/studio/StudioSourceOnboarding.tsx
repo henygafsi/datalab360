@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, ChevronLeft, RotateCw, Search } from 'lucide-react';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
+import StudioConnectorSetup from '@/app/shared/studio/StudioConnectorSetup';
 import {
   getStudioObjects,
   getStudioSources,
@@ -161,6 +162,8 @@ export default function StudioSourceOnboarding() {
   const [catalog, setCatalog] = useState<CatalogConnector[] | null>(null);
   const [warehouses, setWarehouses] = useState<StudioSource[] | null>(null);
   const [selConnectors, setSelConnectors] = useState<string[]>([]);
+  /** which picked connector has its setup panel open, by label */
+  const [setupFor, setSetupFor] = useState<string | null>(null);
   const [famFilter, setFamFilter] = useState<string | null>(null);
   const [useWarehouse, setUseWarehouse] = useState(false);
   const [selDbs, setSelDbs] = useState<string[]>([]);
@@ -478,19 +481,34 @@ export default function StudioSourceOnboarding() {
                   </p>
                   {selectedConnectorItems.map((c) => {
                     const status = STATUS_LABELS[String(c.status)] ?? STATUS_LABELS.to_configure;
+                    const open = setupFor === String(c.label);
                     return (
-                      <div
-                        key={String(c.label)}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-950"
-                      >
-                        <span className="text-xs font-medium text-slate-800 dark:text-slate-200">
-                          {String(c.label)}
-                        </span>
-                        <span className={`text-xs ${status.tone}`}>{status.label}</span>
-                        <QuietAction
-                          label="Finish its setup in Connect Data"
-                          href={routes.connexion.dataSourceConnection}
-                        />
+                      <div key={String(c.label)} className="space-y-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
+                          <span className="text-xs font-medium text-slate-800 dark:text-slate-200">
+                            {String(c.label)}
+                          </span>
+                          <span className={`text-xs ${status.tone}`}>{status.label}</span>
+                          {/* The setup happens HERE — the Studio no longer sends
+                              the reader to the legacy admin page. Same steps,
+                              same service functions, one source of truth. */}
+                          <button
+                            type="button"
+                            onClick={() => setSetupFor(open ? null : String(c.label))}
+                            className="rounded-lg border border-accent-500 px-2.5 py-1 text-xs font-medium text-accent-700 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-300 dark:hover:bg-accent-900/30"
+                          >
+                            {open ? 'Close the setup' : 'Set it up here'}
+                          </button>
+                        </div>
+                        {open && (
+                          <StudioConnectorSetup
+                            connector={c as never}
+                            onClose={() => setSetupFor(null)}
+                            onConnected={() =>
+                              void getStudioSourcesCatalog().then(setCatalog).catch(() => undefined)
+                            }
+                          />
+                        )}
                       </div>
                     );
                   })}

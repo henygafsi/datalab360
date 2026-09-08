@@ -62,6 +62,8 @@ export default function StudioGovernanceMap({
   footer?: React.ReactNode;
 }) {
   const [q, setQ] = useState('');
+  /** the role whose values are being painted — 'view' is the common case */
+  const [paintRole, setPaintRole] = useState('view');
   const roles = gov?.roles ?? view.diff?.roles ?? {};
   const functional = roles.functional ?? {};
   const objects = view.me?.objects ?? [];
@@ -91,6 +93,10 @@ export default function StudioGovernanceMap({
   }, [gov]);
 
   const mapped = Object.values(mapping).filter(Boolean).length;
+  const grantLabel = (
+    gts: Array<{ id: string; label?: string }>,
+    id: string,
+  ): string => gts.find((g) => g.id === id)?.label ?? id;
 
   return (
     <div className="space-y-3">
@@ -246,11 +252,16 @@ export default function StudioGovernanceMap({
         </section>
       </div>
 
-      {/* ── policies × Data360 roles, the association grid ──────────── */}
+      {/* ── the policy palette: pick a role, then paint its values ────
+       * One HORIZONTAL palette, no sideways scroll: the five-role × N-column
+       * matrix of selects forced a 640px-wide table and read as a grid to
+       * decode. A reader thinks "what may an editor see?", role first — so
+       * the role is a palette across the top, and the columns are wrapping
+       * cards whose value chips paint the answer for THAT role. */}
       <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
           <KeyRound aria-hidden className="h-3.5 w-3.5" />
-          Row policies — which values each Data360 role may see
+          Row policies — what each Data360 role may see
         </p>
         {columns.length === 0 ? (
           <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
@@ -258,90 +269,115 @@ export default function StudioGovernanceMap({
             nothing to restrict rows by.
           </p>
         ) : (
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-[13px]">
-              <thead>
-                <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                  <th scope="col" className="py-1 pr-3 font-medium">Column</th>
-                  {grantTypes.map((g) => (
-                    <th key={g.id} scope="col" className="py-1 pr-3 font-medium">
-                      {g.label ?? g.id}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {columns.map((c) => (
-                  <tr key={c.column} className="border-b border-slate-100 dark:border-slate-800">
-                    <th scope="row" className="py-1.5 pr-3 font-normal">
-                      <span className="font-mono text-xs text-slate-800 dark:text-slate-200">
+          <>
+            <div
+              role="tablist"
+              aria-label="Data360 role being configured"
+              className="mt-2 flex flex-wrap gap-1"
+            >
+              {grantTypes.map((g) => {
+                const on = paintRole === g.id;
+                // how many columns already carry a rule for this role
+                const rules = columns.filter((c) => {
+                  const v = policy[c.column]?.[g.id];
+                  return v === '*' || (Array.isArray(v) && v.length > 0);
+                }).length;
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={on}
+                    onClick={() => setPaintRole(g.id)}
+                    className={`rounded-lg px-3 py-1.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                      on
+                        ? 'bg-accent-600 font-medium text-white'
+                        : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    {g.label ?? g.id}
+                    {rules > 0 && (
+                      <span className={`ml-1.5 text-xs ${on ? 'text-white/70' : 'text-slate-400'}`}>
+                        {rules}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-2 flex flex-wrap gap-2">
+              {columns.map((c) => {
+                const cur = policy[c.column]?.[paintRole];
+                const all = cur === '*';
+                const kept = Array.isArray(cur) ? cur : [];
+                return (
+                  <div
+                    key={c.column}
+                    className="min-w-[220px] max-w-xs flex-1 rounded-lg border border-slate-200 p-2 dark:border-slate-700"
+                  >
+                    <p className="flex items-baseline gap-1.5">
+                      <span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-200">
                         {c.column}
                       </span>
-                      <span className="ml-1.5 text-xs text-slate-400">
-                        {c.tables.join(', ')}
-                      </span>
-                    </th>
-                    {grantTypes.map((g) => {
-                      const cur = policy[c.column]?.[g.id];
-                      const all = cur === '*';
-                      const kept = Array.isArray(cur) ? cur.length : 0;
-                      return (
-                        <td key={g.id} className="py-1.5 pr-3 align-top">
-                          <select
-                            value={all ? '*' : kept ? 'some' : ''}
-                            aria-label={`Values of ${c.column} visible to ${g.label ?? g.id}`}
-                            onChange={(e) => {
-                              if (e.target.value === '*') onPolicy(c.column, g.id, '*');
-                              else if (e.target.value === '') onPolicy(c.column, g.id, []);
-                              else onPolicy(c.column, g.id, c.values.slice(0, 1));
-                            }}
-                            className="h-8 w-28 rounded-lg border border-slate-200 bg-white px-1.5 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                      <span className="truncate text-xs text-slate-400">{c.tables.join(', ')}</span>
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        aria-pressed={all}
+                        title={`${grantLabel(grantTypes, paintRole)} sees every row of ${c.column}`}
+                        onClick={() => onPolicy(c.column, paintRole, all ? [] : '*')}
+                        className={`rounded-full border px-2 py-0.5 text-xs ${
+                          all
+                            ? 'border-accent-500 bg-accent-600 text-white'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        every row
+                      </button>
+                      {c.values.map((v) => {
+                        const on = kept.includes(v);
+                        return (
+                          <button
+                            key={v}
+                            type="button"
+                            aria-pressed={on}
+                            disabled={all}
+                            onClick={() =>
+                              onPolicy(
+                                c.column,
+                                paintRole,
+                                on ? kept.filter((x) => x !== v) : [...kept, v],
+                              )
+                            }
+                            className={`rounded-full border px-2 py-0.5 text-xs disabled:opacity-40 ${
+                              on
+                                ? 'border-accent-500 bg-accent-600 text-white'
+                                : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
+                            }`}
                           >
-                            <option value="">no row</option>
-                            <option value="some">chosen…</option>
-                            <option value="*">every row</option>
-                          </select>
-                          {!all && kept > 0 && (
-                            <span className="mt-1 flex max-w-[168px] flex-wrap gap-1">
-                              {c.values.map((v) => {
-                                const on = Array.isArray(cur) && cur.includes(v);
-                                return (
-                                  <button
-                                    key={v}
-                                    type="button"
-                                    aria-pressed={on}
-                                    onClick={() =>
-                                      onPolicy(
-                                        c.column,
-                                        g.id,
-                                        on
-                                          ? (cur as string[]).filter((x) => x !== v)
-                                          : [...(cur as string[]), v],
-                                      )
-                                    }
-                                    className={`rounded-full border px-1.5 py-0.5 text-xs ${
-                                      on
-                                        ? 'border-accent-500 bg-accent-600 text-white'
-                                        : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
-                                    }`}
-                                  >
-                                    {v}
-                                  </button>
-                                );
-                              })}
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                            {v}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                      {all
+                        ? 'every row'
+                        : kept.length
+                          ? `${kept.length} value(s) kept`
+                          : 'no rule — this role sees no row of this column'}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
         <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-          Values come from the data actually observed in each column. Nothing is applied here — an
+          Values come from the data actually observed in each column. The rules compose ONE data
+          role for this application, which the Data360 roles reuse — nothing is applied here; an
           administrator reviews and runs the change below.
         </p>
       </section>

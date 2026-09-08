@@ -209,9 +209,15 @@ apiClient.interceptors.response.use(
         | undefined;
       // Structured governance payload may sit at top-level OR nested under `detail`.
       const d = (data?.detail && typeof data.detail === 'object') ? data.detail : data;
+      // The backend's qualified refusals put the sentence in `message`
+      // (with `hint` naming who can unblock). Reading only `detail` threw
+      // that away and every 403 collapsed into the same generic sentence —
+      // e.g. "CREATE STAGE granted on SCHEMA CP_DATA360.STAGING" became
+      // "You do not have permission to access this resource."
       const message = typeof data?.detail === 'string'
         ? data.detail
-        : (d?.detail ?? 'You do not have permission to access this resource.');
+        : (d?.message ?? d?.detail ?? 'You do not have permission to access this resource.') +
+          (typeof d?.hint === 'string' && d.hint ? ` ${d.hint}` : '');
       // A governance denial (GOVERNANCE_DENIED / MODULE_FORBIDDEN) carries what the
       // role lacks + the request endpoint → components route to the access-request
       // flow (RequestAccessBadge) instead of a dead "forbidden".

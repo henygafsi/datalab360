@@ -62,15 +62,20 @@ export default function StudioCostChip() {
       /* No vendor name in customer-facing copy — a tooltip IS customer
          facing, and it escaped the brand check only because innerText
          does not carry title attributes. */
-      title={`AI free-preview envelope: calls this hour ${hour?.used ?? '—'}/${hour?.limit ?? '—'} · AI credits charged ${credits}. Account compute (all workloads, warehouse metering over ${spend?.period_days ?? 7} days, lags ~1-3 h): ${spend?.total_credits ?? '—'} credits ≈ $${usd ?? '—'}. Per-application attribution arrives with the metering contract. Visible to platform admins only.`}
+      /* The WINDOW must be legible in the figure itself: this is a ROLLING
+         7 days while the warehouse console shows month-to-date, so the two
+         are different numbers for honest reasons. Read side by side they
+         looked like a staleness bug ($194 vs $231) — the missing piece was
+         the label, not the data. */
+      title={`AI free-preview envelope: calls this hour ${hour?.used ?? '—'}/${hour?.limit ?? '—'} · AI credits charged ${credits}. Account compute over the LAST ${spend?.period_days ?? 7} ROLLING DAYS (all workloads, metering lags ~1-3 h): ${spend?.total_credits ?? '—'} credits ≈ $${usd ?? '—'}. This is not month-to-date — the warehouse console's monthly figure will differ. Visible to platform admins only.`}
       className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-0.5 text-xs tabular-nums text-slate-500 dark:border-slate-700 dark:text-slate-400"
     >
       <Coins aria-hidden className="h-3 w-3" />
       AI {hour?.used ?? '—'}/{hour?.limit ?? '—'}
       <span className="text-slate-300 dark:text-slate-600">·</span>
       {usd != null ? (
-        <span title="Real account compute over 7 days — not just the Studio">
-          ${usd.toLocaleString(undefined, { maximumFractionDigits: 0 })}/7d
+        <span title={`Rolling ${spend?.period_days ?? 7} days of real account compute — not month-to-date, and not just the Studio`}>
+          ${usd.toLocaleString(undefined, { maximumFractionDigits: 0 })} last {spend?.period_days ?? 7}d
         </span>
       ) : (
         <span>compute —</span>
