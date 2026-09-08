@@ -50,6 +50,61 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : 'The action failed.';
 }
 
+/* ── prepared-change rendering helpers ─────────────────────────────── */
+
+const RISK_CLS: Record<string, string> = {
+  low: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+  medium: 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+  high: 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+};
+
+/** The line's TARGET, in short words, extracted from its own SQL — thirty
+ *  « grant select » checkboxes with no object read as duplicates when each
+ *  one actually aims at a different table. Best-effort: unknown shapes fall
+ *  back to the first SQL line (still truthful, never blank). */
+function mutationTarget(m: AccessMutation): string {
+  const sql = (m.sql ?? [])[0] ?? '';
+  const one = sql.replace(/\s+/g, ' ').trim();
+  let x: RegExpMatchArray | null;
+  if ((x = one.match(/^CREATE (?:OR REPLACE )?ROLE (?:IF NOT EXISTS )?"?([\w.]+)"?/i))) return x[1];
+  if ((x = one.match(/^GRANT ([\w, ]+?) ON (?:TABLE |VIEW |SCHEMA |DATABASE )?"?([\w."]+)"? TO (?:ROLE )?"?([\w.]+)"?/i)))
+    return `${x[2].replace(/"/g, '')} → ${x[3]}`;
+  if ((x = one.match(/^GRANT ROLE "?([\w.]+)"? TO (?:ROLE |USER )?"?([\w.]+)"?/i)))
+    return `${x[1]} → ${x[2]}`;
+  if ((x = one.match(/^ALTER (?:TABLE|VIEW) "?([\w."]+)"?.*?POLICY "?([\w.]+)"?/i)))
+    return `${x[1].replace(/"/g, '')} · ${x[2]}`;
+  if ((x = one.match(/^CREATE (?:OR REPLACE )?(?:ROW ACCESS|MASKING) POLICY (?:IF NOT EXISTS )?"?([\w.]+)"?/i)))
+    return x[1];
+  return one.slice(0, 80) || '—';
+}
+
+interface MutationGroup {
+  kind: string;
+  words: string;
+  risk: string;
+  items: AccessMutation[];
+}
+
+/** Group by kind, order of first appearance; the group carries the WORST
+ *  risk of its lines (high > medium > low). */
+function groupMutations(mutations: AccessMutation[]): MutationGroup[] {
+  const rank: Record<string, number> = { low: 0, medium: 1, high: 2 };
+  const groups: MutationGroup[] = [];
+  const byKind = new Map<string, MutationGroup>();
+  for (const m of mutations) {
+    const kind = String(m.kind ?? 'change');
+    let g = byKind.get(kind);
+    if (!g) {
+      g = { kind, words: kind.replace(/_/g, ' '), risk: m.risk ?? 'low', items: [] };
+      byKind.set(kind, g);
+      groups.push(g);
+    }
+    g.items.push(m);
+    if ((rank[m.risk ?? 'low'] ?? 0) > (rank[g.risk] ?? 0)) g.risk = m.risk ?? g.risk;
+  }
+  return groups;
+}
+
 function ReadChip({ r }: { r?: string }) {
   const allowed = r === 'allowed' || r === 'predicted_allowed';
   const predicted = String(r ?? '').startsWith('predicted');
@@ -350,74 +405,120 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
         </p>
       )}
 
-      {/* the prepared change, in words, with the SQL one click away */}
+      {/* the prepared change: GROUPED by nature, each line naming its real
+          TARGET (extracted from the SQL) — thirty bare « grant select » rows
+          read as duplicates when only the kind shows; and the SQL renders
+          UNDER its own line, never as a second parallel list */}
       {mutations.length > 0 && (
         <>
           <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Prepared change — tick what to run
+            Prepared change — tick a group or single lines
           </p>
-          <ul className="mt-1 space-y-1">
-            {mutations.map((m) => (
-              <li key={m.mutation_id} className="text-[13px]">
-                <label className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="checkbox"
-                    disabled={m.apply_supported === false}
-                    checked={picked.has(m.mutation_id ?? '')}
-                    onChange={(e) =>
-                      setPicked((p) => {
-                        const n = new Set(p);
-                        if (e.target.checked) n.add(m.mutation_id ?? '');
-                        else n.delete(m.mutation_id ?? '');
-                        return n;
-                      })
-                    }
-                    className="h-3.5 w-3.5"
-                  />
-                  <span className="text-slate-700 dark:text-slate-200">
-                    {String(m.kind ?? '').replace(/_/g, ' ')}
-                  </span>
-                  {m.risk && (
+          <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+            {mutations.length} operation(s):{' '}
+            {groupMutations(mutations)
+              .map((g) => `${g.items.length} ${g.words}`)
+              .join(' · ')}
+            . Nothing runs before an explicit dry run or apply below.
+          </p>
+          <div className="mt-1.5 space-y-2">
+            {groupMutations(mutations).map((g) => {
+              const ids = g.items.map((m) => m.mutation_id ?? '').filter(Boolean);
+              const pickable = g.items
+                .filter((m) => m.apply_supported !== false)
+                .map((m) => m.mutation_id ?? '');
+              const pickedCount = ids.filter((id) => picked.has(id)).length;
+              const allPicked = pickable.length > 0 && pickable.every((id) => picked.has(id));
+              return (
+                <section key={g.kind} className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
+                  <label className="flex items-center gap-2 text-[13px]">
+                    <input
+                      type="checkbox"
+                      checked={allPicked}
+                      disabled={pickable.length === 0}
+                      ref={(el) => {
+                        if (el) el.indeterminate = pickedCount > 0 && !allPicked;
+                      }}
+                      onChange={(e) =>
+                        setPicked((p) => {
+                          const n = new Set(p);
+                          for (const id of pickable) {
+                            if (e.target.checked) n.add(id);
+                            else n.delete(id);
+                          }
+                          return n;
+                        })
+                      }
+                      aria-label={`Tick all: ${g.words}`}
+                      className="h-3.5 w-3.5"
+                    />
+                    <span className="font-medium text-slate-800 dark:text-slate-100">
+                      {g.words}
+                    </span>
+                    <span className={`rounded-full px-1.5 py-px text-xs ${RISK_CLS[g.risk] ?? RISK_CLS.low}`}>
+                      {g.risk} risk
+                    </span>
                     <span className="text-xs text-slate-400 dark:text-slate-500">
-                      risk {m.risk}
+                      {pickedCount ? `${pickedCount}/${g.items.length} ticked` : `${g.items.length} line(s)`}
                     </span>
-                  )}
-                  {m.apply_supported === false && (
-                    <span className="text-xs text-amber-700 dark:text-amber-400">
-                      not applicable from here — product-role layer
-                    </span>
-                  )}
-                </label>
-              </li>
-            ))}
-          </ul>
+                  </label>
+                  <ul className="mt-1 space-y-0.5 pl-5">
+                    {g.items.map((m) => (
+                      <li key={m.mutation_id} className="text-[13px]">
+                        <label className="flex flex-wrap items-center gap-2">
+                          <input
+                            type="checkbox"
+                            disabled={m.apply_supported === false}
+                            checked={picked.has(m.mutation_id ?? '')}
+                            onChange={(e) =>
+                              setPicked((p) => {
+                                const n = new Set(p);
+                                if (e.target.checked) n.add(m.mutation_id ?? '');
+                                else n.delete(m.mutation_id ?? '');
+                                return n;
+                              })
+                            }
+                            className="h-3.5 w-3.5"
+                          />
+                          <span className="min-w-0 truncate font-mono text-xs text-slate-600 dark:text-slate-300" title={(m.sql ?? []).join('\n')}>
+                            {mutationTarget(m)}
+                          </span>
+                          {m.apply_supported === false && (
+                            <span className="text-xs text-amber-700 dark:text-amber-400">
+                              not applicable from here — product-role layer
+                            </span>
+                          )}
+                        </label>
+                        {showSql && (
+                          <div className="mb-1 ml-5 mt-0.5">
+                            <pre className="overflow-x-auto rounded bg-slate-50 p-1.5 font-mono text-xs text-slate-600 dark:bg-slate-950 dark:text-slate-400">
+                              {(m.sql ?? []).join('\n')}
+                            </pre>
+                            {(m.undo_sql?.length ?? 0) > 0 && (
+                              <p
+                                className="mt-0.5 truncate font-mono text-xs text-slate-400 dark:text-slate-500"
+                                title={(m.undo_sql ?? []).join('\n')}
+                              >
+                                undo: {(m.undo_sql ?? [])[0]}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              );
+            })}
+          </div>
           <button
             type="button"
             aria-expanded={showSql}
             onClick={() => setShowSql((v) => !v)}
-            className="mt-1 text-xs text-slate-400 hover:text-slate-600 dark:text-slate-500"
+            className="mt-1 text-xs text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
           >
-            {showSql ? 'Hide' : 'Show'} the exact SQL and its undo
+            {showSql ? 'Hide' : 'Show'} the exact SQL and its undo, under each line
           </button>
-          {showSql && (
-            <ul className="mt-1 space-y-1.5">
-              {mutations.map((m) => (
-                <li key={`sql-${m.mutation_id}`}>
-                  <pre className="overflow-x-auto rounded bg-slate-50 p-1.5 font-mono text-xs text-slate-600 dark:bg-slate-950 dark:text-slate-400">
-                    {(m.sql ?? []).join('\n')}
-                  </pre>
-                  {(m.undo_sql?.length ?? 0) > 0 && (
-                    <p
-                      className="mt-0.5 truncate font-mono text-xs text-slate-400 dark:text-slate-500"
-                      title={(m.undo_sql ?? []).join('\n')}
-                    >
-                      undo: {(m.undo_sql ?? [])[0]}
-                    </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
