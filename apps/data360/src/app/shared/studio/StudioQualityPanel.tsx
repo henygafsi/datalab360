@@ -399,7 +399,9 @@ export default function StudioQualityPanel({
       <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Quarantine (DLQ) — {open.length} open · {resolved.length} resolved kept in audit
+            Quarantine (DLQ) —{' '}
+            {dlqOpen == null ? 'could not be read' : `${open.length} open`} · {resolved.length} resolved
+            kept in audit
           </h3>
           {open.length > 0 && jobForReplay && (
             <button
@@ -434,7 +436,11 @@ export default function StudioQualityPanel({
           )}
         </div>
 
-        {open.length === 0 && resolved.length === 0 ? (
+        {dlqOpen == null ? (
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            The quarantine could not be read — the score above marks it not measured, never clean.
+          </p>
+        ) : open.length === 0 && resolved.length === 0 ? (
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             No record in quarantine — and none is hidden to look clean.
           </p>

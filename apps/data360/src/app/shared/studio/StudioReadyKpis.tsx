@@ -88,18 +88,18 @@ export default function StudioReadyKpis({
     setBusy(c.kpi_id ?? c.title ?? 'add');
     setError(null);
     try {
-      // confirm the decision first (the source card does the same); a draft
-      // that predates the decision row gets it registered, then retried
+      // confirm the decision first — the SAME contract as the source card:
+      // a draft that predates the decision row gets it registered and the
+      // call retried, but a GENUINE failure throws and the append below never
+      // runs, so the report and the decision store never diverge.
       if (c.decision_id) {
         try {
           await postDecision(draftId, { decision_id: c.decision_id, status: 'confirmed' });
-        } catch {
-          try {
-            await proposeKpiCandidates(draftId);
-            await postDecision(draftId, { decision_id: c.decision_id, status: 'confirmed' });
-          } catch {
-            /* the append below still lands the KPI; the decision is best-effort */
-          }
+        } catch (e) {
+          const msg = (e as { message?: string })?.message ?? '';
+          if (!/not a decision/i.test(msg)) throw e;
+          await proposeKpiCandidates(draftId);
+          await postDecision(draftId, { decision_id: c.decision_id, status: 'confirmed' });
         }
       }
       const path = c.spec.kind === 'kpi' ? '/report/kpis/-' : '/report/charts/-';
