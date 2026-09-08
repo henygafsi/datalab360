@@ -890,7 +890,11 @@ export default function StudioModelInspector({
             const rels = raw.filter((r) => {
               const h = r.left?.target_id === target.target_id ? r.left : r.right;
               const o = r.left?.target_id === target.target_id ? r.right : r.left;
-              const sig = `${(h?.columns ?? []).join(',')}=>${o?.target_id}.${(o?.columns ?? []).join(',')}`;
+              // include cardinality + status so the collapse is LOSSLESS: two
+              // relations on the same columns but a different shape/verdict are
+              // kept apart, never silently merged into whichever arrived first
+              const meta = r as { cardinality?: string; status?: string };
+              const sig = `${(h?.columns ?? []).join(',')}=>${o?.target_id}.${(o?.columns ?? []).join(',')}|${meta.cardinality ?? ''}|${meta.status ?? ''}`;
               if (seenRel.has(sig)) return false;
               seenRel.add(sig);
               return true;

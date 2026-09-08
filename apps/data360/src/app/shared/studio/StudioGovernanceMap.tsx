@@ -605,7 +605,8 @@ export default function StudioGovernanceMap({
               }.`}{' '}
           The masking policy is written for text columns — adapt the column type before applying. There
           is no row-style preview for masking: it is prepared as a high-risk change below and takes
-          effect only once an administrator applies it.
+          effect only once an administrator applies it. A column you type is sent as written and is not
+          checked against the model — pick from the observed columns when you can.
         </p>
       </section>
 
