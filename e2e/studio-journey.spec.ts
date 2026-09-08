@@ -196,14 +196,17 @@ test('T5 — access: my reads verified, unheld role honestly predicted', async (
   // a proven read is stated plainly, with its query_id as the proof
   await expect(page.getByText(/^can read$/).first()).toBeVisible({ timeout: 90_000 });
   await expect(page.getByText(/proof 01c6/).first()).toBeVisible();
-  // the guided flow: who → what they may do (≤5 role cards) → which data
-  // → review, one decision per step instead of one long scroll
-  await page.locator('select[aria-label="Who kind"]').selectOption('role');
-  await page.locator('input[aria-label="Who to plan access for"]').fill('BI_ANALYST');
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await expect(page.getByRole('radio', { name: /View/ }).first()).toBeVisible({ timeout: 60_000 });
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Continue' }).click();
+  // Governance is a MAP now, not a four-step journey: everyone who exists
+  // is listed and you ASSOCIATE them with a Data360 role. Same proof
+  // obligations, fewer clicks — and no name typed into a free-text box,
+  // where a typo used to plan a grant for a principal that is not there.
+  // BI_ANALYST specifically: the point of this case is a role the SESSION
+  // DOES NOT HOLD, so its read can only ever be predicted. Mapping whoever
+  // happens to be first would test a different, weaker thing.
+  await page.getByRole('textbox', { name: 'Search people and roles' }).fill('BI_ANALYST');
+  const principal = page.getByRole('combobox', { name: 'Data360 role for BI_ANALYST' });
+  await expect(principal).toBeVisible({ timeout: 120_000 });
+  await principal.selectOption('view');
   await page.getByRole('button', { name: 'Prepare the change' }).click();
   // the change is described in words; the SQL is one explicit click away
   await page.getByText(/Prepared change/i).first().waitFor({ timeout: 120_000 });

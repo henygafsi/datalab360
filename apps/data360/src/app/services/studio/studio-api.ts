@@ -1280,6 +1280,58 @@ export async function suggestRls(draftId: string): Promise<RlsSuggestion> {
   return data ?? {};
 }
 
+/**
+ * The people and warehouse roles that ALREADY EXIST on the account.
+ *
+ * Governance is an association, not an invention: you map someone who
+ * exists onto a Data360 role. Typing a name into a free-text box — which
+ * is what this replaced — let a typo produce a grant for a principal that
+ * is not there, and gave no way to see who was already covered.
+ *
+ * Failures are returned as an empty list plus a reason rather than thrown:
+ * a reader without governance rights should see "you cannot list the
+ * account's users", not an error boundary.
+ */
+export async function listAccountPrincipals(): Promise<{
+  principals: Array<{ name: string; kind: 'user' | 'role'; disabled?: boolean }>;
+  note?: string;
+}> {
+  const pick = (payload: unknown, keys: string[]): Array<Record<string, unknown>> => {
+    if (Array.isArray(payload)) return payload as Array<Record<string, unknown>>;
+    const o = (payload ?? {}) as Record<string, unknown>;
+    for (const k of keys) if (Array.isArray(o[k])) return o[k] as Array<Record<string, unknown>>;
+    return [];
+  };
+  const nameOf = (r: Record<string, unknown>): string =>
+    String(r.name ?? r.username ?? r.role ?? r.role_name ?? r.NAME ?? '').trim();
+
+  const [users, roles] = await Promise.allSettled([
+    apiClient.get(API.gouvernance.users(), { timeout: 60_000 }),
+    apiClient.get(API.gouvernance.roles(), { timeout: 60_000 }),
+  ]);
+
+  const out: Array<{ name: string; kind: 'user' | 'role'; disabled?: boolean }> = [];
+  if (users.status === 'fulfilled')
+    for (const u of pick(users.value.data, ['users', 'items', 'data'])) {
+      const n = nameOf(u);
+      if (n) out.push({ name: n, kind: 'user', disabled: u.disabled === true || u.enabled === false });
+    }
+  if (roles.status === 'fulfilled')
+    for (const r of pick(roles.value.data, ['roles', 'items', 'data'])) {
+      const n = nameOf(r);
+      if (n) out.push({ name: n, kind: 'role' });
+    }
+
+  const failed = [users, roles].filter((p) => p.status === 'rejected').length;
+  return {
+    principals: out,
+    note:
+      out.length === 0 && failed
+        ? 'The account’s users and roles could not be read — this usually means your role may not list them.'
+        : undefined,
+  };
+}
+
 /** The five functional grant types (view|edit|operate|approve|admin) +
  *  the layering rules — max 5 per application, data access SEPARATE
  *  behind one per-app access role. */

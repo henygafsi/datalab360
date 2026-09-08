@@ -74,6 +74,7 @@ import {
   runChartBatch,
   runDqGate,
   understandDirect,
+  updateDraft,
   type ConsistencyIssue,
   type AiEnrichment,
   type DqGateResult,
@@ -294,7 +295,12 @@ type TileState =
   | { status: 'done'; result: RunResult }
   /** `error` is ALWAYS a sentence — the batch route declares a string and
    *  sends an object, and rendering that object blanked the application. */
-  | { status: 'error'; error: string; budget?: boolean; raw?: string };
+  | { status: 'error'; error: string; budget?: boolean; raw?: string }
+  /** The batch ran out of its time budget before reaching this tile. It is
+   *  neither a success nor a failure: nothing was asked of the warehouse,
+   *  so saying "failed" would be a lie and showing an empty box would be
+   *  indistinguishable from a broken widget. */
+  | { status: 'not_run'; reason: string; retry?: string };
 
 /** One failing widget must never take the page down with it, and a spent
  *  budget must not read as a broken feature. */
@@ -436,7 +442,18 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
         if (!r.chart_id) continue;
         setTiles((prev) => ({
           ...prev,
-          [r.chart_id!]: r.status === 'error' ? tileFailure(r.error) : { status: 'done', result: r as RunResult },
+          [r.chart_id!]:
+            r.status === 'not_run'
+              ? {
+                  status: 'not_run',
+                  reason:
+                    (r as { reason?: string }).reason ??
+                    'the batch ran out of time before this widget was asked for',
+                  retry: (r as { retry?: string }).retry,
+                }
+              : r.status === 'error'
+                ? tileFailure(r.error)
+                : { status: 'done', result: r as RunResult },
         }));
       }
     } catch (e) {
@@ -1112,6 +1129,13 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           const need = d?.need ?? null;
           return need ? String(need) : undefined;
         })()}
+        onRename={async (next) => {
+          if (!draftId) return;
+          await updateDraft(draftId, { display_name: next });
+          setDrafts((prev) =>
+            prev?.map((d) => (d.draft_id === draftId ? { ...d, display_name: next } : d)) ?? prev,
+          );
+        }}
         backHref={routes.studio}
         backLabel="Studio"
         actions={
@@ -1385,6 +1409,10 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                           )}
                           {!t || t.status === 'running' ? (
                             <div className="mt-1 h-5 w-16 animate-pulse rounded bg-slate-100 dark:bg-slate-800" aria-hidden />
+                          ) : t.status === 'not_run' ? (
+                            <p className="text-xs text-slate-400 dark:text-slate-500" title={t.reason}>
+                              not run
+                            </p>
                           ) : t.status === 'error' ? (
                             <p className="text-xs text-red-600 dark:text-red-400" title={t.error}>—</p>
                           ) : (
@@ -1512,6 +1540,10 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                           <div className={`mt-1.5 overflow-auto ${viz === 'table' ? 'max-h-40' : ''}`}>
                             {!t || t.status === 'running' ? (
                               <div className="h-24 animate-pulse rounded bg-slate-100 dark:bg-slate-800" aria-hidden />
+                            ) : t.status === 'not_run' ? (
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Not asked for yet — {t.reason}. Open this widget on its own to run it.
+                              </p>
                             ) : t.status === 'error' ? (
                               <p
                                 className={`text-xs ${t.budget ? 'text-amber-700 dark:text-amber-300' : 'text-red-600 dark:text-red-400'}`}

@@ -27,6 +27,7 @@ import {
   getAccess,
   getGrantTypes,
   planDraftAccess,
+  listAccountPrincipals,
   suggestRls,
   testDraftAccess,
   type AccessMutation,
@@ -34,7 +35,11 @@ import {
   type AccessView,
   type RlsSuggestion,
 } from '@/app/services/studio/studio-api';
-import StudioStepper from '@/app/shared/studio/StudioStepper';
+import StudioGovernanceMap, {
+  type PolicyMapping,
+  type Principal,
+  type RoleMapping,
+} from '@/app/shared/studio/StudioGovernanceMap';
 
 function errText(e: unknown): string {
   const detail = (e as { response?: { data?: { detail?: { message?: string; error_code?: string; how?: string } | string } } })
@@ -80,8 +85,6 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
   const [view, setView] = useState<AccessView | 'loading' | 'error'>('loading');
   const [grantTypes, setGrantTypes] = useState<GrantType[]>([]);
   const [gov, setGov] = useState<RlsSuggestion | null>(null);
-  const [who, setWho] = useState('');
-  const [whoKind, setWhoKind] = useState<'user' | 'role'>('user');
   const [grantType, setGrantType] = useState('view');
   /** column of the ready-made row policy, '' = the whole table */
   const [policyColumn, setPolicyColumn] = useState('');
@@ -92,8 +95,11 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
   const [applyResult, setApplyResult] = useState<string | null>(null);
   const [tests, setTests] = useState<AccessObjectRead[] | null>(null);
   const [showSql, setShowSql] = useState(false);
-  /** the guided flow: one decision per step */
-  const [step, setStep] = useState(0);
+  /** who exists on the account — the map associates, it never invents */
+  const [principals, setPrincipals] = useState<Principal[] | null>(null);
+  const [principalsNote, setPrincipalsNote] = useState<string | null>(null);
+  const [mapping, setMapping] = useState<RoleMapping>({});
+  const [policy, setPolicy] = useState<PolicyMapping>({});
 
   const load = useCallback(async () => {
     try {
@@ -124,6 +130,15 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
     void suggestRls(draftId)
       .then(setGov)
       .catch(() => undefined); // the palette still works without candidates
+    void listAccountPrincipals()
+      .then((r) => {
+        setPrincipals(r.principals);
+        setPrincipalsNote(r.note ?? null);
+      })
+      .catch(() => {
+        setPrincipals([]);
+        setPrincipalsNote('The account’s users and roles could not be read.');
+      });
   }, [draftId, load]);
 
   if (view === 'loading')
@@ -162,33 +177,50 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
     }
   };
 
-  const plan = () =>
+  const plan = () => {
+    /* The whole map goes in one plan: every principal that was associated,
+     * and every policy column with the values each Data360 role may see.
+     * `restrictions` is an OBJECT with a `rows` list, and each rule names
+     * its values per grant type — a bare list under a `values` key was
+     * rejected with 400 "Input should be a valid dictionary", which is how
+     * this step came to do nothing at all, silently. */
+    const who = Object.entries(mapping)
+      .filter(([, gt]) => Boolean(gt))
+      .map(([name, gt]) => {
+        const p = (principals ?? []).find((x) => x.name === name);
+        const kind = p?.kind ?? 'role';
+        /* grant_type travels for a PERSON only. On a warehouse role the
+         * server derives the functional role itself, and sending one made
+         * the read run under a role the session already holds — turning a
+         * prediction into a false "verified". */
+        return kind === 'user' ? { type: kind, name, grant_type: gt } : { type: kind, name };
+      });
+    if (who.length === 0) return;
+    // taken from the MAPPING: a warehouse role travels without a grant_type
+    // (the server derives it), so reading it back off `who` would drop it
+    const grant_types = [...new Set(Object.values(mapping).filter(Boolean))];
+
+    const rows = Object.entries(policy)
+      .map(([column, byGrant]) => {
+        const allowed_values_by_grant_type: Record<string, string[] | '*'> = {};
+        for (const [gt, vals] of Object.entries(byGrant ?? {})) {
+          if (vals === '*') allowed_values_by_grant_type[gt] = '*';
+          else if (Array.isArray(vals) && vals.length) allowed_values_by_grant_type[gt] = vals;
+        }
+        return Object.keys(allowed_values_by_grant_type).length
+          ? { column, allowed_values_by_grant_type }
+          : null;
+      })
+      .filter(Boolean);
+
     void run('plan', () =>
       planDraftAccess(draftId, {
-        who: [
-          {
-            type: whoKind,
-            name: who.trim().toUpperCase(),
-            ...(whoKind === 'user' ? { grant_type: grantType } : {}),
-          },
-        ],
-        grant_types: [grantType],
-        /* `restrictions` is an OBJECT with a `rows` list, and each rule
-         * names its values `allowed_values`. Sending a bare list under a
-         * `values` key — as this did — was rejected with 400
-         * "Input should be a valid dictionary", so the row policy never
-         * reached the server and the governance step silently did nothing.
-         * The wire carries the bare column; the UI resolved WHICH table it
-         * came from, so the values sent belong to the column shown. */
-        ...(chosen && policyValues.length
-          ? {
-              restrictions: {
-                rows: [{ column: chosen.column, allowed_values: policyValues }],
-              },
-            }
-          : {}),
+        who,
+        grant_types,
+        ...(rows.length ? { restrictions: { rows } } : {}),
       } as never),
     );
+  };
 
   return (
     <div className="space-y-3">
@@ -223,188 +255,22 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
         {me.note && <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{me.note}</p>}
       </section>
 
-      {/* the palette: who → what → which data */}
-      {/* Give access — one decision per step, never one long scroll */}
-      <StudioStepper
-        current={step}
-        onStep={setStep}
-        finishLabel="Prepare the change"
-        onFinish={() => { if (who.trim()) plan(); }}
-        steps={[
-          {
-            id: 'who',
-            label: 'Who',
-            title: 'Who gets access?',
-            subtitle: 'A person, or a role that several people already hold.',
-            canContinue: who.trim().length > 0,
-            blockedReason: 'Name the person or role first.',
-            content: (<>
-{/* 1 — who */}
-      <div className="mt-2.5">
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          <select
-            value={whoKind}
-            onChange={(e) => setWhoKind(e.target.value as 'user' | 'role')}
-            aria-label="Who kind"
-            className="h-8 w-32 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-          >
-            <option value="user">a person</option>
-            <option value="role">a role</option>
-          </select>
-          <input
-            value={who}
-            onChange={(e) => setWho(e.target.value)}
-            placeholder={whoKind === 'user' ? 'user name (e.g. HAHA)' : 'role name (e.g. BI_ANALYST)'}
-            aria-label="Who to plan access for"
-            className="h-8 w-52 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-          />
-        </div>
-      </div>
-            </>),
-          },
-          {
-            id: 'what',
-            label: 'What they may do',
-            title: 'What may they do?',
-            subtitle: 'At most five roles per application — pick the one that matches their job.',
-            tally: grantTypes.find((g) => g.id === grantType)?.label ?? grantType,
-            content: (<>
-{/* 2 — what they may do: the ≤5 role cards */}
-      <div className="mt-3">
-        {grantTypes.length === 0 ? (
-          <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
-            The role palette could not be read — planning stays available with the default role.
-          </p>
-        ) : (
-          <div
-            role="radiogroup"
-            aria-label="Role to grant"
-            className="mt-1 grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-3"
-          >
-            {grantTypes.map((g) => {
-              const active = grantType === g.id;
-              return (
-                <button
-                  key={g.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => setGrantType(g.id)}
-                  className={`rounded-lg border p-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-                    active
-                      ? 'border-accent-500 bg-accent-50/60 dark:border-accent-600 dark:bg-accent-900/20'
-                      : 'border-slate-200 hover:border-slate-300 dark:border-slate-700'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5">
-                    {active && <Check aria-hidden className="h-3.5 w-3.5 text-accent-600" />}
-                    <span className="text-[13px] font-medium text-slate-900 dark:text-slate-100">
-                      {g.label ?? g.id}
-                    </span>
-                  </span>
-                  {g.description && (
-                    <span className="mt-0.5 block text-xs leading-snug text-slate-600 dark:text-slate-300">
-                      {g.description}
-                    </span>
-                  )}
-                  {g.template_role && (
-                    <span className="mt-0.5 block text-xs text-slate-400 dark:text-slate-500">
-                      typically: {g.template_role}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-            </>),
-          },
-          {
-            id: 'data',
-            label: 'Which data',
-            title: 'Which data may they see?',
-            subtitle: 'The tables of this application, optionally restricted to the rows that concern them.',
-            tally: policyColumn ? `${policyValues.length} value(s) kept` : 'the whole table',
-            content: (<>
-{/* 3 — which data: tables + a ready-made row policy */}
-      <div className="mt-3">
-        <p className="mt-1 text-[13px] text-slate-600 dark:text-slate-300">
-          {(me.objects ?? []).length > 0
-            ? `The ${(me.objects ?? []).length} table(s) of this application` +
-              (roles?.access_role ? ', through its data-access role.' : '.')
-            : 'The tables of this application.'}
-        </p>
-        {candidates.length > 0 ? (
-          <div className="mt-1.5 flex flex-wrap items-end gap-2">
-            <label className="text-xs text-slate-500 dark:text-slate-400">
-              Restrict rows by
-              <select
-                value={policyColumn}
-                onChange={(e) => {
-                  setPolicyColumn(e.target.value);
-                  setPolicyValues([]);
-                }}
-                className="mt-0.5 block h-8 w-64 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-              >
-                <option value="">no restriction — the whole table</option>
-                {candidates.map((c) => (
-                  <option key={candidateKey(c)} value={candidateKey(c)}>
-                    {c.column}
-                    {c.fqn ? ` · ${c.fqn.split('.').slice(-1)[0]}` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {chosen && (
-              <div className="min-w-0">
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Values they may see (observed in the data)
-                </p>
-                <div className="mt-0.5 flex flex-wrap gap-1">
-                  {(chosen.observed_values ?? []).map((v) => {
-                    const val = String(v.value ?? '');
-                    const on = policyValues.includes(val);
-                    return (
-                      <button
-                        key={val}
-                        type="button"
-                        aria-pressed={on}
-                        onClick={() =>
-                          setPolicyValues((p) =>
-                            on ? p.filter((x) => x !== val) : [...p, val],
-                          )
-                        }
-                        className={`rounded-full border px-2 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-                          on
-                            ? 'border-accent-500 bg-accent-600 text-white'
-                            : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
-                        }`}
-                        title={`${v.count ?? '—'} rows carry this value`}
-                      >
-                        {val}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            No column of this application holds a small set of repeated values, so there is no
-            ready-made row restriction to offer.
-          </p>
-        )}
-      </div>
-            </>),
-          },
-          {
-            id: 'review',
-            label: 'Review',
-            title: 'Review, then apply',
-            subtitle: 'Nothing runs until you tick a line and confirm.',
-            content: (<>
+      {/* Governance is a MAP, not a journey: everything on screen, and the
+          only act is to associate someone who exists with a Data360 role,
+          and a policy column with the values each role may see. */}
+      <StudioGovernanceMap
+        view={view}
+        gov={gov}
+        grantTypes={grantTypes}
+        principals={principals}
+        principalsNote={principalsNote ?? undefined}
+        mapping={mapping}
+        onMap={(name, gt) => setMapping((m) => ({ ...m, [name]: gt }))}
+        policy={policy}
+        onPolicy={(col, gt, vals) =>
+          setPolicy((pp) => ({ ...pp, [col]: { ...(pp[col] ?? {}), [gt]: vals } }))
+        }
+        footer={(<>
 
       {/* the step's own footer button prepares the change — no second
           primary action competing with it here */}
@@ -416,9 +282,24 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
       )}
       {mutations.length === 0 && busy !== 'plan' && (
         <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
-          Nothing prepared yet — use « Prepare the change » below.
+          Nothing is prepared yet. Map at least one person or role above, then prepare the change —
+          an administrator still has to tick and run it.
         </p>
       )}
+      <button
+        type="button"
+        disabled={busy != null || Object.values(mapping).filter(Boolean).length === 0}
+        onClick={() => plan()}
+        title={
+          Object.values(mapping).filter(Boolean).length === 0
+            ? 'Map someone to a Data360 role first'
+            : 'Prepare the change — nothing runs yet'
+        }
+        className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+      >
+        {busy === 'plan' && <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+        Prepare the change
+      </button>
 
       {roles?.access_role && (
         <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
@@ -545,8 +426,13 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
                 void run(
                   'test',
                   async () => {
-                    const w = who.trim().toUpperCase();
-                    setTests(await testDraftAccess(draftId, w ? ['me', w] : ['me']));
+                    /* test MYSELF plus everyone the map associated — reading
+                     * only 'me' proves nothing about the people this change
+                     * is for, and that is the whole question here. */
+                    const mapped = Object.entries(mapping)
+                      .filter(([, gt]) => Boolean(gt))
+                      .map(([name]) => name.toUpperCase());
+                    setTests(await testDraftAccess(draftId, ['me', ...mapped]));
                   },
                   false,
                 )
@@ -587,9 +473,7 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
           {error}
         </p>
       )}
-            </>),
-          },
-        ]}
+        </>)}
       />
     </div>
   );

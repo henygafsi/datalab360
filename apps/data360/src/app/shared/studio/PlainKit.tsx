@@ -9,7 +9,7 @@
  * in the first level of copy. Everything here is presentational — zero fetch.
  */
 
-import type { ReactNode } from 'react';
+import { useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { ChevronLeft, Info, type LucideIcon } from 'lucide-react';
 
@@ -23,6 +23,11 @@ export interface PlainQuestionHeaderProps {
   backHref?: string;
   backLabel?: string;
   actions?: ReactNode;
+  /** When given, the title is renameable in place. An application whose
+   *  name comes from its implementation ("Application src transactions")
+   *  and cannot be changed is a product that names itself after its
+   *  plumbing — the reader must be able to say what this thing IS. */
+  onRename?: (next: string) => void | Promise<void>;
 }
 
 /**
@@ -36,7 +41,10 @@ export function PlainQuestionHeader({
   backHref,
   backLabel,
   actions,
+  onRename,
 }: PlainQuestionHeaderProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
   return (
     <header className="flex items-start justify-between gap-4">
       <div className="min-w-0">
@@ -49,9 +57,52 @@ export function PlainQuestionHeader({
             {backLabel ?? 'Back'}
           </Link>
         ) : null}
-        <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-          {question}
-        </h1>
+        {onRename && editing ? (
+          <input
+            autoFocus
+            value={draft}
+            aria-label="Name of this application"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+              if (e.key === 'Escape') {
+                setDraft(question);
+                setEditing(false);
+              }
+            }}
+            onBlur={() => {
+              const v = draft.trim();
+              if (v && v !== question) void onRename(v);
+              setEditing(false);
+            }}
+            className="w-full max-w-xl rounded-lg border border-accent-400 bg-white px-2 py-1 text-xl font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:bg-slate-900 dark:text-slate-100"
+          />
+        ) : (
+          <h1
+            {...(onRename
+              ? {
+                  role: 'button',
+                  tabIndex: 0,
+                  title: 'Click to rename this application',
+                  onClick: () => {
+                    setDraft(question);
+                    setEditing(true);
+                  },
+                  onKeyDown: (e: ReactKeyboardEvent) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setDraft(question);
+                      setEditing(true);
+                    }
+                  },
+                  className:
+                    'cursor-text rounded text-xl font-semibold text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-100 dark:hover:bg-slate-800',
+                }
+              : { className: 'text-xl font-semibold text-slate-900 dark:text-slate-100' })}
+          >
+            {question}
+          </h1>
+        )}
         {detail ? (
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             {detail}

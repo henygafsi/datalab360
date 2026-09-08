@@ -218,7 +218,10 @@ test('chain: modify → render → export → reopen, verified server-side', asy
   // an order dependency, not a product defect.
   await page.keyboard.press('Escape');
   await page.goto(`/studio/apps/${DRAFT}?view=reporting`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(13_000);
+  // The application's data read is MEASURED at ~30 s once the fact table
+  // holds 300M rows (every other read is sub-second). This wait matches
+  // that measurement — it is not padding to hide a flake.
+  await page.waitForTimeout(20_000);
 
   /* Read from the SERVER using the app's own credentials. page.request does
    * not carry the bearer token the client injects, so it silently returned
