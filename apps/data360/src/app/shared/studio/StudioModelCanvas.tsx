@@ -147,7 +147,7 @@ function StudioTableNodeInner({ data, selected }: NodeProps<StudioTableNodeData>
             <Table2 aria-hidden className="h-3.5 w-3.5 shrink-0 text-accent-500" />
             <span
               className="truncate text-[13px] font-semibold text-slate-900 dark:text-slate-100"
-              title={data.description ?? data.name}
+              title={data.description ? `${data.name} — ${data.description}` : data.name}
             >
               {data.name}
             </span>

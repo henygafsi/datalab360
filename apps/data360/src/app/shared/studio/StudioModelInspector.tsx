@@ -154,6 +154,9 @@ export default function StudioModelInspector({
   );
   /* governance names + RLS candidates — fetched on demand (live counts) */
   const [gov, setGov] = useState<RlsSuggestion | 'loading' | 'error' | null>(null);
+  /* relations of a target are capped so the LINK builder below stays
+   * reachable without scrolling a hub table's full list */
+  const [relLimit, setRelLimit] = useState(6);
   /* a SOURCE table's columns, searchable and bounded */
   const [colQuery, setColQuery] = useState('');
   const [colLimit, setColLimit] = useState(25);
@@ -878,9 +881,20 @@ export default function StudioModelInspector({
             <Link2 aria-hidden className="h-3 w-3" /> Relations
           </p>
           {(() => {
-            const rels = (view?.relationships ?? []).filter(
+            const raw = (view?.relationships ?? []).filter(
               (r) => r.left?.target_id === target.target_id || r.right?.target_id === target.target_id,
             );
+            // the same join can arrive twice (both directions) — collapse
+            // exact duplicates so the list is read once, not doubled
+            const seenRel = new Set<string>();
+            const rels = raw.filter((r) => {
+              const h = r.left?.target_id === target.target_id ? r.left : r.right;
+              const o = r.left?.target_id === target.target_id ? r.right : r.left;
+              const sig = `${(h?.columns ?? []).join(',')}=>${o?.target_id}.${(o?.columns ?? []).join(',')}`;
+              if (seenRel.has(sig)) return false;
+              seenRel.add(sig);
+              return true;
+            });
             if (rels.length === 0)
               return (
                 <p className="mt-1 text-[13px] text-slate-500 dark:text-slate-400">
@@ -888,8 +902,9 @@ export default function StudioModelInspector({
                 </p>
               );
             return (
+              <>
               <ul className="mt-1 space-y-1.5">
-                {rels.map((r, i) => {
+                {rels.slice(0, relLimit).map((r, i) => {
                   const here = r.left?.target_id === target.target_id ? r.left : r.right;
                   const other = r.left?.target_id === target.target_id ? r.right : r.left;
                   /* The verdict is DERIVED, not asked: the referenced side's
@@ -908,14 +923,15 @@ export default function StudioModelInspector({
                   const v = readRelation(r, rightKey);
                   return (
                     <li key={r.relationship_id ?? i} className="text-[13px]">
-                      <p className="text-slate-700 dark:text-slate-200">
+                      <p
+                        className="break-words text-slate-700 dark:text-slate-200"
+                        title={`${(here?.columns ?? []).join(', ') || '—'} → ${other?.name ?? '—'}.${(other?.columns ?? []).join(', ') || '—'}`}
+                      >
                         <span className="font-mono text-xs">
                           {(here?.columns ?? []).join(', ') || '—'}
                         </span>{' '}
-                        → {other?.name ?? '—'}.
-                        <span className="font-mono text-xs">
-                          {(other?.columns ?? []).join(', ') || '—'}
-                        </span>
+                        → <span className="font-medium">{other?.name ?? '—'}</span>
+                        <span className="font-mono text-xs">.{(other?.columns ?? []).join(', ') || '—'}</span>
                       </p>
                       <p className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500 dark:text-slate-400">
                         <span
@@ -948,11 +964,25 @@ export default function StudioModelInspector({
                   );
                 })}
               </ul>
+              {rels.length > 6 && (
+                <button
+                  type="button"
+                  onClick={() => setRelLimit((n) => (n >= rels.length ? 6 : rels.length))}
+                  className="mt-1 text-xs text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400"
+                >
+                  {relLimit >= rels.length ? 'show fewer' : `show all ${rels.length} relations`}
+                </button>
+              )}
+              </>
             );
           })()}
-          {/* declare one between TARGET tables, from real columns */}
+          {/* declare one between TARGET tables, from real columns — the link
+              builder, kept right under a SHORT list so linking never means
+              scrolling a hub table's relations first */}
           {(view?.targets.length ?? 0) > 1 && (
-            <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1.5 text-[13px]">
+            <div className="mt-2.5 border-t border-slate-100 pt-2 dark:border-slate-800">
+              <p className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">Add a link</p>
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 text-[13px]">
               <label className="min-w-0 text-xs text-slate-500 dark:text-slate-400">
                 This column
                 <select
@@ -1021,6 +1051,7 @@ export default function StudioModelInspector({
                   ))}
                 </select>
               </label>
+              </div>
             </div>
           )}
 
