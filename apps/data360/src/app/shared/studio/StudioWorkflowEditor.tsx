@@ -1,0 +1,932 @@
+'use client';
+
+/**
+ * StudioWorkflowEditor — ONE workflow, opened in place of the pilot list.
+ *
+ * AI-first and business-readable BY DEFAULT: the definition reads as the
+ * generated phrase — When (event) / If (condition) / Then (steps) /
+ * Deliver to (destination) — and the block graph is a REPRESENTATION,
+ * folded below, never the starting point. Everything edits the SAME
+ * definition the jobs read, through the backend's own `edit_paths`
+ * allowlist: name, trigger, condition, window and each step. Edits
+ * ACCUMULATE in a buffer and land as ONE patch (the JobEditor
+ * discipline: dirty guard on close, refusals rendered in place —
+ * EDIT_PATH_NOT_ALLOWED is « not supported yet », never a crash).
+ * The natural-language lane (editModel) previews its allowlisted ops
+ * before anything is applied; a threshold that was a DECISION stays a
+ * decision — re-confirmed through the same contract, never silently
+ * overwritten.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Play, RefreshCw, Sparkles, Square, X } from 'lucide-react';
+import {
+  editModel,
+  getBlocksCatalog,
+  getWorkflowRuns,
+  getWorkflowVersions,
+  patchModel,
+  postDecision,
+  previewWorkflow,
+  stopWorkflow,
+  testRunWorkflow,
+  type CatalogBlock,
+  type ModelPatchOp,
+  type WorkflowItem,
+  type WorkflowMissing,
+  type WorkflowPreview,
+  type WorkflowRunsPage,
+  type WorkflowTestRun,
+  type WorkflowVersions,
+} from '@/app/services/studio/studio-api';
+import { readFailure } from '@/app/shared/studio/studio-errors';
+
+function errText(e: unknown): string {
+  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  return readFailure(detail ?? e).text;
+}
+
+function isUnsupportedPath(e: unknown): boolean {
+  return JSON.stringify((e as { response?: { data?: unknown } })?.response?.data ?? '').includes(
+    'EDIT_PATH_NOT_ALLOWED',
+  );
+}
+
+interface EditPaths {
+  name?: string;
+  trigger?: string;
+  condition?: string;
+  window?: string;
+  steps?: string[];
+}
+
+type StepDef = {
+  step_id?: string;
+  block_type?: string;
+  capability?: string;
+  label?: string;
+  config?: Record<string, unknown>;
+};
+
+/** Inline decision for a missing prerequisite — grounded in its carried
+ *  proposal; a confirmed value stays RE-EDITABLE through the same
+ *  contract (re-confirmation is idempotent server-side). */
+function MissingDecision({
+  draftId,
+  m,
+  onDone,
+}: {
+  draftId: string;
+  m: WorkflowMissing;
+  onDone: () => void;
+}) {
+  const kind = String((m.proposal as { kind?: string } | null)?.kind ?? '');
+  const [days, setDays] = useState('30');
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const did = m.decision_id;
+  if (!did) {
+    return <span className="text-xs text-slate-400 dark:text-slate-500">{m.how_to_complete}</span>;
+  }
+  const send = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const value =
+        kind === 'sla_days'
+          ? {
+              days: Number(days),
+              from_field: (m.proposal as { from_field?: string } | null)?.from_field,
+              kind,
+            }
+          : text.includes(',')
+            ? { open_values: text.split(',').map((v) => v.trim()).filter(Boolean) }
+            : { text: text.trim() };
+      await postDecision(draftId, { decision_id: did, status: 'confirmed', value });
+      onDone();
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      {kind === 'sla_days' ? (
+        <>
+          <input
+            type="number"
+            min={1}
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+            aria-label={`Days for ${m.decision_id}`}
+            className="h-7 w-16 rounded border border-slate-200 bg-white px-1.5 text-xs tabular-nums dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+          />
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            days after {(m.proposal as { from_field?: string } | null)?.from_field ?? '—'}
+          </span>
+        </>
+      ) : (
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="value(s), comma-separated"
+          aria-label={`Value for ${m.decision_id}`}
+          className="h-7 w-44 rounded border border-slate-200 bg-white px-1.5 text-xs dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300"
+        />
+      )}
+      <button
+        type="button"
+        disabled={busy || (kind !== 'sla_days' && !text.trim())}
+        onClick={() => void send()}
+        className="rounded-md bg-accent-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50"
+      >
+        Confirm
+      </button>
+      {error && (
+        <span role="alert" className="text-xs text-red-600 dark:text-red-400">{error}</span>
+      )}
+    </span>
+  );
+}
+
+const SECTIONS = ['definition', 'steps', 'runs'] as const;
+type Section = (typeof SECTIONS)[number];
+const SECTION_LABEL: Record<Section, string> = {
+  definition: 'Definition',
+  steps: 'Steps',
+  runs: 'Runs & history',
+};
+
+export default function StudioWorkflowEditor({
+  draftId,
+  workflow,
+  triggerChoices,
+  onClose,
+  onChanged,
+  onOpenActivation,
+}: {
+  draftId: string;
+  workflow: WorkflowItem;
+  triggerChoices: string[];
+  onClose: () => void;
+  onChanged: () => void;
+  onOpenActivation?: () => void;
+}) {
+  const w = workflow;
+  const aid = w.automation_id;
+  const ep = (w.edit_paths ?? {}) as EditPaths;
+  const steps = (w.steps ?? []) as StepDef[];
+  const condition = (w.condition ?? null) as {
+    chart_id?: string;
+    measure?: string;
+    aggregator?: string;
+    operator?: string;
+    threshold?: number | null;
+  } | null;
+  const windowDef = (w.window ?? null) as { days?: number; limit?: number } | null;
+
+  const [section, setSection] = useState<Section>('definition');
+  /** the buffered change — path → op; ONE patch on Save */
+  const [buffer, setBuffer] = useState<Record<string, ModelPatchOp>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [unsupported, setUnsupported] = useState<string | null>(null);
+  const [preview, setPreview] = useState<WorkflowPreview | null>(null);
+  const [testRun, setTestRun] = useState<WorkflowTestRun | null>(null);
+  const [history, setHistory] = useState<{ runs: WorkflowRunsPage; versions: WorkflowVersions } | null>(null);
+  const [graphOpen, setGraphOpen] = useState(false);
+  /* AI lane */
+  const [aiText, setAiText] = useState('');
+  const [aiState, setAiState] = useState<
+    | { kind: 'idle' }
+    | { kind: 'running' }
+    | { kind: 'preview'; ops: ModelPatchOp[]; summary?: string }
+    | { kind: 'questions'; questions: string[] }
+  >({ kind: 'idle' });
+  /* palette */
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [catalog, setCatalog] = useState<CatalogBlock[] | 'loading' | null>(null);
+  const [pickedBlock, setPickedBlock] = useState<CatalogBlock | null>(null);
+  const [blockCfg, setBlockCfg] = useState<Record<string, string>>({});
+
+  const isDirty = Object.keys(buffer).length > 0;
+
+  const stage = useCallback((path: string | undefined, value: unknown, what: string) => {
+    if (!path) return;
+    setBuffer((b) => ({ ...b, [path]: { op: 'set', path, value } as ModelPatchOp }));
+    setError(null);
+    void what;
+  }, []);
+
+  const save = useCallback(async () => {
+    const ops = Object.values(buffer);
+    if (ops.length === 0 || busy) return;
+    setBusy('save');
+    setError(null);
+    setUnsupported(null);
+    try {
+      await patchModel(draftId, ops, true, `edit workflow ${w.name ?? aid}`);
+      setBuffer({});
+      onChanged();
+    } catch (e) {
+      if (isUnsupportedPath(e)) setUnsupported('Part of this change is not supported by this backend version yet — nothing was applied.');
+      else setError(errText(e));
+    } finally {
+      setBusy(null);
+    }
+  }, [aid, buffer, busy, draftId, onChanged, w.name]);
+
+  const close = useCallback(() => {
+    if (isDirty && !window.confirm('Unsaved workflow edits — leave and lose them?')) return;
+    onClose();
+  }, [isDirty, onClose]);
+
+  const runAi = useCallback(async () => {
+    const text = aiText.trim();
+    if (!text || aiState.kind === 'running') return;
+    setAiState({ kind: 'running' });
+    setError(null);
+    try {
+      const r = await editModel(draftId, `On workflow "${w.name ?? aid}" (${aid}): ${text}`);
+      const ops = (r.ops ?? []) as ModelPatchOp[];
+      const questions = (r as { questions?: string[] }).questions ?? [];
+      if (questions.length > 0) setAiState({ kind: 'questions', questions });
+      else if (ops.length > 0)
+        setAiState({ kind: 'preview', ops, summary: (r as { summary?: string }).summary });
+      else {
+        setAiState({ kind: 'idle' });
+        setError('The AI proposed no change for that instruction.');
+      }
+    } catch (e) {
+      setAiState({ kind: 'idle' });
+      setError(errText(e));
+    }
+  }, [aiState.kind, aiText, aid, draftId, w.name]);
+
+  const applyAi = useCallback(async () => {
+    if (aiState.kind !== 'preview' || busy) return;
+    setBusy('ai-apply');
+    setError(null);
+    try {
+      await patchModel(draftId, aiState.ops, true, `AI edit of workflow ${aid}: ${aiText.trim()}`);
+      setAiState({ kind: 'idle' });
+      setAiText('');
+      onChanged();
+    } catch (e) {
+      if (isUnsupportedPath(e)) setUnsupported('The proposed change touches a path this backend does not allow yet.');
+      else setError(errText(e));
+    } finally {
+      setBusy(null);
+    }
+  }, [aiState, aiText, aid, busy, draftId, onChanged]);
+
+  const openPalette = useCallback(() => {
+    setPaletteOpen(true);
+    if (catalog == null) {
+      setCatalog('loading');
+      void getBlocksCatalog()
+        .then((r) => setCatalog(r.blocks))
+        .catch(() => setCatalog([]));
+    }
+  }, [catalog]);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const [runs, versions] = await Promise.all([
+        getWorkflowRuns(draftId, aid),
+        getWorkflowVersions(draftId, aid).catch(() => ({ events: [] }) as WorkflowVersions),
+      ]);
+      setHistory({ runs, versions });
+    } catch (e) {
+      setError(errText(e));
+    }
+  }, [aid, draftId]);
+
+  useEffect(() => {
+    if (section === 'runs' && history == null) void loadHistory();
+  }, [history, loadHistory, section]);
+
+  const act = useCallback(
+    async (key: string, fn: () => Promise<void>) => {
+      if (busy) return;
+      setBusy(key);
+      setError(null);
+      try {
+        await fn();
+      } catch (e) {
+        setError(errText(e));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [busy],
+  );
+
+  /* staged values override the definition for display */
+  const staged = <T,>(path: string | undefined, current: T): T =>
+    path && buffer[path] ? ((buffer[path] as { value?: unknown }).value as T) : current;
+
+  const stepsBasePath = useMemo(() => {
+    const p = ep.steps?.[0];
+    return p ? p.replace(/\/\d+$/, '') : null;
+  }, [ep.steps]);
+
+  const graphNodes = ((w.graph?.nodes ?? []) as Array<Record<string, unknown>>).slice(0, 40);
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      {/* ── header: name (renamable through its edit path), state, save ── */}
+      <div className="flex flex-wrap items-center gap-2">
+        {ep.name ? (
+          <input
+            value={staged(ep.name, w.name ?? aid)}
+            onChange={(e) => stage(ep.name, e.target.value, 'name')}
+            aria-label="Workflow name"
+            className="h-8 w-72 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          />
+        ) : (
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{w.name ?? aid}</h3>
+        )}
+        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          {w.state ?? 'proposed'}
+        </span>
+        {w.job_id && (
+          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="One definition — its trigger IS the job's trigger">
+            job {w.job_id}
+          </span>
+        )}
+        {w.definition_version?.revision != null && (
+          <span className="text-xs text-slate-400 dark:text-slate-500">rev {w.definition_version.revision}</span>
+        )}
+        <span className="ml-auto flex items-center gap-2">
+          {isDirty && (
+            <button
+              type="button"
+              disabled={busy != null}
+              onClick={() => void save()}
+              className="rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+            >
+              {busy === 'save' ? 'Saving…' : `Save ${Object.keys(buffer).length} change(s)`}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={close}
+            aria-label="Close the workflow editor"
+            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400 dark:hover:bg-slate-800"
+          >
+            <X aria-hidden className="h-4 w-4" />
+          </button>
+        </span>
+      </div>
+
+      {/* section rail */}
+      <div className="mt-2 flex flex-wrap gap-1.5" role="tablist" aria-label="Workflow editor sections">
+        {SECTIONS.map((s) => (
+          <button
+            key={s}
+            type="button"
+            role="tab"
+            aria-selected={section === s}
+            onClick={() => setSection(s)}
+            className={`rounded-md px-2.5 py-0.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+              section === s
+                ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
+                : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+          >
+            {SECTION_LABEL[s]}
+          </button>
+        ))}
+      </div>
+
+      {/* ── DEFINITION — the phrase, each segment editable in place ────── */}
+      {section === 'definition' && (
+        <div className="mt-3 space-y-3">
+          <div className="rounded-lg border border-slate-200 p-3 text-[13px] dark:border-slate-800">
+            <dl className="space-y-2">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">When</dt>
+                <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">{w.phrase?.event ?? '—'}</dd>
+                <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                  trigger
+                  <select
+                    value={staged(ep.trigger ?? w.trigger_path, {
+                      cron_choice: w.trigger?.cron_choice ?? null,
+                    })?.cron_choice ?? 'manual'}
+                    disabled={!(ep.trigger ?? w.trigger_path)}
+                    aria-label="Workflow trigger"
+                    onChange={(e) =>
+                      stage(
+                        ep.trigger ?? w.trigger_path,
+                        { cron_choice: e.target.value === 'manual' ? null : e.target.value },
+                        'trigger',
+                      )
+                    }
+                    className="h-7 rounded border border-slate-200 bg-white px-1 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                  >
+                    {triggerChoices.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </span>
+              </div>
+              <div className="flex flex-wrap items-baseline gap-2">
+                <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">If</dt>
+                <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">
+                  {w.phrase?.condition ?? (condition ? `${condition.measure ?? ''} ${condition.operator ?? ''} ${condition.threshold ?? '?'}` : 'always')}
+                </dd>
+                {condition && ep.condition && (
+                  <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                    <select
+                      value={staged(ep.condition, condition)?.operator ?? condition.operator ?? '<'}
+                      aria-label="Condition operator"
+                      onChange={(e) =>
+                        stage(ep.condition, { ...staged(ep.condition, condition), operator: e.target.value }, 'operator')
+                      }
+                      className="h-7 rounded border border-slate-200 bg-white px-1 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    >
+                      {['<', '<=', '>', '>=', '==', '!='].map((o) => (
+                        <option key={o} value={o}>{o}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      value={String(staged(ep.condition, condition)?.threshold ?? '')}
+                      placeholder="threshold"
+                      aria-label="Condition threshold"
+                      onChange={(e) =>
+                        stage(
+                          ep.condition,
+                          { ...staged(ep.condition, condition), threshold: e.target.value === '' ? null : Number(e.target.value) },
+                          'threshold',
+                        )
+                      }
+                      className="h-7 w-24 rounded border border-slate-200 bg-white px-1.5 text-xs tabular-nums dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    />
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-baseline gap-2">
+                <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Then</dt>
+                <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">
+                  {w.phrase?.action ?? '—'} → {w.phrase?.destination ?? '—'}
+                  {w.phrase?.expected_result && (
+                    <span className="text-slate-400 dark:text-slate-500"> — {w.phrase.expected_result}</span>
+                  )}
+                </dd>
+                {windowDef && ep.window && (
+                  <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                    window
+                    <input
+                      type="number"
+                      min={1}
+                      value={String(staged(ep.window, windowDef)?.days ?? '')}
+                      aria-label="Window in days"
+                      onChange={(e) =>
+                        stage(ep.window, { ...staged(ep.window, windowDef), days: Number(e.target.value) || 1 }, 'window')
+                      }
+                      className="h-7 w-16 rounded border border-slate-200 bg-white px-1.5 text-xs tabular-nums dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    />
+                    day(s)
+                  </span>
+                )}
+              </div>
+            </dl>
+            {(() => {
+              const missing = [
+                ...(w.prerequisites?.data?.missing ?? []),
+                ...(w.prerequisites?.destination?.missing ?? []),
+              ];
+              if (missing.length === 0) return null;
+              return (
+                <ul className="mt-2 space-y-1 border-t border-slate-100 pt-2 dark:border-slate-800">
+                  {missing.map((m, i) => (
+                    <li key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                      <span className="text-amber-700 dark:text-amber-400">{m.what}</span>
+                      <span className="text-slate-400 dark:text-slate-500">{m.why}</span>
+                      <MissingDecision draftId={draftId} m={m} onDone={onChanged} />
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
+            {w.schedule && (
+              <p className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                Schedule: {(w.schedule as { active?: boolean }).active ? 'running' : 'not active'}
+                {(w.schedule as { note?: string }).note ? ` — ${(w.schedule as { note?: string }).note}` : ''}
+                {onOpenActivation && !(w.schedule as { active?: boolean }).active && (
+                  <>
+                    {' '}
+                    <button type="button" onClick={onOpenActivation} className="text-accent-700 hover:underline dark:text-accent-400">
+                      open the activation panel
+                    </button>
+                  </>
+                )}
+              </p>
+            )}
+          </div>
+
+          {/* the NL lane — same definition, previewed ops, never silent */}
+          <div className="rounded-lg border border-accent-200 p-3 dark:border-accent-900/50">
+            <label className="flex items-center gap-2">
+              <Sparkles aria-hidden className="h-4 w-4 shrink-0 text-accent-500" />
+              <input
+                value={aiText}
+                onChange={(e) => setAiText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && void runAi()}
+                placeholder="Describe the change — e.g. « alert when stock cover drops under 5 days, weekly »"
+                aria-label="Describe the workflow change"
+                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              />
+              <button
+                type="button"
+                disabled={aiState.kind === 'running' || !aiText.trim()}
+                onClick={() => void runAi()}
+                className="shrink-0 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+              >
+                {aiState.kind === 'running' ? 'Thinking…' : 'Propose'}
+              </button>
+            </label>
+            {aiState.kind === 'preview' && (
+              <div className="mt-2 text-[13px]" role="status">
+                <p className="text-slate-700 dark:text-slate-200">
+                  {aiState.summary ?? 'The AI proposes these allowlisted changes:'}
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {aiState.ops.map((op, i) => (
+                    <li key={i} className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                      {(op as { op?: string }).op} {(op as { path?: string }).path}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={busy != null}
+                    onClick={() => void applyAi()}
+                    className="rounded-lg bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50"
+                  >
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAiState({ kind: 'idle' })}
+                    className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400"
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            )}
+            {aiState.kind === 'questions' && (
+              <div className="mt-2 text-[13px]" role="status">
+                <p className="text-slate-700 dark:text-slate-200">The AI needs your word first:</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-slate-600 dark:text-slate-300">
+                  {aiState.questions.slice(0, 4).map((q) => (
+                    <li key={q}>{q}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {/* simulate + test on the row of truth */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={busy != null}
+              onClick={() =>
+                void act('preview', async () => setPreview(await previewWorkflow(draftId, aid)))
+              }
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-600 hover:border-slate-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+            >
+              {busy === 'preview' && <RefreshCw aria-hidden className="h-3 w-3 animate-spin" />}
+              Simulate on history
+            </button>
+            <button
+              type="button"
+              disabled={busy != null || w.activable?.ok === false}
+              title={w.activable?.ok === false ? (w.activable?.reason ?? 'blocked by a decision') : 'Sandbox delivery with proofs'}
+              onClick={() =>
+                void act('test', async () => {
+                  setTestRun(await testRunWorkflowSafe(draftId, aid));
+                  onChanged();
+                })
+              }
+              className="inline-flex items-center gap-1 rounded-lg bg-accent-600 px-2.5 py-1 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"
+            >
+              {busy === 'test' ? <RefreshCw aria-hidden className="h-3 w-3 animate-spin" /> : <Play aria-hidden className="h-3 w-3" />}
+              Test-run (sandbox)
+            </button>
+            {w.state !== 'stopped' && (
+              <button
+                type="button"
+                disabled={busy != null}
+                onClick={() =>
+                  void act('stop', async () => {
+                    await stopWorkflow(draftId, aid, 'stopped from the editor');
+                    onChanged();
+                  })
+                }
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-600 hover:border-slate-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+              >
+                <Square aria-hidden className="h-3 w-3" />
+                Stop
+              </button>
+            )}
+          </div>
+          {preview && (
+            <p className="text-[13px] text-slate-600 dark:text-slate-300" role="status">
+              {preview.status === 'not_computable'
+                ? `Not computable yet — ${(preview.missing ?? []).map((m) => m.what).join('; ')}. No query ran.`
+                : `${preview.count ?? '—'} expected triggering(s)${preview.deduplicated ? ` · ${preview.deduplicated} deduplicated` : ''} · no side effects.`}
+            </p>
+          )}
+          {testRun && (
+            <p className="text-[13px] text-slate-600 dark:text-slate-300" role="status">
+              Delivered {testRun.results?.delivered_new ?? '—'} (before {testRun.results?.deliveries_before ?? '—'} → after {testRun.results?.deliveries_after ?? '—'}) ·{' '}
+              <span className="font-mono text-xs">{testRun.evidence?.deliveries_table}</span>
+              {testRun.evidence?.is_test_data ? ' · test data' : ''}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── STEPS — the sequence, each block editable via its own path ── */}
+      {section === 'steps' && (
+        <div className="mt-3 space-y-2">
+          {steps.length === 0 ? (
+            <p className="text-[13px] text-slate-500 dark:text-slate-400">
+              This workflow carries no explicit steps — its action is derived from the phrase.
+            </p>
+          ) : (
+            <ol className="space-y-2">
+              {steps.map((s, i) => {
+                const path = ep.steps?.[i];
+                const stagedStep = staged(path, s);
+                const cfg = (stagedStep?.config ?? {}) as Record<string, unknown>;
+                return (
+                  <li key={s.step_id ?? i} className="rounded-lg border border-slate-200 p-2.5 dark:border-slate-800">
+                    <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                      <span className="font-mono text-xs text-slate-400 dark:text-slate-500">{i + 1}</span>
+                      <span className="font-medium text-slate-800 dark:text-slate-100">{s.label ?? s.block_type ?? `step ${i + 1}`}</span>
+                      {s.block_type && (
+                        <span className="rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                          {s.block_type}
+                        </span>
+                      )}
+                      {path ? (
+                        <span className="ml-auto text-xs text-slate-400 dark:text-slate-500" title={path}>editable</span>
+                      ) : (
+                        <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">read-only in this version</span>
+                      )}
+                      {path && stepsBasePath && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = steps.filter((_, j) => j !== i);
+                            setBuffer((b) => ({
+                              ...b,
+                              [stepsBasePath]: { op: 'set', path: stepsBasePath, value: next } as ModelPatchOp,
+                            }));
+                          }}
+                          className="rounded px-1.5 py-0.5 text-xs text-slate-400 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-500 dark:hover:text-red-400"
+                          title="Removes this step from the staged sequence — nothing changes before Save"
+                        >
+                          remove
+                        </button>
+                      )}
+                    </div>
+                    {Object.keys(cfg).length > 0 && path && (
+                      <div className="mt-1.5 flex flex-wrap gap-2">
+                        {Object.entries(cfg)
+                          .filter(([, v]) => typeof v !== 'object')
+                          .slice(0, 6)
+                          .map(([k, v]) => (
+                            <label key={k} className="block">
+                              <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">{k.replace(/_/g, ' ')}</span>
+                              <input
+                                value={String(v ?? '')}
+                                onChange={(e) =>
+                                  stage(path, { ...stagedStep, config: { ...cfg, [k]: e.target.value } }, `step ${i}`)
+                                }
+                                className="h-7 w-44 rounded border border-slate-200 bg-white px-1.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                              />
+                            </label>
+                          ))}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+
+          {/* palette — the catalogue's real blocks, honest availability */}
+          {stepsBasePath && (
+            <div>
+              <button
+                type="button"
+                onClick={() => (paletteOpen ? setPaletteOpen(false) : openPalette())}
+                aria-expanded={paletteOpen}
+                className="rounded-lg border border-accent-500 px-2.5 py-1 text-xs font-medium text-accent-700 hover:bg-accent-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-300 dark:hover:bg-accent-900/30"
+              >
+                {paletteOpen ? 'Close the palette' : 'Add a step…'}
+              </button>
+              {paletteOpen && (
+                <div className="mt-2 rounded-lg border border-slate-200 p-2.5 dark:border-slate-800">
+                  {catalog === 'loading' || catalog == null ? (
+                    <div role="status" className="h-16 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800">
+                      <span className="sr-only">Reading the block catalogue…</span>
+                    </div>
+                  ) : pickedBlock ? (
+                    <div className="text-[13px]">
+                      <p className="font-medium text-slate-800 dark:text-slate-100">{pickedBlock.label ?? pickedBlock.block_type}</p>
+                      {pickedBlock.description && (
+                        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{pickedBlock.description}</p>
+                      )}
+                      <div className="mt-1.5 flex flex-wrap gap-2">
+                        {(pickedBlock.config_schema ?? []).slice(0, 8).map((f) => (
+                          <label key={f.name} className="block">
+                            <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                              {f.name.replace(/_/g, ' ')}
+                              {f.required ? ' *' : ''}
+                            </span>
+                            <input
+                              value={blockCfg[f.name] ?? String(f.default ?? '')}
+                              placeholder={f.description}
+                              onChange={(e) => setBlockCfg((c) => ({ ...c, [f.name]: e.target.value }))}
+                              className="h-7 w-44 rounded border border-slate-200 bg-white px-1.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next: StepDef = {
+                              step_id: `s_${Math.abs(Date.now() % 1_000_000)}`,
+                              block_type: pickedBlock.block_type,
+                              label: pickedBlock.label ?? pickedBlock.block_type,
+                              config: Object.fromEntries(
+                                Object.entries(blockCfg).filter(([, v]) => v !== ''),
+                              ),
+                            };
+                            setBuffer((b) => ({
+                              ...b,
+                              [stepsBasePath]: {
+                                op: 'set',
+                                path: stepsBasePath,
+                                value: [...steps, next],
+                              } as ModelPatchOp,
+                            }));
+                            setPickedBlock(null);
+                            setBlockCfg({});
+                            setPaletteOpen(false);
+                          }}
+                          className="rounded-lg bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700"
+                        >
+                          Stage the step
+                        </button>
+                        <button type="button" onClick={() => setPickedBlock(null)} className="rounded px-2 py-1 text-xs text-slate-500 dark:text-slate-400">
+                          Back
+                        </button>
+                        <span className="text-xs text-slate-400 dark:text-slate-500">Nothing changes before Save; a refused path renders as an answer.</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-3">
+                      {catalog
+                        .filter((b) => (b.editable_in?.workflows?.length ?? 0) > 0 || b.availability?.status === 'available')
+                        .slice(0, 24)
+                        .map((b) => (
+                          <li key={b.block_type}>
+                            <button
+                              type="button"
+                              onClick={() => setPickedBlock(b)}
+                              className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-1 text-left text-xs hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700"
+                            >
+                              <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">{b.label ?? b.block_type}</span>
+                              <span className="shrink-0 text-slate-400 dark:text-slate-500">{b.family ?? '—'}</span>
+                            </button>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* the graph — a REPRESENTATION of the steps, folded */}
+          {graphNodes.length > 0 && (
+            <div>
+              <button
+                type="button"
+                aria-expanded={graphOpen}
+                onClick={() => setGraphOpen((v) => !v)}
+                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+              >
+                {graphOpen ? <ChevronDown aria-hidden className="h-3.5 w-3.5" /> : <ChevronRight aria-hidden className="h-3.5 w-3.5" />}
+                The same definition as a graph ({graphNodes.length} node(s)) — derived from the steps, never the other way round
+              </button>
+              {graphOpen && (
+                <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                  {graphNodes.map((n, i) => (
+                    <li
+                      key={String(n.id ?? i)}
+                      className={`rounded-lg border px-2 py-1 text-xs ${
+                        n.executable === false
+                          ? 'border-slate-200 text-slate-400 dark:border-slate-800 dark:text-slate-500'
+                          : 'border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-200'
+                      }`}
+                      title={`${String(n.type ?? '')}${n.capability ? ` · ${String(n.capability)}` : ''}${n.executable === false ? ' · not executable yet' : ''}`}
+                    >
+                      {String(n.label ?? n.id ?? `node ${i + 1}`)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── RUNS & HISTORY ─────────────────────────────────────────────── */}
+      {section === 'runs' && (
+        <div className="mt-3">
+          {history == null ? (
+            <div role="status" className="h-24 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800">
+              <span className="sr-only">Reading the history…</span>
+            </div>
+          ) : (
+            <div className="space-y-2 text-[13px]">
+              {history.runs.items.length === 0 ? (
+                <p className="text-slate-500 dark:text-slate-400">
+                  No execution recorded.
+                  {history.runs.scheduled?.available === false ? ` ${history.runs.scheduled.reason}.` : ''}
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full">
+                    <thead className="text-left text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                      <tr>
+                        <th className="px-2 py-1 font-medium">Kind</th>
+                        <th className="px-2 py-1 font-medium">Result</th>
+                        <th className="px-2 py-1 font-medium">Delivered</th>
+                        <th className="px-2 py-1 font-medium">When</th>
+                        <th className="px-2 py-1 font-medium">Version</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {history.runs.items.map((r, i) => (
+                        <tr key={r.run_id ?? i}>
+                          <td className="whitespace-nowrap px-2 py-1">{r.kind === 'test' ? 'test run' : (r.kind ?? '—')}</td>
+                          <td className="whitespace-nowrap px-2 py-1">{r.status ?? '—'}</td>
+                          <td className="whitespace-nowrap px-2 py-1 tabular-nums">{r.delivered ?? '—'}</td>
+                          <td className="whitespace-nowrap px-2 py-1 text-slate-500 dark:text-slate-400">
+                            {r.started_at ? new Date(r.started_at).toLocaleString() : '—'}
+                          </td>
+                          <td className="whitespace-nowrap px-2 py-1 font-mono text-xs text-slate-500 dark:text-slate-400">{r.version ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {(history.versions.events.length ?? 0) > 0 && (
+                <div className="border-t border-slate-100 pt-1.5 dark:border-slate-800">
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Definition history</p>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {history.versions.events.slice(0, 8).map((ev, i) => (
+                      <li key={i} className="text-slate-600 dark:text-slate-300">
+                        {ev.at ? new Date(ev.at).toLocaleString() : '—'} · {ev.summary ?? ev.kind ?? 'change'}
+                        {ev.by ? ` · by ${ev.by}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {unsupported && (
+        <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[13px] text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">{unsupported}</p>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-[13px] text-red-600 dark:text-red-400">{error}</p>
+      )}
+    </section>
+  );
+}
+
+/** testRunWorkflow with its service signature kept at arm's length. */
+async function testRunWorkflowSafe(draftId: string, aid: string): Promise<WorkflowTestRun> {
+  return testRunWorkflow(draftId, aid);
+}

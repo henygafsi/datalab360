@@ -1155,6 +1155,43 @@ export interface BlockGraph {
 /** A JOB as an editable graph of ETL blocks — derived on read, never
  *  stored; the edit_paths are the SAME allowlisted patch paths the
  *  existing editors use (one definition everywhere). */
+/** One ETL catalogue block — its editable config schema and where it can
+ *  be edited (jobs[] / workflows[] carry the allowlisted paths). */
+export interface CatalogBlock {
+  block_type: string;
+  family?: 'ingestion' | 'transform' | 'python_ml' | 'delivery' | 'control' | string;
+  label?: string;
+  description?: string;
+  config_schema?: Array<{
+    name: string;
+    type?: string;
+    required?: boolean;
+    default?: unknown;
+    enum?: unknown[];
+    description?: string;
+  }>;
+  availability?: Record<string, unknown> & { status?: string };
+  compute?: Record<string, unknown>;
+  editable_in?: { jobs?: string[]; workflows?: string[] };
+}
+
+export async function getBlocksCatalog(
+  family?: string,
+): Promise<{ blocks: CatalogBlock[]; families?: string[]; by_family?: Record<string, number> }> {
+  return dedupGet(`studio:v1:blocks-catalog:${family ?? 'all'}`, 600_000, async () => {
+    const { data } = await apiClient.get<{
+      blocks?: CatalogBlock[];
+      families?: string[];
+      by_family?: Record<string, number>;
+    }>(API.studio.blocksCatalog(family), { timeout: 30_000 });
+    return {
+      blocks: Array.isArray(data?.blocks) ? data.blocks : [],
+      families: data?.families,
+      by_family: data?.by_family,
+    };
+  });
+}
+
 export async function getJobGraph(draftId: string, jobId: string): Promise<BlockGraph> {
   const { data } = await apiClient.get<Partial<BlockGraph>>(
     `/studio/drafts/${encodeURIComponent(draftId)}/jobs/${encodeURIComponent(jobId)}/graph`,
@@ -1739,6 +1776,7 @@ export interface WorkflowItem {
    *  trigger path: one definition, whichever view edits it. */
   trigger_path?: string;
   job_id?: string;
+  condition?: Record<string, unknown>;
   steps?: Array<Record<string, unknown>>;
   graph?: { nodes?: unknown[]; edges?: unknown[] };
   edit_paths?: Record<string, unknown>;

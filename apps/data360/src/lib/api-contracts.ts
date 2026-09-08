@@ -1526,6 +1526,13 @@ export const API = {
      *  envelope (ACCOUNTADMIN raises limits, with who/when/why recorded). */
     previewPolicy: () => '/studio/preview-policy',
 
+    /** GET /studio/blocks/catalog?family= — the ETL block catalogue
+     *  (config_schema[], availability, editable_in{jobs[], workflows[]})
+     *  backed by the platform's real blocks. */
+    blocksCatalog: (family?: string) => `/studio/blocks/catalog${qs({ family })}`,
+    /** GET one block's full definition. */
+    blocksCatalogItem: (blockType: string) => `/studio/blocks/catalog/${enc(blockType)}`,
+
     /* ── Connections as first-class objects + versioned attachments ────
      * Backend tranche SOURCES 2026-09-08 (19 routes, schema_version
      * studio.connections.v1 / studio.source_objects.v1). One registry —
