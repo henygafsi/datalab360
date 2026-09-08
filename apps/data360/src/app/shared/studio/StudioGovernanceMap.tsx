@@ -21,7 +21,12 @@
  */
 
 import { useMemo, useState } from 'react';
+import { Eye, RefreshCw } from 'lucide-react';
 import { Database, KeyRound, Search, ShieldCheck, Users } from 'lucide-react';
+import {
+  simulateRlsPlan,
+  type RlsPlanSimulation,
+} from '@/app/services/studio/studio-api';
 import type { AccessView, RlsSuggestion } from '@/app/services/studio/studio-api';
 
 export interface Principal {
@@ -38,6 +43,7 @@ export type RoleMapping = Record<string, string>;
 export type PolicyMapping = Record<string, Record<string, string[] | '*'>>;
 
 export default function StudioGovernanceMap({
+  draftId,
   view,
   gov,
   grantTypes,
@@ -49,6 +55,7 @@ export default function StudioGovernanceMap({
   onPolicy,
   footer,
 }: {
+  draftId: string;
   view: AccessView;
   gov: RlsSuggestion | null;
   grantTypes: Array<{ id: string; label?: string; description?: string }>;
@@ -64,6 +71,31 @@ export default function StudioGovernanceMap({
   const [q, setQ] = useState('');
   /** the role whose values are being painted — 'view' is the common case */
   const [paintRole, setPaintRole] = useState('view');
+  /** plan-level RLS simulation per column: who WOULD see what, pre-apply */
+  const [sims, setSims] = useState<Record<string, RlsPlanSimulation | 'running' | { error: string }>>({});
+  const simulate = async (column: string, fqn: string) => {
+    const byGrant: Record<string, string[] | '*'> = {};
+    for (const [gt, vals] of Object.entries(policy[column] ?? {})) {
+      if (vals === '*') byGrant[gt] = '*';
+      else if (Array.isArray(vals) && vals.length) byGrant[gt] = vals;
+    }
+    if (Object.keys(byGrant).length === 0) return;
+    setSims((m) => ({ ...m, [column]: 'running' }));
+    try {
+      const r = await simulateRlsPlan(draftId, {
+        fqn,
+        column,
+        allowed_values_by_grant_type: byGrant,
+        rows: 3,
+      });
+      setSims((m) => ({ ...m, [column]: r }));
+    } catch (e) {
+      setSims((m) => ({
+        ...m,
+        [column]: { error: e instanceof Error ? e.message : 'The simulation failed.' },
+      }));
+    }
+  };
   const roles = gov?.roles ?? view.diff?.roles ?? {};
   const functional = roles.functional ?? {};
   const objects = view.me?.objects ?? [];
@@ -77,12 +109,15 @@ export default function StudioGovernanceMap({
   /* one candidate per column — the same column on two tables is one policy,
    * and showing it twice invites granting the values of the wrong table */
   const columns = useMemo(() => {
-    const byCol = new Map<string, { column: string; tables: string[]; values: string[] }>();
+    const byCol = new Map<string, { column: string; tables: string[]; fqns: string[]; values: string[] }>();
     for (const c of gov?.candidates ?? []) {
       const col = c.column ?? '';
       if (!col) continue;
-      const cur = byCol.get(col) ?? { column: col, tables: [], values: [] };
-      if (c.fqn) cur.tables.push(c.fqn.split('.').slice(-1)[0]);
+      const cur = byCol.get(col) ?? { column: col, tables: [], fqns: [], values: [] };
+      if (c.fqn) {
+        cur.tables.push(c.fqn.split('.').slice(-1)[0]);
+        cur.fqns.push(c.fqn);
+      }
       for (const v of c.observed_values ?? []) {
         const s = String(v.value ?? '');
         if (s && !cur.values.includes(s)) cur.values.push(s);
@@ -373,6 +408,75 @@ export default function StudioGovernanceMap({
                           ? `${kept.length} value(s) kept`
                           : 'no rule — this role sees no row of this column'}
                     </p>
+                    {/* WHO WOULD SEE WHAT — the plan simulated on real data
+                        before the admin applies anything. The governance
+                        simulate route replays a policy already bound; this
+                        one answers for the PLAN. */}
+                    {(() => {
+                      const hasRule = Object.values(policy[c.column] ?? {}).some(
+                        (v) => v === '*' || (Array.isArray(v) && v.length > 0),
+                      );
+                      const sim = sims[c.column];
+                      return (
+                        <div className="mt-1.5">
+                          <button
+                            type="button"
+                            disabled={!hasRule || sim === 'running'}
+                            title={
+                              hasRule
+                                ? 'Count, on the real data, what each role would see — nothing is applied'
+                                : 'Paint at least one rule first'
+                            }
+                            onClick={() => void simulate(c.column, c.fqns[0] ?? '')}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:border-slate-300 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-300"
+                          >
+                            {sim === 'running' ? (
+                              <RefreshCw aria-hidden className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Eye aria-hidden className="h-3 w-3" />
+                            )}
+                            Who would see what?
+                          </button>
+                          {sim && sim !== 'running' && 'error' in sim && (
+                            <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+                              {sim.error}
+                            </p>
+                          )}
+                          {sim && sim !== 'running' && !('error' in sim) && (
+                            <div
+                              role="status"
+                              className="mt-1 space-y-0.5 rounded-lg bg-slate-50 p-1.5 text-xs dark:bg-slate-800/60"
+                            >
+                              <p className="text-slate-500 dark:text-slate-400">
+                                {c.fqns[0]?.split('.').slice(-1)[0]} · {sim.total_rows ?? '—'} rows
+                                — simulated on the plan, nothing applied
+                              </p>
+                              {Object.entries(sim.by_grant_type ?? {}).map(([gt, r]) => {
+                                const everything =
+                                  r.allowed_values !== '*' && (r.share ?? 0) >= 1;
+                                return (
+                                  <p
+                                    key={gt}
+                                    title={r.filter}
+                                    className={
+                                      everything
+                                        ? 'font-medium text-amber-700 dark:text-amber-300'
+                                        : 'text-slate-700 dark:text-slate-200'
+                                    }
+                                  >
+                                    {grantLabel(grantTypes, gt)}: {r.visible_rows ?? '—'} of{' '}
+                                    {sim.total_rows ?? '—'} rows
+                                    {r.share != null ? ` (${Math.round(r.share * 100)}%)` : ''}
+                                    {everything &&
+                                      ' — the chosen values cover the whole table; this restricts nothing'}
+                                  </p>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}

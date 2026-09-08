@@ -1332,6 +1332,48 @@ export async function listAccountPrincipals(): Promise<{
   };
 }
 
+/**
+ * Who WOULD see which rows under a PLANNED restriction — before anything
+ * is applied. The governance simulate route replays a policy already
+ * bound to the table; this one simulates the plan itself, read-only, on
+ * the caller's session, zero credits beyond bounded counts.
+ */
+export interface RlsPlanSimulation {
+  fqn?: string;
+  column?: string;
+  total_rows?: number;
+  by_grant_type?: Record<
+    string,
+    {
+      allowed_values?: string[] | '*';
+      visible_rows?: number;
+      share?: number;
+      filter?: string;
+      warning?: string;
+    }
+  >;
+  predicate?: string;
+  state?: string;
+}
+
+export async function simulateRlsPlan(
+  draftId: string,
+  body: {
+    fqn?: string;
+    target_id?: string;
+    column: string;
+    allowed_values_by_grant_type: Record<string, string[] | '*'>;
+    rows?: number;
+  },
+): Promise<RlsPlanSimulation> {
+  return studioMutate<RlsPlanSimulation>(
+    'POST',
+    `/studio/drafts/${encodeURIComponent(draftId)}/access/rls/simulate`,
+    body,
+    120_000,
+  );
+}
+
 /** The five functional grant types (view|edit|operate|approve|admin) +
  *  the layering rules — max 5 per application, data access SEPARATE
  *  behind one per-app access role. */

@@ -259,6 +259,7 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
           only act is to associate someone who exists with a Data360 role,
           and a policy column with the values each role may see. */}
       <StudioGovernanceMap
+        draftId={draftId}
         view={view}
         gov={gov}
         grantTypes={grantTypes}
