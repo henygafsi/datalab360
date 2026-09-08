@@ -323,6 +323,18 @@ export interface StudioDomainInfo {
 }
 
 /** The user's call on one decision — persisted on the draft. */
+/** Register the pattern KPI candidates of an EXISTING draft as decisions —
+ *  drafts created before the contract display candidates on read, but a
+ *  keep/discard needs the decision row to exist first. */
+export async function proposeKpiCandidates(draftId: string): Promise<Record<string, unknown>> {
+  return studioMutate(
+    'POST',
+    `/studio/drafts/${encodeURIComponent(draftId)}/kpi-candidates/propose`,
+    {},
+    120_000,
+  );
+}
+
 export async function postDecision(
   draftId: string,
   body: {
@@ -832,6 +844,52 @@ export interface ModelTable {
   fields?: number | UnderstandingField[];
   event_contract?: Record<string, unknown> | null;
   ingestion?: ModelIngestion | null;
+  /** HOW this source is fed — snapshot/event_driven/batch/realtime, or an
+   *  honest `unknown`. Proof levels mirror the key reading (declared >
+   *  sampled > inferred); a user's explicit choice is never overwritten
+   *  by a rescan. */
+  load_pattern?: {
+    pattern?: string;
+    confidence?: string;
+    evidence?: string[];
+    time_field?: string | null;
+    values?: string[];
+  } | null;
+  /** Scan-time DQ from the SAMPLE the understanding already held — key
+   *  nulls, grain duplicates. Referential integrity needs a join, so it
+   *  arrives "not evaluated" with the route that computes it. */
+  sample_dq?: {
+    overall?: string;
+    checks?: Array<{
+      check?: string;
+      columns?: string[];
+      verdict?: string;
+      evidence?: Record<string, unknown>;
+      scope?: string;
+      how?: string;
+    }>;
+    scope?: string;
+  } | null;
+  /** Pattern-aware repetitive KPIs, each a DECISION the user keeps or
+   *  discards — nothing is generated without that word. `spec` compiles
+   *  directly in the report engine; what the pattern wants but the engine
+   *  cannot express yet is listed in not_expressible, never approximated. */
+  kpi_candidates?: {
+    candidates?: Array<{
+      kpi_id?: string;
+      decision_id?: string;
+      title?: string;
+      pattern?: string;
+      why?: string;
+      measure?: { column?: string; aggregator?: string };
+      dimensions?: string[];
+      period?: string | null;
+      spec?: StudioChartSpec;
+      status?: string;
+    }>;
+    not_expressible?: Array<{ title?: string; reason?: string; why?: string }>;
+    pattern?: string;
+  } | null;
   lineage?: {
     upstream?: string[];
     downstream?: string[];

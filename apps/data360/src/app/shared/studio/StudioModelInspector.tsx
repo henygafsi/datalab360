@@ -22,6 +22,8 @@ import {
   getTableColumns,
   grainText,
   patchModel,
+  postDecision,
+  proposeKpiCandidates,
   suggestRls,
   type SourceColumnsPage,
   type ModelGrain,
@@ -218,7 +220,43 @@ export default function StudioModelInspector({
     };
   }, [draftId, srcFqn, colQuery, colLimit]);
 
+  /** KPI candidates the user has decided this session — decisions persist
+   *  server-side; this is the immediate answer the click deserves. */
+  const [kpiDecided, setKpiDecided] = useState<Record<string, 'kept' | 'discarded'>>({});
+
   if (!target && !srcTable) return null;
+
+  /** Drafts older than the contract show candidates on read but have no
+   *  decision rows yet — on that precise refusal, register them once and
+   *  retry. Any other failure surfaces as-is. */
+  const decideKpi = async (decisionId: string, status: 'confirmed' | 'rejected') => {
+    try {
+      await postDecision(draftId, { decision_id: decisionId, status });
+    } catch (e) {
+      const msg = errText(e);
+      if (!/not a decision/i.test(msg)) throw e;
+      await proposeKpiCandidates(draftId);
+      await postDecision(draftId, { decision_id: decisionId, status });
+    }
+  };
+  const keepKpi = (k: NonNullable<NonNullable<ModelTable['kpi_candidates']>['candidates']>[number]) =>
+    act(k.decision_id ?? 'kpi', async () => {
+      // the word first, then the widget — nothing is generated without it
+      await decideKpi(k.decision_id ?? '', 'confirmed');
+      const path = k.spec?.kind === 'kpi' ? '/report/kpis/-' : '/report/charts/-';
+      await patchModel(
+        draftId,
+        [{ op: 'add', path, value: k.spec }] as never,
+        true,
+        `keep the proposed KPI ${k.title}`,
+      );
+      setKpiDecided((m) => ({ ...m, [k.decision_id ?? '']: 'kept' }));
+    });
+  const discardKpi = (k: NonNullable<NonNullable<ModelTable['kpi_candidates']>['candidates']>[number]) =>
+    act(k.decision_id ?? 'kpi', async () => {
+      await decideKpi(k.decision_id ?? '', 'rejected');
+      setKpiDecided((m) => ({ ...m, [k.decision_id ?? '']: 'discarded' }));
+    });
 
   const act = async (key: string, fn: () => Promise<unknown>) => {
     if (busy) return;
@@ -666,6 +704,169 @@ export default function StudioModelInspector({
               {busy === 'rel' ? 'Declaring…' : 'Declare'}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* HOW this source is fed, its scan-time DQ, and the repetitive KPIs
+        * its pattern proposes. The user's directive verbatim: understand
+        * the rows and surface DQ so the keys and relations can be built
+        * right, then validate the AI-proposed KPIs at onboarding — keep or
+        * discard, nothing generated without that word. */}
+      {srcTable?.load_pattern && (
+        <div className="mt-2.5 rounded-lg border border-slate-100 p-2.5 dark:border-slate-800">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            How this source is fed
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <span
+              title={(srcTable.load_pattern.evidence ?? []).join(' · ')}
+              className={`rounded-full px-2 py-0.5 text-xs ${CONFIDENCE_CLS[srcTable.load_pattern.confidence ?? 'none'] ?? CONFIDENCE_CLS.none}`}
+            >
+              {String(srcTable.load_pattern.pattern ?? 'unknown').replace(/_/g, ' ')}
+              {srcTable.load_pattern.confidence ? ` · ${srcTable.load_pattern.confidence}` : ''}
+            </span>
+            {srcTable.load_pattern.time_field && (
+              <span className="font-mono text-xs text-slate-400">
+                time: {srcTable.load_pattern.time_field}
+              </span>
+            )}
+            {/* the user's word wins and is never overwritten by a rescan */}
+            <select
+              value={srcTable.load_pattern.pattern ?? 'unknown'}
+              aria-label="Declare how this source is fed"
+              disabled={busy === 'pattern'}
+              onChange={(e) =>
+                void act('pattern', () =>
+                  patchModel(
+                    draftId,
+                    [
+                      {
+                        op: 'set',
+                        path: `/understanding/entities/${srcIdx}/load_pattern`,
+                        value: { pattern: e.target.value },
+                      },
+                    ] as never,
+                    true,
+                    `declare the load pattern of ${name}`,
+                  ),
+                )
+              }
+              className="ml-auto h-7 rounded-lg border border-slate-200 bg-white px-1.5 text-xs text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+            >
+              {(srcTable.load_pattern.values ?? ['snapshot', 'event_driven', 'batch', 'realtime', 'unknown']).map(
+                (v) => (
+                  <option key={v} value={v}>
+                    {v.replace(/_/g, ' ')}
+                  </option>
+                ),
+              )}
+            </select>
+          </div>
+          {(srcTable.load_pattern.evidence ?? []).slice(0, 2).map((ev, i) => (
+            <p key={i} className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {ev}
+            </p>
+          ))}
+
+          {srcTable.sample_dq && (
+            <div className="mt-2 border-t border-slate-100 pt-1.5 dark:border-slate-800">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                What the sample says of the rows
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {(srcTable.sample_dq.checks ?? []).map((c, i) => {
+                  const ok = c.verdict === 'pass';
+                  const fail = c.verdict === 'fail';
+                  return (
+                    <li key={i} className="flex items-center gap-1.5 text-xs">
+                      <span
+                        className={`rounded-full px-1.5 py-px ${
+                          ok
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                            : fail
+                              ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                              : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                        }`}
+                      >
+                        {c.verdict ?? 'not evaluated'}
+                      </span>
+                      <span className="text-slate-600 dark:text-slate-300">
+                        {c.check === 'key_nulls'
+                          ? `no null in the key (${(c.columns ?? []).join(', ')})`
+                          : c.check === 'grain_duplicates'
+                            ? `one row per ${(c.columns ?? []).join(', ')}`
+                            : (c.check ?? '')}
+                      </span>
+                      {fail && c.check === 'grain_duplicates' && (
+                        <span className="text-red-600 dark:text-red-400">
+                          — the model cannot be keyed on this as-is
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+                Read on the sample — never a full-population guarantee.
+              </p>
+            </div>
+          )}
+
+          {(srcTable.kpi_candidates?.candidates ?? []).length > 0 && (
+            <div className="mt-2 border-t border-slate-100 pt-1.5 dark:border-slate-800">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                KPIs this pattern proposes — keep or discard
+              </p>
+              <ul className="mt-1 space-y-1">
+                {(srcTable.kpi_candidates!.candidates ?? []).map((k) => {
+                  const decided = kpiDecided[k.decision_id ?? ''];
+                  return (
+                    <li key={k.kpi_id} className="flex flex-wrap items-center gap-1.5 text-[13px]">
+                      <span className="min-w-0 flex-1">
+                        <span className="text-slate-800 dark:text-slate-200">{k.title}</span>
+                        <span className="ml-1.5 text-xs text-slate-400">{k.why}</span>
+                      </span>
+                      {decided ? (
+                        <span
+                          className={`text-xs ${decided === 'kept' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}
+                        >
+                          {decided === 'kept' ? 'kept — added to the report' : 'discarded'}
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busy === k.decision_id}
+                            onClick={() => void keepKpi(k)}
+                            className="rounded-lg bg-accent-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                          >
+                            Keep
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy === k.decision_id}
+                            onClick={() => void discardKpi(k)}
+                            className="rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:border-slate-300 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-300"
+                          >
+                            Discard
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              {(srcTable.kpi_candidates!.not_expressible ?? []).length > 0 && (
+                <ul className="mt-1 space-y-0.5">
+                  {(srcTable.kpi_candidates!.not_expressible ?? []).map((n, i) => (
+                    <li key={i} className="text-xs text-slate-400 dark:text-slate-500">
+                      {n.title ?? 'an idea'} — not available yet: {n.reason ?? n.why ?? 'the engine cannot express it'}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
 
