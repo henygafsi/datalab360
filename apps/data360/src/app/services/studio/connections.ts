@@ -100,6 +100,8 @@ export interface ConnectionTestCheck {
   check?: string; // network|auth|execution_context|metadata_discovery|read_selected_objects|write
   status?: 'pass' | 'fail' | 'skipped' | 'not_tested' | string;
   ms?: number;
+  /** one line of words per check, served since 414/414 — prefer this */
+  summary?: string | null;
   /** words OR a structured payload (auth/context/discovery return k:v) —
    *  never hand this to JSX directly */
   detail?: string | Record<string, unknown> | null;

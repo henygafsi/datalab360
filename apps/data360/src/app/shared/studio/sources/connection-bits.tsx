@@ -94,7 +94,9 @@ export function TestResultView({ result }: { result: ConnectionTestResult }) {
             <span className="text-slate-700 dark:text-slate-200">
               <span className="font-medium">{checkWords(c)}</span>
               {c.ms != null && <span className="text-slate-400 dark:text-slate-500"> · {c.ms} ms</span>}
-              {detailWords(c.detail) && <span> — {detailWords(c.detail)}</span>}
+              {(c.summary ?? detailWords(c.detail)) && (
+                <span> — {c.summary ?? detailWords(c.detail)}</span>
+              )}
               {c.error_class && (
                 <span className="ml-1 font-mono text-xs text-slate-400 dark:text-slate-500">
                   [{c.error_class}]
