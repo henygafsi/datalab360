@@ -2513,6 +2513,156 @@ export async function getPreviewUsage(): Promise<PreviewUsage> {
   });
 }
 
+/* ── REST connector builder (config-form → connection + ingestion) ─── */
+
+export interface RestPreset {
+  preset: string;
+  label?: string;
+  catalog_id?: string;
+  status?: 'available' | 'partial' | string;
+  auth?: { type?: string; header_name?: string; prefix?: string; token_url?: string };
+  pagination?: { type?: string; [k: string]: unknown };
+  base_url_hint?: string;
+  endpoints?: Array<Record<string, unknown>>;
+  secret_keys?: string[];
+  note?: string;
+}
+
+export interface RestPresetsView {
+  presets?: RestPreset[];
+  auth_types?: string[];
+  pagination_types?: string[];
+  rules?: string[];
+  bounds?: { max_rows?: number; max_pages?: number; fetch_timeout_s?: number };
+}
+
+export interface RestEndpoint {
+  id: string;
+  path: string;
+  method?: 'GET' | 'POST';
+  params?: Record<string, string>;
+  headers?: Record<string, string>;
+  row_path?: string;
+  target_table?: string;
+}
+
+export interface RestConfig {
+  name?: string;
+  preset?: string;
+  base_url?: string;
+  auth?: {
+    type?: string;
+    header_name?: string;
+    prefix?: string;
+    username?: string;
+    token_url?: string;
+    client_id?: string;
+    scope?: string;
+  };
+  pagination?: Record<string, unknown>;
+  endpoints?: RestEndpoint[];
+  target?: { database?: string; schema?: string; mode?: 'append' | 'replace' };
+}
+
+export type RestSecrets = Partial<{ token: string; api_key: string; password: string; client_secret: string }>;
+
+export interface RestPreview {
+  endpoint?: Record<string, unknown>;
+  rows?: unknown[][];
+  row_count?: number;
+  schema?: Array<{ name?: string; types?: string[]; null_count?: number }>;
+  pagination?: { type?: string; pages_read?: number; stopped?: string };
+  scope?: { bounded?: boolean; is_production_total?: boolean; note?: string };
+  request?: { url?: string; method?: string };
+  written?: boolean;
+}
+
+/** A stored REST connector — the definition, never the secrets (only which
+ *  keys are set), plus its last sync. */
+export interface RestConnector {
+  connector_id?: string;
+  name?: string;
+  preset?: string;
+  base_url?: string;
+  auth?: Record<string, unknown>;
+  pagination?: Record<string, unknown>;
+  endpoints?: RestEndpoint[];
+  target?: { database?: string; schema?: string; mode?: string };
+  secrets?: Record<string, 'set' | 'missing'>;
+  last_sync?: { at?: string; status?: string; rows?: number; tables?: number };
+  reusable?: boolean;
+}
+
+/** What a caught error carries so a 422 refusal renders as an answer. */
+function restDetail(e: unknown): { error_code?: string; message?: string; [k: string]: unknown } {
+  const d = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (d && typeof d === 'object') return d as Record<string, unknown>;
+  if (typeof d === 'string') return { message: d };
+  return { message: e instanceof Error ? e.message : 'The request failed.' };
+}
+
+export async function getRestPresets(): Promise<RestPresetsView> {
+  const { data } = await apiClient.get<RestPresetsView>('/studio/connectors/rest/presets', {
+    timeout: 30_000,
+  });
+  return data ?? {};
+}
+
+/** Bounded preview — writes nothing. On a 422 the refusal is returned, not
+ *  thrown, so the form can render exactly which rule stopped it. */
+export async function previewRest(body: {
+  config: RestConfig;
+  secrets: RestSecrets;
+  endpoint_id?: string;
+  rows?: number;
+}): Promise<{ ok: boolean; preview?: RestPreview; error?: { error_code?: string; message?: string } }> {
+  try {
+    const data = await studioMutate<RestPreview>('POST', '/studio/connectors/rest/preview', body, 60_000);
+    return { ok: true, preview: data };
+  } catch (e) {
+    return { ok: false, error: restDetail(e) };
+  }
+}
+
+export async function saveRestConnector(body: {
+  config: RestConfig;
+  secrets: RestSecrets;
+}): Promise<{ ok: boolean; connector?: RestConnector; error?: { error_code?: string; message?: string } }> {
+  try {
+    const data = await studioMutate<RestConnector>('POST', '/studio/connectors/rest', body, 60_000);
+    return { ok: true, connector: data };
+  } catch (e) {
+    return { ok: false, error: restDetail(e) };
+  }
+}
+
+export async function ingestRestConnector(
+  connectorId: string,
+  body: { endpoint_ids?: string[]; max_rows?: number } = {},
+): Promise<{
+  ok: boolean;
+  result?: {
+    run_id?: string;
+    status?: string;
+    rows_loaded?: number;
+    results?: Array<Record<string, unknown>>;
+    errors?: Array<{ endpoint?: string; error_code?: string; message?: string }>;
+  };
+  error?: { error_code?: string; message?: string };
+}> {
+  try {
+    const data = await studioMutate<{ run_id?: string; status?: string; rows_loaded?: number }>(
+      'POST',
+      `/studio/connectors/rest/${encodeURIComponent(connectorId)}/ingest`,
+      body,
+      180_000,
+    );
+    return { ok: true, result: data };
+  } catch (e) {
+    return { ok: false, error: restDetail(e) };
+  }
+}
+
 /* ── Rich source card + its editable functional metadata ──────────── */
 
 export interface SourceCardHealthSignal {

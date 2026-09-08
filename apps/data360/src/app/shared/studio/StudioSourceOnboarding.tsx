@@ -24,6 +24,13 @@ import { useRouter } from 'next/navigation';
 import { Check, ChevronLeft, RotateCw, Search } from 'lucide-react';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
 import StudioConnectorSetup from '@/app/shared/studio/StudioConnectorSetup';
+import StudioRestBuilder from '@/app/shared/studio/StudioRestBuilder';
+
+/** REST/HTTP APIs get the config-form builder (preset → auth → preview →
+ *  save → ingest); every other family uses the generic setup steps. */
+function isRestConnector(c: { id?: unknown; label?: unknown }): boolean {
+  return /rest|http\s*api/i.test(`${String(c.id ?? '')} ${String(c.label ?? '')}`);
+}
 import {
   getStudioObjects,
   getStudioSources,
@@ -500,15 +507,18 @@ export default function StudioSourceOnboarding() {
                             {open ? 'Close the setup' : 'Set it up here'}
                           </button>
                         </div>
-                        {open && (
-                          <StudioConnectorSetup
-                            connector={c as never}
-                            onClose={() => setSetupFor(null)}
-                            onConnected={() =>
-                              void getStudioSourcesCatalog().then(setCatalog).catch(() => undefined)
-                            }
-                          />
-                        )}
+                        {open &&
+                          (isRestConnector(c) ? (
+                            <StudioRestBuilder onClose={() => setSetupFor(null)} />
+                          ) : (
+                            <StudioConnectorSetup
+                              connector={c as never}
+                              onClose={() => setSetupFor(null)}
+                              onConnected={() =>
+                                void getStudioSourcesCatalog().then(setCatalog).catch(() => undefined)
+                              }
+                            />
+                          ))}
                       </div>
                     );
                   })}
