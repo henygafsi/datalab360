@@ -38,6 +38,9 @@ export const config = {
     '/executive',
     '/financial',
     '/analytics',
+    // Studio — its own light shell outside the dashboard group, same auth.
+    '/studio',
+    '/studio/:path*',
     '/logistics/:path*',
     '/ecommerce/:path*',
     '/support/:path*',

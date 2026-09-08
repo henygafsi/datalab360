@@ -54,17 +54,9 @@ export default function CarbonLayout({
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 relative">
-      {/* Subtle background gradient */}
-      <div className="pointer-events-none fixed inset-0 bg-gradient-to-br from-blue-50/40 via-transparent to-purple-50/30 dark:from-blue-950/20 dark:via-transparent dark:to-purple-950/15" />
-
-      {/* Dot grid (subtle) */}
-      <div
-        className="pointer-events-none fixed inset-0 opacity-[0.02] dark:opacity-[0.04]"
-        style={{
-          backgroundImage: 'radial-gradient(circle at 1px 1px, rgb(148 163 184) 1px, transparent 0)',
-          backgroundSize: '24px 24px',
-        }}
-      />
+      {/* (2026-09 shell restructure §4) The fixed full-screen gradient +
+          dot-grid decor layers were removed: a reporting product reads on a
+          flat, calm ground — decoration carried no information. */}
 
       {/* Sidebar */}
       <CarbonSidebar className="fixed hidden flex-col justify-between xl:block z-50" />
@@ -90,15 +82,10 @@ export default function CarbonLayout({
 
         <main className="flex flex-grow flex-col px-3 pb-6 pt-4 md:px-4 lg:px-5 xl:px-6 2xl:px-8">
           <div className="w-full max-w-none">
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-            >
-              <div id="main-content" className="min-h-[60vh]">
-                {children}
-              </div>
-            </motion.div>
+            {/* Entrance fade removed (§4: motion only answers a user action). */}
+            <div id="main-content" className="min-h-[60vh]">
+              {children}
+            </div>
           </div>
         </main>
 

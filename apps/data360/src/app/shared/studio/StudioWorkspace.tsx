@@ -88,6 +88,7 @@ import {
 } from '@/app/services/studio/studio-api';
 import StudioExportMenu from '@/app/shared/studio/StudioExportMenu';
 import StudioReportFilters from '@/app/shared/studio/StudioReportFilters';
+import StudioReportPages, { MoveToPage } from '@/app/shared/studio/StudioReportPages';
 import { readFailure } from '@/app/shared/studio/studio-errors';
 import AtelierRails, { CHART_TYPES } from '@/app/shared/studio/AtelierRails';
 import RefineChat from '@/app/shared/studio/onboarding/RefineChat';
@@ -393,6 +394,10 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
    * (which would re-run the whole application read). */
   const [globalFilters, setGlobalFilters] = useState<GlobalFilter[]>([]);
   const filtersRef = useRef<GlobalFilter[]>([]);
+  /* The dashboard page being read. A report with no `pages` is one page,
+   * so this stays null and every widget shows — existing applications are
+   * untouched by the multi-page contract. */
+  const [pageId, setPageId] = useState<string | null>(null);
   /* data & jobs: the read-only truth contract, loaded on first tab open */
   const [dataView, setDataView] = useState<StudioDataView | 'loading' | 'error' | null>(null);
   /* knowledge tab: enrichment registry, loaded on first open */
@@ -483,7 +488,9 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
             if (!report) return;
             setModel((prev) => (prev ? { ...prev, report } : prev));
             void runTiles(
-              fullSpecs(report.kpis).concat(fullSpecs(report.charts)),
+              fullSpecs(report.kpis)
+                .concat(fullSpecs(report.charts))
+                .concat(report.detail ? [report.detail] : []),
               id,
             );
           })
@@ -690,6 +697,69 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
 
   const report = model?.report ?? null;
 
+  /* ── The dashboard's pages ──────────────────────────────────────────
+   * `page_id` lives on the LAYOUT entry, never on the widget spec, so
+   * moving a chart between pages is a placement change and its definition
+   * is left alone. A report with no pages reads as a single page. */
+  const pages = useMemo(() => report?.pages ?? [], [report]);
+  const pageOf = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of report?.layout ?? []) if (l?.chart_id && l.page_id) m.set(l.chart_id, l.page_id);
+    return m;
+  }, [report]);
+  const activePage = pageId ?? pages[0]?.page_id ?? null;
+  /* A widget with no placement is shown on the FIRST page rather than
+   * hidden: an unplaced widget that renders nowhere is indistinguishable
+   * from a widget that failed to load. */
+  const onActivePage = useCallback(
+    (chartId: string): boolean => {
+      if (!activePage || pages.length < 2) return true;
+      const p = pageOf.get(chartId);
+      return p ? p === activePage : activePage === pages[0]?.page_id;
+    },
+    [activePage, pageOf, pages],
+  );
+  const pageCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const p of pages) c[p.page_id] = 0;
+    /* the detail table counts too — it is a widget the reader sees, and
+     * the generator places it on its own page, so leaving it out made
+     * that page read "0" while plainly showing a table */
+    const all = fullSpecs(report?.kpis)
+      .concat(fullSpecs(report?.charts))
+      .concat(report?.detail ? [report.detail] : []);
+    for (const s of all) {
+      const p = pageOf.get(s.chart_id) ?? pages[0]?.page_id;
+      if (p) c[p] = (c[p] ?? 0) + 1;
+    }
+    return c;
+  }, [pages, pageOf, report]);
+
+  const [pageBusy, setPageBusy] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const patchPages = useCallback(
+    async (ops: Array<Record<string, unknown>>, intent: string) => {
+      if (!draftId) return;
+      setPageBusy(true);
+      setPageError(null);
+      try {
+        await patchModel(draftId, ops as never, true, intent);
+        await load(draftId);
+      } catch (e) {
+        // the server refuses a page that still carries widgets, and names
+        // them — that refusal is the product's answer, so it is shown
+        setPageError(
+          readFailure(
+            (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail ?? e,
+          ).text,
+        );
+      } finally {
+        setPageBusy(false);
+      }
+    },
+    [draftId, load],
+  );
+
   /** Columns the model demonstrably knows — datalist for the rail editor. */
   /** The tables a widget can be built on: the application's own model —
    *  its target tables first (what published reporting should read), then
@@ -771,12 +841,12 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
     [report],
   );
 
-  /** [{chart_id, w, h, order}] — the backend's 24-column report layout. */
+  /** [{chart_id, w, h, order, page_id}] — the backend's report layout.
+   *  Since the multi-page contract this row also says WHICH page a widget
+   *  sits on, which is why it is typed once in the service rather than
+   *  cast inline here. */
   const layoutEntries = useMemo(
-    () =>
-      Array.isArray(report?.layout)
-        ? (report!.layout as Array<{ chart_id?: string; w?: number; h?: number; order?: number }>)
-        : [],
+    () => (Array.isArray(report?.layout) ? report!.layout : []),
     [report],
   );
   const layoutW = useCallback(
@@ -1201,6 +1271,59 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                       </span>
                     </div>
                   )}
+                  <StudioReportPages
+                    pages={pages}
+                    current={activePage ?? ''}
+                    counts={pageCounts}
+                    busy={pageBusy}
+                    /* pages are editable whenever the draft can be patched */
+                    editable={Boolean(draftId)}
+                    onSelect={setPageId}
+                    onAdd={(title) =>
+                      patchPages(
+                        [
+                          {
+                            op: 'add',
+                            path: '/report/pages/-',
+                            value: {
+                              page_id: `page_${title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 24) || 'new'}`,
+                              title,
+                              order: pages.length,
+                            },
+                          },
+                        ],
+                        `add the page ${title}`,
+                      )
+                    }
+                    onRename={(id, title) =>
+                      patchPages(
+                        [
+                          {
+                            op: 'set',
+                            path: `/report/pages/${pages.findIndex((p) => p.page_id === id)}/title`,
+                            value: title,
+                          },
+                        ],
+                        `rename the page to ${title}`,
+                      )
+                    }
+                    onRemove={(id) =>
+                      patchPages(
+                        [
+                          {
+                            op: 'remove',
+                            path: `/report/pages/${pages.findIndex((p) => p.page_id === id)}`,
+                          },
+                        ],
+                        'remove an empty page',
+                      )
+                    }
+                  />
+                  {pageError && (
+                    <p role="alert" className="text-xs text-amber-700 dark:text-amber-300">
+                      {pageError}
+                    </p>
+                  )}
                   <StudioReportFilters
                     filters={report.filters ?? []}
                     applied={globalFilters}
@@ -1208,12 +1331,14 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                     onApply={(next) =>
                       applyFilters(
                         next,
-                        fullSpecs(report.kpis).concat(fullSpecs(report.charts)),
+                        fullSpecs(report.kpis)
+                          .concat(fullSpecs(report.charts))
+                          .concat(report.detail ? [report.detail] : []),
                       )
                     }
                   />
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {fullSpecs(report.kpis).map((k) => {
+                    {fullSpecs(report.kpis).filter((k) => onActivePage(k.chart_id)).map((k) => {
                       const t = tiles[k.chart_id];
                       return (
                         <div
@@ -1272,7 +1397,13 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                     })}
                   </div>
                   <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                    {fullSpecs(report.charts).map((c) => {
+                    {fullSpecs(report.charts)
+                      /* the detail table is a widget the reader sees and the
+                         generator gives it its own page — not rendering it left
+                         that page blank while the tab claimed it held one. */
+                      .concat(report.detail ? [report.detail] : [])
+                      .filter((c) => onActivePage(c.chart_id))
+                      .map((c) => {
                       const t = tiles[c.chart_id];
                       const viz = normalizeViz(c.chart_type);
                       const wide = layoutW(c.chart_id) >= 24;
@@ -1314,6 +1445,21 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                             </p>
                             {editable && (
                               <span className="flex shrink-0 items-center gap-0.5">
+                                <MoveToPage
+                                  pages={pages}
+                                  current={pageOf.get(c.chart_id) ?? pages[0]?.page_id ?? ''}
+                                  busy={pageBusy}
+                                  onMove={(to) => {
+                                    const i = (report.layout ?? []).findIndex(
+                                      (l) => l?.chart_id === c.chart_id,
+                                    );
+                                    if (i < 0) return;
+                                    return patchPages(
+                                      [{ op: 'set', path: `/report/layout/${i}/page_id`, value: to }],
+                                      `move ${c.title} to another page`,
+                                    );
+                                  }}
+                                />
                                 <StudioExportMenu
                                   title={c.title}
                                   spec={c}

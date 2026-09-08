@@ -563,13 +563,31 @@ export interface StudioChartSpec {
   provenance?: { generated_by?: string; run_id?: string; rationale?: string; definition_ids?: string[] };
 }
 
+/** One page of the dashboard. A report without `pages` is a single page. */
+export interface StudioReportPage {
+  page_id: string;
+  title: string;
+  order?: number;
+}
+
+/** Where a widget sits, and — since the multi-page contract — on which page. */
+export interface StudioLayoutEntry {
+  /** optional on the wire — a layout row can arrive without its widget */
+  chart_id?: string;
+  page_id?: string;
+  order?: number;
+  w?: number;
+  h?: number;
+}
+
 export interface StudioReportSpec {
   title: string;
   kpis: StudioChartSpec[];
   charts: StudioChartSpec[];
   detail?: StudioChartSpec | null;
   filters?: Array<{ filter_id: string; column: string; type: string }>;
-  layout?: unknown;
+  pages?: StudioReportPage[];
+  layout?: StudioLayoutEntry[];
   unavailable?: Array<{ label: string; reason: string }>;
   [k: string]: unknown;
 }

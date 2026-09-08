@@ -697,6 +697,14 @@ export default function StudioJobEditor({
                               <option value="quarantine">quarantine the row (DLQ)</option>
                               <option value="block">block the whole load</option>
                               <option value="warn">warn only, keep the row</option>
+                              {/* A behaviour the server knows and this list
+                                  does not must stay visible and selected —
+                                  otherwise the rule reads as unconfigured
+                                  and the next change silently overwrites it.
+                                  The trigger select below already does this. */}
+                              {r.behavior && !['quarantine', 'block', 'warn'].includes(r.behavior) && (
+                                <option value={r.behavior}>{r.behavior}</option>
+                              )}
                             </select>
                           </td>
                         </tr>

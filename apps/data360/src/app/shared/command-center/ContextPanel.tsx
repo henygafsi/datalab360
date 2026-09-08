@@ -16,10 +16,32 @@
  *   the hosted components own their degraded states.
  * - Never paints over the charts: docked (shrink-0 column) on xl+, overlay
  *   with backdrop below. Escape or ✕ closes; focus returns to the opener.
+ * - Only ONE variant (docked OR overlay) is MOUNTED at a time — the split is
+ *   driven by matchMedia, not by CSS-hiding two copies. Mounting both would
+ *   double-mount `children`, so every hosted advisor would fetch twice.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+// Tailwind's xl breakpoint — must stay in sync with the docked/overlay split.
+const XL_MEDIA_QUERY = '(min-width: 1280px)';
+
+function subscribeToXl(onChange: () => void): () => void {
+  const mql = window.matchMedia(XL_MEDIA_QUERY);
+  mql.addEventListener('change', onChange);
+  return () => mql.removeEventListener('change', onChange);
+}
+
+function getXlSnapshot(): boolean {
+  return window.matchMedia(XL_MEDIA_QUERY).matches;
+}
+
+// Server (and first hydration frame): the viewport is unknown — render neither
+// variant rather than guessing and double-mounting or flashing the wrong one.
+function getXlServerSnapshot(): null {
+  return null;
+}
 
 export interface PanelContext {
   account?: string | null;
@@ -42,16 +64,29 @@ export default function ContextPanel({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const openerRef = useRef<Element | null>(null);
 
-  // Focus management: remember the opener, focus the panel, restore on close.
+  // true = docked (xl+), false = overlay, null = server/first hydration frame.
+  const isDesktop = useSyncExternalStore<boolean | null>(
+    subscribeToXl,
+    getXlSnapshot,
+    getXlServerSnapshot,
+  );
+
+  // Focus management: remember the opener on open, restore it on close.
   useEffect(() => {
     if (open) {
       openerRef.current = document.activeElement;
-      panelRef.current?.focus();
     } else if (openerRef.current instanceof HTMLElement) {
       openerRef.current.focus();
       openerRef.current = null;
     }
   }, [open]);
+
+  // Focus the panel once its (single) variant is actually mounted — also
+  // re-focuses after a breakpoint crossing remounts the other variant, since
+  // the previously focused DOM node is destroyed then.
+  useEffect(() => {
+    if (open && isDesktop != null) panelRef.current?.focus();
+  }, [open, isDesktop]);
 
   useEffect(() => {
     if (!open) return;
@@ -62,7 +97,10 @@ export default function ContextPanel({
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  // Viewport unknown (SSR / first hydration frame): mount nothing yet. The
+  // client snapshot resolves immediately after hydration; since the panel is
+  // closed by default this never causes a visible flash.
+  if (!open || isDesktop == null) return null;
 
   const body = (
     <div
@@ -100,20 +138,25 @@ export default function ContextPanel({
     </div>
   );
 
+  // Exactly ONE variant mounts at a time (advisors inside `children` fetch on
+  // mount — two mounted copies means every fetch fires twice). The responsive
+  // classes are kept as a belt-and-suspenders guard for the instant between a
+  // breakpoint crossing and the matchMedia-driven re-render.
+  if (isDesktop) {
+    // xl+: docked column beside the reporting surface (never covers it).
+    return <aside className="hidden min-h-0 w-[380px] shrink-0 xl:block">{body}</aside>;
+  }
+
+  // <xl: overlay with backdrop (width is too scarce to dock).
   return (
-    <>
-      {/* xl+: docked column beside the reporting surface (never covers it). */}
-      <aside className="hidden min-h-0 w-[380px] shrink-0 xl:block">{body}</aside>
-      {/* <xl: overlay with backdrop (width is too scarce to dock). */}
-      <div className="fixed inset-0 z-50 flex justify-end xl:hidden">
-        <button
-          type="button"
-          aria-label="Close AI panel"
-          onClick={onClose}
-          className="absolute inset-0 bg-slate-900/30"
-        />
-        <div className={cn('relative m-3 w-[min(380px,90vw)]')}>{body}</div>
-      </div>
-    </>
+    <div className="fixed inset-0 z-50 flex justify-end xl:hidden">
+      <button
+        type="button"
+        aria-label="Close AI panel"
+        onClick={onClose}
+        className="absolute inset-0 bg-slate-900/30"
+      />
+      <div className={cn('relative m-3 w-[min(380px,90vw)]')}>{body}</div>
+    </div>
   );
 }

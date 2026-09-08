@@ -1,20 +1,16 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * Account Overview — TABBED redesign (2026-07 audit taxonomy). The 9 tabs
- * follow the Snowflake account-audit dimensions (Account · Usage &
- * Performance · FinOps · Data Objects & Models · Data Quality · Security &
- * Governance · Platform Activity · Projects · Organization): the main column
- * renders ONLY the active section inside a viewport-fit frame whose inner
- * area is the single scrolling surface, and the right rail (SectionRail) is
- * the navigation — one entry per section with per-axis highlight chips
- * (DQ · GOV · COST · PERF) plus a pending-access badge on Security.
+ * Account Overview — TABBED one-pager (updated 2026-09 restructure). The 10
+ * sections render as a HORIZONTAL tablist (SectionTabs, SHORT labels); the
+ * main column renders ONLY the active section inside a viewport-fit frame
+ * whose inner area is the single scrolling surface.
  *
  * Contract guarded here:
  *   1. the PAGE never scrolls (document scrollHeight <= viewport + epsilon),
  *   2. every section tab is clickable and renders its content (or an honest
- *      empty/degraded state — never a blank),
- *   3. rail highlight chips render (value or honest "—"),
+ *      empty/degraded/preparing state — never a blank),
+ *   3. the analytical header resolves (Domains ready tile: value or honest —),
  *   4. legacy ?section= ids (overview / snowflake-objects / dwh-plan /
  *      modules …) still deep-link via the alias map,
  *   5. zero "Something went wrong", zero pageerrors.
@@ -24,27 +20,32 @@ import { test, expect, type Page } from '@playwright/test';
  * (NEVER the default output dir — it would wipe e2e/results.)
  */
 
+const ACCOUNT = process.env.D360_ACCOUNT ?? 'uchsfvb-ky11038';
+const USER = process.env.D360_USER ?? 'ORGAADMIN_USER';
 const PASS = process.env.D360_PASS ?? '';
+test.skip(!PASS, 'D360_PASS not set');
 test.setTimeout(15 * 60_000);
 
+// SectionTabs renders SHORT accessible names (labels below), 10 sections.
 const SECTIONS: Array<{ id: string; label: string }> = [
   { id: 'account', label: 'Account' },
-  { id: 'usage-performance', label: 'Usage & Performance' },
+  { id: 'usage-performance', label: 'Usage' },
   { id: 'finops', label: 'FinOps' },
-  { id: 'data-objects', label: 'Data Objects & Models' },
-  { id: 'data-quality', label: 'Data Quality' },
-  { id: 'security', label: 'Security & Governance' },
-  { id: 'platform-activity', label: 'Platform Activity' },
+  { id: 'data-objects', label: 'Objects' },
+  { id: 'data-quality', label: 'Quality' },
+  { id: 'security', label: 'Security' },
+  { id: 'platform-activity', label: 'Activity' },
   { id: 'projects', label: 'Projects' },
   { id: 'organization', label: 'Organization' },
+  { id: 'actions', label: 'Actions' },
 ];
 
 async function signIn(page: Page) {
   await page.goto('/signin');
   // Placeholder-based locators match the current signin form; no silent
   // .catch swallowing — a missed field must fail HERE, not at waitForURL.
-  await page.getByPlaceholder('Enter your account name').fill('uchsfvb-HAHA');
-  await page.getByPlaceholder('Enter your username').fill('HAHA');
+  await page.getByPlaceholder('Enter your account name').fill(ACCOUNT);
+  await page.getByPlaceholder('Enter your username').fill(USER);
   await page.getByPlaceholder('Enter your password').fill(PASS);
   await page.locator('button[type="submit"]').first().click();
   await page.waitForURL((u) => !u.pathname.includes('/signin'), { timeout: 90_000 });
@@ -69,9 +70,9 @@ test('account-overview: tabbed sections, zero page scroll, rail highlights', asy
   await page.goto('/account-overview');
   await page.waitForLoadState('networkidle', { timeout: 120_000 }).catch(() => {});
 
-  // ── The 9 section tabs exist in the rail (role=tab, single tablist). ──
+  // ── The 10 section tabs exist in the horizontal tablist. ──
   const tabs = page.getByRole('tab');
-  await expect(tabs).toHaveCount(9, { timeout: 60_000 });
+  await expect(tabs).toHaveCount(10, { timeout: 60_000 });
 
   // ── Zero page scroll: the ViewportFitFrame pins everything above the
   //    fold; poll until the async strip + measurement settle. ──
@@ -82,21 +83,19 @@ test('account-overview: tabbed sections, zero page scroll, rail highlights', asy
     })
     .toBeLessThanOrEqual(8);
 
-  // ── Rail highlight chips render for the Account entry (value or honest
-  //    "—" — skeletons must resolve to one of them). ──
-  const accountChips = page.getByTestId('cc-rail-chips-account');
-  await expect(accountChips).toBeVisible({ timeout: 30_000 });
+  // ── Analytical header resolves: the Domains-ready coverage tile shows a
+  //    value or an honest "—" (skeletons must resolve to one of them). ──
+  const coverage = page
+    .locator('div', { has: page.getByText('Domains ready', { exact: true }) })
+    .last();
+  await expect(coverage).toBeVisible({ timeout: 60_000 });
   await expect
-    .poll(async () => (await accountChips.innerText()).trim(), { timeout: 60_000 })
-    .toMatch(/DQ|GOV|COST|PERF/);
+    .poll(async () => (await coverage.innerText()).trim(), { timeout: 120_000 })
+    .toMatch(/\d+\/\d+|—/);
 
   // ── Every section tab is clickable, syncs ?section=, renders content. ──
   for (const s of SECTIONS) {
-    // Click the icon/label row (top-left) — the button's geometric center can
-    // land on the nested axis-chip row, which is its own click target.
-    await page
-      .getByRole('tab', { name: s.label, exact: true })
-      .click({ position: { x: 24, y: 14 } });
+    await page.getByRole('tab', { name: s.label, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`section=${s.id}`), { timeout: 15_000 });
 
     const panel = page.locator(`#cc-panel-${s.id}`);
@@ -161,9 +160,9 @@ test('account-overview: tabbed sections, zero page scroll, rail highlights', asy
   // ── Legacy alias deep-links: OLD ids must resolve to the new taxonomy. ──
   for (const [legacy, canonical, label] of [
     ['overview', 'account', 'Account'],
-    ['snowflake-objects', 'data-objects', 'Data Objects & Models'],
+    ['snowflake-objects', 'data-objects', 'Objects'],
     ['dwh-plan', 'account', 'Account'],
-    ['modules', 'platform-activity', 'Platform Activity'],
+    ['modules', 'platform-activity', 'Activity'],
   ] as const) {
     await page.goto(`/account-overview?section=${legacy}`);
     await page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});

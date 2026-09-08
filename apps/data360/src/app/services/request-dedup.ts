@@ -25,7 +25,14 @@ export async function dedupGet<T>(
   if (running) return running as Promise<T>;
   const p = fetcher()
     .then((data) => {
-      cache.set(key, { at: Date.now(), data });
+      // B2: a heavy read may answer a cache miss with HTTP 200
+      // { state:'preparing', … } while it computes in the background. That
+      // envelope is a TRANSIENT signal — caching it for the TTL would pin
+      // every retry to "preparing" long after the data is ready. Share it
+      // with concurrent callers (in-flight dedup) but never store it.
+      if ((data as { state?: unknown } | null)?.state !== 'preparing') {
+        cache.set(key, { at: Date.now(), data });
+      }
       return data;
     })
     .finally(() => {

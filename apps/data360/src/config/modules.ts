@@ -64,21 +64,23 @@ export const MODULES: ModuleConfig[] = [
     id: 10, 
     name: 'AI Intelligence', 
     apiName: 'intelligent', 
-    description: 'AI/ML & Cortex features',
+    // Brand rule: neutral display names only — vendor terms never reach
+    // customer-facing copy (api ids stay unchanged for the backend).
+    description: 'AI/ML features',
     visible: true,
     subModules: [
       {
         id: 'cortex',
-        name: 'Cortex AI',
+        name: 'AI Engine',
         apiName: 'cortex',
-        description: 'Cortex AI features',
+        description: 'AI engine features',
         parentModule: 'intelligent'
       },
       {
         id: 'semantic_models',
         name: 'Semantic Models',
         apiName: 'semantic_models',
-        description: 'YAML models for Cortex Analyst',
+        description: 'YAML models for the AI analyst',
         parentModule: 'intelligent'
       },
       {

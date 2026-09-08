@@ -97,6 +97,13 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: routes.exploreDesign.view,
         icon: PiGlobeDuotone,
       },
+      {
+        name: 'Studio',
+        description:
+          'Start from a domain — guided, selection-based, nothing runs without you',
+        href: routes.studio,
+        icon: PiBinocularsDuotone,
+      },
     ]
   },
   // 4. Workflow
@@ -257,7 +264,10 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // Administration — platform config (not a data module; lives under /admin/*)
+  // Administration — ONE control page (2026-09 user directive): platform
+  // runtime, endpoint management, cache, traces, usage, per-user costs and
+  // access adjustment, gated to ACCOUNTADMIN. The former hub sub-pages are
+  // folded in; their routes stay live but leave the navigation.
   {
     id: 11,
     name: 'Administration',
@@ -266,36 +276,10 @@ export const carbonMenuItems: MenuItemsType[] = [
     color: 'slate',
     menuItems: [
       {
-        name: 'Overview',
-        description: 'Unified hub — platform health, performance, access, entitlements, config',
+        name: 'Control room',
+        description: 'Runtime, endpoints, cache, traces, usage, costs by user, access',
         href: routes.administrationHub,
         icon: PiCubeDuotone,
-      },
-      {
-        name: 'Config Data360',
-        description: 'Metadata, tables, date columns, cache & refresh',
-        href: routes.data360Config.view,
-        icon: PiCubeDuotone,
-      },
-      {
-        name: 'Performance',
-        description: 'Per-account drill-down: endpoints, users, cache, modules, errors',
-        href: routes.adminPerformance.view,
-        icon: PiChartLineDuotone,
-      },
-      {
-        name: 'Feature Governance',
-        description: 'Per-account feature & addon enablement matrix',
-        // Deep-link into the unified Administration hub tab instead of the
-        // former standalone route (now a redirect stub) — one admin page.
-        href: '/administration?tab=featureGov',
-        icon: PiShieldCheckDuotone,
-      },
-      {
-        name: 'Access Control Center',
-        description: 'Module → page → tab → feature → action grants, entitlements & usage',
-        href: '/administration?tab=access',
-        icon: PiLockKeyDuotone,
       },
     ],
   },

@@ -18,6 +18,7 @@
  */
 import axios from 'axios';
 import apiClient from '@/lib/api-client';
+import { resolveWhenReady } from '@/app/shared/command-center/lib/meta';
 
 const PATH = '/api/administration/access-insights';
 
@@ -61,8 +62,15 @@ function asObjects(v: unknown): AccessInsightObject[] {
 
 export async function getAccessInsights(): Promise<AccessInsights> {
   try {
-    const res = await apiClient.get(PATH, { timeout: 180_000 });
-    const payload = (res.data?.data ?? res.data) as Partial<AccessInsights>;
+    // B2 "prepare" mode on access-insights: bounded wait for this
+    // self-fetching evidence panel (Data Objects tab).
+    const payload = (await resolveWhenReady(
+      async () => {
+        const res = await apiClient.get(PATH, { timeout: 180_000 });
+        return res.data?.data ?? res.data;
+      },
+      { tries: 2 },
+    )) as Partial<AccessInsights>;
     return {
       top_objects: asObjects(payload?.top_objects),
       hot_unmonitored: asObjects(payload?.hot_unmonitored),

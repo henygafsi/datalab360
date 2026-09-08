@@ -19,7 +19,7 @@
  * ≤24h latent, never "live"); data-first skeletons; no fabricated values.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
@@ -632,16 +632,28 @@ function OrgDeepDive({ tab, days, onClose }: { tab: OrgDetailTab; days: number; 
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  // Debounced search: qInput controls the field, q triggers the fetch
+  // (same pattern as GovernanceOnePager) — no request per keystroke.
+  const [qInput, setQInput] = useState('');
   const [q, setQ] = useState('');
+  const reqId = useRef(0);
 
   useEffect(() => { setPage(1); }, [tab]);
+
+  // Debounce the free-text search into the server param.
   useEffect(() => {
-    let alive = true;
+    const t = setTimeout(() => setQ(qInput.trim()), 400);
+    return () => clearTimeout(t);
+  }, [qInput]);
+
+  useEffect(() => {
+    const id = ++reqId.current;
     setLoading(true);
     getOrganizationDetail(tab, { days, page, page_size: pageSize, q: q || undefined }).then((d) => {
-      if (alive) { setDetail(d); setLoading(false); }
+      if (id !== reqId.current) return; // drop stale response
+      setDetail(d);
+      setLoading(false);
     });
-    return () => { alive = false; };
   }, [tab, days, page, pageSize, q]);
 
   const rows = detail?.rows ?? [];
@@ -675,7 +687,7 @@ function OrgDeepDive({ tab, days, onClose }: { tab: OrgDetailTab; days: number; 
         </h3>
         <div className="flex items-center gap-2">
           <input
-            value={q} onChange={(e) => { setPage(1); setQ(e.target.value); }}
+            value={qInput} onChange={(e) => { setPage(1); setQInput(e.target.value); }}
             placeholder="Search…"
             className="w-40 rounded-lg border border-slate-200 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800"
           />

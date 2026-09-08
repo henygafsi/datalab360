@@ -29,12 +29,12 @@ const SEV_DOT: Record<string, string> = {
 };
 
 const DIM_LABEL: Record<string, string> = {
-  dq: 'Qualité',
-  gov: 'Gouvernance',
+  dq: 'Quality',
+  gov: 'Governance',
   perf: 'Performance',
-  cost: 'Coût',
-  storage: 'Stockage',
-  security: 'Sécurité',
+  cost: 'Cost',
+  storage: 'Storage',
+  security: 'Security',
 };
 
 export default function TopProblemsPanel({
@@ -122,18 +122,18 @@ export default function TopProblemsPanel({
         <div className="flex items-center gap-2">
           <ShieldAlert className="h-4 w-4 text-rose-500" />
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-            Top problèmes détectés
+            Top issues right now
           </h3>
           {counts.critical > 0 && (
             <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
-              {counts.critical} critique{counts.critical > 1 ? 's' : ''}
+              {counts.critical} critical
             </span>
           )}
-          <span className="text-[11px] text-gray-400">{counts.open} ouverts</span>
+          <span className="text-[11px] text-gray-400">{counts.open} open</span>
         </div>
         <button
           onClick={load}
-          title="Rafraîchir"
+          title="Refresh"
           className="rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
         >
           <RefreshCw className="h-3.5 w-3.5" />
@@ -143,7 +143,7 @@ export default function TopProblemsPanel({
       {list.length === 0 ? (
         <div className="flex items-center gap-2 py-4 text-xs text-emerald-600 dark:text-emerald-400">
           <AlertTriangle className="h-4 w-4" />
-          Aucun problème détecté sur la période — le compte est sain.
+          No issues detected in this window.
         </div>
       ) : (
         <ul className="divide-y divide-gray-100 dark:divide-gray-800">

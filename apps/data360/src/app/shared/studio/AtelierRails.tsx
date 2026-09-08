@@ -368,8 +368,19 @@ export default function AtelierRails({
                           the widget being edited, once, not 19 icons per row */}
                       <div className="min-w-0 flex-1">
                         {(() => {
+                          /* A chart_type outside the known ids used to fall
+                             back to CHART_TYPES[0], so the button read "Bar"
+                             — and the tooltip and the accessible name said
+                             "Bar" too. The label now tells the truth, and
+                             the icon degrades without inventing a shape. */
+                          const known = CHART_TYPES.find((t) => t.id === w.chart_type);
                           const cur =
-                            CHART_TYPES.find((t) => t.id === w.chart_type) ?? CHART_TYPES[0];
+                            known ??
+                            ({
+                              ...CHART_TYPES[0],
+                              id: w.chart_type ?? 'unknown',
+                              label: w.chart_type ?? 'not set',
+                            } as (typeof CHART_TYPES)[number]);
                           const CurIcon = cur.Icon;
                           const open = openTypeFor === w.chart_id;
                           return (

@@ -24,9 +24,14 @@ import { getApiErrorMessage } from '@/lib/api-client';
 import {
   getOverviewKpis,
   getWarehousePerformance,
+  isPreparing,
   type OverviewKpiPayload,
   type OverviewRange,
 } from '@/app/services/command-center';
+import {
+  extractAvailability,
+  availabilitySummary,
+} from '@/app/services/command-center/availability';
 import type {
   CostBreakdownResponse,
   ModuleHealthResponse,
@@ -154,7 +159,13 @@ export function useCommandCenterCockpit({
       runFetch(
         'perf',
         setPerfState,
-        () => getWarehousePerformance({ days }),
+        async () => {
+          const r = await getWarehousePerformance({ days });
+          // B2: a 'preparing' envelope is not strip data — degrade to '—'
+          // (silent error path); the next window change re-reads the cache.
+          if (isPreparing(r)) throw new Error('preparing');
+          return r;
+        },
         'warehouse performance',
         true,
       ),
@@ -264,7 +275,36 @@ export function useCommandCenterCockpit({
   const pctDot = (v: number | null): AxisSeverity =>
     v == null ? 'idle' : v < 50 ? 'blocker' : v < 80 ? 'warn' : 'ok';
 
+  // B1 availability block rides the same overview-kpis payload — the coverage
+  // tile costs zero extra requests. worst→dot: ready ok · preparing pending ·
+  // blocked warn · unknown idle (never green unless everything is ready).
+  const avBlock = extractAvailability(overviewState.data);
+  const avSummary = availabilitySummary(avBlock);
+  const domainsDot: AxisSeverity =
+    avBlock == null
+      ? 'idle'
+      : avSummary.worst === 'ready'
+        ? 'ok'
+        : avSummary.worst === 'preparing'
+          ? 'pending'
+          : avSummary.worst === 'blocked'
+            ? 'warn'
+            : 'idle';
+
   const kpiItems: KpiItem[] = [
+    {
+      label: 'Domains ready',
+      value: avBlock ? `${avSummary.ready}/${avSummary.total}` : undefined,
+      dot: domainsDot,
+      sub: avBlock
+        ? avSummary.blocked > 0
+          ? `${avSummary.blocked} need setup`
+          : avSummary.preparing > 0
+            ? `${avSummary.preparing} preparing`
+            : 'all ready'
+        : undefined,
+      title: 'Data readiness by domain — details in the readiness matrix below',
+    },
     {
       label: 'Workspace health',
       value: workspaceHealth != null ? `${fmtNum(workspaceHealth)}%` : undefined,
@@ -278,10 +318,9 @@ export function useCommandCenterCockpit({
       label: 'Warehouse health',
       value: warehouseHealth != null ? `${fmtNum(warehouseHealth)}%` : undefined,
       dot: pctDot(warehouseHealth),
-      sub: 'Snowflake side composite',
+      sub: 'warehouse & query composite',
       onClick: () => onNavigateTab('usage-performance'),
-      title:
-        'Snowflake warehouse/query health composite — open Usage & Performance',
+      title: 'Warehouse & query health composite — open Usage & Performance',
     },
     {
       label: 'Optimization',
@@ -306,12 +345,16 @@ export function useCommandCenterCockpit({
         ? `${moduleCounts.healthy}/${moduleCounts.total}`
         : undefined,
       dot: qualitySeverity,
+      // "all healthy" ONLY when every module counts as healthy — 6/7 with one
+      // inactive module must say so, never "all healthy" (live-caught lie).
       sub: moduleCounts
         ? moduleCounts.critical > 0
           ? `${moduleCounts.critical} critical`
           : moduleCounts.degraded > 0
             ? `${moduleCounts.degraded} degraded`
-            : 'all healthy'
+            : moduleCounts.healthy < moduleCounts.total
+              ? `${moduleCounts.total - moduleCounts.healthy} inactive`
+              : 'all healthy'
         : undefined,
       onClick: () => onNavigateTab('platform-activity'),
       title: 'Module health — open Platform Activity (modules adoption)',

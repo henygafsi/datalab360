@@ -18,6 +18,7 @@
  */
 import apiClient from '@/lib/api-client';
 import { dedupGet } from '@/app/services/request-dedup';
+import { resolveWhenReady } from '@/app/shared/command-center/lib/meta';
 
 const PREFIX = '/command-center';
 
@@ -85,13 +86,17 @@ export interface CommandCenterRecommendations {
 export async function getCommandCenterRecommendations(
   days?: number,
 ): Promise<CommandCenterRecommendations> {
-  return dedupGet(`cc:recos:${days ?? 'default'}`, 60_000, async () => {
-    const { data } = await apiClient.get<CommandCenterRecommendations>(
-      `${PREFIX}/recommendations`,
-      { params: days != null ? { days } : undefined },
-    );
-    return data;
-  });
+  // B2 "prepare" mode: bounded wait — the dedup layer never caches a
+  // preparing envelope, so each retry reaches the backend.
+  return resolveWhenReady(() =>
+    dedupGet(`cc:recos:${days ?? 'default'}`, 60_000, async () => {
+      const { data } = await apiClient.get<CommandCenterRecommendations>(
+        `${PREFIX}/recommendations`,
+        { params: days != null ? { days } : undefined },
+      );
+      return data;
+    }),
+  );
 }
 
 /** Recommendations scoped to a single dimension (e.g. "security", "cost"). */
@@ -99,9 +104,11 @@ export async function getCommandCenterRecommendationsForDimension(
   dimension: string,
   days?: number,
 ): Promise<CommandCenterRecommendations> {
-  const { data } = await apiClient.get<CommandCenterRecommendations>(
-    `${PREFIX}/recommendations/${encodeURIComponent(dimension)}`,
-    { params: days != null ? { days } : undefined },
-  );
-  return data;
+  return resolveWhenReady(async () => {
+    const { data } = await apiClient.get<CommandCenterRecommendations>(
+      `${PREFIX}/recommendations/${encodeURIComponent(dimension)}`,
+      { params: days != null ? { days } : undefined },
+    );
+    return data;
+  });
 }

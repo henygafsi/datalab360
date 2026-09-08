@@ -636,11 +636,23 @@ export default function StudioModelInspector({
                       {
                         op: 'add',
                         path: '/understanding/relationships/-',
+                        /* The server's shape, verified against its own
+                         * validator — this button could never have worked
+                         * before: it sent `from`/`to` (read as None, so
+                         * "left entity None not in the model"), a status
+                         * outside the enum, and no evidence at all.
+                         * `declared_not_enforced` is the honest status for
+                         * a relation a person asserts and the data has not
+                         * yet confirmed. */
                         value: {
-                          from: { entity_id: rawId, column: rel.fromCol },
-                          to: { entity_id: rel.to, column: rel.toCol },
+                          left: { entity_id: rawId, column: rel.fromCol },
+                          right: { entity_id: rel.to, column: rel.toCol },
                           cardinality: rel.card,
-                          status: 'declared',
+                          status: 'declared_not_enforced',
+                          evidence: {
+                            source: 'declared by the modeller',
+                            basis: `${rel.fromCol} was declared to match ${rel.toCol} on ${toTable?.name ?? rel.to}`,
+                          },
                         },
                       },
                     ],

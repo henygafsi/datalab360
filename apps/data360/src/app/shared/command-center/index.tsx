@@ -153,16 +153,14 @@ import {
   type KpiDimensionResponse,
 } from '@/app/services/command-center/score-cards';
 
-// Lazy-loaded new tabs
+// Lazy-loaded tabs and heavy drawers (reactflow-carrying components stay out
+// of the main chunk — they only render behind drawers/sub-tabs).
 const ModulesTab = lazy(() => import('./modules-tab'));
-const SnowflakeExplorerTab = lazy(() => import('./snowflake-explorer-tab'));
-const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
 const CcActionSurface = lazy(() => import('./CcActionSurface'));
-const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
-const SnowflakeAccountsAuditSection = lazy(() => import('./SnowflakeAccountsAuditSection'));
-const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
 const OrganizationCockpit = lazy(() => import('./OrganizationCockpit'));
 const DwhActionPlanTab = lazy(() => import('./dwh-action-plan-tab'));
+const SecurityMap = lazy(() => import('./SecurityMap'));
+const SnowflakeObjectsTab = lazy(() => import('./SnowflakeObjectsTab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
 import { useSession } from 'next-auth/react';
 import ServerlessFinOpsCards from './serverless-finops-cards';
@@ -171,18 +169,16 @@ import WarehouseEfficiencyCard from './WarehouseEfficiencyCard';
 import TopProblemsPanel from './TopProblemsPanel';
 import WhatChangedCard from './WhatChangedCard';
 import ActivityDigestCard from './ActivityDigestCard';
-import { MaturityLadderStrip, WarehouseCtaGroup, SecurityCtaGroup } from './GrowCtas';
-import ExecutiveOverview from './ExecutiveOverview';
+import { WarehouseCtaGroup, SecurityCtaGroup } from './GrowCtas';
 import AiAdvisor from './AiAdvisor';
 import SnowflakeInsightsAdvisor from './SnowflakeInsightsAdvisor';
-import SecurityMap from './SecurityMap';
-import GovernanceCockpit from './GovernanceCockpit';
 import GovernanceOnePager from './GovernanceOnePager';
-import ObjectStorageAudit from './ObjectStorageAudit';
-import SnowflakeObjectsTab from './SnowflakeObjectsTab';
-import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import CostPreview from './CostPreview';
 import { dash, fmtNum, EM_DASH } from '@/app/shared/ui/format';
+import { isPreparing, type PreparingEnvelope } from './lib/meta';
+import PreparingState from './lib/PreparingState';
+import DomainAvailabilityMatrix from './lib/DomainAvailabilityMatrix';
+import { useAvailability } from '@/app/services/command-center/availability';
 import { safeToFixed } from '@/lib/format-number';
 import type {
   SecurityOverviewResponse,
@@ -1467,6 +1463,14 @@ function CommandCenterDashboardInner() {
   // (not in the initializer) so hydration is deterministic. Sets state
   // directly — bypasses setActiveTab's localStorage/URL/track side effects so
   // no spurious tab-switch is recorded.
+  //
+  // `restored` gates every data fetcher: effects from the mount flush still see
+  // activeTab='account', so without the gate a restored non-account tab first
+  // fired the whole Account fan (summary + module-health + activity-feed +
+  // cockpit) before switching — heavy wasted requests queueing ahead of the
+  // target tab's own reads. Do NOT move the storage read back into the useState
+  // initializer: that was the hydration-mismatch bug this effect fixed.
+  const [restored, setRestored] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URL(window.location.href).searchParams;
@@ -1474,7 +1478,21 @@ function CommandCenterDashboardInner() {
     const fromStorage = window.localStorage.getItem('data360.command-center.activeTab');
     const resolved = resolveTabId(fromUrl ?? fromStorage ?? 'account');
     if (resolved !== 'account') _setActiveTab(resolved);
+    setRestored(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Browser back/forward: the URL is our tab record (replaceState above), so
+  // popstate must re-read it — otherwise history navigation lands on a URL
+  // whose section is not the rendered one.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onPop = () => {
+      const params = new URL(window.location.href).searchParams;
+      const fromUrl = params.get('section') ?? params.get('tab');
+      if (fromUrl) _setActiveTab(resolveTabId(fromUrl));
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
   const [, startTabTransition] = useTransition();
   // Docked actions right-bar (the module's single centralized action surface).
@@ -1486,7 +1504,6 @@ function CommandCenterDashboardInner() {
     },
     [setActiveTab],
   );
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // True when the overview fetcher attempted all four backend calls and every
   // one came back null/error — used to surface a clear "backend offline" banner
@@ -1497,17 +1514,6 @@ function CommandCenterDashboardInner() {
   // The backend IS reachable — the data cache is provisioning — so we show an
   // honest "warming up" state instead of the misleading "Backend unreachable".
   const [cacheWarming, setCacheWarming] = useState(false);
-
-  // Safety net: the page-level skeleton blocks every tab until `isLoading`
-  // flips false. If the very first fetch hangs (e.g. the request is queued
-  // behind a session refresh that never resolves), we never escape the
-  // skeleton. Force-escape after 10s so the user at least sees tabs + an
-  // empty/error state with a Retry button.
-  useEffect(() => {
-    if (!isLoading) return;
-    const t = setTimeout(() => setIsLoading(false), 10_000);
-    return () => clearTimeout(t);
-  }, [isLoading]);
 
   // Client-side tab data cache — prevents re-fetching on every tab switch,
   // but DOES refetch when filters change (key includes filtersKey).
@@ -1588,7 +1594,7 @@ function CommandCenterDashboardInner() {
     // The strip only renders on the `account` tab (see the KpiStrip gate
     // below) — don't burn its 2 fetches (overview-kpis + warehouse-performance)
     // while any other tab is active (e.g. restored from localStorage).
-    enabled: activeTab === 'account',
+    enabled: restored && activeTab === 'account',
     summary,
     moduleHealth,
     costData,
@@ -1645,6 +1651,45 @@ function CommandCenterDashboardInner() {
     window.setTimeout(retry, 10000);
     return true;
   }, []);
+
+  // ── B2 "preparing" consumption ──────────────────────────────────────────
+  // A heavy read now answers a cache miss with HTTP 200
+  // { state:'preparing', cache_key, retry_after_seconds } and computes in the
+  // background. That envelope must NEVER be stored as tab data. Per lane we
+  // record it, render an explicit PreparingState, and re-read when the SSE
+  // cache_invalidation event carries the same cache_key — retry_after is only
+  // the fallback when SSE stays silent.
+  const [tabPreparing, setTabPreparing] = useState<Record<string, PreparingEnvelope | null>>({});
+  const preparingTimers = useRef<Record<string, number>>({});
+  const clearPreparing = useCallback((lane: string) => {
+    setTabPreparing((p) => (p[lane] ? { ...p, [lane]: null } : p));
+    const t = preparingTimers.current[lane];
+    if (t) {
+      window.clearTimeout(t);
+      delete preparingTimers.current[lane];
+    }
+  }, []);
+  const notePreparing = useCallback(
+    (lane: string, env: PreparingEnvelope, retry: () => void) => {
+      setTabPreparing((p) => ({ ...p, [lane]: env }));
+      const t = preparingTimers.current[lane];
+      if (t) window.clearTimeout(t);
+      preparingTimers.current[lane] = window.setTimeout(
+        () => {
+          delete preparingTimers.current[lane];
+          retry();
+        },
+        Math.min(Math.max(env.retry_after_seconds ?? 5, 2), 30) * 1000,
+      );
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      Object.values(preparingTimers.current).forEach((t) => window.clearTimeout(t));
+    },
+    [],
+  );
 
   // ── Fetchers ─────────────────────────────────────────────────────────────
 
@@ -1711,9 +1756,10 @@ function CommandCenterDashboardInner() {
         cachedMh &&
         cachedMh.daysKey === filters.days &&
         Date.now() - cachedMh.timestamp < CACHE_TTL_MS;
-      const moduleHealthTask: Promise<ModuleHealthResponse | null> = cachedMhFresh
-        ? Promise.resolve(cachedMh!.data)
-        : withTimeout(getModuleHealth({ days: filters.days }));
+      const moduleHealthTask: Promise<ModuleHealthResponse | PreparingEnvelope | null> =
+        cachedMhFresh
+          ? Promise.resolve(cachedMh!.data)
+          : withTimeout(getModuleHealth({ days: filters.days }));
 
       // Progressive resolution: each call resolves into its own state
       // independently so the UI reveals as fast as the fastest call.
@@ -1726,18 +1772,27 @@ function CommandCenterDashboardInner() {
         if (firstHit) return;
         firstHit = true;
         setTabLoading((p) => ({ ...p, account: false }));
-        setIsLoading(false);
         setLastUpdated(new Date());
         tabDataCache.current['account'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
       };
 
       const summaryP = withTimeout(getSummary(filterParams)).then((s) => {
-        if (s && !isApiError(s)) setSummary(s);
+        if (isPreparing(s)) {
+          // B2 miss: background compute started server-side — never store the
+          // envelope; re-read on SSE wake-up (retry_after as fallback).
+          notePreparing('summary', s, () => void fetchOverview());
+        } else if (s && !isApiError(s)) {
+          clearPreparing('summary');
+          setSummary(s);
+        }
         dropSpinner();
         return s;
       });
       const mhP = moduleHealthTask.then((mh) => {
-        if (mh && !isApiError(mh)) {
+        if (isPreparing(mh)) {
+          notePreparing('module-health', mh, () => void fetchOverview());
+        } else if (mh && !isApiError(mh)) {
+          clearPreparing('module-health');
           setModuleHealth(mh);
           moduleHealthRef.current = {
             data: mh,
@@ -1767,8 +1822,10 @@ function CommandCenterDashboardInner() {
       // call failed. Per-call .catch was already inside withTimeout, so this
       // Promise.all never rejects.
       const [s, mh, af] = await Promise.all([summaryP, mhP, afP]);
-      const gotSummary = !!(s && !isApiError(s));
-      const gotModuleHealth = !!(mh && !isApiError(mh));
+      // A 'preparing' envelope is a healthy backend answering fast — it must
+      // count as "got something", never as unreachable.
+      const gotSummary = !!(s && !isApiError(s)) || isPreparing(s);
+      const gotModuleHealth = !!(mh && !isApiError(mh)) || isPreparing(mh);
       const gotActivity = !!(af && !isApiError(af));
       const allFailed = !gotSummary && !gotModuleHealth && !gotActivity;
       // If everything failed because the cache is warming, that's NOT
@@ -1784,7 +1841,6 @@ function CommandCenterDashboardInner() {
       setError(msg);
       toast.error(msg);
       setTabLoading((p) => ({ ...p, account: false }));
-      setIsLoading(false);
     }
   }, [filters]);
 
@@ -1794,11 +1850,16 @@ function CommandCenterDashboardInner() {
     setTabError((p) => ({ ...p, projects: null }));
     try {
       const data = await getProjectsOverview(filters);
+      if (isPreparing(data)) {
+        notePreparing('projects', data, () => void fetchProjects());
+        return;
+      }
       if (isApiError(data)) {
         console.warn('[CommandCenter] projects-overview returned error:', data);
         setTabError((p) => ({ ...p, projects: 'Failed to load projects data' }));
         return;
       }
+      clearPreparing('projects');
       setProjectsData(data);
       setLastUpdated(new Date());
       tabDataCache.current['projects'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
@@ -1821,11 +1882,16 @@ function CommandCenterDashboardInner() {
     setTabError((p) => ({ ...p, security: null }));
     try {
       const data = await getSecurityOverview(filters.days, filters);
+      if (isPreparing(data)) {
+        notePreparing('security', data, () => void fetchSecurityAdv());
+        return;
+      }
       if (isApiError(data)) {
         console.warn('[CommandCenter] security-overview returned error:', data);
         setTabError((p) => ({ ...p, security: 'Failed to load security data' }));
         return;
       }
+      clearPreparing('security');
       setSecurityData(data);
       setLastUpdated(new Date());
       tabDataCache.current['security'] = {
@@ -1847,12 +1913,19 @@ function CommandCenterDashboardInner() {
 
   const fetchGovGrants = useCallback(async () => {
     setTabLoading((p) => ({ ...p, 'governance-grants': true }));
+    setTabError((p) => ({ ...p, 'governance-grants': null }));
     try {
       const data = await getGovernanceGrantsOverview(filters);
-      if (isApiError(data)) {
-        console.warn('[CommandCenter] governance-grants returned error:', data);
+      if (isPreparing(data)) {
+        notePreparing('governance-grants', data, () => void fetchGovGrants());
         return;
       }
+      if (isApiError(data)) {
+        console.warn('[CommandCenter] governance-grants returned error:', data);
+        setTabError((p) => ({ ...p, 'governance-grants': 'Governance & grants view is unavailable right now' }));
+        return;
+      }
+      clearPreparing('governance-grants');
       setGovGrantsData(data);
       setLastUpdated(new Date());
       tabDataCache.current['governance-grants'] = {
@@ -1861,7 +1934,8 @@ function CommandCenterDashboardInner() {
         filtersKey: buildFiltersKey(filters),
       };
     } catch {
-      /* toast removed 2026-08-24: slow-endpoint 500s degrade inline (skeleton→empty), not as stacking popups */
+      /* no toast (2026-08-24 rule: no stacking popups) — but keep an inline error surface */
+      setTabError((p) => ({ ...p, 'governance-grants': 'Governance & grants view is unavailable right now' }));
     } finally {
       setTabLoading((p) => ({ ...p, 'governance-grants': false }));
     }
@@ -1869,19 +1943,26 @@ function CommandCenterDashboardInner() {
 
   const fetchDataOps = useCallback(async () => {
     setTabLoading((p) => ({ ...p, 'data-ops': true }));
+    setTabError((p) => ({ ...p, 'data-ops': null }));
     try {
       const data = await getDataOperationsOverview(filters);
-      if (isApiError(data)) {
-        console.warn('[CommandCenter] data-ops returned error:', data);
+      if (isPreparing(data)) {
+        notePreparing('data-ops', data, () => void fetchDataOps());
         return;
       }
+      if (isApiError(data)) {
+        console.warn('[CommandCenter] data-ops returned error:', data);
+        setTabError((p) => ({ ...p, 'data-ops': 'Data operations view is unavailable right now' }));
+        return;
+      }
+      clearPreparing('data-ops');
       setDataOpsData(data);
       setLastUpdated(new Date());
       // Stamps the MERGED tab's cache key ('usage-performance') — this lane is
       // fetched together with fetchPerformance for the Usage & Performance tab.
       tabDataCache.current['usage-performance'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch {
-      /* toast removed: inline degrade */
+      setTabError((p) => ({ ...p, 'data-ops': 'Data operations view is unavailable right now' }));
     } finally {
       setTabLoading((p) => ({ ...p, 'data-ops': false }));
     }
@@ -1889,13 +1970,24 @@ function CommandCenterDashboardInner() {
 
   const fetchPerformance = useCallback(async () => {
     setTabLoading((p) => ({ ...p, performance: true }));
+    setTabError((p) => ({ ...p, 'usage-performance': null }));
     try {
-      const perfDays = filters.days > 30 ? 7 : filters.days;
+      // Cost guard: query-history scans above 30d are capped AT 30d (never
+      // silently collapsed to 7d — that made a 90d selection serve a 7d
+      // window while the data-ops lane of the same tab honored 90d). The UI
+      // labels the REAL window from the payload's period_days.
+      const perfDays = Math.min(filters.days, 30);
       const data = await getPerformanceOverview(perfDays, filters);
-      if (isApiError(data)) {
-        console.warn('[CommandCenter] performance returned error:', data);
+      if (isPreparing(data)) {
+        notePreparing('performance', data, () => void fetchPerformance());
         return;
       }
+      if (isApiError(data)) {
+        console.warn('[CommandCenter] performance returned error:', data);
+        setTabError((p) => ({ ...p, 'usage-performance': 'Query performance data is unavailable right now' }));
+        return;
+      }
+      clearPreparing('performance');
       setPerformanceData(data);
       setLastUpdated(new Date());
       // Stamps the MERGED tab's cache key — see fetchDataOps note.
@@ -1905,7 +1997,7 @@ function CommandCenterDashboardInner() {
         filtersKey: buildFiltersKey(filters),
       };
     } catch {
-      /* toast removed: inline degrade */
+      setTabError((p) => ({ ...p, 'usage-performance': 'Query performance data is unavailable right now' }));
     } finally {
       setTabLoading((p) => ({ ...p, performance: false }));
     }
@@ -1929,13 +2021,18 @@ function CommandCenterDashboardInner() {
           return null;
         }),
       ]);
+      if (isPreparing(cost)) {
+        notePreparing('finops', cost, () => void fetchCost());
+        return;
+      }
       if (isApiError(cost)) {
         console.warn('[CommandCenter] cost-breakdown returned error:', cost);
         setTabError((p) => ({ ...p, finops: 'Failed to load cost data' }));
         return;
       }
+      clearPreparing('finops');
       const cortexCredits =
-        cortex && !isApiError(cortex)
+        cortex && !isApiError(cortex) && !isPreparing(cortex)
           ? Number(cortex.summary?.total_credits ?? 0)
           : 0;
       setCostData({
@@ -1959,17 +2056,24 @@ function CommandCenterDashboardInner() {
 
   const fetchCompute = useCallback(async () => {
     setTabLoading((p) => ({ ...p, compute: true }));
+    setTabError((p) => ({ ...p, compute: null }));
     try {
       const data = await getInfrastructure({ days: filters.days });
-      if (isApiError(data)) {
-        console.warn('[CommandCenter] infrastructure returned error:', data);
+      if (isPreparing(data)) {
+        notePreparing('compute', data, () => void fetchCompute());
         return;
       }
+      if (isApiError(data)) {
+        console.warn('[CommandCenter] infrastructure returned error:', data);
+        setTabError((p) => ({ ...p, compute: 'Infrastructure view is unavailable right now' }));
+        return;
+      }
+      clearPreparing('compute');
       setInfra(data);
       setLastUpdated(new Date());
       tabDataCache.current['compute'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch {
-      /* toast removed: inline degrade */
+      setTabError((p) => ({ ...p, compute: 'Infrastructure view is unavailable right now' }));
     } finally {
       setTabLoading((p) => ({ ...p, compute: false }));
     }
@@ -1977,6 +2081,7 @@ function CommandCenterDashboardInner() {
 
   const fetchPlatformActivity = useCallback(async () => {
     setTabLoading((p) => ({ ...p, 'platform-activity': true }));
+    setTabError((p) => ({ ...p, 'platform-activity': null }));
     try {
       const feedFiltersKey = `${filters.days}|${filters.module_name ?? ''}|${filters.username ?? ''}`;
       const cachedFeed = activityFeedRef.current;
@@ -1998,7 +2103,12 @@ function CommandCenterDashboardInner() {
         getPlatformActivityFiltered(filters),
         activityFeedTask,
       ]);
-      if (!isApiError(plat)) setPlatformData(plat);
+      if (isPreparing(plat)) {
+        notePreparing('platform-activity', plat, () => void fetchPlatformActivity());
+      } else if (!isApiError(plat)) {
+        clearPreparing('platform-activity');
+        setPlatformData(plat);
+      }
       if (af && !isApiError(af)) {
         setActivityFeed(af);
         activityFeedRef.current = {
@@ -2014,7 +2124,7 @@ function CommandCenterDashboardInner() {
         filtersKey: buildFiltersKey(filters),
       };
     } catch {
-      /* toast removed: inline degrade */
+      setTabError((p) => ({ ...p, 'platform-activity': 'Activity data is unavailable right now' }));
     } finally {
       setTabLoading((p) => ({ ...p, 'platform-activity': false }));
     }
@@ -2044,6 +2154,10 @@ function CommandCenterDashboardInner() {
   // user would see stale data (the bug that broke filters until the fix).
   const filtersCacheKey = buildFiltersKey(filters);
   useEffect(() => {
+    // Wait for the persisted-tab restore: mount-flush effects still see
+    // activeTab='account', so fetching before `restored` fires the whole
+    // Account fan ahead of the tab the user actually lands on.
+    if (!restored) return;
     const cached = tabDataCache.current[activeTab];
     if (
       cached &&
@@ -2084,7 +2198,7 @@ function CommandCenterDashboardInner() {
       // inside their tab components.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, filters]);
+  }, [restored, activeTab, filters]);
 
   // Refresh is now driven solely by SSE cache-invalidation events (handled
   // elsewhere via useCacheInvalidation) and by the manual refresh button.
@@ -2163,6 +2277,38 @@ function CommandCenterDashboardInner() {
   // from here — see the deferred gap note.
   useCacheInvalidation({
     onInvalidate: (keys) => {
+      // B2 wake-up: a background computation finished — the event carries the
+      // exact cache_key we recorded from the 'preparing' envelope. Re-read
+      // just those lanes (their fetcher), immediately, and skip their
+      // retry_after fallback timers.
+      const PREPARING_RETRY: Record<string, () => void> = {
+        summary: () => void fetchOverview(),
+        'module-health': () => void fetchOverview(),
+        performance: () => void fetchPerformance(),
+        'data-ops': () => void fetchDataOps(),
+        security: () => void fetchSecurityAdv(),
+        'governance-grants': () => void fetchGovGrants(),
+        finops: () => void fetchCost(),
+        compute: () => void fetchCompute(),
+        'platform-activity': () => void fetchPlatformActivity(),
+        projects: () => void fetchProjects(),
+      };
+      // Two lanes can share one fetcher (summary + module-health → the
+      // account fan): dedupe by group so a single wake-up fires it once.
+      const LANE_GROUP: Record<string, string> = {
+        summary: 'account',
+        'module-health': 'account',
+      };
+      const wokenGroups = new Set<string>();
+      for (const [lane, env] of Object.entries(tabPreparing)) {
+        if (!env?.cache_key || !keys.includes(env.cache_key)) continue;
+        clearPreparing(lane);
+        const group = LANE_GROUP[lane] ?? lane;
+        if (wokenGroups.has(group)) continue;
+        wokenGroups.add(group);
+        delete tabDataCache.current[group];
+        PREPARING_RETRY[lane]?.();
+      }
       const TAB_KEYS: Record<string, string[]> = {
         account: [CACHE_KEYS.USER_ACTIVITY, CACHE_KEYS.DASHBOARD],
         projects: [CACHE_KEYS.PROJECTS],
@@ -2268,6 +2414,8 @@ function CommandCenterDashboardInner() {
                 onRetry={fetchOverview}
                 globalDays={filters.days}
                 onNavigateTab={goToTab}
+                summaryPreparing={tabPreparing.summary}
+                moduleHealthPreparing={tabPreparing['module-health']}
               />
             </div>
             <div className="shrink-0">
@@ -2286,12 +2434,30 @@ function CommandCenterDashboardInner() {
            execution trend, active tasks, dynamic tables, failed tasks),
            re-disposed as ONE dashboard grid: merged KPI zone first, then
            the board cells. */
-        return (
+        // Whole-tab error only when BOTH lanes failed with nothing to show;
+        // a single failed lane degrades inline inside the tab.
+        return tabError['usage-performance'] &&
+          tabError['data-ops'] &&
+          !performanceData &&
+          !dataOpsData &&
+          !tabLoading.performance &&
+          !tabLoading['data-ops'] ? (
+          <TabErrorState
+            message={tabError['usage-performance']}
+            onRetry={() => {
+              fetchPerformance();
+              fetchDataOps();
+            }}
+          />
+        ) : (
           <UsagePerformanceTab
             perf={performanceData}
             perfLoading={tabLoading.performance}
             ops={dataOpsData}
             opsLoading={tabLoading['data-ops']}
+            days={filters.days}
+            perfPreparing={tabPreparing.performance}
+            opsPreparing={tabPreparing['data-ops']}
           />
         );
       case 'data-objects':
@@ -2305,6 +2471,16 @@ function CommandCenterDashboardInner() {
            + open DQ recommendations. */
         return <DataQualityTab days={filters.days} />;
       case 'finops':
+        if (tabPreparing.finops && !costData && !tabLoading.finops) {
+          return (
+            <div className="mx-4 mt-6">
+              <PreparingState
+                domainLabel="cost reporting"
+                startedAt={tabPreparing.finops.started_at ?? null}
+              />
+            </div>
+          );
+        }
         return tabError.finops && !tabLoading.finops ? (
           <TabErrorState message={tabError.finops} onRetry={fetchCost} />
         ) : (
@@ -2320,7 +2496,14 @@ function CommandCenterDashboardInner() {
       case 'platform-activity':
         /* Platform Activity + the Modules adoption dashboard folded in as an
            in-grid drawer (was its own 'modules' tab — content preserved). */
-        return (
+        return tabError['platform-activity'] &&
+          !platformData &&
+          !tabLoading['platform-activity'] ? (
+          <TabErrorState
+            message={tabError['platform-activity']}
+            onRetry={fetchPlatformActivity}
+          />
+        ) : (
           <div className="flex h-full min-h-0 flex-col gap-3">
             <div className="min-h-0 flex-1">
               <PlatformActivityTab
@@ -2403,7 +2586,9 @@ function CommandCenterDashboardInner() {
                     <AccessRequestsCard />
                   </MoreDrawer>
                   <MoreDrawer label="Security map" className="md:col-span-1">
-                    <SecurityMap days={filters.days} />
+                    <Suspense fallback={<LoadingSection />}>
+                      <SecurityMap days={filters.days} />
+                    </Suspense>
                   </MoreDrawer>
                 </div>
             </LazyDetails>
@@ -2449,41 +2634,28 @@ function CommandCenterDashboardInner() {
 
   return (
     <div className="@container flex h-full min-h-0 flex-col">
-      {/* ── Header (compact — everything below must fit one viewport) ── */}
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: 'easeOut' }}
-        className="mb-3 flex shrink-0 items-center justify-between"
-      >
-        {/* Real page header (user mockup #52): identity left, live Snowflake
-            context chips right — a header band, not content. */}
-        <div className="flex min-w-0 items-center gap-4">
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              Account Overview
-            </h1>
-            <p className="hidden truncate text-[11px] text-slate-500 dark:text-slate-400 md:block">
-              Consolidated Snowflake account audit — secured by your access
-            </p>
-          </div>
+      {/* ── Header (compact, no entrance motion — §4) ── */}
+      <div className="mb-3 flex shrink-0 items-center justify-between">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <h1 className="truncate text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            Account Overview
+          </h1>
           <div className="hidden items-center gap-1.5 lg:flex">
             {cxSession?.user?.account_name && (
-              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-                Account: {cxSession.user.account_name}
+              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                {cxSession.user.account_name}
               </span>
             )}
             {cxSession?.user?.role && (
-              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-                Role: {cxSession.user.role}
+              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                role {cxSession.user.role}
               </span>
             )}
           </div>
         </div>
-        {/* Right side of the band intentionally empty — period, freshness and
-            the AI entry point live in the analytical header row below (one
-            home each; the dead AdnHeaderBadge slot was removed). */}
-      </motion.div>
+        {/* Right side intentionally empty — period, freshness and the AI
+            entry point live in the analytical header row below. */}
+      </div>
 
       {/* ── Horizontal section tabs (2026-08-24): full-width, highly visible,
           replacing the old right-edge vertical rail that stole ~300px of
@@ -2661,112 +2833,6 @@ function CommandCenterDashboardInner() {
     </div>
   );
 }
-// ── Tasks Quick Widget (used in Overview tab) ──
-
-function TasksQuickWidget() {
-  const [taskData, setTaskData] = useState<any>(null);
-  const [status, setStatus] = useState<'loading' | 'ok' | 'error'>('loading');
-  const [attempt, setAttempt] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    setStatus('loading');
-    apiClient
-      .get('/observability/lineage/with-tasks', { params: { days: 7 } })
-      .then((res) => {
-        if (cancelled) return;
-        setTaskData(res.data);
-        setStatus('ok');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setStatus('error');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [attempt]);
-
-  const active = taskData?.summary?.active_tasks ?? 0;
-  const suspended = taskData?.summary?.suspended_tasks ?? 0;
-  const succeeded = taskData?.task_stats?.succeeded ?? 0;
-  const failed = taskData?.task_stats?.failed ?? 0;
-  const total = active + suspended + succeeded + failed;
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
-          <Clock className="h-4 w-4 text-blue-500" /> Scheduled Tasks
-        </h3>
-        <a
-          href="/observability"
-          className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400"
-        >
-          View All &rarr;
-        </a>
-      </div>
-      {status === 'loading' && (
-        <div className="grid grid-cols-4 gap-2 text-center">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="space-y-1">
-              <div className="mx-auto h-5 w-8 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
-              <div className="mx-auto h-3 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
-            </div>
-          ))}
-        </div>
-      )}
-      {status === 'error' && (
-        <div className="flex flex-col items-center justify-center gap-2 py-4 text-center">
-          <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
-            Couldn't load tasks
-          </p>
-          <p className="text-xs text-gray-500">
-            Observability endpoint didn't respond.
-          </p>
-          <button
-            onClick={() => setAttempt((a) => a + 1)}
-            className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-      {status === 'ok' && total > 0 && (
-        <div className="grid grid-cols-4 gap-2 text-center">
-          <div>
-            <p className="text-lg font-bold text-green-600">{active}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">Active</p>
-          </div>
-          <div>
-            <p className="text-lg font-bold text-amber-600">{suspended}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">Suspended</p>
-          </div>
-          <div>
-            <p className="text-lg font-bold text-blue-600">{succeeded}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">Succeeded</p>
-          </div>
-          <div>
-            <p className="text-lg font-bold text-red-600">{failed}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">Failed</p>
-          </div>
-        </div>
-      )}
-      {status === 'ok' && total === 0 && (
-        <div className="flex flex-col items-center justify-center py-4 text-center">
-          <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
-            No scheduled tasks
-          </div>
-          <p className="mt-1 text-xs text-gray-500">
-            Active and historical task runs appear here once a scheduled task is
-            created and executed.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Bootstrap recovery banner ─────────────────────────────────────────────
 // Surfaces when the overview-kpis cache schema is missing (most common
 // failure mode after account creation) and lets the user re-run the bootstrap
@@ -3225,12 +3291,17 @@ const OverviewTab = memo(function OverviewTab({
   onRetry,
   globalDays,
   onNavigateTab,
+  summaryPreparing,
+  moduleHealthPreparing,
 }: {
   onRetry?: () => void;
   summary: SummaryResponse | null;
   moduleHealth: ModuleHealthResponse | null;
   activityFeed: ActivityFeedResponse | null;
   loading: boolean;
+  /** B2: the lane answered { state:'preparing' } — first computation running. */
+  summaryPreparing?: PreparingEnvelope | null;
+  moduleHealthPreparing?: PreparingEnvelope | null;
   /** Drill-down: switch the parent dashboard to another tab. */
   onNavigateTab?: (id: string) => void;
   /**
@@ -3278,6 +3349,50 @@ const OverviewTab = memo(function OverviewTab({
     'create',
   );
 
+  // B1 availability block — rides the same overview-kpis read (deduped), so
+  // the readiness matrix costs zero extra requests. SSE-refreshed.
+  const {
+    availability,
+    loading: availabilityLoading,
+    refetch: refetchAvailability,
+  } = useAvailability(daysToRange(globalDays ?? 30));
+
+  // Readiness matrix → where each domain's detail lives. Clicking a cell
+  // navigates to the tab that owns the domain (never opens an admin surface).
+  const DOMAIN_TAB: Record<string, string> = {
+    overview_kpis: 'account',
+    summary: 'account',
+    module_health: 'account',
+    recommendations: 'account',
+    kpis: 'data-quality',
+    cost_breakdown: 'finops',
+    cortex_costs: 'finops',
+    security_audit: 'security',
+    security_overview: 'security',
+    governance_grants: 'security',
+    explorer: 'data-objects',
+    performance_overview: 'usage-performance',
+    data_operations: 'usage-performance',
+    projects_overview: 'projects',
+    platform_activity: 'platform-activity',
+  };
+  const handleDomainClick = (key: string) => {
+    const tab = DOMAIN_TAB[key];
+    if (tab && tab !== 'account') onNavigateTab?.(tab);
+  };
+  // Admin-only per-domain install (unconfigured → "Set up"). The endpoint
+  // string comes from the availability contract as "POST /path".
+  const handleDomainInstall = async (key: string, installEndpoint: string) => {
+    const path = installEndpoint.replace(/^POST\s+/i, '').trim();
+    try {
+      await apiClient.post(path);
+      toast.success('Setup started — this domain fills in when the first snapshot is published.');
+      void refetchAvailability();
+    } catch {
+      toast.error('Setup could not be started.');
+    }
+  };
+
   // Compact the AI recommendations block so the Overview isn't a long scroll.
   // The three advisors (Snowflake insights · AI advisor · top problems) live
   // in a single collapsible, bounded-height panel — expanded by default but
@@ -3307,6 +3422,18 @@ const OverviewTab = memo(function OverviewTab({
   // Backend may return a structured empty envelope with _fallback=true when
   // the metadata DB / ACCOUNT_USAGE views aren't reachable.
   const summaryFallback = (summary as { _fallback?: boolean } | null)?._fallback === true;
+  // B2: the whole account fan is still computing its first snapshot — an
+  // explicit preparing state, not an error and not a silent skeleton.
+  if (!summary && !kpis && !loading && (summaryPreparing || moduleHealthPreparing)) {
+    return (
+      <div className="mx-4 mt-6">
+        <PreparingState
+          domainLabel="the account overview"
+          startedAt={summaryPreparing?.started_at ?? moduleHealthPreparing?.started_at ?? null}
+        />
+      </div>
+    );
+  }
   // Hard-fail state: nothing landed at all (neither summary nor kpis) AND
   // we're no longer loading — surface a retry instead of empty cards.
   if (!summary && !kpis && !loading) {
@@ -3439,21 +3566,23 @@ const OverviewTab = memo(function OverviewTab({
           ACCOUNT_USAGE views aren't readable for this account. Show one
           clear notice instead of leaving the user puzzled at all-zero cards. */}
       {summaryFallback && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-          <span className="font-semibold">Limited data available.</span>{' '}
-          Some analytics views (e.g. <code>SNOWFLAKE.ACCOUNT_USAGE.*</code>,
-          <code> CP_DATA360.EVENT_STORE.*</code>) are not readable with the
-          current role. KPIs that depend on them show as zero.
+        <div
+          className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200"
+          title="The account-usage analytics views are not readable with the current role."
+        >
+          <span className="font-semibold">Limited data available.</span> Your
+          current role can't read some of this account's analytics sources —
+          the affected values show as — instead of numbers.
         </div>
       )}
       {/* Partial-failure banner: rendering from cached KPIs but the slower
           summary call didn't return. User can retry just that call without
           reloading the whole page. */}
-      {!summary && kpis && !loading && (
+      {!summary && kpis && !loading && !summaryPreparing && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
           <span>
-            <span className="font-semibold">Showing cached snapshot.</span> Live
-            summary (MFA, AI models, quality) didn't respond yet.
+            <span className="font-semibold">Showing cached snapshot.</span> The
+            cross-module summary (MFA, AI models, quality) didn't respond.
           </span>
           {onRetry && (
             <button
@@ -3463,6 +3592,17 @@ const OverviewTab = memo(function OverviewTab({
               Retry
             </button>
           )}
+        </div>
+      )}
+      {/* B2: the cross-module summary is computing its first snapshot — a calm
+          note, not an amber warning (the readiness matrix shows it too). */}
+      {!summary && kpis && !loading && summaryPreparing && (
+        <div className="mb-4">
+          <PreparingState
+            domainLabel="the cross-module summary"
+            startedAt={summaryPreparing.started_at ?? null}
+            compact
+          />
         </div>
       )}
       {/* Bootstrap recovery banner: the overview-kpis cache lives in a
@@ -3520,100 +3660,64 @@ const OverviewTab = memo(function OverviewTab({
           Internal scroll only — the page never scrolls. ── */}
       <Board>
         <GridCell>
-      {/* Hero strip — Snowflake account identity. The visual anchor of the
-          page: gradient background, larger account name, badges grouped on
-          the left, range picker + refresh on the right. */}
-      <div className="overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 via-white to-indigo-50/50 dark:border-blue-900/40 dark:from-blue-950/40 dark:via-gray-900 dark:to-indigo-950/30">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 dark:bg-blue-400/10">
-              <Database className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-base font-semibold leading-tight text-gray-900 dark:text-white">
-                  {kpis?.account_name ?? '—'}
-                </span>
-                {kpis?.edition && (
-                  <span className="rounded-md bg-blue-600/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-400/15 dark:text-blue-300">
-                    {kpis.edition}
-                  </span>
-                )}
-                {kpis?.region && (
-                  <span className="rounded-md bg-slate-200/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-700/50 dark:text-slate-300">
-                    {kpis.region}
-                  </span>
-                )}
-              </div>
-              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-600 dark:text-slate-400">
-                {kpis?.account_locator && (
-                  <span>{kpis.account_locator}</span>
-                )}
-                {kpis?.current_role && (
-                  <span>
-                    role <span className="font-medium text-slate-700 dark:text-slate-300">{kpis.current_role}</span>
-                  </span>
-                )}
-                <span>
-                  subscription <span className="font-medium text-slate-700 dark:text-slate-300">{subscriptionEndLabel}</span>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            {(cacheAgeLabel || kpisError) && (
-              <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                {cacheAgeLabel && <span>{cacheAgeLabel}</span>}
-                {kpisError && (
-                  <span
-                    className="font-medium text-amber-600 dark:text-amber-400"
-                    title={kpisError.message || 'overview-kpis cache unavailable'}
-                  >
-                    · live mode
-                  </span>
-                )}
-              </div>
-            )}
-            {/* Window indicator — read-only badge that mirrors the global
-                Time Range filter above. The redundant per-tab range picker
-                was removed because (a) it duplicated the global filter
-                without syncing, which made the page feel broken, and
-                (b) the only endpoint it controlled was overview-kpis,
-                whose backend cache is sometimes missing. Now there is
-                ONE source of truth: the Time Range bar at the top. */}
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              <Calendar className="h-3 w-3 text-slate-400" />
-              <span className="tabular-nums">{range}</span>
-              <span className="text-slate-400">window</span>
+      {/* Identity row — compact, no decorative banner (2026-09 restructure):
+          who this account is + how fresh the snapshot is. The "Refresh cache"
+          button was removed from the first level (cache upkeep is the
+          platform's job — admins keep per-domain refresh in the readiness
+          matrix below and in Administration). */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Database className="h-4 w-4 shrink-0 text-slate-400" />
+          <span className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+            {kpis?.account_name ?? '—'}
+          </span>
+          {kpis?.edition && (
+            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {kpis.edition}
             </span>
-            <motion.button
-              whileHover={!refreshing ? { scale: 1.03 } : undefined}
-              whileTap={!refreshing ? { scale: 0.97 } : undefined}
-              onClick={() => void refreshKpis()}
-              disabled={refreshing}
-              className="group flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 hover:shadow-md disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-700"
+          )}
+          {kpis?.region && (
+            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {kpis.region}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-slate-500 dark:text-slate-400">
+          {kpis?.account_locator && <span>{kpis.account_locator}</span>}
+          {kpis?.current_role && (
+            <span>
+              role <span className="font-medium text-slate-700 dark:text-slate-300">{kpis.current_role}</span>
+            </span>
+          )}
+          {kpis?.subscription_end && (
+            <span>
+              subscription <span className="font-medium text-slate-700 dark:text-slate-300">{subscriptionEndLabel}</span>
+            </span>
+          )}
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+          {cacheAgeLabel && <span className="tabular-nums">{cacheAgeLabel}</span>}
+          {kpisError && (
+            <span
+              className="font-medium text-amber-600 dark:text-amber-400"
+              title={kpisError.message || 'Snapshot cache unavailable'}
             >
-              <RefreshCw
-                className={cn(
-                  'h-3.5 w-3.5 transition-transform duration-500',
-                  refreshing ? 'animate-spin' : 'group-hover:rotate-180',
-                )}
-              />
-              Refresh cache
-            </motion.button>
-          </div>
+              · live mode
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+            <Calendar className="h-3 w-3 text-slate-400" />
+            <span className="tabular-nums">{range}</span>
+            <span className="text-slate-400">window</span>
+          </span>
         </div>
       </div>
 
         </GridCell>
-        <GridCell>
-      {/* Grow strip — maturity ladder (FINAL-TAB-DISPLAY-SPEC · Tab 1 "Grow").
-          Position computed from REAL gating facts only; unavailable sources
-          render '?' with the reason, never a guess. */}
-      <MaturityLadderStrip summary={summary} summaryLoading={loading} />
-
-        </GridCell>
+        {/* (2026-09 restructure) Maturity ladder removed from the first level —
+            undemonstrated maturity badges don't answer "is this account ready
+            and what's blocking it". The gating facts it used live on in the
+            readiness matrix + blockers queue below. */}
         <GridCell>
       {/* Subscription-expiry banner — only when a real end date is within 30d. */}
       {subscriptionDaysLeft != null && subscriptionDaysLeft < 30 ? (
@@ -3637,16 +3741,24 @@ const OverviewTab = memo(function OverviewTab({
         </GridCell>
 
         <GridCell className="xl:col-span-6">
-      {/* ── What changed this week? — cost-spike anomalies (z-score) from the
-             last 7 days. Separate signal from the recommendations panels below;
-             degrades silently to null when the endpoint is role-gated. ── */}
-      <WhatChangedCard />
-
+      {/* ── Data readiness by domain (B1 availability contract) — the central
+          answer to "is this account observable and ready". Each cell carries
+          its real state + freshness; unconfigured domains expose an
+          admin-gated Set up. ── */}
+      <SectionCard title="Data readiness">
+        <DomainAvailabilityMatrix
+          availability={availability}
+          loading={availabilityLoading && !availability}
+          isAdmin={canProvision}
+          onDomainClick={handleDomainClick}
+          onInstall={handleDomainInstall}
+        />
+      </SectionCard>
         </GridCell>
         <GridCell className="xl:col-span-6">
-      {/* ── Top issues right now (mission ROW3): the cross-domain problem
-          queue, inline — each row carries its CTA. The AI advisors moved to
-          the contextual Ask-AI panel (one AI home, closed by default). ── */}
+      {/* ── Top issues right now: the cross-domain problem queue — each row
+          carries its owner signal and CTA. (WhatChangedCard moved to FinOps:
+          cost anomalies have one home.) ── */}
       <TopProblemsPanel
         days={globalDays ?? 30}
         limit={5}
@@ -3657,9 +3769,18 @@ const OverviewTab = memo(function OverviewTab({
         {/* (2026-08-24) 'Storage' detail removed — exact duplicate of FinOps'
             StorageSplitCard (Credits/Storage -> FinOps ownership). */}
                 <GridCell className="xl:col-span-12">
-      {/* Module Health Grid */}
+      {/* Module health grid */}
+      {!moduleHealth && moduleHealthPreparing && (
+        <SectionCard title="Module health">
+          <PreparingState
+            domainLabel="module health"
+            startedAt={moduleHealthPreparing.started_at ?? null}
+            compact
+          />
+        </SectionCard>
+      )}
       {moduleHealth && Array.isArray(moduleHealth.modules) && moduleHealth.modules.length > 0 && (
-        <SectionCard title="Module Health">
+        <SectionCard title="Module health">
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-3 2xl:grid-cols-4">
             {/* Ranked ascending by health — the weakest module reads first
                 (mission: ranking answers 'where should I look'). */}
@@ -4911,9 +5032,9 @@ const CostTab = memo(function CostTab({
   const resourceMonitors: any[] = Array.isArray((data as any).resource_monitors)
     ? (data as any).resource_monitors
     : [];
-  const anomalies: any[] = Array.isArray((data as any).anomalies)
-    ? (data as any).anomalies
-    : [];
+  // (2026-09) phantom `(data as any).anomalies` read removed — the field was
+  // never served; the Budgets & anomalies lane now renders WhatChangedCard
+  // (real anomaly signal) instead.
 
   return (
     <TabGrid>
@@ -4989,31 +5110,60 @@ const CostTab = memo(function CostTab({
           renderings, ~70px of band. */}
 
       <Board>
-        <GridCell>
-      {/* CTA group — warehouse lifecycle best-practice actions bound to the
-          /api/administration/warehouses live SHOW (FINAL-TAB-DISPLAY-SPEC ·
-          Tab 2 "CTAs"). Honest RBAC/deploy gating; failures surface inline. */}
-      <WarehouseCtaGroup />
-
+        {/* (2026-09 restructure §5 FinOps) Admin surfaces moved OUT of the
+            primary reporting: warehouse lifecycle actions → Budgets &
+            anomalies lane; the cost projection → Cost breakdown lane. The
+            first screen answers ONE question — how is consumption trending
+            and who drives it. */}
+        <GridCell className="xl:col-span-6">
+      {/* Daily Credit Trend — the main question: how is consumption trending. */}
+      <SectionCard title={`Daily Credit Trend (${periodDays}d)`}>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height={256}>
+            <AreaChart data={dailyTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} />
+              <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
+              <Tooltip content={<ChartTooltip />} />
+              <Area
+                type="monotone"
+                dataKey="credits"
+                stroke="#F59E0B"
+                fill="#F59E0B"
+                fillOpacity={0.2}
+                name="Credits"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </SectionCard>
         </GridCell>
         <GridCell className="xl:col-span-6">
-      {/* 30d cost projection for the top spending warehouse (cost-simulation).
-          Degrades quietly when the backend route isn't deployed yet. */}
-      {topWarehouses[0]?.name && (
-        <CostPreview
-          objectType="warehouse"
-          objectId={String(topWarehouses[0].name)}
-          days={periodDays}
-        />
-      )}
-
+      {/* Top cost drivers — the ranking that EXPLAINS the trend (mission §5:
+          tendance + contributeurs principaux côte à côte). */}
+      <SectionCard title={`Top cost drivers (${periodDays}d)`}>
+        {topWarehouses.length > 0 ? (
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height={256}>
+              <BarChart data={topWarehouses.slice(0, 8)} layout="vertical" margin={{ left: 4, right: 24 }}>
+                <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="credits" name="Credits" fill="#F59E0B" radius={[0, 4, 4, 0]} barSize={18} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <p className="py-8 text-center text-sm text-gray-400">
+            No per-warehouse consumption in this window.
+          </p>
+        )}
+      </SectionCard>
         </GridCell>
-        <GridCell className="xl:col-span-6">
-      {/* AI flow: discussion → proposed action → execute → capitalize as an event.
-          Rule-based (no LLM). Only renders on a material spend increase. One real
-          mutation (refresh the KPI cache) plus a business-flow-automation hand-off
-          to the workflow builder pre-loaded with a cost-report template. */}
+      {/* AI flow: rule-based next steps — renders ONLY on a material spend
+          increase, below the reporting pair. */}
       {(data?.credit_trend_pct ?? 0) > 20 && (
+        <GridCell className="xl:col-span-6">
         <AIActionFlow
           title="Recommended next steps"
           context={{
@@ -5047,33 +5197,8 @@ const CostTab = memo(function CostTab({
             },
           ] satisfies AISuggestion[]}
         />
+        </GridCell>
       )}
-
-        </GridCell>
-        <GridCell className="xl:col-span-6">
-      {/* Daily Credit Trend */}
-      <SectionCard title={`Daily Credit Trend (${periodDays}d)`}>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height={256}>
-            <AreaChart data={dailyTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
-              <Tooltip content={<ChartTooltip />} />
-              <Area
-                type="monotone"
-                dataKey="credits"
-                stroke="#F59E0B"
-                fill="#F59E0B"
-                fillOpacity={0.2}
-                name="Credits"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </SectionCard>
-
-        </GridCell>
         <GridCell>
       {/* ── Details "2nd page": ONE bookmark-tab bar. Only the selected detail
           group renders below, so the tab is a no-scroll one-pager (KPIs + hero
@@ -5108,13 +5233,16 @@ const CostTab = memo(function CostTab({
       {/* P0 surfacing — FinOps/governance KPIs the backend already computes but
           the UI never showed (cost-by-warehouse/service, clustering, pipe,
           MV refresh, tasks, role hierarchy). Self-contained, fetches on mount. */}
-      <ServerlessFinOpsCards days={30} />
+      {/* Inherits the tab's real window — a hardcoded 30 contradicted the
+          "every tab inherits this window" header contract AND double-fetched
+          cost-breakdown under a second dedup key. */}
+      <ServerlessFinOpsCards days={periodDays} />
 
         </GridCell>
         <GridCell className="xl:col-span-6">
       {/* Storage-split axis — active vs time-travel/failsafe/stage with history
           + per-axis refresh (FINAL-TAB-DISPLAY-SPEC storage-split KPI). */}
-      <StorageSplitCard days={30} />
+      <StorageSplitCard days={periodDays} />
 
         </GridCell>
         <GridCell>
@@ -5236,33 +5364,28 @@ const CostTab = memo(function CostTab({
               </ResponsiveContainer>
             </div>
           ) : (
-            <p className="py-8 text-center text-sm text-gray-400">All zero</p>
+            <p className="py-8 text-center text-sm text-gray-400">
+              No category consumption in this window.
+            </p>
           )}
         </SectionCard>
 
-        <SectionCard title="Top Warehouses">
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height={256}>
-              <BarChart data={topWarehouses.slice(0, 10)} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={120}
-                  tick={{ fill: '#64748B', fontSize: 11 }}
-                />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar
-                  dataKey="credits"
-                  fill="#F59E0B"
-                  name="Credits"
-                  radius={[0, 4, 4, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionCard>
+        {/* (2026-09) Top warehouses moved UP beside the daily trend — the
+            ranking explains the trend on the first screen. This slot now
+            hosts the 30d projection (a breakdown detail, not front-page). */}
+        {topWarehouses[0]?.name ? (
+          <CostPreview
+            objectType="warehouse"
+            objectId={String(topWarehouses[0].name)}
+            days={periodDays}
+          />
+        ) : (
+          <SectionCard title="Cost projection">
+            <p className="py-8 text-center text-sm text-gray-400">
+              No warehouse consumption to project in this window.
+            </p>
+          </SectionCard>
+        )}
       </div>
 
         </GridCell>
@@ -5409,31 +5532,18 @@ const CostTab = memo(function CostTab({
           )}
         </SectionCard>
 
-        <SectionCard title="Cost Anomalies">
-          {anomalies.length > 0 ? (
-            <SmartAuditTable
-              rows={
-                anomalies.map((a: any) => {
-                  const raw = a.deviation_pct ?? a.deviation;
-                  const dev = Number(raw);
-                  return {
-                    date: a.date ?? a.day ?? null,
-                    warehouse: a.warehouse ?? a.name ?? null,
-                    deviation: Number.isFinite(dev)
-                      ? `${dev > 0 ? '+' : ''}${dev}%`
-                      : null,
-                  };
-                }) as SmartRow[]
-              }
-              subtitle="WAREHOUSE_METERING"
-              pageSize={10}
-            />
-          ) : (
-            <p className="py-6 text-center text-sm text-gray-400">
-              No cost anomalies detected in the last {periodDays} days.
-            </p>
-          )}
-        </SectionCard>
+        {/* Real anomaly signal (z-score spikes from the anomalies endpoint) —
+            replaces the phantom `(data as any).anomalies` table, which read a
+            field the cost payload never carried and therefore always claimed
+            "no anomalies detected" (a fake negative). Moved here from the
+            Account tab: cost anomalies have one home. */}
+        <WhatChangedCard />
+      </div>
+      {/* Warehouse lifecycle actions — admin surface, moved OUT of the primary
+          reporting screen (mission §5: actions live behind the budgets lane,
+          never in front of the trend). */}
+      <div className="mt-4">
+        <WarehouseCtaGroup />
       </div>
         </GridCell>
         )}
@@ -6797,13 +6907,13 @@ const PerformanceTab = memo(function PerformanceTab({
          answered by the distribution chart beside it. */
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <KpiCard
-          label="Total Queries"
+          label={`Total Queries (${data.period_days ?? '…'}d)`}
           value={totalQueries.toLocaleString()}
           icon={BarChart3}
           color="blue"
         />
         <KpiCard
-          label="P95 Latency"
+          label={`P95 Latency (${data.period_days ?? '…'}d)`}
           value={`${(avgP95 / 1000).toFixed(1)}s`}
           icon={Gauge}
           color="amber"
@@ -6814,10 +6924,16 @@ const PerformanceTab = memo(function PerformanceTab({
           }}
         />
         <KpiCard
-          label="P50 Latency"
+          label={`P50 Latency (${data.period_days ?? '…'}d)`}
           value={`${(avgP50 / 1000).toFixed(1)}s`}
           icon={Gauge}
           color="green"
+          help={{
+            title: 'P50 latency',
+            definition:
+              'Average of the DAILY p50 values over the window (not a true window-wide percentile).',
+            source: 'QUERY_HISTORY daily percentiles',
+          }}
         />
       </div>
     );
@@ -6911,7 +7027,7 @@ const PerformanceTab = memo(function PerformanceTab({
         <GridCell>
         <AuditTable
           data={slowQueries}
-          title="Slowest Queries"
+          title={`Slowest queries — top ${slowQueries.length} in window`}
           columns={[
             {
               key: 'query_text',
@@ -7176,11 +7292,17 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
   perfLoading,
   ops,
   opsLoading,
+  days,
+  perfPreparing,
+  opsPreparing,
 }: {
   perf: PerformanceOverviewResponse | null;
   perfLoading: boolean;
   ops: DataOperationsOverviewResponse | null;
   opsLoading: boolean;
+  days: number;
+  perfPreparing?: PreparingEnvelope | null;
+  opsPreparing?: PreparingEnvelope | null;
 }) {
   // Bookmark-tabs so the tab is a no-scroll one-pager: KPIs stay on top; the
   // three heavy board lanes (query performance · warehouse efficiency · data
@@ -7227,19 +7349,35 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
         ))}
       </div>
         </GridCell>
-        {usageTab === 'performance' && (
-        <PerformanceTab data={perf} loading={perfLoading} zone="board" />
-        )}
+        {usageTab === 'performance' &&
+          (!perf && !perfLoading && perfPreparing ? (
+            <GridCell>
+              <PreparingState
+                domainLabel="query performance"
+                startedAt={perfPreparing.started_at ?? null}
+              />
+            </GridCell>
+          ) : (
+            <PerformanceTab data={perf} loading={perfLoading} zone="board" />
+          ))}
         {/* Compute-efficiency axis — surfaces the warehouse-efficiency endpoint
             (queue/spill/misconfig flags) that previously had NO UI consumer. */}
         {usageTab === 'efficiency' && (
         <GridCell>
-          <WarehouseEfficiencyCard days={30} />
+          <WarehouseEfficiencyCard days={Math.min(days, 30)} />
         </GridCell>
         )}
-        {usageTab === 'operations' && (
-        <DataOperationsTab data={ops} loading={opsLoading} zone="board" />
-        )}
+        {usageTab === 'operations' &&
+          (!ops && !opsLoading && opsPreparing ? (
+            <GridCell>
+              <PreparingState
+                domainLabel="data operations"
+                startedAt={opsPreparing.started_at ?? null}
+              />
+            </GridCell>
+          ) : (
+            <DataOperationsTab data={ops} loading={opsLoading} zone="board" />
+          ))}
       </Board>
     </TabGrid>
   );
@@ -7530,7 +7668,9 @@ const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
             sub-tabs, KPI grid, AI discovery, object detail; unchanged). */}
         {dobjTab === 'catalog' && (
         <GridCell>
-          <SnowflakeObjectsTab />
+          <Suspense fallback={<LoadingSection />}>
+            <SnowflakeObjectsTab />
+          </Suspense>
         </GridCell>
         )}
       </Board>

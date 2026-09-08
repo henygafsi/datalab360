@@ -27,22 +27,36 @@ import { isAdminRole } from '@/config/constants';
 export default function AdminRouteGuard({
   children,
   surface = 'This page',
+  requireRoles,
 }: {
   children: ReactNode;
   /** Human name of the guarded surface, e.g. "Administration". */
   surface?: string;
+  /**
+   * Stricter gate: when set, ONLY these exact roles pass (case-insensitive) —
+   * e.g. ['ACCOUNTADMIN'] for the Administration control room (2026-09 user
+   * directive). Default: the coarse platform-admin trio via isAdminRole.
+   */
+  requireRoles?: string[];
 }) {
   const { role } = useAuth();
   // Register the view even when access is denied (same as governance/users).
   useTrackEvent();
 
-  if (!isAdminRole(role)) {
+  const allowed = requireRoles
+    ? requireRoles.some((r) => r.toUpperCase() === (role ?? '').toUpperCase())
+    : isAdminRole(role);
+
+  if (!allowed) {
+    const who = requireRoles
+      ? requireRoles.join(', ')
+      : 'platform administrators (ACCOUNTADMIN, SYSADMIN, SECURITYADMIN)';
     return (
       <ErrorBoundary>
         <EmptyState
           icon={Lock}
           title="Access restricted"
-          description={`${surface} is only available to platform administrators (ACCOUNTADMIN, SYSADMIN, SECURITYADMIN). Contact your administrator if you need access.`}
+          description={`${surface} is only available to ${who}. Contact your administrator if you need access.`}
         />
       </ErrorBoundary>
     );

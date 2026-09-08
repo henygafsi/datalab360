@@ -11,6 +11,7 @@
 
 import apiClient from '@/lib/api-client';
 import { dedupGet, invalidateDedup } from '@/app/services/request-dedup';
+import { resolveWhenReady } from '@/app/shared/command-center/lib/meta';
 import type {
   // Dashboard
   DashboardOverviewResponse,
@@ -550,8 +551,11 @@ export async function getAccountLoginHistory(accountName: string, days = 7): Pro
  * Query metrics (requires premium views).
  */
 export async function getQueries(days = 7): Promise<QueriesResponse> {
-  const { data } = await cachedGet<QueriesResponse>(`${BASE_URL}/queries?days=${days}`);
-  return data;
+  // B2: served in "prepare" mode — bounded wait so self-fetching cards
+  // (QueryVolumeCard) get data instead of a transient envelope.
+  return resolveWhenReady(
+    async () => (await cachedGet<QueriesResponse>(`${BASE_URL}/queries?days=${days}`)).data,
+  );
 }
 
 /**
@@ -582,11 +586,34 @@ export async function getDataTransfer(days = 30): Promise<DataTransferResponse> 
 // =============================================================================
 
 /**
+ * Remaining balance is ACCOUNTADMIN-gated backend-side: a 403 governance
+ * denial is an EXPECTED state for other roles, not a failure — callers get a
+ * typed `{ restricted: true }` and render "Reserved for ACCOUNTADMIN" instead
+ * of an error banner. Any other error still throws.
+ */
+export type BalanceRestricted = { restricted: true; reason?: string };
+
+export function isBalanceRestricted(
+  b: BalanceResponse | BalanceRestricted | null | undefined,
+): b is BalanceRestricted {
+  return !!b && (b as BalanceRestricted).restricted === true;
+}
+
+/**
  * Remaining credit balance.
  */
-export async function getBalance(): Promise<BalanceResponse> {
-  const { data } = await cachedGet<BalanceResponse>(`${BASE_URL}/organization/remaining-balance`);
-  return data;
+export async function getBalance(): Promise<BalanceResponse | BalanceRestricted> {
+  try {
+    const { data } = await cachedGet<BalanceResponse>(`${BASE_URL}/organization/remaining-balance`);
+    return data;
+  } catch (e) {
+    // apiClient maps every 403 to AuthorizationError (governance_denied payloads
+    // included) — for this endpoint that means "reserved for ACCOUNTADMIN".
+    if (e instanceof Error && e.name === 'AuthorizationError') {
+      return { restricted: true, reason: e.message };
+    }
+    throw e;
+  }
 }
 
 /**

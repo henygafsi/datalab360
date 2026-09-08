@@ -584,6 +584,11 @@ export default function PreviewStep({
                           onChange={(e) => void editChart(c.chart_id, { grain: e.target.value })}
                           className="h-6 rounded border border-slate-200 bg-white px-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                         >
+                          {/* A chart with a time axis but no declared grain
+                              has value "" — which matches no option, so the
+                              control rendered blank on a spec that is
+                              perfectly valid. Name the state instead. */}
+                          {grain === '' && <option value="">grain…</option>}
                           {grainOptions.map((g) => (
                             <option key={g} value={g}>{g}</option>
                           ))}

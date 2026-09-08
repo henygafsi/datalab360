@@ -10,7 +10,7 @@
  * the inspector carry that truth.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getTargetsView,
   proposeTargets,
@@ -49,11 +49,18 @@ export default function StudioModelTab({
   const [selection, setSelection] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /* Two applies in quick succession can land out of order — the older
+   * answer would then overwrite the newer one and leave the panel showing
+   * the pre-edit model, which reads exactly like an edit that did not
+   * save. Only the most recent read is allowed to write. */
+  const readGen = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++readGen.current;
     try {
-      setView(await getTargetsView(draftId));
+      const next = await getTargetsView(draftId);
+      if (mine === readGen.current) setView(next);
     } catch {
-      setView((v) => (v && typeof v === 'object' ? v : 'error'));
+      if (mine === readGen.current) setView((v) => (v && typeof v === 'object' ? v : 'error'));
     }
   }, [draftId]);
 

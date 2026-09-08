@@ -173,10 +173,19 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
           },
         ],
         grant_types: [grantType],
-        // the wire carries the bare column; the UI resolved WHICH table it
-        // came from, so the values sent belong to the column shown
+        /* `restrictions` is an OBJECT with a `rows` list, and each rule
+         * names its values `allowed_values`. Sending a bare list under a
+         * `values` key — as this did — was rejected with 400
+         * "Input should be a valid dictionary", so the row policy never
+         * reached the server and the governance step silently did nothing.
+         * The wire carries the bare column; the UI resolved WHICH table it
+         * came from, so the values sent belong to the column shown. */
         ...(chosen && policyValues.length
-          ? { restrictions: [{ column: chosen.column, values: policyValues }] }
+          ? {
+              restrictions: {
+                rows: [{ column: chosen.column, allowed_values: policyValues }],
+              },
+            }
           : {}),
       } as never),
     );
