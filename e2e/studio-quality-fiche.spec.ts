@@ -15,7 +15,10 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
 const PASS = process.env.D360_PASS ?? '';
-const EMPTY = 'proj_f90220f34c3b'; // the user's screenshot — nothing modeled
+// an active draft with understanding but NO model (no targets) — a stable
+// "unmeasured model" case. Must stay unmodeled for Q1's honesty check; the
+// earlier fixture (proj_f90220f34c3b) was a deletable draft the user removed.
+const EMPTY = 'proj_c53e84790173';
 const MODELED = 'proj_576e16333cdf'; // 10-source snowflaked star
 
 let context: BrowserContext;
