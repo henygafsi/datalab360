@@ -52,7 +52,7 @@ function errText(e: unknown): string {
 
 /* ── prepared-change rendering helpers ─────────────────────────────── */
 
-const RISK_CLS: Record<string, string> = {
+export const RISK_CLS: Record<string, string> = {
   low: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
   medium: 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
   high: 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300',
@@ -62,7 +62,7 @@ const RISK_CLS: Record<string, string> = {
  *  « grant select » checkboxes with no object read as duplicates when each
  *  one actually aims at a different table. Best-effort: unknown shapes fall
  *  back to the first SQL line (still truthful, never blank). */
-function mutationTarget(m: AccessMutation): string {
+export function mutationTarget(m: AccessMutation): string {
   const sql = (m.sql ?? [])[0] ?? '';
   const one = sql.replace(/\s+/g, ' ').trim();
   let x: RegExpMatchArray | null;
@@ -78,7 +78,7 @@ function mutationTarget(m: AccessMutation): string {
   return one.slice(0, 80) || '—';
 }
 
-interface MutationGroup {
+export interface MutationGroup {
   kind: string;
   words: string;
   risk: string;
@@ -87,7 +87,7 @@ interface MutationGroup {
 
 /** Group by kind, order of first appearance; the group carries the WORST
  *  risk of its lines (high > medium > low). */
-function groupMutations(mutations: AccessMutation[]): MutationGroup[] {
+export function groupMutations(mutations: AccessMutation[]): MutationGroup[] {
   const rank: Record<string, number> = { low: 0, medium: 1, high: 2 };
   const groups: MutationGroup[] = [];
   const byKind = new Map<string, MutationGroup>();

@@ -54,6 +54,7 @@ import StudioOverviewBrief from '@/app/shared/studio/StudioOverviewBrief';
 import StudioWorkflowsPanel from '@/app/shared/studio/StudioWorkflowsPanel';
 import StudioDetectionsPanel from '@/app/shared/studio/StudioDetectionsPanel';
 import StudioKnowledgeHeader from '@/app/shared/studio/StudioKnowledgeHeader';
+import StudioAccessProfilesPanel from '@/app/shared/studio/StudioAccessProfilesPanel';
 import ObjectsPanel from '@/app/shared/studio/sources/ObjectsPanel';
 import {
   LIFECYCLE_CLS,
@@ -2461,16 +2462,24 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           {/* ── GOVERNANCE ────────────────────────────────────────── */}
           {tab === 'governance' && draftId && (
             <>
+              {/* the PROFILE object leads (what data people SEE); the
+                  role mapping below says what they can DO */}
+              <StudioAccessProfilesPanel draftId={draftId} />
               <StudioAccessPanel draftId={draftId} />
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-                <span>
+                <button
+                  type="button"
+                  onClick={openActivation}
+                  className="rounded text-left hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:text-accent-400"
+                >
                   Activation:{' '}
                   <span className="font-medium">
                     {typeof activation?.status === 'string'
                       ? String(activation.status)
                       : 'not requested'}
-                  </span>
-                </span>
+                  </span>{' '}
+                  — open the panel
+                </button>
                 <QuietAction
                   label="Account-wide governance & access"
                   icon={ShieldCheck}

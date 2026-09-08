@@ -19,7 +19,15 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Play, RefreshCw, Sparkles, Square, X } from 'lucide-react';
+import ReactFlow, {
+  Background,
+  BackgroundVariant,
+  Controls,
+  type Edge,
+  type Node,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+import { Play, RefreshCw, Sparkles, Square, X } from 'lucide-react';
 import {
   editModel,
   getBlocksCatalog,
@@ -177,7 +185,7 @@ export default function StudioWorkflowEditor({
   const w = workflow;
   const aid = w.automation_id;
   const ep = (w.edit_paths ?? {}) as EditPaths;
-  const steps = (w.steps ?? []) as StepDef[];
+  const steps = useMemo(() => (w.steps ?? []) as StepDef[], [w.steps]);
   const condition = (w.condition ?? null) as {
     chart_id?: string;
     measure?: string;
@@ -196,7 +204,8 @@ export default function StudioWorkflowEditor({
   const [preview, setPreview] = useState<WorkflowPreview | null>(null);
   const [testRun, setTestRun] = useState<WorkflowTestRun | null>(null);
   const [history, setHistory] = useState<{ runs: WorkflowRunsPage; versions: WorkflowVersions } | null>(null);
-  const [graphOpen, setGraphOpen] = useState(false);
+  /** the canvas selection — click a block, configure it beside */
+  const [selStep, setSelStep] = useState<number | null>(null);
   /* AI lane */
   const [aiText, setAiText] = useState('');
   const [aiState, setAiState] = useState<
@@ -333,7 +342,41 @@ export default function StudioWorkflowEditor({
     return p ? p.replace(/\/\d+$/, '') : null;
   }, [ep.steps]);
 
-  const graphNodes = ((w.graph?.nodes ?? []) as Array<Record<string, unknown>>).slice(0, 40);
+  /* the canvas — the SAME definition as block components (legacy-builder
+     style): backend positions when the graph carries them, a simple flow
+     otherwise; edges follow the sequence */
+  const graphMeta = (w.graph?.nodes ?? []) as Array<Record<string, unknown>>;
+  const flowNodes: Node[] = useMemo(
+    () =>
+      steps.map((s, i) => {
+        const gn = graphMeta[i] as { position?: { x?: number; y?: number } } | undefined;
+        return {
+          id: String(i),
+          position:
+            gn?.position?.x != null && gn?.position?.y != null
+              ? { x: gn.position.x, y: gn.position.y }
+              : { x: i * 240, y: (i % 2) * 90 },
+          data: { label: `${i + 1} · ${s.label ?? s.block_type ?? 'step'}` },
+          style: {
+            fontSize: 12,
+            borderRadius: 12,
+            padding: 8,
+            ...(selStep === i ? { border: '2px solid rgb(124 58 237)' } : {}),
+          },
+        };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [steps, selStep],
+  );
+  const flowEdges: Edge[] = useMemo(
+    () =>
+      steps.slice(1).map((_, i) => ({
+        id: `e${i}`,
+        source: String(i),
+        target: String(i + 1),
+      })),
+    [steps],
+  );
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -655,7 +698,9 @@ export default function StudioWorkflowEditor({
         </div>
       )}
 
-      {/* ── STEPS — the sequence, each block editable via its own path ── */}
+      {/* ── STEPS — the interactive canvas, legacy-builder style: block
+          components on a flow, click a node to configure it beside; the
+          palette stays a grid of ready-to-pick components ─────────────── */}
       {section === 'steps' && (
         <div className="mt-3 space-y-2">
           {steps.length === 0 ? (
@@ -663,69 +708,96 @@ export default function StudioWorkflowEditor({
               This workflow carries no explicit steps — its action is derived from the phrase.
             </p>
           ) : (
-            <ol className="space-y-2">
-              {steps.map((s, i) => {
-                const path = ep.steps?.[i];
-                const stagedStep = staged(path, s);
-                const cfg = (stagedStep?.config ?? {}) as Record<string, unknown>;
-                return (
-                  <li key={s.step_id ?? i} className="rounded-lg border border-slate-200 p-2.5 dark:border-slate-800">
-                    <div className="flex flex-wrap items-center gap-2 text-[13px]">
-                      <span className="font-mono text-xs text-slate-400 dark:text-slate-500">{i + 1}</span>
-                      <span className="font-medium text-slate-800 dark:text-slate-100">{s.label ?? s.block_type ?? `step ${i + 1}`}</span>
-                      {s.block_type && (
-                        <span className="rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                          {s.block_type}
-                        </span>
-                      )}
-                      {path ? (
-                        <span className="ml-auto text-xs text-slate-400 dark:text-slate-500" title={path}>editable</span>
-                      ) : (
-                        <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">read-only in this version</span>
-                      )}
-                      {path && stepsBasePath && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = steps.filter((_, j) => j !== i);
-                            setBuffer((b) => ({
-                              ...b,
-                              [stepsBasePath]: { op: 'set', path: stepsBasePath, value: next } as ModelPatchOp,
-                            }));
-                          }}
-                          className="rounded px-1.5 py-0.5 text-xs text-slate-400 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-500 dark:hover:text-red-400"
-                          title="Removes this step from the staged sequence — nothing changes before Save"
-                        >
-                          remove
-                        </button>
-                      )}
-                    </div>
-                    {Object.keys(cfg).length > 0 && path && (
-                      <div className="mt-1.5 flex flex-wrap gap-2">
-                        {Object.entries(cfg)
-                          .filter(([, v]) => typeof v !== 'object')
-                          .slice(0, 6)
-                          .map(([k, v]) => (
-                            <label key={k} className="block">
-                              <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">{k.replace(/_/g, ' ')}</span>
-                              <input
-                                value={String(v ?? '')}
-                                onChange={(e) =>
-                                  stage(path, { ...stagedStep, config: { ...cfg, [k]: e.target.value } }, `step ${i}`)
-                                }
-                                className="h-7 w-44 rounded border border-slate-200 bg-white px-1.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                              />
-                            </label>
-                          ))}
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr,340px]">
+              <div className="h-64 rounded-lg border border-slate-200 dark:border-slate-800">
+                <ReactFlow
+                  nodes={flowNodes}
+                  edges={flowEdges}
+                  onNodeClick={(_, n) => setSelStep(Number(n.id))}
+                  fitView
+                  proOptions={{ hideAttribution: true }}
+                  nodesDraggable={false}
+                  nodesConnectable={false}
+                  zoomOnScroll={false}
+                  preventScrolling={false}
+                >
+                  <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+                  <Controls showInteractive={false} />
+                </ReactFlow>
+              </div>
+              <aside className="rounded-lg border border-slate-200 p-2.5 text-[13px] dark:border-slate-800">
+                {selStep == null || !steps[selStep] ? (
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    Click a block on the canvas to configure it here.
+                  </p>
+                ) : (
+                  (() => {
+                    const i = selStep;
+                    const s0 = steps[i];
+                    const path = ep.steps?.[i];
+                    const stagedStep = staged(path, s0);
+                    const cfg = (stagedStep?.config ?? {}) as Record<string, unknown>;
+                    return (
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs text-slate-400 dark:text-slate-500">{i + 1}</span>
+                          <span className="font-medium text-slate-800 dark:text-slate-100">
+                            {s0.label ?? s0.block_type ?? `step ${i + 1}`}
+                          </span>
+                          {s0.block_type && (
+                            <span className="rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                              {s0.block_type}
+                            </span>
+                          )}
+                        </div>
+                        {path ? (
+                          <div className="mt-2 space-y-2">
+                            {Object.entries(cfg)
+                              .filter(([, v]) => typeof v !== 'object')
+                              .slice(0, 8)
+                              .map(([k, v]) => (
+                                <label key={k} className="block">
+                                  <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">{k.replace(/_/g, ' ')}</span>
+                                  <input
+                                    value={String(v ?? '')}
+                                    onChange={(e) =>
+                                      stage(path, { ...stagedStep, config: { ...cfg, [k]: e.target.value } }, `step ${i}`)
+                                    }
+                                    className="h-7 w-full rounded border border-slate-200 bg-white px-1.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                  />
+                                </label>
+                              ))}
+                            {stepsBasePath && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = steps.filter((_, j) => j !== i);
+                                  setBuffer((b) => ({
+                                    ...b,
+                                    [stepsBasePath]: { op: 'set', path: stepsBasePath, value: next } as ModelPatchOp,
+                                  }));
+                                  setSelStep(null);
+                                }}
+                                className="rounded px-1.5 py-0.5 text-xs text-slate-400 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-500 dark:hover:text-red-400"
+                                title="Removes this step from the staged sequence — nothing changes before Save"
+                              >
+                                remove this step
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">read-only in this version</p>
+                        )}
                       </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
+                    );
+                  })()
+                )}
+              </aside>
+            </div>
           )}
 
-          {/* palette — the catalogue's real blocks, honest availability */}
+          {/* palette — the catalogue's real blocks, a grid of ready-to-pick
+              components (family said on every card, honest availability) */}
           {stepsBasePath && (
             <div>
               <button
@@ -818,38 +890,6 @@ export default function StudioWorkflowEditor({
                     </ul>
                   )}
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* the graph — a REPRESENTATION of the steps, folded */}
-          {graphNodes.length > 0 && (
-            <div>
-              <button
-                type="button"
-                aria-expanded={graphOpen}
-                onClick={() => setGraphOpen((v) => !v)}
-                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
-              >
-                {graphOpen ? <ChevronDown aria-hidden className="h-3.5 w-3.5" /> : <ChevronRight aria-hidden className="h-3.5 w-3.5" />}
-                The same definition as a graph ({graphNodes.length} node(s)) — derived from the steps, never the other way round
-              </button>
-              {graphOpen && (
-                <ul className="mt-1.5 flex flex-wrap gap-1.5">
-                  {graphNodes.map((n, i) => (
-                    <li
-                      key={String(n.id ?? i)}
-                      className={`rounded-lg border px-2 py-1 text-xs ${
-                        n.executable === false
-                          ? 'border-slate-200 text-slate-400 dark:border-slate-800 dark:text-slate-500'
-                          : 'border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-200'
-                      }`}
-                      title={`${String(n.type ?? '')}${n.capability ? ` · ${String(n.capability)}` : ''}${n.executable === false ? ' · not executable yet' : ''}`}
-                    >
-                      {String(n.label ?? n.id ?? `node ${i + 1}`)}
-                    </li>
-                  ))}
-                </ul>
               )}
             </div>
           )}

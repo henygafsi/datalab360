@@ -1526,6 +1526,66 @@ export const API = {
      *  envelope (ACCOUNTADMIN raises limits, with who/when/why recorded). */
     previewPolicy: () => '/studio/preview-policy',
 
+    /* ── Access profiles (« objet profil », 2026-09-08, 414/414) —
+     * canonical draft-scoped access: ONE role {APP}_P_{PROFILE} per
+     * profile granted to {APP}_ACCESS, policies merged per (object,
+     * column), mutations shaped like the layered plan and applied through
+     * the SAME gate/history (undo by run_id). Roles say what people DO,
+     * profiles say what data they SEE. ── */
+    /** GET (list + roles + operators + grant_types + compiled) · POST
+     *  (create — validated against sources AND known columns; 422
+     *  PROFILE_INVALID names each field). */
+    accessProfiles: (draftId: string) => `/studio/drafts/${enc(draftId)}/access/profiles`,
+    /** GET | PUT {expected_version,…} (409 PROFILE_VERSION_MISMATCH; an
+     *  applied profile edited turns stale) | DELETE (409 PROFILE_IN_USE /
+     *  CONFIRM_REQUIRED — the Snowflake policies survive: undo the run). */
+    accessProfile: (draftId: string, profileId: string) =>
+      `/studio/drafts/${enc(draftId)}/access/profiles/${enc(profileId)}`,
+    /** POST — the target−current diff with the EXACT SQL and its undo. */
+    accessProfilesCompile: (draftId: string) =>
+      `/studio/drafts/${enc(draftId)}/access/profiles/compile`,
+    /** POST {mutation_ids?, confirm} — dry-run by default; confirm is
+     *  ACCOUNTADMIN-gated (403 APPROVAL_REQUIRED rendered verbatim). */
+    accessProfilesApply: (draftId: string) =>
+      `/studio/drafts/${enc(draftId)}/access/profiles/apply`,
+    /** GET ?q&limit&cursor&live — the TRUTH per principal, states read
+     *  from SHOW GRANTS OF ROLE (applied_outside / revoked_outside said). */
+    accessAssignments: (
+      draftId: string,
+      p?: { q?: string; limit?: number; cursor?: string; live?: boolean },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/access/assignments${qs({
+        q: p?.q,
+        limit: p?.limit,
+        cursor: p?.cursor,
+        live: p?.live ? 'true' : undefined,
+      })}`,
+    /** DELETE ?assignment_id=&confirm= — dry-run returns revoke_sql. */
+    accessAssignmentDelete: (
+      draftId: string,
+      p: { assignmentId: string; confirm?: boolean },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/access/assignments${qs({
+        assignment_id: p.assignmentId,
+        confirm: p.confirm ? 'true' : undefined,
+      })}`,
+    /** POST {run_id} — undo an applied access run (same shared history). */
+    accessUndo: (draftId: string) => `/studio/drafts/${enc(draftId)}/access/undo`,
+    /** GET — bounded observed values of ONE column (typeahead; sample_read
+     *  envelope consumed; NEVER called on mount). */
+    sourceValues: (
+      draftId: string,
+      p: { fqn: string; column: string; q?: string; limit?: number; cursor?: string; validate?: string },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/sources/values${qs({
+        fqn: p.fqn,
+        column: p.column,
+        q: p.q,
+        limit: p.limit,
+        cursor: p.cursor,
+        validate: p.validate,
+      })}`,
+
     /* ── the ApplicationContext (convergence 2026-09-08, 420/420):
      * ONE versioned context read per application — 7 questions, truth on
      * every artifact, server lifecycle, the Intelligence Brief, the
