@@ -138,12 +138,36 @@ export interface CatalogConnector {
   [k: string]: unknown;
 }
 
+/** Per-family status tally — served so a category summary needs no load. */
+export type CatalogByFamily = Record<
+  string,
+  { total?: number; available?: number; to_configure?: number; partial?: number; not_integrated?: number }
+>;
+
 export async function getStudioSourcesCatalog(): Promise<CatalogConnector[]> {
   return dedupGet('studio:v1:catalog', 300_000, async () => {
     const { data } = await apiClient.get<{ connectors?: CatalogConnector[]; items?: CatalogConnector[] }>(
       API.studio.sourcesCatalog(),
     );
     return (data?.connectors ?? data?.items ?? []) as CatalogConnector[];
+  });
+}
+
+/** Catalog WITH the by_family tally — one call for the categorized picker. */
+export async function getStudioSourcesCatalogFull(): Promise<{
+  connectors: CatalogConnector[];
+  by_family: CatalogByFamily;
+}> {
+  return dedupGet('studio:v1:catalog-full', 300_000, async () => {
+    const { data } = await apiClient.get<{
+      connectors?: CatalogConnector[];
+      items?: CatalogConnector[];
+      by_family?: CatalogByFamily;
+    }>(API.studio.sourcesCatalog());
+    return {
+      connectors: (data?.connectors ?? data?.items ?? []) as CatalogConnector[],
+      by_family: data?.by_family ?? {},
+    };
   });
 }
 
@@ -175,6 +199,35 @@ export async function getStudioObjects(database: string): Promise<{
       note: data?.note,
     };
   });
+}
+
+export interface StudioObjectsPage {
+  objects: StudioObject[];
+  count?: number;
+  has_more?: boolean;
+  cursor?: string | null;
+  offset?: number;
+  truncated?: boolean;
+}
+
+/** Paginated + searchable object discovery (cursor served 2026-09-09):
+ *  q = ILIKE on the name, cursor is opaque. Metadata read — no warehouse,
+ *  so it survives the resource-monitor block; a page change costs nothing. */
+export async function getStudioObjectsPage(
+  database: string,
+  opts?: { schema?: string; q?: string; limit?: number; cursor?: string },
+): Promise<StudioObjectsPage> {
+  const { data } = await apiClient.get<Partial<StudioObjectsPage>>(
+    API.studio.sourcesObjects(database, {
+      schema: opts?.schema,
+      limit: opts?.limit,
+      // q + cursor ride the same query builder
+      ...(opts?.q ? ({ q: opts.q } as Record<string, string>) : {}),
+      ...(opts?.cursor ? ({ cursor: opts.cursor } as Record<string, string>) : {}),
+    } as never),
+    { timeout: 30_000 },
+  );
+  return { ...data, objects: Array.isArray(data?.objects) ? data.objects : [] };
 }
 
 /* ── Understanding ─────────────────────────────────────────────────── */

@@ -3,105 +3,42 @@
 /**
  * SourcesStep — "Where does this data live?"
  *
- * Backed by the NEW /studio module (contract T1, schema studio.v1):
- * getStudioSources() returns the 44 unified, permission-filtered sources.
- * Layout is one-page Lite-compressed: a horizontal FLOW BAR of the selected
- * sources (editable icon chips), a compact multi-select grid with instant
- * search + family filters (bounded height, internal scroll), and a compact
- * honest-status connector catalog. Nothing is auto-selected: discovery ≠
- * inclusion (mission §18).
+ * Backed by the NEW /studio module (contract T1, schema studio.v1).
+ * Two layers: (1) LLM-first discovery — a name-match seed then a bounded
+ * CONTENT scan that ranks tables by what they hold (keys, semantics,
+ * quality), surfaced as a proposed basket; (2) the AI-first PICKER
+ * (StudioSourceGallery): an intent bar, up to three scan-ranked proposals,
+ * then collapsible per-family CATEGORIES each with a paginated gallery and
+ * a stable selection. No table-as-choice, no long list. Nothing is
+ * auto-selected beyond what discovery proposes: discovery ≠ inclusion
+ * (mission §18).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import {
-  Boxes,
-  Cloud,
-  Database,
-  Plug,
-  RefreshCw,
-  Search,
-  Share2,
-  Sparkles,
-  X,
-  type LucideIcon,
-} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { RefreshCw, Sparkles } from 'lucide-react';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
 import StudioLimitControl from '@/app/shared/studio/StudioLimitControl';
+import StudioSourceGallery, {
+  type SourceProposal,
+} from '@/app/shared/studio/sources/StudioSourceGallery';
 import {
   createDraftDirect,
   getContentScan,
   getStudioObjects,
   getStudioSources,
-  getStudioSourcesCatalog,
   scanDatalake,
   getPreviewUsage,
   startContentScan,
   suggestSources,
-  type CatalogConnector,
   type ContentScanProgress,
   type ContentScanView,
   type StudioSource,
 } from '@/app/services/studio/studio-api';
-import EmptyState from '@/components/ui/EmptyState';
 import { DATABASE_CONFIG } from '@/config/database.config';
 import { routes } from '@/config/routes';
 import type { JourneyDraft } from './journey';
-
-/* ── Family → icon (sources use object_storage, catalog cloud_storage) ─ */
-
-const FAMILY_ICON: Record<string, LucideIcon> = {
-  warehouse: Database,
-  cloud_storage: Cloud,
-  object_storage: Cloud,
-  api: Plug,
-  share: Share2,
-};
-
-function familyIcon(family?: string): LucideIcon {
-  return FAMILY_ICON[family ?? ''] ?? Boxes;
-}
-
-/**
- * Brand rule: never show vendor names in customer-facing PROSE.
- *
- * It must never touch an IDENTIFIER. A database really named
- * SNOWFLAKE_INTELLIGENCE has to render as SNOWFLAKE_INTELLIGENCE: the user
- * matches this list against objects in their own warehouse, and rewriting
- * it to « your warehouse_INTELLIGENCE » names something that exists
- * nowhere. So only a standalone vendor word is neutralised — never a word
- * that is part of a larger identifier (underscores, dots, digits).
- */
-function neutralLabel(label: string): string {
-  const looksLikeIdentifier = /[._]/.test(label) || /^[A-Z0-9_]+$/.test(label);
-  if (looksLikeIdentifier) return label;
-  return label
-    .replace(/\bsnowflake\b/gi, 'your warehouse')
-    .replace(/\bcortex\b/gi, 'AI')
-    .replace(/\bkimi\b/gi, 'AI');
-}
-
-/** Semantic health dot: ok → emerald, unknown/absent → slate, else amber. */
-function healthDotClass(s: StudioSource): string {
-  const state = s.health?.state;
-  if (state === 'ok') return 'bg-emerald-500';
-  if (!state || state === 'unknown') return 'bg-slate-300 dark:bg-slate-600';
-  return 'bg-amber-400';
-}
-
-const CATALOG_STATUS_LABEL: Record<string, string> = {
-  available: 'available',
-  to_configure: 'to configure',
-  partial: 'partial',
-  not_integrated: 'not integrated',
-};
-
-const CATALOG_STATUS_TONE: Record<string, string> = {
-  available: 'text-emerald-600 dark:text-emerald-400',
-  to_configure: 'text-amber-600 dark:text-amber-400',
-  partial: 'text-amber-600 dark:text-amber-400',
-  not_integrated: 'text-slate-400 dark:text-slate-500',
-};
 
 /* ── Auto-discovery (user rule: the data should already be found) ────
  * When the step opens with an empty selection, Data360 looks for the
@@ -170,11 +107,9 @@ export default function SourcesStep({
   onNext: () => void;
   onBack?: () => void;
 }) {
+  const router = useRouter();
   const [sources, setSources] = useState<StudioSource[] | null>(null);
-  const [catalog, setCatalog] = useState<CatalogConnector[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState('');
-  const [familyFilter, setFamilyFilter] = useState<string[]>([]);
   const [discovery, setDiscovery] = useState<Discovery>({ kind: 'idle' });
   const [deepSearching, setDeepSearching] = useState<string | null>(null);
   const [deepError, setDeepError] = useState<string | null>(null);
@@ -385,15 +320,11 @@ export default function SourcesStep({
   const load = useCallback(() => {
     setError(null);
     let alive = true;
-    Promise.allSettled([getStudioSources(), getStudioSourcesCatalog()]).then(
-      ([s, c]) => {
-        if (!alive) return;
-        if (s.status === 'fulfilled') setSources(s.value);
-        else setError('Could not list your sources.');
-        if (c.status === 'fulfilled') setCatalog(c.value);
-        else setCatalog([]); // catalog is secondary — the grid still works
-      },
-    );
+    // The connector catalog is read by the gallery itself (its own dedup
+    // key) — here we only need the selectable sources for discovery.
+    void getStudioSources()
+      .then((s) => alive && setSources(s))
+      .catch(() => alive && setError('Could not list your sources.'));
     return () => {
       alive = false;
     };
@@ -402,10 +333,23 @@ export default function SourcesStep({
   useEffect(() => load(), [load]);
 
   const selected = draft.sources.connectionIds;
-  const byId = useMemo(
-    () => new Map((sources ?? []).map((s) => [s.id, s])),
-    [sources],
-  );
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+  /** The gallery's ≤3 proposals come from the CONTENT scan (never invented):
+   *  the top-scored tables, folded to their databases, with the role and
+   *  evidence the scan gave them. No scan yet → no proposals block. */
+  const galleryProposals = useMemo<SourceProposal[]>(() => {
+    if (basket === null || basket === 'running') return [];
+    const seen = new Set<string>();
+    const out: SourceProposal[] = [];
+    for (const it of basket.items) {
+      if (seen.has(it.sourceId)) continue;
+      seen.add(it.sourceId);
+      out.push({ id: it.sourceId, label: it.db, relevance: it.relevance, role: it.role, why: it.why });
+      if (out.length >= 3) break;
+    }
+    return out;
+  }, [basket]);
 
   const setSelected = (next: string[]) => {
     onPatch({
@@ -541,30 +485,6 @@ export default function SourcesStep({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sources]);
-
-  const families = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const s of sources ?? []) {
-      const f = s.family ?? 'other';
-      counts.set(f, (counts.get(f) ?? 0) + 1);
-    }
-    return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  }, [sources]);
-
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return (sources ?? []).filter((s) => {
-      if (familyFilter.length > 0 && !familyFilter.includes(s.family ?? 'other')) {
-        return false;
-      }
-      if (!q) return true;
-      return (
-        s.label.toLowerCase().includes(q) ||
-        s.id.toLowerCase().includes(q) ||
-        (s.family ?? '').toLowerCase().includes(q)
-      );
-    });
-  }, [sources, query, familyFilter]);
 
   return (
     <div className="space-y-3">
@@ -763,274 +683,33 @@ export default function SourcesStep({
         </section>
       )}
 
-      {/* ── Flow bar: the selected connections, visible and editable ── */}
-      <section
-        aria-label="Selected sources"
-        className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-slate-800 dark:bg-slate-950"
-      >
-        {selected.length === 0 ? (
-          <p className="px-1 py-0.5 text-xs text-slate-400 dark:text-slate-500">
-            Nothing selected yet — pick below.
+      {/* ── AI-first picker: an intent bar, up to three content-scan
+          proposals, then collapsible CATEGORIES (icon + one-line summary
+          from the backend tally) each with a PAGINATED gallery. Selection
+          stays stable across pages, categories and search. Opening a
+          category or turning a page is local state over already-fetched
+          metadata — no new warehouse scan, no new LLM call. Replaces the
+          old flow bar, the search/family filters, the dense grid and the
+          connector list. ── */}
+      {error ? (
+        <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+          <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+            {error}
           </p>
-        ) : (
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            {selected.map((id) => {
-              const src = byId.get(id);
-              const Icon = familyIcon(src?.family);
-              return (
-                <span
-                  key={id}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent-200 bg-accent-50 py-0.5 pl-1.5 pr-0.5 text-xs text-accent-800 dark:border-accent-800 dark:bg-accent-950 dark:text-accent-200"
-                >
-                  <Icon aria-hidden className="h-3 w-3 shrink-0" />
-                  <span className="max-w-[10rem] truncate">
-                    {src ? neutralLabel(src.label) : id}
-                  </span>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${src ? neutralLabel(src.label) : id}`}
-                    onClick={() => toggle(id)}
-                    className="rounded-full p-0.5 hover:bg-accent-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:bg-accent-900"
-                  >
-                    <X aria-hidden className="h-3 w-3" />
-                  </button>
-                </span>
-              );
-            })}
-            <button
-              type="button"
-              onClick={() => setSelected([])}
-              className="shrink-0 px-1 text-xs text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
-            >
-              Clear
-            </button>
+          <div className="mt-1.5">
+            <QuietAction label="Try again" icon={RefreshCw} onClick={load} />
           </div>
-        )}
-      </section>
-
-      {/* ── Search + family filters ── */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <label className="relative">
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400"
-          />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search sources…"
-            aria-label="Search sources"
-            className="w-48 rounded-md border border-slate-200 bg-white py-1 pl-6 pr-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-accent-500 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
-          />
-        </label>
-        {families.map(([f, n]) => {
-          const active = familyFilter.includes(f);
-          const Icon = familyIcon(f);
-          return (
-            <button
-              key={f}
-              type="button"
-              aria-pressed={active}
-              onClick={() =>
-                setFamilyFilter(
-                  active ? familyFilter.filter((x) => x !== f) : [...familyFilter, f],
-                )
-              }
-              className={
-                active
-                  ? 'inline-flex items-center gap-1 rounded-full border border-accent-500 bg-accent-50 px-2 py-0.5 text-xs text-accent-800 dark:bg-accent-950 dark:text-accent-200'
-                  : 'inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-400 dark:hover:border-slate-600'
-              }
-            >
-              <Icon aria-hidden className="h-3 w-3" />
-              {f.replace(/_/g, ' ')} · {n}
-            </button>
-          );
-        })}
-        {sources !== null ? (
-          <span className="ml-auto text-xs tabular-nums text-slate-400 dark:text-slate-500">
-            {shown.length} of {sources.length} shown
-          </span>
-        ) : null}
-      </div>
-
-      {/* ── Compact multi-select grid (bounded height, internal scroll) ── */}
-      <section aria-label="Your sources">
-        {error ? (
-          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-            <p role="alert" className="text-xs text-red-600 dark:text-red-400">
-              {error}
-            </p>
-            <div className="mt-1.5">
-              <QuietAction label="Try again" icon={RefreshCw} onClick={load} />
-            </div>
-          </div>
-        ) : sources === null ? (
-          <div
-            className="grid grid-cols-3 gap-1.5 xl:grid-cols-4"
-            aria-hidden
-          >
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-7 animate-pulse rounded-md border border-slate-200 bg-slate-100 dark:border-slate-800 dark:bg-slate-800/60"
-              />
-            ))}
-          </div>
-        ) : sources.length === 0 ? (
-          <EmptyState
-            compact
-            icon={Database}
-            title="No source you can read yet"
-            description="Connect something below — nothing here is invented."
-          />
-        ) : shown.length === 0 ? (
-          <p className="py-3 text-center text-xs text-slate-400 dark:text-slate-500">
-            No source matches “{query.trim() || '—'}” — clear the search or filters.
-          </p>
-        ) : (
-          <div className="max-h-[38vh] overflow-y-auto rounded-lg border border-slate-200 p-1.5 dark:border-slate-800">
-            <div className="grid grid-cols-3 gap-1.5 xl:grid-cols-4">
-              {shown.map((s) => {
-                const Icon = familyIcon(s.family);
-                const isSel = selected.includes(s.id);
-                const available = (s.status ?? 'available') === 'available';
-                const label = neutralLabel(s.label);
-                const meta = [
-                  (s.family ?? 'other').replace(/_/g, ' '),
-                  (s.status ?? '—').replace(/_/g, ' '),
-                ].join(' · ');
-
-                if (!available) {
-                  return (
-                    <div
-                      key={s.id}
-                      title={
-                        s.health?.signal ??
-                        `This source is ${(s.status ?? 'not available').replace(/_/g, ' ')} — it cannot be picked yet.`
-                      }
-                      className="flex h-7 min-w-0 cursor-not-allowed items-center gap-1.5 rounded-md border border-dashed border-slate-200 px-2 text-xs text-slate-400 dark:border-slate-700 dark:text-slate-500"
-                    >
-                      <span
-                        aria-hidden
-                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDotClass(s)}`}
-                      />
-                      <Icon aria-hidden className="h-3 w-3 shrink-0" />
-                      <span className="min-w-0 truncate">{label}</span>
-                      <span className="shrink-0 text-xs">{meta}</span>
-                      <Link
-                        href={routes.connexion.dataSourceConnection}
-                        className="ml-auto shrink-0 text-xs text-accent-600 hover:underline dark:text-accent-400"
-                      >
-                        Set up
-                      </Link>
-                    </div>
-                  );
-                }
-
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    aria-pressed={isSel}
-                    onClick={() => toggle(s.id)}
-                    title={`${label} · ${meta} · health ${s.health?.state ?? '—'}`}
-                    className={
-                      (isSel
-                        ? 'border-accent-500 bg-accent-50 ring-1 ring-accent-500 dark:bg-accent-950 '
-                        : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-600 ') +
-                      'flex h-7 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-xs text-slate-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-200'
-                    }
-                  >
-                    <span
-                      aria-hidden
-                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${healthDotClass(s)}`}
-                    />
-                    <Icon
-                      aria-hidden
-                      className="h-3 w-3 shrink-0 text-slate-400 dark:text-slate-500"
-                    />
-                    <span className="min-w-0 truncate font-medium">{label}</span>
-                    <span className="ml-auto shrink-0 text-xs text-slate-400 dark:text-slate-500">
-                      {meta}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* ── Connect something new (honest catalog statuses) ── */}
-      <section aria-label="Connect something new">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-            Connect something new
-          </h3>
-          <QuietAction
-            label="Full connection setup"
-            icon={Plug}
-            href={routes.connexion.dataSourceConnection}
-          />
         </div>
-        {catalog === null ? (
-          <div
-            className="mt-1.5 h-7 w-64 animate-pulse rounded bg-slate-100 dark:bg-slate-800"
-            aria-hidden
-          />
-        ) : catalog.length === 0 ? (
-          <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-            The connector catalog is not answering right now.
-          </p>
-        ) : (
-          <div className="mt-1.5 max-h-[14vh] overflow-y-auto rounded-lg border border-slate-200 p-1.5 dark:border-slate-800">
-            <div className="flex flex-wrap gap-1.5">
-              {catalog.map((c, i) => {
-                const status = typeof c.status === 'string' ? c.status : 'not_integrated';
-                const usable = status !== 'not_integrated';
-                const Icon = familyIcon(
-                  typeof c.family === 'string' ? c.family : undefined,
-                );
-                const label = neutralLabel(
-                  typeof c.label === 'string' && c.label
-                    ? c.label
-                    : String(c.connector_id ?? c.id ?? '—'),
-                );
-                const statusLabel = CATALOG_STATUS_LABEL[status] ?? status.replace(/_/g, ' ');
-                const inner = (
-                  <>
-                    <Icon aria-hidden className="h-3 w-3 shrink-0" />
-                    {label}
-                    <span className={`text-xs ${CATALOG_STATUS_TONE[status] ?? 'text-slate-400'}`}>
-                      {statusLabel}
-                    </span>
-                  </>
-                );
-                return usable ? (
-                  <Link
-                    key={String(c.connector_id ?? c.id ?? i)}
-                    href={routes.connexion.dataSourceConnection}
-                    title={`${label} — ${statusLabel}. Opens the connection setup.`}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2 py-0.5 text-xs text-slate-700 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300 dark:hover:border-slate-600"
-                  >
-                    {inner}
-                  </Link>
-                ) : (
-                  <span
-                    key={String(c.connector_id ?? c.id ?? i)}
-                    title={`${label} is not integrated on this backend yet — no button here will pretend otherwise.`}
-                    className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-full border border-dashed border-slate-200 px-2 py-0.5 text-xs text-slate-400 dark:border-slate-700 dark:text-slate-500"
-                  >
-                    {inner}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </section>
+      ) : (
+        <StudioSourceGallery
+          need={draft.need.text}
+          proposals={galleryProposals}
+          selected={selectedSet}
+          onToggle={(s) => toggle(s.id)}
+          onConfigure={() => router.push(routes.connexion.dataSourceConnection)}
+          onClearAll={() => setSelected([])}
+        />
+      )}
 
       {/* ── CTA ── */}
       <div className="flex items-center gap-3 pt-0.5">

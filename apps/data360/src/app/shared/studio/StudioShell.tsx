@@ -35,7 +35,7 @@ export default function StudioShell({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-dvh flex-col bg-slate-50 dark:bg-slate-950">
-      <header className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-4 border-b border-slate-200 bg-white/95 px-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+      <header className="sticky top-0 z-30 flex min-h-12 shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-slate-200 bg-white/95 px-4 py-1.5 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
         <Link
           href={routes.studio}
           className="shrink-0 text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100"
