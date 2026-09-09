@@ -27,6 +27,7 @@ import StudioReadyKpis from '@/app/shared/studio/StudioReadyKpis';
 import StudioSourceCard from '@/app/shared/studio/StudioSourceCard';
 import StudioAccessPanel from '@/app/shared/studio/StudioAccessPanel';
 import StudioViewKpis from '@/app/shared/studio/StudioViewKpis';
+import StudioQualitySummary from '@/app/shared/studio/StudioQualitySummary';
 import StudioAppCostBadge from '@/app/shared/studio/StudioAppCostBadge';
 import {
   AlertCircle,
@@ -2160,6 +2161,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           {/* ── QUALITY — diagnosis of the WHOLE model, rules live in Jobs ── */}
           {tab === 'quality' && (
             <div className="grid grid-cols-1 gap-3">
+              {draftId && <StudioQualitySummary draftId={draftId} />}
               {draftId && (
                 <StudioQualityPanel
                   draftId={draftId}
