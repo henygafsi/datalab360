@@ -64,35 +64,42 @@ const GRANT_STATE_CLS: Record<string, string> = {
   revoked_outside: 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300',
 };
 
-const STEPS = ['definition', 'assignments', 'plan', 'evidence'] as const;
+// The guided spine the user asked for: pick/create a profile → choose the
+// DATA & policies it grants → assign USERS → review & apply. "plan" and
+// "evidence" fold into one Review & apply step (the proofs land there too).
+const STEPS = ['data', 'users', 'apply'] as const;
 type Step = (typeof STEPS)[number];
 const STEP_LABEL: Record<Step, string> = {
-  definition: 'Definition',
-  assignments: 'Assignments',
-  plan: 'Plan & apply',
-  evidence: 'Evidence',
+  data: 'Data & policies',
+  users: 'Users',
+  apply: 'Review & apply',
 };
 
 /* ── the observed-values picker (explicit search, bounded) ──────────── */
 
 function ValuesPicker({
   draftId,
-  fqn,
+  fqns,
   column,
   picked,
   onToggle,
 }: {
   draftId: string;
-  fqn: string;
+  /** the profile's objects — the reader chooses WHICH one to observe from
+   *  (a column can live in several; observing the wrong table was a real
+   *  bug — the values shown must be the ones the rule actually gates). */
+  fqns: string[];
   column: string;
   picked: string[];
   onToggle: (v: string) => void;
 }) {
   const [q, setQ] = useState('');
+  const [fqn, setFqn] = useState(fqns[0] ?? '');
   const [res, setRes] = useState<ObservedValues | 'loading' | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
 
   const search = async () => {
+    if (!fqn) return;
     setRes('loading');
     setRefusal(null);
     const r = await getObservedValues(draftId, { fqn, column, q: q.trim() || undefined });
@@ -105,7 +112,24 @@ function ValuesPicker({
 
   return (
     <div className="mt-1">
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {fqns.length > 1 && (
+          <select
+            value={fqn}
+            onChange={(e) => {
+              setFqn(e.target.value);
+              setRes(null);
+            }}
+            aria-label="Observe values from which object"
+            className="h-7 max-w-[12rem] rounded-lg border border-slate-200 bg-white px-1.5 text-xs text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          >
+            {fqns.map((f) => (
+              <option key={f} value={f}>
+                {f.split('.').slice(-1)[0]}
+              </option>
+            ))}
+          </select>
+        )}
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -170,6 +194,200 @@ function ValuesPicker({
   );
 }
 
+/* ── the object picker (categorized by schema, paginated, stable) ─────
+ * Replaces the old flat chip row of every application object. Objects are
+ * grouped by their schema (db.schema), each group is a collapsible
+ * category with a one-line summary and a paginated grid — no infinite
+ * superposed list. Selection is the controlled `selected` array, stable
+ * across pages, categories and search. Reading a category or turning a
+ * page is pure local state (the objects are already in hand).            */
+
+const OBJ_PAGE = 12;
+
+function ObjectCategory({
+  schema,
+  items,
+  selected,
+  onToggle,
+  onSelectMany,
+  query,
+  defaultOpen,
+}: {
+  schema: string;
+  items: string[]; // FQNs
+  selected: string[];
+  onToggle: (fqn: string) => void;
+  onSelectMany: (fqns: string[], on: boolean) => void;
+  query: string;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const [page, setPage] = useState(0);
+  const q = query.trim().toLowerCase();
+  const filtered = q ? items.filter((f) => f.toLowerCase().includes(q)) : items;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / OBJ_PAGE));
+  useEffect(() => {
+    if (page > 0 && page >= pageCount) setPage(0);
+  }, [page, pageCount]);
+  const shown = filtered.slice(page * OBJ_PAGE, (page + 1) * OBJ_PAGE);
+  const pickedHere = items.filter((f) => selected.includes(f)).length;
+  const allOn = filtered.length > 0 && filtered.every((f) => selected.includes(f));
+  const isOpen = open || q.length > 0;
+
+  if (q && filtered.length === 0) return null;
+
+  return (
+    <section className="rounded-lg border border-slate-200 dark:border-slate-800">
+      <div className="flex items-center gap-2 px-2.5 py-1.5">
+        <button
+          type="button"
+          aria-expanded={isOpen}
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+        >
+          <span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-200">{schema}</span>
+          <span className="text-xs text-slate-400 dark:text-slate-500">
+            {items.length} object{items.length === 1 ? '' : 's'}
+          </span>
+          {pickedHere > 0 && (
+            <span className="rounded-full bg-accent-600/10 px-1.5 py-px text-xs text-accent-800 dark:bg-accent-900/30 dark:text-accent-200">
+              {pickedHere} picked
+            </span>
+          )}
+          <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">{isOpen ? '−' : '+'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelectMany(filtered, !allOn)}
+          className="shrink-0 rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-500 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-400"
+        >
+          {allOn ? 'Clear' : 'All'}
+        </button>
+      </div>
+      {isOpen && (
+        <div className="border-t border-slate-100 p-2 dark:border-slate-800">
+          <div className="flex flex-wrap gap-1">
+            {shown.map((fqn) => {
+              const on = selected.includes(fqn);
+              return (
+                <button
+                  key={fqn}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => onToggle(fqn)}
+                  title={fqn}
+                  className={`rounded-full border px-2 py-0.5 font-mono text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                    on
+                      ? 'border-accent-500 bg-accent-600 text-white'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  {fqn.split('.').slice(-1)[0]}
+                </button>
+              );
+            })}
+          </div>
+          {pageCount > 1 && (
+            <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <button
+                type="button"
+                disabled={page <= 0}
+                onClick={() => setPage((p) => p - 1)}
+                className="rounded border border-slate-200 px-2 py-0.5 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700"
+              >
+                Previous
+              </button>
+              <span className="tabular-nums">page {page + 1} of {pageCount}</span>
+              <button
+                type="button"
+                disabled={page >= pageCount - 1}
+                onClick={() => setPage((p) => p + 1)}
+                className="rounded border border-slate-200 px-2 py-0.5 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ObjectPicker({
+  objects,
+  selected,
+  onToggle,
+  onSelectMany,
+}: {
+  objects: string[] | null;
+  selected: string[];
+  onToggle: (fqn: string) => void;
+  onSelectMany: (fqns: string[], on: boolean) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const bySchema = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const fqn of objects ?? []) {
+      const parts = fqn.split('.');
+      const schema = parts.length >= 2 ? parts.slice(0, -1).join('.') : '(unqualified)';
+      if (!map.has(schema)) map.set(schema, []);
+      map.get(schema)!.push(fqn);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [objects]);
+
+  if (objects == null) {
+    return (
+      <div role="status" className="mt-1 h-8 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800">
+        <span className="sr-only">Reading the application&apos;s objects…</span>
+      </div>
+    );
+  }
+  if (objects.length === 0) {
+    return (
+      <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+        This application reads no object yet — add sources first.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-1 space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-slate-500 dark:text-slate-400">
+          {selected.length} of {objects.length} selected
+        </span>
+        <label className="relative ml-auto">
+          <Search aria-hidden className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search objects"
+            aria-label="Search objects"
+            className="h-7 w-48 rounded-lg border border-slate-200 bg-white pl-6 pr-2 text-xs text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          />
+        </label>
+      </div>
+      <div className="space-y-1.5">
+        {bySchema.map(([schema, items], i) => (
+          <ObjectCategory
+            key={schema}
+            schema={schema}
+            items={items}
+            selected={selected}
+            onToggle={onToggle}
+            onSelectMany={onSelectMany}
+            query={query}
+            defaultOpen={bySchema.length <= 2 || i === 0}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── the profile sheet ──────────────────────────────────────────────── */
 
 function ProfileSheet({
@@ -187,7 +405,7 @@ function ProfileSheet({
   onChanged: () => void;
 }) {
   const creating = profile == null;
-  const [step, setStep] = useState<Step>('definition');
+  const [step, setStep] = useState<Step>('data');
   const [busy, setBusy] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -231,15 +449,14 @@ function ProfileSheet({
   }, [draftId]);
 
   useEffect(() => {
-    if (step === 'assignments' && assign == null) {
+    if (step === 'users' && assign == null) {
       void loadAssignments();
       void listAccountPrincipals()
         .then((p) =>
           setPrincipals(
-            [
-              ...((p as { users?: Array<{ name?: string }> }).users ?? []).map((u) => ({ type: 'user', name: String(u.name ?? '') })),
-              ...((p as { roles?: Array<{ name?: string }> }).roles ?? []).map((r) => ({ type: 'role', name: String(r.name ?? '') })),
-            ].filter((x) => x.name),
+            (p.principals ?? [])
+              .map((x) => ({ type: x.kind, name: x.name }))
+              .filter((x) => x.name),
           ),
         )
         .catch(() => setPrincipals([]));
@@ -302,7 +519,7 @@ function ProfileSheet({
     else {
       setApplyRes(r.value);
       if (confirm) {
-        setStep('evidence');
+        setStep('apply');
         onChanged();
       }
     }
@@ -326,9 +543,6 @@ function ProfileSheet({
                 stale
               </span>
             )}
-            {profile?.role && (
-              <span className="font-mono text-xs text-slate-400 dark:text-slate-500">{profile.role}</span>
-            )}
           </>
         )}
         <button
@@ -341,28 +555,63 @@ function ProfileSheet({
         </button>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-1.5" role="tablist" aria-label="Profile steps">
-        {STEPS.map((s) => (
-          <button
-            key={s}
-            type="button"
-            role="tab"
-            aria-selected={step === s}
-            disabled={creating && s !== 'definition'}
-            onClick={() => setStep(s)}
-            className={`rounded-md px-2.5 py-0.5 text-[13px] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-              step === s
-                ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
-                : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-            }`}
-          >
-            {STEP_LABEL[s]}
-          </button>
-        ))}
-      </div>
+      {/* The three layers, kept DISTINCT (never conflated): the business
+          PROFILE, the Snowflake data-access ROLE it generates (derived, not
+          editable), and the USERS assigned to that role. */}
+      {!creating && (
+        <dl className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs dark:bg-slate-800/50">
+          <div className="flex items-center gap-1.5">
+            <dt className="text-slate-400 dark:text-slate-500">Profile</dt>
+            <dd className="font-medium text-slate-700 dark:text-slate-200">{profile?.name ?? profile?.profile_id}</dd>
+          </div>
+          <span aria-hidden className="text-slate-300 dark:text-slate-600">→</span>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <dt className="shrink-0 text-slate-400 dark:text-slate-500">generates role</dt>
+            <dd className="min-w-0 break-all font-mono text-slate-600 dark:text-slate-300" title="A Snowflake data-access role, generated from this profile — not edited by hand.">
+              {profile?.role ?? <span className="italic text-slate-400 dark:text-slate-500">created on apply</span>}
+            </dd>
+          </div>
+          <span aria-hidden className="text-slate-300 dark:text-slate-600">→</span>
+          <div className="flex items-center gap-1.5">
+            <dt className="text-slate-400 dark:text-slate-500">granted to</dt>
+            <dd className="font-medium tabular-nums text-slate-700 dark:text-slate-200">
+              {profile?.assignments ?? 0} user{(profile?.assignments ?? 0) === 1 ? '' : 's'}
+            </dd>
+          </div>
+        </dl>
+      )}
 
-      {/* ── DEFINITION — who sees WHICH data, in words then in rules ──── */}
-      {step === 'definition' && (
+      <ol className="mt-2.5 flex flex-wrap items-center gap-1.5" aria-label="Profile steps">
+        {STEPS.map((s, i) => (
+          <li key={s} className="flex items-center gap-1.5">
+            {i > 0 && <span aria-hidden className="h-px w-4 bg-slate-200 dark:bg-slate-700" />}
+            <button
+              type="button"
+              aria-current={step === s ? 'step' : undefined}
+              disabled={creating && s !== 'data'}
+              title={creating && s !== 'data' ? 'Create the profile first' : undefined}
+              onClick={() => setStep(s)}
+              className={`inline-flex items-center gap-1.5 rounded-full py-0.5 pl-1 pr-2.5 text-[13px] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                step === s
+                  ? 'bg-accent-600 text-white'
+                  : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <span
+                className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold ${
+                  step === s ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                }`}
+              >
+                {i + 1}
+              </span>
+              {STEP_LABEL[s]}
+            </button>
+          </li>
+        ))}
+      </ol>
+
+      {/* ── ① DATA & POLICIES — who sees WHICH data, in words then rules ─ */}
+      {step === 'data' && (
         <div className="mt-3 space-y-3 text-[13px]">
           <div className="flex flex-wrap gap-2.5">
             <label className="block">
@@ -389,34 +638,23 @@ function ProfileSheet({
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
               On which objects
             </p>
-            {appObjects == null ? (
-              <div role="status" className="mt-1 h-8 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800">
-                <span className="sr-only">Reading the application&apos;s objects…</span>
-              </div>
-            ) : (
-              <div className="mt-1 flex flex-wrap gap-1">
-                {appObjects.map((fqn) => {
-                  const on = objects.includes(fqn);
-                  return (
-                    <button
-                      key={fqn}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() =>
-                        setObjects((o) => (on ? o.filter((x) => x !== fqn) : [...o, fqn]))
-                      }
-                      className={`rounded-full border px-2 py-0.5 font-mono text-xs transition-colors ${
-                        on
-                          ? 'border-accent-500 bg-accent-600 text-white'
-                          : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
-                      }`}
-                    >
-                      {fqn.split('.').slice(-1)[0]}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <ObjectPicker
+              objects={appObjects}
+              selected={objects}
+              onToggle={(fqn) =>
+                setObjects((o) => (o.includes(fqn) ? o.filter((x) => x !== fqn) : [...o, fqn]))
+              }
+              onSelectMany={(fqns, on) =>
+                setObjects((o) => {
+                  const set = new Set(o);
+                  for (const f of fqns) {
+                    if (on) set.add(f);
+                    else set.delete(f);
+                  }
+                  return [...set];
+                })
+              }
+            />
           </div>
 
           <div>
@@ -491,10 +729,10 @@ function ProfileSheet({
                       remove rule
                     </button>
                   </div>
-                  {r.column && objects[0] && (
+                  {r.column && objects.length > 0 && (
                     <ValuesPicker
                       draftId={draftId}
-                      fqn={objects[0]}
+                      fqns={objects}
                       column={r.column}
                       picked={r.values ?? []}
                       onToggle={(v) =>
@@ -568,8 +806,8 @@ function ProfileSheet({
         </div>
       )}
 
-      {/* ── ASSIGNMENTS — the truth per principal ─────────────────────── */}
-      {step === 'assignments' && !creating && (
+      {/* ── ② USERS — assign people/roles; the truth per principal ────── */}
+      {step === 'users' && !creating && (
         <div className="mt-3 space-y-2 text-[13px]">
           <div className="flex flex-wrap items-center gap-1.5">
             <input
@@ -713,8 +951,8 @@ function ProfileSheet({
         </div>
       )}
 
-      {/* ── PLAN & APPLY — the compiled diff, grouped, evidence-first ─── */}
-      {step === 'plan' && !creating && (
+      {/* ── ③ REVIEW & APPLY — the compiled diff, grouped, evidence-first ─ */}
+      {step === 'apply' && !creating && (
         <div className="mt-3 space-y-2 text-[13px]">
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -847,9 +1085,12 @@ function ProfileSheet({
         </div>
       )}
 
-      {/* ── EVIDENCE — proofs + undo by run_id ────────────────────────── */}
-      {step === 'evidence' && !creating && (
-        <div className="mt-3 space-y-2 text-[13px]">
+      {/* ── EVIDENCE — proofs + undo by run_id (folded into Review & apply) ─ */}
+      {step === 'apply' && !creating && (
+        <div className="mt-3 space-y-2 border-t border-slate-100 pt-2.5 text-[13px] dark:border-slate-800">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Evidence
+          </p>
           {applyRes?.applied?.length ? (
             <>
               <p className="text-slate-700 dark:text-slate-200">

@@ -407,6 +407,40 @@ const VIEW_TO_TAB: Record<string, Tab> = {
   insights: 'reporting',
 };
 
+/**
+ * AdvancedGovernance — the role-conditional layer (per-grant-type row rules,
+ * masking exemptions, RLS candidate discovery, plan simulation and
+ * read-as-principal tests) kept as a SECONDARY surface behind the profile
+ * spine. It is the same engine (same access role, same apply/undo history),
+ * a different axis — so it stays reachable but does not superpose its long
+ * lists on the profiles by default, and it mounts (and fetches) only when
+ * opened.
+ */
+function AdvancedGovernance({ draftId }: { draftId: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="rounded-xl border border-slate-200 dark:border-slate-800">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:bg-slate-800/50"
+      >
+        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">Advanced governance</span>
+        <span className="min-w-0 truncate text-xs text-slate-400 dark:text-slate-500">
+          role-conditional row rules, masking exemptions, plan simulation &amp; read-tests
+        </span>
+        <span className="ml-auto shrink-0 text-xs text-slate-400 dark:text-slate-500">{open ? '−' : '+'}</span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 p-4 dark:border-slate-800">
+          <StudioAccessPanel draftId={draftId} />
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function StudioWorkspace({ appId }: { appId?: string }) {
   const params = useSearchParams();
   const router = useRouter();
@@ -2464,10 +2498,11 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           {/* ── GOVERNANCE ────────────────────────────────────────── */}
           {tab === 'governance' && draftId && (
             <>
-              {/* the PROFILE object leads (what data people SEE); the
-                  role mapping below says what they can DO */}
+              {/* the PROFILE spine leads (select/create a profile → data &
+                  policies → users); the role-conditional engine is one click
+                  away as Advanced, not superposed under it */}
               <StudioAccessProfilesPanel draftId={draftId} />
-              <StudioAccessPanel draftId={draftId} />
+              <AdvancedGovernance draftId={draftId} />
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                 <button
                   type="button"
