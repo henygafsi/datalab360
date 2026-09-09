@@ -22,6 +22,7 @@ import {
   type ActivationConnector,
   type ActivationStatusResponse,
 } from '@/app/services/studio/activation';
+import { runDqGate } from '@/app/services/studio/studio-api';
 import type { JourneyDraft } from './journey';
 
 /* ── helpers ───────────────────────────────────────────────────────── */
@@ -107,6 +108,7 @@ export default function ActivationStep({
     draftIdProp ?? (draft ? (draft.preview.reportDraftId ?? draft.draftId) : null) ?? null;
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [req, setReq] = useState<ReqState>({ kind: 'idle' });
+  const [gate, setGate] = useState<'idle' | 'running' | 'error'>('idle');
 
   const load = useCallback(async () => {
     if (!draftId) return;
@@ -122,6 +124,22 @@ export default function ActivationStep({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Re-evaluate the data-quality gate in place. After the standardized DQ
+   *  resolution elsewhere — routing violating rows to the DLQ (a job rule's
+   *  quarantine behaviour) or fixing them under Quality — this re-runs the
+   *  gate so a resolved application can turn green without leaving. */
+  const reRunGate = useCallback(async () => {
+    if (!draftId || gate === 'running') return;
+    setGate('running');
+    try {
+      await runDqGate(draftId);
+      await load();
+      setGate('idle');
+    } catch {
+      setGate('error');
+    }
+  }, [draftId, gate, load]);
 
   const onRequest = useCallback(async () => {
     if (!draftId) return;
@@ -292,6 +310,32 @@ export default function ActivationStep({
                 </li>
               ))}
             </ul>
+          )}
+          {dq?.overall === 'blocked' && (
+            <div className="mt-1 rounded-lg border border-red-100 bg-red-50/60 p-2 dark:border-red-900/40 dark:bg-red-950/30">
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                Resolve each failing rule under <span className="font-medium">Quality</span> — the
+                standardized DQ action per rule: fix the rows, or route the violating records to
+                the DLQ (a job rule&apos;s « quarantine » behaviour). Then re-run the gate here to
+                re-evaluate — nothing activates until it is green.
+              </p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={gate === 'running'}
+                  onClick={() => void reRunGate()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-slate-300 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
+                >
+                  <RotateCw aria-hidden className={`h-3 w-3 ${gate === 'running' ? 'animate-spin' : ''}`} />
+                  {gate === 'running' ? 'Re-evaluating…' : 'Re-run the data-quality gate'}
+                </button>
+                {gate === 'error' && (
+                  <span className="text-xs text-red-600 dark:text-red-400">
+                    The gate did not re-run — try again.
+                  </span>
+                )}
+              </div>
+            </div>
           )}
           <p className="text-xs text-slate-600 dark:text-slate-300">
             Report —{' '}
