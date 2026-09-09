@@ -14,7 +14,7 @@
  * renders '—', never 0.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
   ChevronDown,
@@ -175,6 +175,32 @@ export default function StudioOverviewBrief({
           anyScheduleActive: activeSchedules > 0,
         });
   const attention = ctx?.overview?.attention ?? [];
+  /* The brief showed SIX identical "referential_integrity failed on ?" rows —
+     the server sent the same message per failing check and could not name the
+     object (a dangling "?"). Rendering each verbatim is noise. Group identical
+     items with a count, and when the object is unresolved, say the humanized
+     cause once instead of a bare "?" (the raw stays in the tooltip; the "?" is
+     a backend gap, flagged separately). */
+  const humanizeKind = (k?: string) =>
+    (k ?? '').replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  const attentionGrouped = useMemo(() => {
+    const seen = new Map<
+      string,
+      { severity?: string; text: string; raw: string; unresolved: boolean; count: number }
+    >();
+    for (const a of attention) {
+      const raw = String(a.what ?? a.kind ?? '—').trim();
+      const unresolved = /\bon\s*\?\s*$/i.test(raw) || raw === '?';
+      const text = unresolved
+        ? humanizeKind(a.kind) || raw.replace(/\s*on\s*\?\s*$/i, '').trim() || '—'
+        : raw;
+      const key = `${a.severity ?? 'info'}|${text}`;
+      const cur = seen.get(key);
+      if (cur) cur.count += 1;
+      else seen.set(key, { severity: a.severity, text, raw, unresolved, count: 1 });
+    }
+    return [...seen.values()];
+  }, [attention]);
   const serverNext = ctx?.overview?.next_best_action ?? null;
   const questions = ctx?.overview?.questions ?? null;
 
@@ -523,27 +549,35 @@ export default function StudioOverviewBrief({
         </section>
       )}
 
-      {/* ── attention — the server's list, severity said, never a badge ── */}
-      {attention.length > 0 && (
+      {/* ── attention — the server's list, grouped, severity said ─────── */}
+      {attentionGrouped.length > 0 && (
         <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Needs your attention
           </p>
           <ul className="mt-1.5 space-y-1">
-            {attention.slice(0, 6).map((a, i) => (
+            {attentionGrouped.slice(0, 6).map((g, i) => (
               <li key={i} className="flex items-start gap-2 text-[13px]">
                 <span
                   className={`mt-px shrink-0 rounded-full px-1.5 py-px text-xs ${
-                    a.severity === 'critical'
+                    g.severity === 'critical'
                       ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                      : a.severity === 'warning'
+                      : g.severity === 'warning'
                         ? 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
                         : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
                   }`}
                 >
-                  {a.severity ?? 'info'}
+                  {g.severity ?? 'info'}
                 </span>
-                <span className="text-slate-700 dark:text-slate-200">{a.what ?? a.kind ?? '—'}</span>
+                <span className="text-slate-700 dark:text-slate-200" title={g.raw}>
+                  {g.text}
+                  {g.count > 1 && (
+                    <span className="text-slate-400 dark:text-slate-500"> · {g.count} checks</span>
+                  )}
+                  {g.unresolved && (
+                    <span className="text-slate-400 dark:text-slate-500"> — open Quality for the exact columns</span>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
