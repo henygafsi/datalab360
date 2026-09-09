@@ -2352,13 +2352,16 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
 
           {/* ── JOBS — the pilot list; loads & automations behind one filter ── */}
           {tab === 'jobs' && draftId && (
-            <StudioJobsPanel
-              draftId={draftId}
-              focusJobId={jobsFocus}
-              onChanged={() => draftId && void load(draftId)}
-              onOpenQuality={() => setTab('quality')}
-              onOpenActivation={openActivation}
-            />
+            <div className="space-y-3">
+              <StudioViewKpis draftId={draftId} view="jobs" />
+              <StudioJobsPanel
+                draftId={draftId}
+                focusJobId={jobsFocus}
+                onChanged={() => draftId && void load(draftId)}
+                onOpenQuality={() => setTab('quality')}
+                onOpenActivation={openActivation}
+              />
+            </div>
           )}
 
           {/* ── KNOWLEDGE ─────────────────────────────────────────── */}

@@ -29,6 +29,7 @@ import {
 import {
   getStudioSummary,
   type AccessSummary,
+  type JobsSummary,
   type SourcesSummary,
   type SummaryView,
 } from '@/app/services/studio/summary';
@@ -82,6 +83,23 @@ function accessKpis(a: AccessSummary): Kpi[] {
   ];
 }
 
+function jobsKpis(j: JobsSummary): Kpi[] {
+  const jobs = j.jobs ?? [];
+  const byStage = j.by_stage ?? {};
+  const byType = j.by_data_type ?? {};
+  const stageTotal = Object.values(byStage).reduce((a, b) => a + (b ?? 0), 0);
+  const total = jobs.length > 0 ? jobs.length : stageTotal || null;
+  const dlq = jobs.reduce((a, x) => a + (x.dlq_open ?? 0), 0);
+  return [
+    { key: 'total', label: 'Jobs', value: total, icon: Boxes },
+    { key: 'source', label: 'Source loads', value: byStage.source_loads ?? null, icon: Database },
+    { key: 'facts', label: 'Fact builds', value: byStage.facts ?? null, icon: Layers },
+    { key: 'event', label: 'Event-type jobs', value: byType.event ?? null, icon: ScanLine, sub: 'transactional / cdc' },
+    { key: 'dlq', label: 'DLQ backlog', value: total == null ? null : dlq, icon: ShieldAlert, tone: dlq > 0 ? 'warn' : 'default' },
+    { key: 'cost', label: 'Credits (reconciled)', value: j.credits_reconciled_total ?? null, icon: Gauge, sub: 'from query history' },
+  ];
+}
+
 export default function StudioViewKpis({ draftId, view }: { draftId: string; view: SummaryView }) {
   const [kpis, setKpis] = useState<Kpi[] | null>(null);
 
@@ -93,6 +111,7 @@ export default function StudioViewKpis({ draftId, view }: { draftId: string; vie
         if (!alive) return;
         if (view === 'sources') setKpis(sourcesKpis(r.sources ?? {}));
         else if (view === 'access') setKpis(accessKpis(r.access ?? {}));
+        else if (view === 'jobs') setKpis(jobsKpis(r.jobs ?? {}));
         else setKpis([]);
       })
       .catch(() => alive && setKpis([]));
