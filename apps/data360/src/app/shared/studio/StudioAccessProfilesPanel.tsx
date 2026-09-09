@@ -468,11 +468,17 @@ function ProfileSheet({
     setBusy('save');
     setRefusal(null);
     setNote(null);
+    // A row rule is only meaningful with BOTH a column and at least one value —
+    // an operator like `in ()` restricts nothing. A half-filled rule (the one
+    // « + rule » adds before you type) must never be persisted as if it were a
+    // real restriction, so drop the incomplete ones and say how many.
+    const cleanRows = rows.filter((r) => r.column.trim() !== '' && (r.values ?? []).length > 0);
+    const skipped = rows.length - cleanRows.length;
     const payload: ProfilePayload = {
       name: name.trim(),
       description: description.trim(),
       objects,
-      rows,
+      rows: cleanRows,
       columns_masked: masked,
     };
     const r = creating
@@ -484,7 +490,10 @@ function ProfileSheet({
     setBusy(null);
     if (!r.ok) setRefusal(r.refusal);
     else {
-      setNote(creating ? 'Profile created — compile the plan when the definition is ready.' : 'Profile saved. An applied profile edited turns stale until re-applied.');
+      const base = creating
+        ? 'Profile created — compile the plan when the definition is ready.'
+        : 'Profile saved. An applied profile edited turns stale until re-applied.';
+      setNote(skipped > 0 ? `${base} ${skipped} incomplete row rule(s) were skipped — a rule needs a column and at least one value.` : base);
       onChanged();
       if (creating) onClose();
     }

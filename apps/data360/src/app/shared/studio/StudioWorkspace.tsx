@@ -453,9 +453,14 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
 
   const [drafts, setDrafts] = useState<StudioDraftSummary[]>([]);
   const [draftId, setDraftId] = useState<string | null>(appId ?? params.get('draft'));
-  const [tab, setTabState] = useState<Tab>(
-    () => VIEW_TO_TAB[params.get('view') ?? ''] ?? 'overview',
-  );
+  const [tab, setTabState] = useState<Tab>(() => {
+    // setTab writes the RAW tab id to ?view= (e.g. 'governance'), so the reader
+    // must accept a raw tab id too — not only the alias vocabulary. Without
+    // this, a refresh or deep-link of ?view=governance fell back to Overview
+    // (VIEW_TO_TAB only mapped the 'access' alias), silently losing the tab.
+    const v = params.get('view') ?? '';
+    return VIEW_TO_TAB[v] ?? (v in TAB_GROUP ? (v as Tab) : 'overview');
+  });
   /** every tab change stays deep-linkable (?view=) — replaceState, no nav */
   const setTab = useCallback(
     (t: Tab) => {
