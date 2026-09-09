@@ -41,9 +41,12 @@ import {
   Maximize2,
   Minimize2,
   Network,
+  PanelRight,
+  PanelRightClose,
   PieChart as PieChartIcon,
   Plus,
   RefreshCw,
+  Share2,
   Bell,
   Gauge,
   ShieldCheck,
@@ -498,6 +501,10 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
   const [chatPrefill, setChatPrefill] = useState<string | null>(null);
   /* clicking a tile focuses ITS editor in the rail */
   const [focusWidget, setFocusWidget] = useState<string | null>(null);
+  /** the report right-panel (widgets rails) can be hidden for a full-width
+   *  canvas, and the report link copied to share it. */
+  const [reportPanelOpen, setReportPanelOpen] = useState(true);
+  const [reportShared, setReportShared] = useState(false);
   /* a quality anomaly hands its fix to the responsible job */
   const [jobsFocus, setJobsFocus] = useState<string | null>(null);
   /* the model canvas selection — opens the editable table detail */
@@ -1441,8 +1448,53 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           {/* ── REPORTING ─────────────────────────────────────────── */}
           {tab === 'reporting' &&
             (report ? (
-              <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr,300px]">
+              <div className={`grid grid-cols-1 gap-3 ${reportPanelOpen ? 'xl:grid-cols-[1fr,300px]' : ''}`}>
                 <div className="min-w-0 space-y-3">
+                  {/* report toolbar: share the link, export the detail table,
+                      and hide the widgets panel for a full-width canvas */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void navigator.clipboard
+                          ?.writeText(window.location.href)
+                          .then(() => {
+                            setReportShared(true);
+                            window.setTimeout(() => setReportShared(false), 1500);
+                          })
+                          .catch(() => undefined);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
+                    >
+                      <Share2 aria-hidden className="h-3.5 w-3.5" />
+                      {reportShared ? 'Link copied' : 'Share'}
+                    </button>
+                    {report.detail &&
+                      (() => {
+                        const d = report.detail;
+                        const dt = tiles[d.chart_id];
+                        return (
+                          <StudioExportMenu
+                            title="Report — detail table"
+                            spec={d}
+                            draftId={draftId ?? undefined}
+                            globalFilters={globalFilters}
+                            result={dt?.status === 'done' ? dt.result : null}
+                            disabled={dt?.status !== 'done'}
+                          />
+                        );
+                      })()}
+                    <button
+                      type="button"
+                      onClick={() => setReportPanelOpen((v) => !v)}
+                      aria-pressed={!reportPanelOpen}
+                      title={reportPanelOpen ? 'Hide the widgets panel — full-width canvas' : 'Show the widgets panel'}
+                      className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-300"
+                    >
+                      {reportPanelOpen ? <PanelRightClose aria-hidden className="h-3.5 w-3.5" /> : <PanelRight aria-hidden className="h-3.5 w-3.5" />}
+                      {reportPanelOpen ? 'Full screen' : 'Show panel'}
+                    </button>
+                  </div>
                   {fullSpecs(report.kpis).length + fullSpecs(report.charts).length === 0 && (
                     <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 dark:border-amber-900/50 dark:bg-amber-900/10">
                       <p className="min-w-0 flex-1 text-xs text-amber-800 dark:text-amber-300">
@@ -2040,7 +2092,9 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                 </div>
 
                 {/* the EDITABLE atelier rails — same K3 patch contract as the
-                    journey preview; a rail edit re-reads the application */}
+                    journey preview; a rail edit re-reads the application.
+                    Hidden when the report goes full screen. */}
+                {reportPanelOpen && (
                 <aside className="space-y-3">
                   {draftId && (
                     <AtelierRails
@@ -2080,6 +2134,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                     </ul>
                   </section>
                 </aside>
+                )}
               </div>
             ) : (
               <EmptyState
