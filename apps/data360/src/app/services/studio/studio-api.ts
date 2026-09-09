@@ -1441,7 +1441,36 @@ export async function decideBlock(
 
 /* ── Per-application cost attribution (QUERY_TAG → attributed credits) ── */
 
+export interface AppCostUsageGauge {
+  used?: number;
+  limit?: number;
+}
+
 export interface AppCost {
+  /** governed operations recorded against THIS application */
+  interventions?: number;
+  /** AI calls counted in the rollup window (see note in studio-errors reconciliation) */
+  ai_calls?: number;
+  duration_ms?: number;
+  /** credits actually charged so far — 0 while everything stays in the free preview */
+  credits_charged?: number;
+  by_kind?: Record<string, { count?: number; ai_calls?: number; duration_ms?: number }>;
+  models?: string[];
+  last_intervention_at?: string;
+  /** free-preview envelope for this draft (lifetime, not the window) */
+  usage?: {
+    objects_per_draft?: AppCostUsageGauge;
+    ai_calls_per_draft?: AppCostUsageGauge;
+    ai_calls_per_hour?: AppCostUsageGauge;
+    credits_charged?: number;
+    account_override?: {
+      limits?: Record<string, number>;
+      by?: string;
+      at?: string;
+      reason?: string;
+    };
+  };
+  /** compute credits ATTRIBUTED to this app's tagged queries (money side) */
   warehouse?: {
     state?: string;
     days?: number;
@@ -1449,7 +1478,7 @@ export interface AppCost {
     credits_attributed_compute?: number;
     elapsed_ms?: number;
     bytes_scanned?: number;
-    warehouses?: unknown[];
+    warehouses?: unknown;
     source?: string;
     latency?: string;
   };

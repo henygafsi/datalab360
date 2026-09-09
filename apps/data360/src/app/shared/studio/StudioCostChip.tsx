@@ -10,8 +10,10 @@
  *    HISTORY over 7 days in USD — because "0 credits" on the envelope
  *    never meant the account was free: warehouses meter everything the
  *    Studio (and the rest of the platform) executes. Metering lags
- *    Snowflake-side (~1-3 h) and is account-wide, not per-application —
- *    per-app attribution is a backend contract in progress.
+ *    the data-warehouse side (~1-3 h) and is account-wide, in dollars.
+ * Per-APPLICATION cost is now surfaced separately — the Overview cost
+ * card and the header badge, metered in credits (per-app currency pricing
+ * is not configured). This chip stays the account-wide dollar view.
  * Everyone else sees nothing: cost governance is an admin surface.
  */
 
@@ -67,7 +69,7 @@ export default function StudioCostChip() {
          are different numbers for honest reasons. Read side by side they
          looked like a staleness bug ($194 vs $231) — the missing piece was
          the label, not the data. */
-      title={`AI free-preview envelope: calls this hour ${hour?.used ?? '—'}/${hour?.limit ?? '—'} · AI credits charged ${credits}. Account compute over the LAST ${spend?.period_days ?? 7} ROLLING DAYS (all workloads, metering lags ~1-3 h): ${spend?.total_credits ?? '—'} credits ≈ $${usd ?? '—'}. This is not month-to-date — the warehouse console's monthly figure will differ. Visible to platform admins only.`}
+      title={`AI free-preview envelope: calls this hour ${hour?.used ?? '—'}/${hour?.limit ?? '—'} · AI credits charged ${credits}. Account compute over the LAST ${spend?.period_days ?? 7} ROLLING DAYS (all workloads, metering lags ~1-3 h): ${spend?.total_credits ?? '—'} credits ≈ $${usd ?? '—'}. This is account-wide, not one application — a single app's cost is on its Overview (the "Cost — this application" card, in credits). This is not month-to-date — the warehouse console's monthly figure will differ. Visible to platform admins only.`}
       className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-0.5 text-xs tabular-nums text-slate-500 dark:border-slate-700 dark:text-slate-400"
     >
       <Coins aria-hidden className="h-3 w-3" />

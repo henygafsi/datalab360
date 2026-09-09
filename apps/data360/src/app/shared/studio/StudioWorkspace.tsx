@@ -96,6 +96,8 @@ import {
   runDqGate,
   understandDirect,
   updateDraft,
+  getAppCost,
+  type AppCost,
   type ConsistencyIssue,
   type AiEnrichment,
   type DqGateResult,
@@ -112,6 +114,8 @@ import StudioExportMenu from '@/app/shared/studio/StudioExportMenu';
 import StudioReportFilters from '@/app/shared/studio/StudioReportFilters';
 import StudioReportPages, { MoveToPage } from '@/app/shared/studio/StudioReportPages';
 import { readFailure } from '@/app/shared/studio/studio-errors';
+import { useAuth } from '@/hooks/useAuth';
+import { isAdminRole } from '@/config/constants';
 import AtelierRails, { CHART_TYPES } from '@/app/shared/studio/AtelierRails';
 import RefineChat from '@/app/shared/studio/onboarding/RefineChat';
 import { routes } from '@/config/routes';
@@ -483,6 +487,26 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
     setActivationSignal((n) => n + 1);
   }, [setTab]);
   const [model, setModel] = useState<ModelPayload | null>(null);
+  /* per-application cost — fetched ONCE here, shared by the header badge and
+     the Overview cost card so the two never drift. Cost is an admin surface
+     (same rule as the account-level chip), so only admins fetch it. */
+  const { role } = useAuth();
+  const costVisible = isAdminRole(role);
+  const [appCost, setAppCost] = useState<AppCost | null>(null);
+  useEffect(() => {
+    if (!draftId || !costVisible) {
+      setAppCost(null);
+      return;
+    }
+    let alive = true;
+    setAppCost(null);
+    void getAppCost(draftId)
+      .then((c) => alive && setAppCost(c))
+      .catch(() => undefined); // enrichment only — never blocks the page
+    return () => {
+      alive = false;
+    };
+  }, [draftId, costVisible]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [tiles, setTiles] = useState<Record<string, TileState>>({});
   const [dq, setDq] = useState<DqGateResult | 'running' | null>(null);
@@ -1316,7 +1340,9 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                 </span>
               ) : null;
             })()}
-            {draftId && <StudioAppCostBadge draftId={draftId} />}
+            {draftId && costVisible && appCost && (
+              <StudioAppCostBadge cost={appCost} onOpen={() => setTab('overview')} />
+            )}
             {(() => {
               /* ONE lifecycle chip — publish/activation stop being two
                  unexplained badges; the click lands on the one panel */
@@ -1468,6 +1494,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
               activation={activation}
               issues={issues}
               dq={dq}
+              appCost={appCost}
               onGo={(t) => setTab(t)}
               activationSignal={activationSignal}
             />

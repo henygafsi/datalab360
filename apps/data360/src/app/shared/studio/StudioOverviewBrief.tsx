@@ -23,12 +23,14 @@ import {
   Gauge,
   LayoutDashboard,
   Network,
+  Receipt,
   ShieldCheck,
   Workflow as WorkflowIcon,
 } from 'lucide-react';
 import {
   getDraftSummary,
   getWorkflows,
+  type AppCost,
   type ConsistencyIssue,
   type DqGateResult,
   type DraftSummary,
@@ -65,6 +67,17 @@ interface NextAction {
   label: string;
 }
 
+/** governed-operation kinds, said the way a person reads them */
+const KIND_LABEL: Record<string, string> = {
+  edit: 'edits',
+  access_plan: 'access plans',
+  dq_gate: 'quality gates',
+  understand: 'analyses',
+  publish: 'publishes',
+  other: 'other',
+};
+const kindLabel = (k: string) => KIND_LABEL[k] ?? k.replace(/_/g, ' ');
+
 export default function StudioOverviewBrief({
   draftId,
   model,
@@ -72,6 +85,7 @@ export default function StudioOverviewBrief({
   activation,
   issues,
   dq,
+  appCost = null,
   onGo,
   activationSignal,
 }: {
@@ -81,6 +95,9 @@ export default function StudioOverviewBrief({
   activation: Record<string, unknown> | null;
   issues: ConsistencyIssue[] | null;
   dq: DqGateResult | 'running' | null;
+  /** per-application cost (admin-only, fetched once by the workspace);
+   *  null when unavailable or the reader is not a cost admin */
+  appCost?: AppCost | null;
   onGo: (tab: GoTab) => void;
   /** bump to force the activation panel open (an « awaiting activation »
    *  link elsewhere always lands HERE — one panel, not one per module) */
@@ -309,6 +326,24 @@ export default function StudioOverviewBrief({
     null;
   const bizCtx = summary?.context ?? null;
 
+  /* ── per-application cost, said honestly ─────────────────────────────
+     Money valuation is metered per app in CREDITS, not dollars: the
+     account chip's dollar figure is warehouse spend across every workload,
+     and per-application currency pricing is not configured. "0 credits" is
+     a real read, not a placeholder — preview operations are free. */
+  const cost = appCost && !appCost.unavailable ? appCost : null;
+  const spentCredits = cost?.credits_charged;
+  const attributed = cost?.warehouse?.credits_attributed_compute;
+  const whDays = cost?.warehouse?.days ?? 7;
+  const whQueries = cost?.warehouse?.queries ?? 0;
+  const aiDraft = cost?.usage?.ai_calls_per_draft;
+  const aiHour = cost?.usage?.ai_calls_per_hour;
+  const kindRows = Object.entries(cost?.by_kind ?? {})
+    .map(([k, v]) => ({ k, count: v?.count ?? 0 }))
+    .filter((r) => r.count > 0)
+    .sort((a, b) => b.count - a.count);
+  const totalOps = cost?.interventions;
+
   return (
     <div className="space-y-3">
       {/* ── lifecycle: ONE state, its reasons, ONE activation surface ── */}
@@ -404,6 +439,83 @@ export default function StudioOverviewBrief({
           })}
         </ul>
       </section>
+
+      {/* ── cost — this application, metered in CREDITS (money per app is
+           credits, not dollars; the account chip's $ is warehouse-wide) ── */}
+      {cost && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex items-center gap-2">
+            <Receipt aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Cost — this application
+            </p>
+          </div>
+
+          <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+              <p className="text-2xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                {spentCredits == null ? '—' : `${Number(spentCredits)}`}
+                <span className="ml-1 text-sm font-normal text-slate-400 dark:text-slate-500">
+                  credits used
+                </span>
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                Every operation so far is within the free preview.
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+              <p className="text-2xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                {attributed == null ? '—' : Number(attributed).toFixed(3)}
+                <span className="ml-1 text-sm font-normal text-slate-400 dark:text-slate-500">
+                  cr / {whDays}d compute
+                </span>
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                Billable warehouse compute attributed to this app — {whQueries} tagged quer
+                {whQueries === 1 ? 'y' : 'ies'}; attribution starts at the tagging deploy, metering
+                lags {cost.warehouse?.latency ?? 'up to 45 min'}.
+              </p>
+            </div>
+          </div>
+
+          <ul className="mt-3 space-y-1 border-t border-slate-100 pt-2 text-[13px] text-slate-600 dark:border-slate-800 dark:text-slate-300">
+            {totalOps != null && (
+              <li>
+                <span className="text-slate-500 dark:text-slate-400">Operations · </span>
+                {totalOps} recorded
+                {kindRows.length
+                  ? ` — ${kindRows
+                      .slice(0, 4)
+                      .map((r) => `${r.count} ${kindLabel(r.k)}`)
+                      .join(' · ')}`
+                  : ''}
+              </li>
+            )}
+            {aiDraft && (aiDraft.used != null || aiDraft.limit != null) && (
+              <li>
+                <span className="text-slate-500 dark:text-slate-400">AI analyses · </span>
+                {aiDraft.used ?? '—'} of {aiDraft.limit ?? '—'} used for this app
+                {aiHour?.limit != null
+                  ? ` (${aiHour.used ?? '—'} of ${aiHour.limit} this hour)`
+                  : ''}{' '}
+                — free while in preview
+              </li>
+            )}
+          </ul>
+
+          <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+            The dollar figure top-right is account-wide warehouse spend across every workload — not
+            this application. Per-application cost is metered in credits.
+          </p>
+          <button
+            type="button"
+            onClick={() => setActivationOpen(true)}
+            className="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
+          >
+            See what activating this app will cost
+          </button>
+        </section>
+      )}
 
       {/* ── attention — the server's list, severity said, never a badge ── */}
       {attention.length > 0 && (
