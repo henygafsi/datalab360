@@ -12,6 +12,7 @@ import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { API_CONFIG } from '@/config/database.config';
 import { dedupGet, invalidateDedup } from '@/app/services/request-dedup';
+import { emitModelChanged } from '@/app/services/studio/studio-bus';
 
 /**
  * THE studio mutation transport — fetch-based AND SERIALIZED.
@@ -1220,7 +1221,7 @@ export async function patchModel(
    *  (EDIT_CONFLICT) when someone else saved in between. */
   expectedUpdatedAt?: string,
 ): Promise<ModelPatchResult> {
-  return studioMutate<ModelPatchResult>(
+  const res = await studioMutate<ModelPatchResult>(
     'POST',
     API.studio.modelPatch(draftId),
     {
@@ -1231,6 +1232,11 @@ export async function patchModel(
     },
     60_000,
   );
+  /* An APPLIED patch changed the model — tell the surfaces whose content is
+     computed from it (workflows: activability + impacted KPIs/jobs) to re-read.
+     A preview (apply:false) changes nothing, so it stays silent. */
+  if (apply) emitModelChanged(draftId);
+  return res;
 }
 
 /** Natural-language edit — AI turns the instruction into an allowlisted

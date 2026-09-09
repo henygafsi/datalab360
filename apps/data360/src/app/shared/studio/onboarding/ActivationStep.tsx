@@ -277,6 +277,7 @@ export default function ActivationStep({
   draft,
   draftId: draftIdProp,
   onBack,
+  onChanged,
 }: {
   /** journey mount — the panel derives the application id from the draft */
   draft?: JourneyDraft;
@@ -286,6 +287,11 @@ export default function ActivationStep({
   onPatch?: (p: Partial<JourneyDraft>) => void;
   onNext?: () => void;
   onBack?: () => void;
+  /** the parent surface (e.g. the Overview brief) shows workflow / activation
+   *  counts derived from this same draft — so when an action here changes them
+   *  (a DQ resolve, a gate re-run, an activation request), tell it to re-read.
+   *  Without this the Overview's counts went stale on the SAME screen. */
+  onChanged?: () => void;
 }) {
   const draftId =
     draftIdProp ?? (draft ? (draft.preview.reportDraftId ?? draft.draftId) : null) ?? null;
@@ -318,11 +324,12 @@ export default function ActivationStep({
     try {
       await runDqGate(draftId);
       await load();
+      onChanged?.();
       setGate('idle');
     } catch {
       setGate('error');
     }
-  }, [draftId, gate, load]);
+  }, [draftId, gate, load, onChanged]);
 
   const onRequest = useCallback(async () => {
     if (!draftId) return;
@@ -336,6 +343,7 @@ export default function ActivationStep({
       } catch {
         /* the banner already reflects the request — keep the panel as-is */
       }
+      onChanged?.();
     } catch (e) {
       const blockers = extractActivationBlockers(e);
       if (blockers) setReq({ kind: 'blocked', blockers });
@@ -515,7 +523,7 @@ export default function ActivationStep({
                   </p>
                   <ul className="space-y-1.5">
                     {dqUnhandled.map((c) => (
-                      <DqCheckCard key={c.id} draftId={draftId} check={c} onChanged={() => void load()} />
+                      <DqCheckCard key={c.id} draftId={draftId} check={c} onChanged={() => { void load(); onChanged?.(); }} />
                     ))}
                   </ul>
                 </div>
@@ -527,7 +535,7 @@ export default function ActivationStep({
                   </summary>
                   <ul className="mt-1 space-y-1.5">
                     {dqHandled.map((c) => (
-                      <DqCheckCard key={c.id} draftId={draftId} check={c} onChanged={() => void load()} />
+                      <DqCheckCard key={c.id} draftId={draftId} check={c} onChanged={() => { void load(); onChanged?.(); }} />
                     ))}
                   </ul>
                 </details>

@@ -38,6 +38,7 @@ import {
   type WorkflowItem,
 } from '@/app/services/studio/studio-api';
 import { getDraftSources, type DraftSourcesView } from '@/app/services/studio/connections';
+import { useModelChanged } from '@/app/services/studio/studio-bus';
 import {
   getApplicationContext,
   type ApplicationContext,
@@ -131,6 +132,11 @@ export default function StudioOverviewBrief({
   }, [draftId]);
 
   useEffect(() => load(), [load]);
+
+  /* an applied model edit changes what the brief summarises (workflow
+     activability, the next-best-action) — re-read on that signal, not only on
+     draft change. */
+  useModelChanged(draftId, load);
 
   const tables = model?.tables ?? [];
   const rels = model?.relationships ?? [];
@@ -377,7 +383,7 @@ export default function StudioOverviewBrief({
         )}
         {activationOpen && (
           <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
-            <ActivationStep draftId={draftId} />
+            <ActivationStep draftId={draftId} onChanged={load} />
           </div>
         )}
       </section>

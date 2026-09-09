@@ -19,6 +19,7 @@ import {
   removeWorkflow,
   type WorkflowItem,
 } from '@/app/services/studio/studio-api';
+import { useModelChanged } from '@/app/services/studio/studio-bus';
 import StudioWorkflowEditor from '@/app/shared/studio/StudioWorkflowEditor';
 import { QuietAction } from '@/app/shared/studio/PlainKit';
 
@@ -60,6 +61,10 @@ export default function StudioWorkflowsPanel({
     setOpenId(null);
     void load();
   }, [load]);
+
+  /* a model edit (target/column/job change) can flip what a workflow may do —
+     re-read so activability + impacts never lag the model. */
+  useModelChanged(draftId, load);
 
   const list = useMemo(() => (Array.isArray(items) ? items : []), [items]);
 
