@@ -241,6 +241,19 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
     }
   };
 
+  /* what work is staged — a change needs at least ONE of: a person/role
+   * mapped to a Data360 role, a row rule, or a masked column. A row-rule-only
+   * or masking-only change is legitimate (the backend accepts who:[] with
+   * restrictions and attaches the policies to the access role), so gating
+   * « Prepare the change » on the mapping alone left policy-only edits with
+   * no way to run — the disabled button the user photographed. */
+  const hasRowRules = Object.values(policy).some((byGrant) =>
+    Object.values(byGrant ?? {}).some((v) => v === '*' || (Array.isArray(v) && v.length > 0)),
+  );
+  const hasMasks = maskedCols.length > 0;
+  const mappedCount = Object.values(mapping).filter(Boolean).length;
+  const canPrepare = mappedCount > 0 || hasRowRules || hasMasks;
+
   const plan = () => {
     /* The whole map goes in one plan: every principal that was associated,
      * and every policy column with the values each Data360 role may see.
@@ -259,10 +272,6 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
          * prediction into a false "verified". */
         return kind === 'user' ? { type: kind, name, grant_type: gt } : { type: kind, name };
       });
-    if (who.length === 0) return;
-    // taken from the MAPPING: a warehouse role travels without a grant_type
-    // (the server derives it), so reading it back off `who` would drop it
-    const grant_types = [...new Set(Object.values(mapping).filter(Boolean))];
 
     const rows = Object.entries(policy)
       .map(([column, byGrant]) => {
@@ -275,7 +284,22 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
           ? { column, allowed_values_by_grant_type }
           : null;
       })
-      .filter(Boolean);
+      .filter((r): r is { column: string; allowed_values_by_grant_type: Record<string, string[] | '*'> } => r != null);
+
+    // Nothing staged anywhere → don't fire an empty plan.
+    if (who.length === 0 && rows.length === 0 && maskedCols.length === 0) return;
+
+    // grant_types come from EVERY source that names one — the mapping, the
+    // row rules (a policy-only change carries its own grant types), and the
+    // masking exemptions — so a change with no mapped person still tells the
+    // server which functional roles its policies are for.
+    const grant_types = [
+      ...new Set([
+        ...Object.values(mapping).filter(Boolean),
+        ...rows.flatMap((r) => Object.keys(r.allowed_values_by_grant_type)),
+        ...(maskedCols.length ? unmaskedGrants : []),
+      ]),
+    ] as string[];
 
     // rows (RLS) and masked columns (CLS) travel in ONE restrictions object:
     // the masking policy is generated per masked column, and the roles NOT in
@@ -297,6 +321,21 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
       setPlanDecisions(res?.plan?.reuse ?? res?.reuse ?? []);
     });
   };
+
+  /* test the reads of everyone the change is FOR — self plus every mapped
+   * principal. Reading only 'me' proves nothing about the people a change
+   * targets, and reads as a false « verified » when nobody is mapped. */
+  const testReads = () =>
+    void run(
+      'test',
+      async () => {
+        const mapped = Object.entries(mapping)
+          .filter(([, gt]) => Boolean(gt))
+          .map(([name]) => name.toUpperCase());
+        setTests(await testDraftAccess(draftId, ['me', ...mapped]));
+      },
+      false,
+    );
 
   return (
     <div className="space-y-3">
@@ -354,6 +393,10 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
         onToggleUnmask={(gt) =>
           setUnmaskedGrants((gs) => (gs.includes(gt) ? gs.filter((g) => g !== gt) : [...gs, gt]))
         }
+        onPrepare={() => plan()}
+        onTest={testReads}
+        busy={busy}
+        canPrepare={canPrepare}
         footer={(<>
 
       {/* the step's own footer button prepares the change — no second
@@ -384,11 +427,11 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
       )}
       <button
         type="button"
-        disabled={busy != null || Object.values(mapping).filter(Boolean).length === 0}
+        disabled={busy != null || !canPrepare}
         onClick={() => plan()}
         title={
-          Object.values(mapping).filter(Boolean).length === 0
-            ? 'Map someone to a Data360 role first'
+          !canPrepare
+            ? 'Map someone to a Data360 role, paint a row rule, or mask a column first'
             : 'Prepare the change — nothing runs yet'
         }
         className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
@@ -564,21 +607,7 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
             <button
               type="button"
               disabled={busy != null}
-              onClick={() =>
-                void run(
-                  'test',
-                  async () => {
-                    /* test MYSELF plus everyone the map associated — reading
-                     * only 'me' proves nothing about the people this change
-                     * is for, and that is the whole question here. */
-                    const mapped = Object.entries(mapping)
-                      .filter(([, gt]) => Boolean(gt))
-                      .map(([name]) => name.toUpperCase());
-                    setTests(await testDraftAccess(draftId, ['me', ...mapped]));
-                  },
-                  false,
-                )
-              }
+              onClick={testReads}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-[13px] text-slate-600 hover:border-slate-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
             >
               {busy === 'test' ? (
@@ -594,6 +623,12 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
 
       {applyResult && (
         <p className="mt-1.5 text-[13px] text-slate-600 dark:text-slate-300">{applyResult}</p>
+      )}
+      {tests && mappedCount === 0 && (
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+          Only your own reads were tested — no person or role is mapped yet, so this proves your
+          access, not theirs. Map someone above to test the access this change is for.
+        </p>
       )}
       {tests && (
         <ul className="mt-2 space-y-1">
