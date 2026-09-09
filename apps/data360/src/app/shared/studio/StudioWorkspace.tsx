@@ -26,6 +26,7 @@ import StudioQualityPanel from '@/app/shared/studio/StudioQualityPanel';
 import StudioReadyKpis from '@/app/shared/studio/StudioReadyKpis';
 import StudioSourceCard from '@/app/shared/studio/StudioSourceCard';
 import StudioAccessPanel from '@/app/shared/studio/StudioAccessPanel';
+import StudioViewKpis from '@/app/shared/studio/StudioViewKpis';
 import StudioAppCostBadge from '@/app/shared/studio/StudioAppCostBadge';
 import {
   AlertCircle,
@@ -2141,15 +2142,18 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
               as /studio/source — the card grid this replaced kept a second
               discovery semantics) */}
           {tab === 'sources' && draftId && (
-            <ObjectsPanel
-              fixedAppId={draftId}
-              onAddSource={() => router.push(routes.studioSource)}
-              onOpenConnection={(connectionId) =>
-                router.push(
-                  `${routes.studioSource}?view=connections&connection=${encodeURIComponent(connectionId)}`,
-                )
-              }
-            />
+            <div className="space-y-3">
+              <StudioViewKpis draftId={draftId} view="sources" />
+              <ObjectsPanel
+                fixedAppId={draftId}
+                onAddSource={() => router.push(routes.studioSource)}
+                onOpenConnection={(connectionId) =>
+                  router.push(
+                    `${routes.studioSource}?view=connections&connection=${encodeURIComponent(connectionId)}`,
+                  )
+                }
+              />
+            </div>
           )}
 
           {/* ── JOBS & QUALITY ────────────────────────────────────── */}
@@ -2498,6 +2502,8 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           {/* ── GOVERNANCE ────────────────────────────────────────── */}
           {tab === 'governance' && draftId && (
             <>
+              {/* the access business-KPI strip (real served figures) */}
+              <StudioViewKpis draftId={draftId} view="access" />
               {/* the PROFILE spine leads (select/create a profile → data &
                   policies → users); the role-conditional engine is one click
                   away as Advanced, not superposed under it */}
