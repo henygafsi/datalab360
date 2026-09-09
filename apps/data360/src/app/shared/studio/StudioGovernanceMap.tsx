@@ -125,12 +125,17 @@ export default function StudioGovernanceMap({
   /** plan-level RLS simulation per column: who WOULD see what, pre-apply */
   const [sims, setSims] = useState<Record<string, RlsPlanSimulation | 'running' | { error: string }>>({});
   const simulate = async (column: string, fqn: string) => {
+    /* mirror the plan EXACTLY: a role narrowed to values keeps them, every
+       other functional role gets `*` (sees everything). Sending only the
+       narrowed role would simulate the others as FALSE and misreport who sees
+       what. */
+    const narrowed = Object.values(policy[column] ?? {}).some((v) => Array.isArray(v) && v.length > 0);
+    if (!narrowed) return;
     const byGrant: Record<string, string[] | '*'> = {};
-    for (const [gt, vals] of Object.entries(policy[column] ?? {})) {
-      if (vals === '*') byGrant[gt] = '*';
-      else if (Array.isArray(vals) && vals.length) byGrant[gt] = vals;
+    for (const g of grantTypes) {
+      const v = policy[column]?.[g.id];
+      byGrant[g.id] = Array.isArray(v) && v.length > 0 ? v : '*';
     }
-    if (Object.keys(byGrant).length === 0) return;
     setSims((m) => ({ ...m, [column]: 'running' }));
     try {
       const r = await simulateRlsPlan(draftId, {
@@ -181,10 +186,12 @@ export default function StudioGovernanceMap({
   const grantLabel = (id: string): string => grantTypes.find((g) => g.id === id)?.label ?? id;
   const grantInfo = (id: string): GrantTypeInfo | undefined => grantTypes.find((g) => g.id === id);
   const mapped = Object.values(mapping).filter(Boolean).length;
+  /* a rule is a role NARROWED to specific values — `*`/unset means "sees
+   * every row", the default, which is not a restriction. */
   const ruleCount = columns.filter((c) =>
     grantTypes.some((g) => {
       const v = policy[c.column]?.[g.id];
-      return v === '*' || (Array.isArray(v) && v.length > 0);
+      return Array.isArray(v) && v.length > 0;
     }),
   ).length;
 
@@ -643,14 +650,17 @@ export default function StudioGovernanceMap({
                     <span className="font-medium">{grantLabel(anchorRole)}</span> role.{' '}
                     {sharers.length
                       ? `This rule also applies to ${sharers.length} other principal(s) with ${grantLabel(anchorRole)}: ${sharers.slice(0, 3).join(', ')}${sharers.length > 3 ? '…' : ''}.`
-                      : `No one else holds ${grantLabel(anchorRole)} yet — for now the rule is theirs alone.`}
+                      : `No one else holds ${grantLabel(anchorRole)} yet — for now the rule is theirs alone.`}{' '}
+                    Every other role keeps seeing every row — you only restrict {grantLabel(anchorRole)} here.
                   </p>
 
                   <div className="mt-2 flex flex-wrap gap-2">
                     {columns.map((c) => {
                       const cur = policy[c.column]?.[anchorRole];
-                      const all = cur === '*';
                       const kept = Array.isArray(cur) ? cur : [];
+                      /* unset OR `*` both mean "sees every row" — the default;
+                         narrowing starts the moment a value is picked. */
+                      const seeAll = kept.length === 0;
                       return (
                         <div key={c.column} className="min-w-[220px] max-w-xs flex-1 rounded-lg border border-slate-200 p-2 dark:border-slate-700">
                           <p className="flex items-baseline gap-1.5">
@@ -660,11 +670,11 @@ export default function StudioGovernanceMap({
                           <div className="mt-1.5 flex flex-wrap gap-1">
                             <button
                               type="button"
-                              aria-pressed={all}
-                              title={`${selected} sees every row of ${c.column}`}
-                              onClick={() => onPolicy(c.column, anchorRole, all ? [] : '*')}
+                              aria-pressed={seeAll}
+                              title={`${selected} sees every row of ${c.column} (no restriction)`}
+                              onClick={() => onPolicy(c.column, anchorRole, '*')}
                               className={`rounded-full border px-2 py-0.5 text-xs ${
-                                all
+                                seeAll
                                   ? 'border-accent-500 bg-accent-600 text-white'
                                   : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
                               }`}
@@ -678,9 +688,15 @@ export default function StudioGovernanceMap({
                                   key={v}
                                   type="button"
                                   aria-pressed={on}
-                                  disabled={all}
-                                  onClick={() => onPolicy(c.column, anchorRole, on ? kept.filter((x) => x !== v) : [...kept, v])}
-                                  className={`rounded-full border px-2 py-0.5 text-xs disabled:opacity-40 ${
+                                  title={`Restrict ${selected} to rows where ${c.column} = ${v}`}
+                                  onClick={() =>
+                                    onPolicy(
+                                      c.column,
+                                      anchorRole,
+                                      seeAll ? [v] : on ? kept.filter((x) => x !== v) : [...kept, v],
+                                    )
+                                  }
+                                  className={`rounded-full border px-2 py-0.5 text-xs ${
                                     on
                                       ? 'border-accent-500 bg-accent-600 text-white'
                                       : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
@@ -692,14 +708,12 @@ export default function StudioGovernanceMap({
                             })}
                           </div>
                           <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-                            {all
-                              ? 'every row'
-                              : kept.length
-                                ? `${kept.length} value(s) kept`
-                                : `no rule — ${selected} sees no row of this column`}
+                            {seeAll
+                              ? `${selected} sees every row of this column`
+                              : `restricted to ${kept.length} value(s) — ${selected} sees no other rows`}
                           </p>
                           {(() => {
-                            const hasRule = Object.values(policy[c.column] ?? {}).some((v) => v === '*' || (Array.isArray(v) && v.length > 0));
+                            const hasRule = Object.values(policy[c.column] ?? {}).some((v) => Array.isArray(v) && v.length > 0);
                             const sim = sims[c.column];
                             const simTable = c.fqns[0]?.split('.').slice(-1)[0] ?? c.column;
                             return (

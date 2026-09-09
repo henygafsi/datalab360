@@ -247,8 +247,11 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
    * restrictions and attaches the policies to the access role), so gating
    * « Prepare the change » on the mapping alone left policy-only edits with
    * no way to run — the disabled button the user photographed. */
+  /* a REAL row restriction is a role narrowed to a specific value list. `*`
+   * (or unset) means "sees every row" — the default — so it is NOT a rule on
+   * its own and must not enable a plan by itself. */
   const hasRowRules = Object.values(policy).some((byGrant) =>
-    Object.values(byGrant ?? {}).some((v) => v === '*' || (Array.isArray(v) && v.length > 0)),
+    Object.values(byGrant ?? {}).some((v) => Array.isArray(v) && v.length > 0),
   );
   const hasMasks = maskedCols.length > 0;
   const mappedCount = Object.values(mapping).filter(Boolean).length;
@@ -273,31 +276,42 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
         return kind === 'user' ? { type: kind, name, grant_type: gt } : { type: kind, name };
       });
 
+    /* A row policy is EXHAUSTIVE over the functional roles: any role missing
+     * from `allowed_values_by_grant_type` compiles to « ELSE FALSE » and sees
+     * NO rows. So restricting one role (edit → these values) while leaving the
+     * others out would silently blank every other role's rows — the opposite
+     * of "edit what this person sees". For every narrowed column we therefore
+     * send an entry for EVERY functional role: the narrowed list for the roles
+     * the user restricted, and `*` (see everything) for the rest. A column
+     * with no narrowed role is not a restriction and is dropped. */
+    const allRoleIds = grantTypes.map((g) => g.id);
     const rows = Object.entries(policy)
       .map(([column, byGrant]) => {
+        const narrowed = Object.values(byGrant ?? {}).some((v) => Array.isArray(v) && v.length > 0);
+        if (!narrowed) return null;
         const allowed_values_by_grant_type: Record<string, string[] | '*'> = {};
-        for (const [gt, vals] of Object.entries(byGrant ?? {})) {
-          if (vals === '*') allowed_values_by_grant_type[gt] = '*';
-          else if (Array.isArray(vals) && vals.length) allowed_values_by_grant_type[gt] = vals;
+        for (const id of allRoleIds) {
+          const v = byGrant?.[id];
+          allowed_values_by_grant_type[id] = Array.isArray(v) && v.length > 0 ? v : '*';
         }
-        return Object.keys(allowed_values_by_grant_type).length
-          ? { column, allowed_values_by_grant_type }
-          : null;
+        return { column, allowed_values_by_grant_type };
       })
       .filter((r): r is { column: string; allowed_values_by_grant_type: Record<string, string[] | '*'> } => r != null);
 
     // Nothing staged anywhere → don't fire an empty plan.
-    if (who.length === 0 && rows.length === 0 && maskedCols.length === 0) return;
+    const hasRestrictions = rows.length > 0 || maskedCols.length > 0;
+    if (who.length === 0 && !hasRestrictions) return;
 
-    // grant_types come from EVERY source that names one — the mapping, the
-    // row rules (a policy-only change carries its own grant types), and the
-    // masking exemptions — so a change with no mapped person still tells the
-    // server which functional roles its policies are for.
+    // Whenever a policy is staged, the plan must name the WHOLE set of
+    // functional roles — the row/mask CASE is built over all of them, and a
+    // role left out of `grant_types` is treated as FALSE (the backend now also
+    // rejects restrictions with no grant type at all: 422
+    // GRANT_TYPES_REQUIRED_FOR_POLICIES). Without restrictions we keep the
+    // mapping-only set (default view provisioning is fine).
     const grant_types = [
       ...new Set([
         ...Object.values(mapping).filter(Boolean),
-        ...rows.flatMap((r) => Object.keys(r.allowed_values_by_grant_type)),
-        ...(maskedCols.length ? unmaskedGrants : []),
+        ...(hasRestrictions ? allRoleIds : []),
       ]),
     ] as string[];
 
