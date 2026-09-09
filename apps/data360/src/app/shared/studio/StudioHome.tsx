@@ -18,6 +18,8 @@ import { useRouter } from 'next/navigation';
 import { AlertCircle, ArrowLeft, Plug, RefreshCw, Settings2, ShieldCheck } from 'lucide-react';
 
 import AskRail from '@/app/shared/studio/AskRail';
+import { useAtomValue } from 'jotai';
+import { stepAskAtom } from '@/app/shared/studio/studioAskAtom';
 import {
   PlainQuestionHeader,
   QuietAction,
@@ -133,6 +135,9 @@ function SourceTypeChips({ types }: { types: string[] }) {
 export default function StudioHome() {
   const router = useRouter();
   useTrackEvent(); // PAGE_VIEW, fire-and-forget
+  // A wizard step can make the single right rail ACT (run a request), not just
+  // show canned text — it publishes its handler here and we pass it through.
+  const stepAsk = useAtomValue(stepAskAtom);
 
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -254,7 +259,9 @@ export default function StudioHome() {
         <AskRail
           className="hidden max-h-full lg:flex"
           title="Ask about this step"
-          suggestions={railSuggestions}
+          suggestions={stepAsk?.suggestions ?? railSuggestions}
+          onAsk={stepAsk?.onAsk}
+          context={stepAsk?.context}
           costNote="Asking here is free within the preview envelope — never a credit. Picking from the lists costs nothing."
         />
       </div>

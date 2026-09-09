@@ -21,7 +21,7 @@
  * analysis.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -31,7 +31,9 @@ import ReactFlow, {
   type Node,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Database, Search, Sparkles, TableProperties } from 'lucide-react';
+import { Check, Database, Search, Sparkles, TableProperties } from 'lucide-react';
+import { useSetAtom } from 'jotai';
+import { stepAskAtom } from '@/app/shared/studio/studioAskAtom';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
 import EmptyState from '@/components/ui/EmptyState';
 import { routes } from '@/config/routes';
@@ -223,15 +225,18 @@ export default function UnderstandingStep({
   const [aiPickError, setAiPickError] = useState<string | null>(null);
   const [suggestionByFqn, setSuggestionByFqn] = useState<Record<string, SourceSuggestion>>({});
 
-  const aiPickTables = async () => {
+  const aiPickTables = async (hint?: string) => {
     if (aiPick === 'running' || byDb == null) return;
     const candidates = byDb.flatMap((d) => d.objects.map((o) => ({ fqn: o.fqn })));
     if (candidates.length === 0) return;
     setAiPick('running');
     setAiPickError(null);
     try {
+      // A refine hint from the chat is appended to the need so the same
+      // deterministic ranker re-scores the SAME candidates against it.
+      const need = hint?.trim() ? `${draft.need.text}\n\nRefine: ${hint.trim()}` : draft.need.text;
       const { suggestions } = await suggestSources({
-        need: draft.need.text,
+        need,
         domain_id: draft.need.domainId ?? undefined,
         draft_id: draft.draftId ?? undefined,
         candidates,
@@ -259,6 +264,77 @@ export default function UnderstandingStep({
       setAiPick('idle');
     }
   };
+
+  /* AI-FIRST: the detection runs ONCE automatically when the tables are
+     discovered — the user no longer has to ask for it, they approve or
+     refine. The ranker is deterministic name-matching (credits_charged: 0),
+     so an automatic run costs nothing; a ref stops a re-render re-firing it,
+     and a resumed selection is respected rather than overwritten. */
+  const autoRanRef = useRef(false);
+  useEffect(() => {
+    if (autoRanRef.current || byDb == null) return;
+    if (!byDb.some((d) => d.objects.length > 0)) return;
+    if (picks.length > 0) return;
+    // The ranker needs SOMETHING to rank against — a need or a domain. With
+    // neither (a draft opened without a goal) it can only fail, so leave the
+    // manual pick and the chat in charge rather than auto-firing a doomed call.
+    if (!draft.need.text.trim() && !draft.need.domainId) return;
+    autoRanRef.current = true;
+    void aiPickTables();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [byDb]);
+
+  const setPicksAndPatch = (next: Pick_[]) => {
+    setPicks(next);
+    setAnalysis({ kind: 'idle' });
+    onPatch({
+      sources: {
+        ...draft.sources,
+        objects: next.map((p) => ({ connectionId: p.database, name: p.fqn })),
+      },
+    });
+  };
+  const dbOf = (fqn: string) => fqn.split('.')[0] ?? '';
+  /** Tick every table the AI marked relevant (preselect / high / medium), up
+   *  to the cap; when the AI matched nothing, fall back to the first ones so
+   *  the control is never dead. */
+  const selectAllRelevant = () => {
+    const relevant = byDb
+      ? byDb
+          .flatMap((d) => d.objects.map((o) => o.fqn))
+          .filter((fqn) => {
+            const s = suggestionByFqn[fqn];
+            return s?.preselect || s?.relevance === 'high' || s?.relevance === 'medium';
+          })
+      : [];
+    const all = byDb?.flatMap((d) => d.objects.map((o) => o.fqn)) ?? [];
+    const chosen = (relevant.length ? relevant : all).slice(0, MAX_PICKS);
+    setPicksAndPatch(chosen.map((fqn) => ({ database: dbOf(fqn), fqn })));
+  };
+  const clearPicks = () => setPicksAndPatch([]);
+
+  // the free-text refine box (a chat that re-scores the same candidates)
+  const [refine, setRefine] = useState('');
+
+  /* Make the shared right rail ACT for this step: it publishes an onAsk (a
+     free-text refine that re-scores the same tables) and action chips, so the
+     rail is a bot that DOES something, not a dead panel of canned questions.
+     A ref keeps the handler pointing at the freshest aiPickTables closure. */
+  const setStepAsk = useSetAtom(stepAskAtom);
+  const aiPickRef = useRef(aiPickTables);
+  aiPickRef.current = aiPickTables;
+  useEffect(() => {
+    const run = (t: string) => void aiPickRef.current(t);
+    setStepAsk({
+      onAsk: run,
+      suggestions: [
+        { id: 'kpi', label: 'Focus on KPIs & measures', onPick: () => run('focus on measures and KPIs to track over time') },
+        { id: 'time', label: 'Prefer time-series tables', onPick: () => run('prefer tables with a date or time field to track over time') },
+        { id: 'fact', label: 'Transaction / fact tables', onPick: () => run('prefer transactional fact tables for automation and tracking') },
+      ],
+    });
+    return () => setStepAsk(null);
+  }, [setStepAsk]);
 
   const analyze = async () => {
     if (picks.length === 0 || analysis.kind === 'running') return;
@@ -414,8 +490,28 @@ export default function UnderstandingStep({
             className="inline-flex items-center gap-1.5 rounded-lg border border-accent-500 px-2.5 py-1 text-xs font-medium text-accent-700 hover:bg-accent-50 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-300 dark:hover:bg-accent-900/30"
           >
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
-            {aiPick === 'running' ? 'Detecting…' : 'Let the AI pick'}
+            {aiPick === 'running' ? 'Detecting…' : aiPick === 'done' ? 'Re-run the AI' : 'Let the AI pick'}
           </button>
+          {aiPick === 'done' && (
+            <>
+              <button
+                type="button"
+                onClick={selectAllRelevant}
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300"
+              >
+                Select all relevant
+              </button>
+              {picks.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearPicks}
+                  className="rounded-lg px-2 py-1 text-xs text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                >
+                  Clear
+                </button>
+              )}
+            </>
+          )}
           <label className="relative ml-auto">
             <Search
               aria-hidden
@@ -527,11 +623,92 @@ export default function UnderstandingStep({
           </div>
         )}
         {aiPick === 'done' && (
-          <p role="status" className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {picks.length > 0
-              ? `The AI pre-ticked ${picks.length} table(s) it marked relevant to your need — the chips say why on hover. Untick anything; nothing runs before Analyze.`
-              : 'No table was confidently matched to your need — pick manually, or reword the need.'}
-          </p>
+          <div className="mt-1.5 space-y-1.5">
+            {(() => {
+              const ranked = Object.values(suggestionByFqn)
+                .filter((s) => s.preselect || s.relevance === 'high' || s.relevance === 'medium')
+                .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+              if (ranked.length === 0) {
+                return (
+                  <p role="status" className="text-xs text-slate-500 dark:text-slate-400">
+                    The AI matched no table confidently to your need. Refine it below, or pick tables
+                    manually from the list — nothing runs before Analyze.
+                  </p>
+                );
+              }
+              return (
+                <div className="rounded-lg border border-accent-200 bg-accent-50/40 p-2 dark:border-accent-900/40 dark:bg-accent-900/10">
+                  <p role="status" className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                    The AI proposes {ranked.length} table{ranked.length === 1 ? '' : 's'} for “{draft.need.text || 'your goal'}”
+                    — approve, untick, or refine. Why each one, and what it can measure over time:
+                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {ranked.slice(0, MAX_PICKS).map((s) => {
+                      const on = picks.some((p) => p.fqn === s.fqn);
+                      return (
+                        <li key={s.fqn} className="flex items-start gap-1.5 text-xs">
+                          <button
+                            type="button"
+                            aria-pressed={on}
+                            aria-label={`${on ? 'Untick' : 'Tick'} ${s.fqn}`}
+                            onClick={() => togglePick(dbOf(s.fqn), s.fqn)}
+                            className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                              on ? 'border-accent-600 bg-accent-600 text-white' : 'border-slate-300 dark:border-slate-600'
+                            }`}
+                          >
+                            {on && <Check className="h-2.5 w-2.5" aria-hidden />}
+                          </button>
+                          <span className="min-w-0">
+                            <span className="font-medium text-slate-800 dark:text-slate-200">
+                              {s.fqn.split('.').slice(-1)[0]}
+                            </span>
+                            {s.relevance && s.relevance !== 'unrelated' && (
+                              <span className="ml-1 rounded-full bg-accent-600/10 px-1.5 py-px text-[10px] text-accent-700 dark:text-accent-300">
+                                {s.relevance}
+                              </span>
+                            )}
+                            <span className="text-slate-500 dark:text-slate-400">
+                              {' — '}
+                              {(s.reasons ?? []).join('; ') || `relevance: ${s.relevance}`}
+                            </span>
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })()}
+            {/* refine chat — re-scores the SAME candidates against a free-text
+                hint (a bot that acts, not a canned question) */}
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent-500" aria-hidden />
+              <input
+                value={refine}
+                onChange={(e) => setRefine(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && refine.trim()) {
+                    void aiPickTables(refine);
+                    setRefine('');
+                  }
+                }}
+                placeholder="Refine — e.g. “focus on request volumes and delays over time”"
+                aria-label="Refine the AI table selection"
+                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              />
+              <button
+                type="button"
+                disabled={!refine.trim()}
+                onClick={() => {
+                  void aiPickTables(refine);
+                  setRefine('');
+                }}
+                className="shrink-0 rounded-lg bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-40"
+              >
+                Refine
+              </button>
+            </div>
+          </div>
         )}
         {aiPickError && (
           <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-400">

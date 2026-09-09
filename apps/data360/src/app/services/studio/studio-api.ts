@@ -67,7 +67,19 @@ function studioMutate<T>(
       });
       const data = (await res.json().catch(() => null)) as T | null;
       if (!res.ok) {
-        const err = new Error(`Request failed (${res.status})`) as Error & {
+        // Surface the backend's own reason in the message, not an opaque
+        // "Request failed (400)" — the detail may be a string, {message}, or a
+        // top-level message (the error-envelope shape). Consumers that read
+        // err.response.data keep working; those that show err.message now see
+        // WHY instead of a bare status.
+        const d = data as { detail?: unknown; message?: string } | null;
+        const detail = d?.detail;
+        let reason = '';
+        if (typeof detail === 'string') reason = detail;
+        else if (detail && typeof detail === 'object' && typeof (detail as { message?: unknown }).message === 'string')
+          reason = (detail as { message: string }).message;
+        else if (typeof d?.message === 'string') reason = d.message;
+        const err = new Error(reason || `Request failed (${res.status})`) as Error & {
           response?: { status: number; data: unknown };
         };
         err.response = { status: res.status, data };
