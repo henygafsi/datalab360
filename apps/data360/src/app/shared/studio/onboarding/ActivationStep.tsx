@@ -412,13 +412,21 @@ export default function ActivationStep({
   const dq = a.tests?.dq_gate ?? null;
   // the structured checks (each with its per-rule resolution actions); when
   // the backend serves them we render the Resolve controls, else we fall back
-  // to the legacy flat blocker strings. A check that blocks the gate is a
-  // FAILING one (verdict 'fail') — the `blocking` flag is unreliable, and
-  // `blockers_detail` can be empty while the fails live in `checks`.
-  const dqChecks = dq?.checks ?? [];
-  const dqUnhandled = dqChecks.filter((c) => !c.handled && c.verdict === 'fail');
-  const dqHandled = dqChecks.filter((c) => c.handled);
-  const dqStructured = dqChecks.length > 0;
+  // to the legacy flat blocker strings. Two shapes exist: some gates serve the
+  // whole `checks[]` (fails among them, verdict 'fail'); a draft evaluated
+  // compactly serves only `blockers_detail[]` (unhandled blockers) + `handled[]`
+  // with an empty `checks`. Handle both, and drive off `verdict==='fail'`
+  // (the `blocking` flag has been unreliable on persisted gates).
+  const dqAllChecks =
+    (dq?.checks?.length ?? 0) > 0
+      ? dq!.checks!
+      : [...(dq?.blockers_detail ?? []), ...(dq?.handled ?? [])];
+  const dqUnhandled = dqAllChecks.filter((c) => !c.handled && c.verdict === 'fail');
+  const dqHandled = (dq?.handled?.length ?? 0) > 0 ? dq!.handled! : dqAllChecks.filter((c) => c.handled);
+  const dqStructured =
+    dqAllChecks.length > 0 ||
+    (dq?.blockers_detail?.length ?? 0) > 0 ||
+    (dq?.handled?.length ?? 0) > 0;
   const report = a.tests?.report ?? null;
   const simCount = a.tests?.automation_simulations?.length ?? 0;
   const est = a.estimate;
