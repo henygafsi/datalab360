@@ -175,29 +175,25 @@ export default function StudioOverviewBrief({
           anyScheduleActive: activeSchedules > 0,
         });
   const attention = ctx?.overview?.attention ?? [];
-  /* The brief showed SIX identical "referential_integrity failed on ?" rows —
-     the server sent the same message per failing check and could not name the
-     object (a dangling "?"). Rendering each verbatim is noise. Group identical
-     items with a count, and when the object is unresolved, say the humanized
-     cause once instead of a bare "?" (the raw stays in the tooltip; the "?" is
-     a backend gap, flagged separately). */
-  const humanizeKind = (k?: string) =>
-    (k ?? '').replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  /* The server now groups identical (rule, object, column) failures into ONE
+     attention item carrying `count` and all `check_ids` (and a clean `what`
+     naming the real tables — no more "?"). We keep a defensive FE grouping for
+     older payloads, but the displayed count SUMS the server `count`: reading it
+     as "rows the FE saw" would drop the server's "6 checks" down to 1. Quality
+     items carry a `rule`; the lifecycle "quality gate failing" item does not,
+     so only the former gets the "open Quality" affordance. */
   const attentionGrouped = useMemo(() => {
     const seen = new Map<
       string,
-      { severity?: string; text: string; raw: string; unresolved: boolean; count: number }
+      { severity?: string; text: string; count: number; rule?: string }
     >();
     for (const a of attention) {
-      const raw = String(a.what ?? a.kind ?? '—').trim();
-      const unresolved = /\bon\s*\?\s*$/i.test(raw) || raw === '?';
-      const text = unresolved
-        ? humanizeKind(a.kind) || raw.replace(/\s*on\s*\?\s*$/i, '').trim() || '—'
-        : raw;
+      const text = String(a.what ?? a.kind ?? '—').trim();
       const key = `${a.severity ?? 'info'}|${text}`;
+      const inc = typeof a.count === 'number' && a.count > 0 ? a.count : 1;
       const cur = seen.get(key);
-      if (cur) cur.count += 1;
-      else seen.set(key, { severity: a.severity, text, raw, unresolved, count: 1 });
+      if (cur) cur.count += inc;
+      else seen.set(key, { severity: a.severity, text, count: inc, rule: a.rule });
     }
     return [...seen.values()];
   }, [attention]);
@@ -569,13 +565,19 @@ export default function StudioOverviewBrief({
                 >
                   {g.severity ?? 'info'}
                 </span>
-                <span className="text-slate-700 dark:text-slate-200" title={g.raw}>
+                <span className="min-w-0 text-slate-700 dark:text-slate-200">
                   {g.text}
                   {g.count > 1 && (
                     <span className="text-slate-400 dark:text-slate-500"> · {g.count} checks</span>
                   )}
-                  {g.unresolved && (
-                    <span className="text-slate-400 dark:text-slate-500"> — open Quality for the exact columns</span>
+                  {g.rule && (
+                    <button
+                      type="button"
+                      onClick={() => onGo('quality')}
+                      className="ml-1.5 rounded text-accent-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+                    >
+                      open Quality
+                    </button>
                   )}
                 </span>
               </li>

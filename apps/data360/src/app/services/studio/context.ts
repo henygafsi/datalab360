@@ -47,6 +47,19 @@ export interface ContextAttention {
   severity?: 'critical' | 'warning' | 'info' | string;
   kind?: string;
   what?: string;
+  /** the check rule (e.g. 'referential_integrity'); ABSENT on the lifecycle
+   *  "quality gate failing" item — filter on it to tell the two apart. */
+  rule?: string;
+  object?: string;
+  /** the entities involved (2 for a relationship check) */
+  objects?: Array<{ entity_id?: string; name?: string; fqn?: string }>;
+  column?: string | null;
+  check_ids?: string[];
+  /** identical (rule, object, column) failures are grouped server-side into
+   *  ONE item carrying this count — never the number of rows the FE saw. */
+  count?: number;
+  open?: string;
+  resolve?: string;
 }
 
 export interface ContextOverview {
