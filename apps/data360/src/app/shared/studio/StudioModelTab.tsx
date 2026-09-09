@@ -19,11 +19,36 @@ import {
   type StudioReportSpec,
   type TargetsView,
 } from '@/app/services/studio/studio-api';
+import { getStudioSummary, type ModelSummary } from '@/app/services/studio/summary';
 import StudioModelCanvas from '@/app/shared/studio/StudioModelCanvas';
 import StudioModelCompletion from '@/app/shared/studio/StudioModelCompletion';
 import StudioModelInspector from '@/app/shared/studio/StudioModelInspector';
+import StudioKpiHeader, { type Kpi } from '@/app/shared/studio/StudioKpiHeader';
 import { latestRun } from '@/app/shared/studio/StudioJobEditor';
-import { RefreshCw } from 'lucide-react';
+import { Boxes, GitBranch, Layers, RefreshCw, ShieldCheck, Sparkles, Table2, Target } from 'lucide-react';
+
+/** pct → honesty-first tone (never green by default; null stays neutral). */
+function pctTone(p?: number | null): Kpi['tone'] {
+  if (p == null) return 'default';
+  return p >= 85 ? 'good' : p >= 60 ? 'warn' : 'bad';
+}
+
+/** Build the business-KPI strip from the served model summary — null scores
+ *  render as "—" (StudioKpiHeader), never an invented 0 or 100. */
+function modelKpis(s: ModelSummary | null): Kpi[] {
+  if (!s) return [];
+  const m = s.method ?? undefined;
+  return [
+    { key: 'coverage', label: 'Model coverage', value: s.model_coverage_pct ?? null, unit: '%', icon: Target, tone: pctTone(s.model_coverage_pct), method: m },
+    { key: 'readiness', label: 'Semantic readiness', value: s.semantic_readiness_pct ?? null, unit: '%', icon: ShieldCheck, tone: pctTone(s.semantic_readiness_pct), method: m },
+    { key: 'alignment', label: 'Business alignment', value: s.business_alignment_pct ?? null, unit: '%', icon: Sparkles, tone: pctTone(s.business_alignment_pct), method: m },
+    { key: 'join', label: 'Join confidence', value: s.join_confidence_pct ?? null, unit: '%', icon: GitBranch, tone: pctTone(s.join_confidence_pct), method: m },
+    { key: 'facts', label: 'Fact tables', value: s.facts ?? null, icon: Table2 },
+    { key: 'dims', label: 'Conformed dimensions', value: s.dimensions ?? null, icon: Boxes },
+    { key: 'entities', label: 'Business entities', value: s.entities ?? null, icon: Layers },
+    { key: 'rels', label: 'Relationships', value: s.relationships ?? null, icon: GitBranch },
+  ];
+}
 
 export default function StudioModelTab({
   draftId,
@@ -48,6 +73,17 @@ export default function StudioModelTab({
   const [mode, setMode] = useState<'target' | 'mapping' | null>(null);
   const [selection, setSelection] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState<ModelSummary | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void getStudioSummary(draftId, ['model'])
+      .then((r) => alive && setSummary(r.model ?? {}))
+      .catch(() => alive && setSummary({}));
+    return () => {
+      alive = false;
+    };
+  }, [draftId]);
 
   /* Two applies in quick succession can land out of order — the older
    * answer would then overwrite the newer one and leave the panel showing
@@ -103,6 +139,10 @@ export default function StudioModelTab({
 
   return (
     <div className="space-y-2">
+      {/* the business-KPI strip — real served figures; a score not yet
+          evaluated shows "—", never an invented 0 or 100 */}
+      <StudioKpiHeader kpis={modelKpis(summary)} loading={summary === null} />
+
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700" role="tablist" aria-label="Model view">
           {(
