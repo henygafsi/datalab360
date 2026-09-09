@@ -126,7 +126,10 @@ test('studio actionable audit — walk the flow, classify every control', async 
   try {
     await signIn(page);
 
-    for (const { view, label } of VIEWS) {
+    // optional VIEWS=jobs,reporting env filter to walk a subset
+    const only = (process.env.VIEWS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const toRun = only.length ? VIEWS.filter((v) => only.includes(v.view)) : VIEWS;
+    for (const { view, label } of toRun) {
       const rep: ViewReport = {
         view,
         label,
