@@ -51,6 +51,7 @@ import {
   type ConnectionListItem,
 } from '@/app/services/studio/connections';
 import { neutralLabel } from '@/app/shared/studio/sources/sources-kit';
+import { ConnectorLogo } from '@/app/shared/studio/sources/ConnectorLogo';
 import {
   createJourneyDraftRemote,
   newJourneyDraft,
@@ -446,6 +447,11 @@ export default function StudioSourceOnboarding() {
                                 : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-600'
                             }`}
                           >
+                            <ConnectorLogo
+                              label={String(r.type ?? '')}
+                              connectorId={String(r.type ?? '')}
+                              className="h-4 w-4"
+                            />
                             <span className="font-medium text-slate-900 dark:text-slate-100">
                               {neutralLabel(r.name) || id}
                             </span>
@@ -530,7 +536,13 @@ export default function StudioSourceOnboarding() {
                                   : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-600'
                             }`}
                           >
-                            <span className="min-w-0 truncate text-xs font-medium text-slate-800 dark:text-slate-200">
+                            <ConnectorLogo
+                              label={label}
+                              connectorId={String(c.id ?? c.connector_id ?? '')}
+                              family={String(c.family ?? '')}
+                              className="h-4 w-4"
+                            />
+                            <span className="min-w-0 flex-1 truncate text-xs font-medium text-slate-800 dark:text-slate-200">
                               {label}
                             </span>
                             <span className={`shrink-0 text-xs ${status.tone}`}>{status.label}</span>

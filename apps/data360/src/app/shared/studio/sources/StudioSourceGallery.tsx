@@ -41,6 +41,7 @@ import {
   type StudioSource,
 } from '@/app/services/studio/studio-api';
 import { STATUS_LABELS, familyLabel, neutralLabel } from '@/app/shared/studio/sources/sources-kit';
+import { ConnectorLogo } from '@/app/shared/studio/sources/ConnectorLogo';
 
 const PAGE_SIZE = 9;
 
@@ -166,7 +167,7 @@ function Category({
                   {s.kind === 'database' ? (
                     <Table2 aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
                   ) : (
-                    <Plug aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
+                    <ConnectorLogo label={s.label} family={s.family} className="h-3.5 w-3.5" />
                   )}
                   <button
                     type="button"
