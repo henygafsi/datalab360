@@ -787,23 +787,43 @@ export default function StudioGovernanceMap({
           </div>
 
           {selected && anchorRole && (
-            <label className="mt-2 flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={masking.unmasked.includes(anchorRole)}
-                onChange={() => onToggleUnmask(anchorRole)}
-                className="h-3.5 w-3.5"
-              />
-              <span>
-                Let <span className="font-medium">{selected}</span> read masked columns in clear
-                (their <span className="font-medium">{grantLabel(anchorRole)}</span> role is exempt).
-              </span>
-            </label>
+            <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-slate-800/60">
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                {masking.columns.length === 0 ? (
+                  <>Nothing is masked yet.</>
+                ) : masking.unmasked.includes(anchorRole) ? (
+                  <>
+                    <span className="font-medium">{selected}</span> reads the{' '}
+                    {masking.columns.length} masked column(s) <span className="font-medium">in clear</span> —
+                    their <span className="font-medium">{grantLabel(anchorRole)}</span> role is exempt.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium">{selected}</span> sees the {masking.columns.length}{' '}
+                    masked column(s) <span className="font-medium">masked</span> (their{' '}
+                    <span className="font-medium">{grantLabel(anchorRole)}</span> role is not exempt).
+                  </>
+                )}
+              </p>
+              <label className="mt-1 flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={masking.unmasked.includes(anchorRole)}
+                  onChange={() => onToggleUnmask(anchorRole)}
+                  className="h-3.5 w-3.5"
+                />
+                <span>
+                  Let <span className="font-medium">{selected}</span> read masked columns in clear
+                  (exempt their <span className="font-medium">{grantLabel(anchorRole)}</span> role).
+                </span>
+              </label>
+            </div>
           )}
 
           <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            Masked columns are hidden the same way for everyone — seen in clear only by the roles
-            below (masking lives on the role, not the person):
+            Masking has ONE exemption list for the whole change — it applies to every masked column,
+            not per person. A column is seen in clear only by the roles below (ACCOUNTADMIN always
+            reads clear); everyone else reads it masked:
           </p>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Seen in clear by</p>
           <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="Roles that see masked columns unmasked">
