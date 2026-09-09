@@ -809,6 +809,17 @@ function ProfileSheet({
       {/* ── ② USERS — assign people/roles; the truth per principal ────── */}
       {step === 'users' && !creating && (
         <div className="mt-3 space-y-2 text-[13px]">
+          <p className="text-xs text-slate-600 dark:text-slate-300">
+            Grant this profile — the Snowflake role{' '}
+            {profile?.role ? (
+              <span className="font-mono text-slate-700 dark:text-slate-200">{profile.role}</span>
+            ) : (
+              <span className="italic text-slate-400 dark:text-slate-500">created on apply</span>
+            )}{' '}
+            — to a <span className="font-medium">user or a role</span>. Assigning a principal here
+            grants them that role; the level (view / edit / operate / approve / admin) says what they
+            may DO with the data the profile exposes.
+          </p>
           <div className="flex flex-wrap items-center gap-1.5">
             <input
               list="profile-principals"
