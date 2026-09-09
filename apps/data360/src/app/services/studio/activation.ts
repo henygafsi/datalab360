@@ -24,10 +24,66 @@ export interface ActivationScope {
   automations?: unknown[];
 }
 
+/** The action the conditional-intelligence DQ engine can apply to a rule. */
+export type DqActionKind = 'auto_fix' | 'quarantine_dlq' | 'waive';
+
+export interface DqCheckActionOption {
+  kind: DqActionKind;
+  label?: string;
+  /** false when the action needs something first (e.g. a proposed model, or a
+   *  business decision) — `reason` says what, and the button stays disabled. */
+  available?: boolean;
+  reason?: string;
+  requires?: string[];
+  detail?: string;
+}
+
+export interface DqCheckResolution {
+  run_id?: string;
+  action?: string;
+  at?: string;
+  by?: string;
+  reason?: string;
+  applied?: boolean;
+  /** 'applied_design_time' (a dedup/rule now handles it) | 'waived'. */
+  state?: string;
+  next?: { run_job?: unknown; replay_dlq?: unknown };
+}
+
+/** One DQ check with its per-rule resolution options (contract dq.v1). */
+export interface DqGateCheck {
+  id: string;
+  rule?: string;
+  object?: string;
+  entity_id?: string;
+  columns?: string[];
+  blocking?: boolean;
+  verdict?: string;
+  message?: string;
+  evidence?: Record<string, unknown>;
+  /** what the engine recommends — the primary action to offer first. */
+  suggested_action?: 'auto_fix' | 'quarantine_dlq' | 'decision' | null;
+  actions?: DqCheckActionOption[];
+  handled?: boolean;
+  resolution?: DqCheckResolution | null;
+  target_id?: string;
+  job_id?: string;
+  truth?: string;
+}
+
 export interface ActivationDqGate {
-  /** 'pass' | 'warn' | 'blocked' | 'not_evaluated' (verbatim backend verdict). */
+  /** 'pass' | 'warn' | 'blocked' | 'not_evaluated' (verbatim backend verdict).
+   *  Note: the gate reads 'warn' (never 'pass') once every defect is HANDLED —
+   *  the original verdict + evidence stay visible, the source data is untouched. */
   overall?: string;
+  /** legacy flat list — kept for back-compat. */
   blockers?: Array<string | { message?: string; [k: string]: unknown }>;
+  /** the structured blocking checks (each with its resolution actions). */
+  blockers_detail?: DqGateCheck[];
+  /** every check (blocking + non-blocking + handled). */
+  checks?: DqGateCheck[];
+  /** the checks already handled (dedup/rule applied, or waived). */
+  handled?: DqGateCheck[];
   evaluated_at?: string | null;
   run_id?: string | null;
 }
@@ -129,6 +185,76 @@ export async function requestActivation(body: {
     { timeout: 60_000 },
   );
   return data;
+}
+
+/* ── DQ RESOLVE — the per-rule standardized action (contract dq.v1) ────
+ * The engine already knows, per rule, which action fixes it (`suggested_action`
+ * from the gate: dedup / filter_out / orphans / decision). Resolving is a
+ * DESIGN-TIME change (a dedup mapping / a quarantine rule / a waiver) — the
+ * source data is never touched and the DLQ only fills when the job runs
+ * (`next.run_job`, explicit, credit-gated). Idempotent; undoable by run_id. */
+
+export interface DqResolveResult {
+  /** 'applied' | 'already_applied' (idempotent). */
+  status?: string;
+  run_id?: string;
+  check?: DqGateCheck;
+  gate?: { overall?: string; blockers?: unknown[]; handled?: unknown[] };
+  next?: { run_job?: unknown; replay_dlq?: unknown };
+}
+
+export async function resolveDqCheck(
+  draftId: string,
+  body: { check_id: string; action: DqActionKind; reason?: string },
+): Promise<DqResolveResult> {
+  const { data } = await apiClient.post<DqResolveResult>(
+    `/studio/drafts/${encodeURIComponent(draftId)}/dq/resolve`,
+    body,
+    { timeout: 60_000 },
+  );
+  return data;
+}
+
+export async function undoDqResolve(
+  draftId: string,
+  run_id: string,
+): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.post<Record<string, unknown>>(
+    `/studio/drafts/${encodeURIComponent(draftId)}/dq/resolve/undo`,
+    { run_id },
+    { timeout: 60_000 },
+  );
+  return data;
+}
+
+/** A resolve refusal rendered as a product answer: the code + message the
+ *  backend sends (403 APPROVAL_REQUIRED, 422 REASON_REQUIRED,
+ *  409 DQ_ACTION_UNAVAILABLE{actions}) — never a raw stack. */
+export function dqResolveRefusal(
+  e: unknown,
+): { code?: string; message: string; actions?: DqCheckActionOption[] } | null {
+  const anyE = e as {
+    response?: { status?: number; data?: { detail?: unknown; message?: unknown } };
+  };
+  const status = anyE?.response?.status;
+  if (status == null || status < 400) return null;
+  const raw = anyE.response?.data;
+  const detail =
+    raw && typeof raw.detail === 'object' && raw.detail !== null
+      ? (raw.detail as Record<string, unknown>)
+      : (raw as Record<string, unknown> | undefined);
+  const code = detail?.error_code ?? detail?.code;
+  const message =
+    (typeof detail?.message === 'string' && detail.message) ||
+    (status === 403
+      ? 'An ACCOUNTADMIN must approve a waiver.'
+      : status === 422
+        ? 'A reason of at least 10 characters is required to waive.'
+        : 'This action is not available right now.');
+  const actions = Array.isArray(detail?.actions)
+    ? (detail!.actions as DqCheckActionOption[])
+    : undefined;
+  return { code: code ? String(code) : undefined, message: String(message), actions };
 }
 
 /**

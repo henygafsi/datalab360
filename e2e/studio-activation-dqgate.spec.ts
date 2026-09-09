@@ -48,14 +48,32 @@ test('blocked activation gate offers re-run + resolution guidance', async ({ bro
     await expect(toggle).toBeVisible({ timeout: 60_000 });
     await toggle.click();
 
-    const rerun = page.getByRole('button', { name: /Re-run the data-quality gate/ });
     await expect(page.getByText(/Data quality gate/).first()).toBeVisible({ timeout: 30_000 });
-    // the gate is blocked in this fixture → the re-run action + guidance show
-    await expect(rerun).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(/route the violating records to\s+the DLQ/i).first()).toBeVisible();
-    console.log('[dqgate] re-run action + DLQ/fix guidance present on the blocked gate');
+
+    const resolveSel = /Route violations to DLQ|Auto-fix|Waive|recommended/;
+    const resolveBtn = page.getByRole('button', { name: resolveSel }).first();
+    // Structured checks populate on a fresh gate evaluation; a fixture last
+    // evaluated before the contract update carries only legacy strings. If the
+    // per-rule controls aren't there, re-run the gate once to populate them.
+    if (!(await resolveBtn.isVisible({ timeout: 8_000 }).catch(() => false))) {
+      const rerun = page.getByRole('button', { name: /Re-run the data-quality gate/ });
+      if (await rerun.count()) {
+        await rerun.first().click();
+        await expect(resolveBtn).toBeVisible({ timeout: 180_000 });
+      }
+    }
+
+    await expect(page.getByText(/the engine recommends|warn, not a false green/i).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(resolveBtn).toBeVisible({ timeout: 20_000 });
+    const nBtns = await page
+      .getByRole('button', { name: /Route violations to DLQ|Auto-fix|Waive|recommended/ })
+      .count();
+    console.log(`[dqgate] per-rule resolve controls present = ${nBtns}`);
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/activation-dqgate.png`, fullPage: true });
-    // do NOT click re-run — it reads the warehouse.
+    // do NOT click a resolve action — it stages a design-time change on the
+    // shared fixture (and re-run reads the warehouse).
   } finally {
     await context.close();
   }

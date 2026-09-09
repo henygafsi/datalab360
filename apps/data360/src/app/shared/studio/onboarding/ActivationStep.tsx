@@ -16,11 +16,16 @@ import { FileWarning, RotateCw } from 'lucide-react';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
 import EmptyState from '@/components/ui/EmptyState';
 import {
+  dqResolveRefusal,
   extractActivationBlockers,
   getActivation,
   requestActivation,
+  resolveDqCheck,
+  undoDqResolve,
   type ActivationConnector,
   type ActivationStatusResponse,
+  type DqActionKind,
+  type DqGateCheck,
 } from '@/app/services/studio/activation';
 import { runDqGate } from '@/app/services/studio/studio-api';
 import type { JourneyDraft } from './journey';
@@ -89,6 +94,184 @@ type ReqState =
   | { kind: 'error'; message: string };
 
 /* ── component ─────────────────────────────────────────────────────── */
+
+const DQ_ACTION_LABEL: Record<DqActionKind, string> = {
+  auto_fix: 'Auto-fix',
+  quarantine_dlq: 'Route violations to DLQ',
+  waive: 'Waive',
+};
+
+/**
+ * DqCheckCard — one failing (or handled) DQ rule with its standardized
+ * resolution. The engine's recommended action leads; the source data is
+ * never touched (a fix stages a dedup/quarantine rule at design time, the
+ * DLQ fills only when the job runs), a waiver needs an ACCOUNTADMIN reason,
+ * and everything is undoable. Actions the model can't express yet come back
+ * `available:false` with the reason said in place.
+ */
+function DqCheckCard({
+  draftId,
+  check,
+  onChanged,
+}: {
+  draftId: string;
+  check: DqGateCheck;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState<DqActionKind | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [waiveOpen, setWaiveOpen] = useState(false);
+  const [reason, setReason] = useState('');
+
+  const apply = async (action: DqActionKind, r?: string) => {
+    if (busy) return;
+    setBusy(action);
+    setRefusal(null);
+    setNote(null);
+    try {
+      const res = await resolveDqCheck(draftId, { check_id: check.id, action, reason: r });
+      const runJob = res.next?.run_job;
+      setNote(
+        action === 'waive'
+          ? 'Waived — the original verdict stays visible as evidence; the source data is untouched.'
+          : runJob
+            ? 'Handled — staged in the model; the DLQ fills only when the job runs (credits, explicit).'
+            : 'Handled — staged in the model; the source data is untouched.',
+      );
+      onChanged();
+    } catch (e) {
+      setRefusal(dqResolveRefusal(e)?.message ?? 'The action was refused.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const undo = async () => {
+    const runId = check.resolution?.run_id;
+    if (!runId || busy) return;
+    setBusy('auto_fix');
+    setRefusal(null);
+    try {
+      await undoDqResolve(draftId, runId);
+      onChanged();
+    } catch (e) {
+      setRefusal(dqResolveRefusal(e)?.message ?? 'Undo was refused.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // the engine's suggested action leads
+  const actions = [...(check.actions ?? [])].sort((a, b) => {
+    const sug = check.suggested_action;
+    return a.kind === sug ? -1 : b.kind === sug ? 1 : 0;
+  });
+
+  return (
+    <li className="rounded-lg border border-slate-200 p-2 text-xs dark:border-slate-800">
+      <div className="flex flex-wrap items-baseline gap-1.5">
+        <span className="font-mono font-medium text-slate-700 dark:text-slate-200">{check.id ?? check.rule}</span>
+        {check.object && <span className="font-mono text-slate-400 dark:text-slate-500">{check.object}</span>}
+        {check.handled ? (
+          <span className="rounded-full bg-amber-50 px-1.5 py-px text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+            handled{check.resolution?.state === 'waived' ? ' · waived' : ''}
+          </span>
+        ) : (
+          <span className="rounded-full bg-red-50 px-1.5 py-px text-red-700 dark:bg-red-900/30 dark:text-red-300">
+            {check.verdict ?? 'fail'}
+          </span>
+        )}
+      </div>
+      {check.message && <p className="mt-0.5 text-slate-500 dark:text-slate-400">{check.message}</p>}
+
+      {check.handled ? (
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-slate-500 dark:text-slate-400">
+          <span>
+            {check.resolution?.state === 'waived' ? 'Waived' : 'Handled'}
+            {check.resolution?.action ? ` · ${check.resolution.action}` : ''}
+          </span>
+          {check.resolution?.run_id && (
+            <button
+              type="button"
+              disabled={busy != null}
+              onClick={() => void undo()}
+              className="rounded px-1.5 py-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-500 dark:hover:text-slate-200"
+            >
+              Undo
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {actions.map((a) => {
+              const suggested = a.kind === check.suggested_action;
+              const label = a.label || DQ_ACTION_LABEL[a.kind];
+              if (a.kind === 'waive') {
+                return (
+                  <button
+                    key={a.kind}
+                    type="button"
+                    disabled={busy != null || a.available === false}
+                    title={a.available === false ? a.reason : 'Accept the defect with a recorded reason (ACCOUNTADMIN).'}
+                    onClick={() => setWaiveOpen((v) => !v)}
+                    className="rounded-lg border border-slate-200 px-2 py-0.5 text-slate-600 hover:border-slate-300 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-300"
+                  >
+                    {label}…
+                  </button>
+                );
+              }
+              return (
+                <button
+                  key={a.kind}
+                  type="button"
+                  disabled={busy != null || a.available === false}
+                  title={a.available === false ? a.reason : a.detail}
+                  onClick={() => void apply(a.kind)}
+                  className={
+                    a.available === false
+                      ? 'cursor-not-allowed rounded-lg border border-dashed border-slate-200 px-2 py-0.5 text-slate-400 dark:border-slate-700 dark:text-slate-500'
+                      : suggested
+                        ? 'inline-flex items-center gap-1 rounded-lg bg-accent-600 px-2 py-0.5 font-medium text-white hover:bg-accent-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500'
+                        : 'rounded-lg border border-slate-200 px-2 py-0.5 text-slate-600 hover:border-slate-300 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-300'
+                  }
+                >
+                  {busy === a.kind ? 'Applying…' : label}
+                  {suggested && a.available !== false ? ' · recommended' : ''}
+                </button>
+              );
+            })}
+            {actions.length === 0 && (
+              <span className="text-slate-400 dark:text-slate-500">Propose the model first to enable a fix.</span>
+            )}
+          </div>
+          {waiveOpen && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Why is this acceptable? (≥ 10 characters)"
+                aria-label="Waiver reason"
+                className="h-7 w-64 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+              />
+              <button
+                type="button"
+                disabled={busy != null || reason.trim().length < 10}
+                onClick={() => void apply('waive', reason.trim())}
+                className="rounded-lg bg-slate-700 px-2 py-0.5 font-medium text-white hover:bg-slate-800 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:bg-slate-600"
+              >
+                {busy === 'waive' ? 'Waiving…' : 'Confirm waiver'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {note && <p role="status" className="mt-1 text-emerald-700 dark:text-emerald-400">{note}</p>}
+      {refusal && <p role="alert" className="mt-1 text-amber-700 dark:text-amber-300">{refusal}</p>}
+    </li>
+  );
+}
 
 export default function ActivationStep({
   draft,
@@ -227,6 +410,15 @@ export default function ActivationStep({
   const automations = a.scope?.automations ?? [];
   const connectors = Object.entries(a.dependencies?.connectors ?? {});
   const dq = a.tests?.dq_gate ?? null;
+  // the structured checks (each with its per-rule resolution actions); when
+  // the backend serves them we render the Resolve controls, else we fall back
+  // to the legacy flat blocker strings. A check that blocks the gate is a
+  // FAILING one (verdict 'fail') — the `blocking` flag is unreliable, and
+  // `blockers_detail` can be empty while the fails live in `checks`.
+  const dqChecks = dq?.checks ?? [];
+  const dqUnhandled = dqChecks.filter((c) => !c.handled && c.verdict === 'fail');
+  const dqHandled = dqChecks.filter((c) => c.handled);
+  const dqStructured = dqChecks.length > 0;
   const report = a.tests?.report ?? null;
   const simCount = a.tests?.automation_simulations?.length ?? 0;
   const est = a.estimate;
@@ -302,24 +494,37 @@ export default function ActivationStep({
               <span className="text-slate-400 dark:text-slate-500"> · evaluated {fmtDate(dq.evaluated_at)}</span>
             ) : null}
           </p>
-          {(dq?.blockers?.length ?? 0) > 0 && (
-            <ul className="space-y-0.5">
-              {dq!.blockers!.map((b, i) => (
-                <li key={i} className="text-xs text-red-600 dark:text-red-400">
-                  {typeof b === 'string' ? b : b.message ?? JSON.stringify(b)}
-                </li>
-              ))}
-            </ul>
-          )}
-          {dq?.overall === 'blocked' && (
-            <div className="mt-1 rounded-lg border border-red-100 bg-red-50/60 p-2 dark:border-red-900/40 dark:bg-red-950/30">
-              <p className="text-xs text-slate-600 dark:text-slate-300">
-                Resolve each failing rule under <span className="font-medium">Quality</span> — the
-                standardized DQ action per rule: fix the rows, or route the violating records to
-                the DLQ (a job rule&apos;s « quarantine » behaviour). Then re-run the gate here to
-                re-evaluate — nothing activates until it is green.
-              </p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          {dqStructured ? (
+            <>
+              {dqUnhandled.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Each failing rule carries the standardized action the engine recommends — apply
+                    it (a dedup or a quarantine rule; the source data is never changed and the DLQ
+                    fills only when the job runs) or waive it with a reason. The gate turns{' '}
+                    <span className="font-medium">warn</span>, not a false green, once every defect
+                    is handled — the original verdict stays visible as evidence.
+                  </p>
+                  <ul className="space-y-1.5">
+                    {dqUnhandled.map((c) => (
+                      <DqCheckCard key={c.id} draftId={draftId} check={c} onChanged={() => void load()} />
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {dqHandled.length > 0 && (
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400 dark:hover:text-slate-200">
+                    {dqHandled.length} handled — the application manages the defect
+                  </summary>
+                  <ul className="mt-1 space-y-1.5">
+                    {dqHandled.map((c) => (
+                      <DqCheckCard key={c.id} draftId={draftId} check={c} onChanged={() => void load()} />
+                    ))}
+                  </ul>
+                </details>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   disabled={gate === 'running'}
@@ -335,7 +540,44 @@ export default function ActivationStep({
                   </span>
                 )}
               </div>
-            </div>
+            </>
+          ) : (
+            <>
+              {(dq?.blockers?.length ?? 0) > 0 && (
+                <ul className="space-y-0.5">
+                  {dq!.blockers!.map((b, i) => (
+                    <li key={i} className="text-xs text-red-600 dark:text-red-400">
+                      {typeof b === 'string' ? b : b.message ?? JSON.stringify(b)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {dq?.overall === 'blocked' && (
+                <div className="mt-1 rounded-lg border border-red-100 bg-red-50/60 p-2 dark:border-red-900/40 dark:bg-red-950/30">
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
+                    Resolve each failing rule under <span className="font-medium">Quality</span> —
+                    fix the rows, or route the violating records to the DLQ (a job rule&apos;s
+                    « quarantine » behaviour). Then re-run the gate here to re-evaluate.
+                  </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={gate === 'running'}
+                      onClick={() => void reRunGate()}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-slate-300 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
+                    >
+                      <RotateCw aria-hidden className={`h-3 w-3 ${gate === 'running' ? 'animate-spin' : ''}`} />
+                      {gate === 'running' ? 'Re-evaluating…' : 'Re-run the data-quality gate'}
+                    </button>
+                    {gate === 'error' && (
+                      <span className="text-xs text-red-600 dark:text-red-400">
+                        The gate did not re-run — try again.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           )}
           <p className="text-xs text-slate-600 dark:text-slate-300">
             Report —{' '}
