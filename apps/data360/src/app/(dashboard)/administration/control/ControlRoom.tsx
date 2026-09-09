@@ -32,17 +32,19 @@ import TracesPanel from './TracesPanel';
 import CacheHealthPanel from './CacheHealthPanel';
 import TestsCampaignPanel from './TestsCampaignPanel';
 import AccessPanel from './AccessPanel';
+import GovernanceAccessPanel from './GovernanceAccessPanel';
 
-type LaneId = 'endpoints' | 'costs' | 'usage' | 'traces' | 'cache' | 'tests' | 'access';
+type LaneId = 'endpoints' | 'costs' | 'usage' | 'traces' | 'cache' | 'tests' | 'access' | 'governance';
 
 const LANES: Array<{ id: LaneId; label: string }> = [
+  { id: 'governance', label: 'Governance & Access' },
   { id: 'endpoints', label: 'Endpoints' },
   { id: 'costs', label: 'Costs by user' },
   { id: 'usage', label: 'Usage' },
   { id: 'traces', label: 'Traces' },
   { id: 'cache', label: 'Cache' },
   { id: 'tests', label: 'Tests' },
-  { id: 'access', label: 'Access' },
+  { id: 'access', label: 'Access (features)' },
 ];
 
 export default function ControlRoom() {
@@ -58,6 +60,7 @@ export default function ControlRoom() {
     cache: false,
     tests: false,
     access: false,
+    governance: false,
   });
   const go = (id: LaneId) => {
     setLane(id);
@@ -245,6 +248,11 @@ export default function ControlRoom() {
       {seen.access && (
         <div hidden={lane !== 'access'}>
           <AccessPanel />
+        </div>
+      )}
+      {seen.governance && (
+        <div hidden={lane !== 'governance'}>
+          <GovernanceAccessPanel />
         </div>
       )}
     </div>
