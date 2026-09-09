@@ -851,6 +851,24 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
     }
   }, [draftId, publishState]);
 
+  /** Publish depends on the app being ACTIVATION-READY: an application whose
+   *  data-quality gate is still blocked (defects not handled) is not ready to
+   *  publish. The reason is stated and the click routes to the activation
+   *  panel to resolve it — never a silent disable. Null activation = not read
+   *  yet, so we do not invent a block. */
+  const publishBlockedReason = ((): string | null => {
+    const a = activation as
+      | { blockers?: unknown[]; tests?: { dq_gate?: { overall?: string; blockers?: unknown[] } } }
+      | null;
+    if (!a) return null;
+    if (a.tests?.dq_gate?.overall === 'blocked') {
+      return 'the data-quality gate is blocked';
+    }
+    const bl = Array.isArray(a.blockers) ? a.blockers : a.tests?.dq_gate?.blockers;
+    if (Array.isArray(bl) && bl.length > 0) return `${bl.length} blocker(s) before activation`;
+    return null;
+  })();
+
   /* model graph (same mapping as /studio/model) */
 
   const report = model?.report ?? null;
@@ -1314,9 +1332,20 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
             {draftId && (version?.is_draft ?? true) && (
               <button
                 type="button"
-                disabled={publishState === 'working'}
-                onClick={() => void publish()}
-                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-accent-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200"
+                disabled={publishState === 'working' || !!publishBlockedReason}
+                onClick={() => {
+                  if (publishBlockedReason) {
+                    openActivation();
+                    return;
+                  }
+                  void publish();
+                }}
+                title={
+                  publishBlockedReason
+                    ? `Not ready to publish — ${publishBlockedReason}. Resolve it in the activation panel first.`
+                    : 'Publish snapshots the active version; activation then turns it on.'
+                }
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:border-accent-300 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200"
               >
                 {publishState === 'working' ? 'Publishing…' : 'Publish'}
               </button>
