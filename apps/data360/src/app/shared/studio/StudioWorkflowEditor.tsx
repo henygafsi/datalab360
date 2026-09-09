@@ -27,7 +27,7 @@ import ReactFlow, {
   type Node,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Play, RefreshCw, Sparkles, Square, X } from 'lucide-react';
+import { Play, RefreshCw, Search, Sparkles, Square, X } from 'lucide-react';
 import {
   editModel,
   getBlocksCatalog,
@@ -166,6 +166,166 @@ const SECTION_LABEL: Record<Section, string> = {
   steps: 'Steps',
   runs: 'Runs & history',
 };
+
+/* ── the block palette (categorized by family, paginated on demand) ────
+ * Replaces the flat capped grid of every block. The catalogue is already
+ * in hand, so blocks are grouped by their family into collapsible
+ * categories, each with a one-line count and a paginated grid — no long
+ * list, and opening a category or turning a page fetches nothing.        */
+
+const BLOCK_FAMILY_LABEL: Record<string, string> = {
+  ingestion: 'Ingestion',
+  transform: 'Transform',
+  python_ml: 'Python & ML',
+  delivery: 'Delivery',
+  control: 'Control & flow',
+};
+const BLOCK_FAMILY_ORDER = ['ingestion', 'transform', 'python_ml', 'delivery', 'control'];
+const BLOCK_PAGE = 9;
+
+function blockFamilyLabel(f?: string): string {
+  return BLOCK_FAMILY_LABEL[f ?? ''] ?? (f ?? 'Other').replace(/_/g, ' ');
+}
+
+function BlockCategory({
+  family,
+  items,
+  onPick,
+  query,
+  defaultOpen,
+}: {
+  family: string;
+  items: CatalogBlock[];
+  onPick: (b: CatalogBlock) => void;
+  query: string;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const [page, setPage] = useState(0);
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? items.filter((b) => (b.label ?? b.block_type).toLowerCase().includes(q) || b.block_type.toLowerCase().includes(q))
+    : items;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / BLOCK_PAGE));
+  useEffect(() => {
+    if (page > 0 && page >= pageCount) setPage(0);
+  }, [page, pageCount]);
+  const shown = filtered.slice(page * BLOCK_PAGE, (page + 1) * BLOCK_PAGE);
+  const isOpen = open || q.length > 0;
+
+  if (q && filtered.length === 0) return null;
+
+  return (
+    <section className="rounded-lg border border-slate-200 dark:border-slate-800">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:bg-slate-800/60"
+      >
+        <span className="text-xs font-medium text-slate-800 dark:text-slate-200">{blockFamilyLabel(family)}</span>
+        <span className="text-xs text-slate-400 dark:text-slate-500">
+          {items.length} block{items.length === 1 ? '' : 's'}
+        </span>
+        <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">{isOpen ? '−' : '+'}</span>
+      </button>
+      {isOpen && (
+        <div className="border-t border-slate-100 p-2 dark:border-slate-800">
+          <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-3">
+            {shown.map((b) => (
+              <li key={b.block_type}>
+                <button
+                  type="button"
+                  onClick={() => onPick(b)}
+                  title={b.description || b.label || b.block_type}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-1 text-left text-xs hover:border-accent-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:hover:border-slate-600"
+                >
+                  <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">{b.label ?? b.block_type}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {pageCount > 1 && (
+            <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+              <button
+                type="button"
+                disabled={page <= 0}
+                onClick={() => setPage((p) => p - 1)}
+                className="rounded border border-slate-200 px-2 py-0.5 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700"
+              >
+                Previous
+              </button>
+              <span className="tabular-nums">page {page + 1} of {pageCount}</span>
+              <button
+                type="button"
+                disabled={page >= pageCount - 1}
+                onClick={() => setPage((p) => p + 1)}
+                className="rounded border border-slate-200 px-2 py-0.5 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BlockPalette({ catalog, onPick }: { catalog: CatalogBlock[]; onPick: (b: CatalogBlock) => void }) {
+  const [query, setQuery] = useState('');
+  const usable = useMemo(
+    () =>
+      catalog.filter(
+        (b) => (b.editable_in?.workflows?.length ?? 0) > 0 || b.availability?.status === 'available',
+      ),
+    [catalog],
+  );
+  const byFamily = useMemo(() => {
+    const map = new Map<string, CatalogBlock[]>();
+    for (const b of usable) {
+      const f = b.family ?? 'other';
+      if (!map.has(f)) map.set(f, []);
+      map.get(f)!.push(b);
+    }
+    const present = [...map.keys()];
+    const order = [
+      ...BLOCK_FAMILY_ORDER.filter((f) => present.includes(f)),
+      ...present.filter((f) => !BLOCK_FAMILY_ORDER.includes(f)),
+    ];
+    return order.map((f) => [f, map.get(f)!] as const);
+  }, [usable]);
+
+  if (usable.length === 0) {
+    return <p className="text-xs text-slate-400 dark:text-slate-500">No block is available for a workflow step here.</p>;
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <label className="relative block">
+        <Search aria-hidden className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search blocks"
+          aria-label="Search blocks"
+          className="h-7 w-full rounded-lg border border-slate-200 bg-white pl-6 pr-2 text-xs text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+        />
+      </label>
+      {byFamily.map(([family, items], i) => (
+        <BlockCategory
+          key={family}
+          family={family}
+          items={items}
+          onPick={onPick}
+          query={query}
+          defaultOpen={i === 0}
+        />
+      ))}
+    </div>
+  );
+}
 
 export default function StudioWorkflowEditor({
   draftId,
@@ -871,23 +1031,7 @@ export default function StudioWorkflowEditor({
                       </div>
                     </div>
                   ) : (
-                    <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-3">
-                      {catalog
-                        .filter((b) => (b.editable_in?.workflows?.length ?? 0) > 0 || b.availability?.status === 'available')
-                        .slice(0, 24)
-                        .map((b) => (
-                          <li key={b.block_type}>
-                            <button
-                              type="button"
-                              onClick={() => setPickedBlock(b)}
-                              className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-1 text-left text-xs hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700"
-                            >
-                              <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">{b.label ?? b.block_type}</span>
-                              <span className="shrink-0 text-slate-400 dark:text-slate-500">{b.family ?? '—'}</span>
-                            </button>
-                          </li>
-                        ))}
-                    </ul>
+                    <BlockPalette catalog={catalog} onPick={setPickedBlock} />
                   )}
                 </div>
               )}
