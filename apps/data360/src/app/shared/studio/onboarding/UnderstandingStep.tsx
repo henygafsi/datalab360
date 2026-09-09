@@ -34,6 +34,7 @@ import 'reactflow/dist/style.css';
 import { Check, Database, Search, Sparkles, TableProperties } from 'lucide-react';
 import { useSetAtom } from 'jotai';
 import { stepAskAtom } from '@/app/shared/studio/studioAskAtom';
+import { readFailure } from '@/app/shared/studio/studio-errors';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
 import EmptyState from '@/components/ui/EmptyState';
 import { routes } from '@/config/routes';
@@ -123,17 +124,30 @@ function stepsLine(u: StudioUnderstanding): string | null {
 }
 
 function toErrorMessage(e: unknown): string {
-  const resp = (e as { response?: { status?: number; data?: { detail?: { message?: string } | string } } })
-    ?.response;
-  const detail = resp?.data?.detail;
-  if (typeof detail === 'string') return detail;
-  if (detail?.message) return detail.message;
-  // Plain 5xx / timeout: each table is profiled one by one backend-side, so
-  // large selections are the usual cause — say so instead of an axios code.
-  if ((resp?.status ?? 0) >= 500 || /timeout/i.test(String((e as Error)?.message ?? ''))) {
-    return 'The analysis did not finish — with many tables it can exceed the backend limit. Try again with fewer tables (each one is profiled), then add the rest in a second pass.';
+  const resp = (e as { response?: { status?: number; data?: unknown } })?.response;
+  const data = resp?.data as { detail?: unknown } | null | undefined;
+  // readFailure reads error_code / next_step at the TOP level, so feed it the
+  // backend payload's `detail` object when present — that carries the honest
+  // PREVIEW_LIMIT / budget message and its next_step, which the old hand-rolled
+  // version dropped on the floor.
+  const payload =
+    data && typeof data === 'object' && 'detail' in data && data.detail && typeof data.detail === 'object'
+      ? data.detail
+      : data;
+  if (payload != null) {
+    const f = readFailure(payload);
+    if (f.text && f.text !== 'This did not go through.') return f.text;
   }
-  return e instanceof Error ? e.message : 'Analysis failed';
+  if (/timeout/i.test(String((e as Error)?.message ?? ''))) {
+    return 'The analysis took too long to come back. Try again — if it keeps timing out, run fewer tables in a first pass.';
+  }
+  // A server error with NO readable body (e.g. a non-JSON 5xx). Never blame the
+  // user's table count: the selection is capped below the preview envelope, so
+  // a count error can't originate here — this is on the server, not the pick.
+  if ((resp?.status ?? 0) >= 500) {
+    return 'The analysis hit a server error — this is on our side, not your selection. Retry, and report it if it keeps happening.';
+  }
+  return readFailure(payload ?? e).text;
 }
 
 /* ── component ─────────────────────────────────────────────────────── */
@@ -224,6 +238,11 @@ export default function UnderstandingStep({
   const [aiPick, setAiPick] = useState<'idle' | 'running' | 'done'>('idle');
   const [aiPickError, setAiPickError] = useState<string | null>(null);
   const [suggestionByFqn, setSuggestionByFqn] = useState<Record<string, SourceSuggestion>>({});
+  // honest feedback when a refine hint moves nothing (the ranker is name-based)
+  const [refineNote, setRefineNote] = useState<string | null>(null);
+
+  const rankSig = (arr: SourceSuggestion[]) =>
+    JSON.stringify(arr.map((s) => [s.fqn, s.relevance ?? '', s.preselect ?? false, s.score ?? 0]).sort());
 
   const aiPickTables = async (hint?: string) => {
     if (aiPick === 'running' || byDb == null) return;
@@ -231,6 +250,9 @@ export default function UnderstandingStep({
     if (candidates.length === 0) return;
     setAiPick('running');
     setAiPickError(null);
+    setRefineNote(null);
+    // signature of the current ranking, to tell whether a refine actually moved it
+    const priorSig = rankSig(Object.values(suggestionByFqn));
     try {
       // A refine hint from the chat is appended to the need so the same
       // deterministic ranker re-scores the SAME candidates against it.
@@ -256,6 +278,13 @@ export default function UnderstandingStep({
             objects: next.map((p) => ({ connectionId: p.database, name: p.fqn })),
           },
         });
+      }
+      // A refine that changes NOTHING must say so — the match is on words in the
+      // table/column names, not free meaning, so a silent no-op reads as broken.
+      if (hint?.trim() && rankSig(suggestions) === priorSig) {
+        setRefineNote(
+          'That refinement didn’t change the ranking — the match is on words that appear in the table and column names. Try a table name, a column, or a term you can see in the list.',
+        );
       }
       setAiPick('done');
     } catch (e) {
@@ -708,6 +737,11 @@ export default function UnderstandingStep({
                 Refine
               </button>
             </div>
+            {refineNote && (
+              <p role="status" className="text-xs text-amber-700 dark:text-amber-400">
+                {refineNote}
+              </p>
+            )}
           </div>
         )}
         {aiPickError && (

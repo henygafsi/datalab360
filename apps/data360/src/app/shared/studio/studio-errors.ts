@@ -65,6 +65,10 @@ const DEV_SPEAK: Array<[RegExp, string]> = [
     /no sources recorded|sources.*not recorded/i,
     'No source is attached to this application yet — start by choosing the tables it should read.',
   ],
+  [
+    /SUGGEST_INPUT_REQUIRED|pass candidates\[\]/i,
+    'Pick at least one table — or a database to scan — before the AI can rank them.',
+  ],
 ];
 
 /** Rewrite an API-facing sentence into a product-facing one. */
