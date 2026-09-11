@@ -362,7 +362,7 @@ export default function StudioOverviewBrief({
   const cost = appCost && !appCost.unavailable ? appCost : null;
   const spentCredits = cost?.credits_charged;
   const attributed = cost?.warehouse?.credits_attributed_compute;
-  const whDays = cost?.warehouse?.days ?? 7;
+  const whDays = cost?.warehouse?.days ?? null;
   const whQueries = cost?.warehouse?.queries ?? 0;
   const aiDraft = cost?.usage?.ai_calls_per_draft;
   const aiHour = cost?.usage?.ai_calls_per_hour;
@@ -452,12 +452,17 @@ export default function StudioOverviewBrief({
                 <span className="w-24 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   {r.label}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-[13px] text-slate-700 dark:text-slate-200">
+                <span
+                  title={r.words}
+                  className="min-w-0 flex-1 truncate text-[13px] text-slate-700 dark:text-slate-200"
+                >
                   {r.words}
                 </span>
                 <button
                   type="button"
                   onClick={() => onGo(r.go)}
+                  aria-label={`Open ${r.label}`}
+                  title={r.words}
                   className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
                 >
                   Open
@@ -482,7 +487,7 @@ export default function StudioOverviewBrief({
           <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
               <p className="text-2xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">
-                {spentCredits == null ? '—' : `${Number(spentCredits)}`}
+                {spentCredits == null ? '—' : Number(spentCredits).toLocaleString()}
                 <span className="ml-1 text-sm font-normal text-slate-400 dark:text-slate-500">
                   credits used
                 </span>
@@ -495,7 +500,7 @@ export default function StudioOverviewBrief({
               <p className="text-2xl font-semibold tabular-nums text-slate-800 dark:text-slate-100">
                 {attributed == null ? '—' : Number(attributed).toFixed(3)}
                 <span className="ml-1 text-sm font-normal text-slate-400 dark:text-slate-500">
-                  cr / {whDays}d compute
+                  cr{whDays != null ? ` / ${whDays}d` : ''} compute
                 </span>
               </p>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
@@ -583,6 +588,26 @@ export default function StudioOverviewBrief({
               </li>
             ))}
           </ul>
+          {attentionGrouped.length > 6 &&
+            (() => {
+              // never DROP the 7th+ group silently — this section's whole job
+              // is honesty; say how much more is waiting and where to see it
+              const hidden = attentionGrouped.slice(6);
+              const more = hidden.reduce((n, g) => n + (g.count > 0 ? g.count : 1), 0);
+              return (
+                <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
+                  +{more} more check{more > 1 ? 's' : ''} in {hidden.length} other item
+                  {hidden.length > 1 ? 's' : ''} —{' '}
+                  <button
+                    type="button"
+                    onClick={() => onGo('quality')}
+                    className="rounded text-accent-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+                  >
+                    open Quality
+                  </button>
+                </p>
+              );
+            })()}
         </section>
       )}
 

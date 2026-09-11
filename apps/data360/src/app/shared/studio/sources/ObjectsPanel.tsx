@@ -38,7 +38,7 @@ import { listDrafts, type StudioDraftSummary } from '@/app/services/studio/studi
 import { QuietAction } from '@/app/shared/studio/PlainKit';
 import StudioSourceCard from '@/app/shared/studio/StudioSourceCard';
 import { RefusalView } from '@/app/shared/studio/sources/connection-bits';
-import { CopyableFqn, Pager, fmtCount } from '@/app/shared/studio/sources/sources-kit';
+import { CopyableFqn, Pager, fmtCount, neutralLabel } from '@/app/shared/studio/sources/sources-kit';
 import { routes } from '@/config/routes';
 
 const PAGE_SIZE = 25;
@@ -502,7 +502,7 @@ function ObjectSheet({
         <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Used by
         </p>
-        {usage.lineage_known === false ? (
+        {usage.lineage_known !== true ? (
           <p className="mt-1 text-slate-500 dark:text-slate-400">
             {usage.note ?? 'The lineage is not known — that is not the same as zero dependencies.'}
           </p>
@@ -830,7 +830,7 @@ export default function ObjectsPanel({
                         </p>
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-slate-600 dark:text-slate-300">
-                        {originWords(s)}
+                        {neutralLabel(originWords(s))}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${uCls}`}>
@@ -847,7 +847,7 @@ export default function ObjectsPanel({
                         {qualityWords(s.quality)}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-slate-600 dark:text-slate-300">
-                        {usage?.lineage_known === false ? (
+                        {usage?.lineage_known !== true ? (
                           <span className="text-slate-400 dark:text-slate-500" title="Lineage unknown — not the same as zero">
                             lineage unknown
                           </span>

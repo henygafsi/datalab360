@@ -1577,6 +1577,13 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
             (report ? (
               <div className={`grid grid-cols-1 gap-3 ${reportPanelOpen ? 'xl:grid-cols-[1fr,300px]' : ''}`}>
                 <div className="min-w-0 space-y-3">
+                  {/* the report leads with its own name — the served title was
+                      never shown, so the canvas opened on a bare toolbar */}
+                  {typeof report.title === 'string' && report.title.trim() !== '' && (
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                      {report.title}
+                    </h2>
+                  )}
                   {/* report toolbar: share the link, export the detail table,
                       and hide the widgets panel for a full-width canvas */}
                   <div className="flex flex-wrap items-center gap-2">
