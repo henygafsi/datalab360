@@ -10,7 +10,7 @@
  * are single components (Sources, Access, …).
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Boxes,
   Database,
@@ -31,8 +31,10 @@ import {
   type AccessSummary,
   type JobsSummary,
   type SourcesSummary,
+  type StudioSummary,
   type SummaryView,
 } from '@/app/services/studio/summary';
+import { useAccessChanged } from '@/app/services/studio/studio-bus';
 import StudioKpiHeader, { type Kpi } from '@/app/shared/studio/StudioKpiHeader';
 
 function riskTone(r?: string | null): Kpi['tone'] {
@@ -57,14 +59,51 @@ function sourcesKpis(s: SourcesSummary): Kpi[] {
   ];
 }
 
+/** The access strip reads three truths apart — what is APPLIED (really in
+ *  force), what is STAGED (prepared, not applied), and the FOOTPRINT (what the
+ *  app reads: the honest denominator). The headline value is the APPLIED
+ *  figure — so a plan that is prepared but not applied does not read as done —
+ *  with staged/footprint in the sub-line. This is the fix for "the numbers are
+ *  wrong": flat 0s that ignored a 4-dataset / 59-column footprint. Falls back
+ *  to the flat keys only when an older backend omits the nested blocks. */
 function accessKpis(a: AccessSummary): Kpi[] {
+  const ap = a.applied ?? {};
+  const st = a.staged ?? {};
+  const fp = a.footprint ?? {};
+  const method = a.kpi_method ?? null;
+  const pick = (nested: number | null | undefined, flat: number | null | undefined): number | null =>
+    nested ?? flat ?? null;
+  const stagedSub = (n?: number | null): string | undefined => (n && n > 0 ? `${n} staged` : undefined);
+  const maskedApplied = pick(ap.masked_columns, a.masked_columns);
   return [
-    { key: 'people', label: 'People with access', value: a.people ?? null, icon: Users },
-    { key: 'roles', label: 'App roles', value: a.app_roles ?? null, icon: UserRound },
-    { key: 'datasets', label: 'Governed datasets', value: a.governed_datasets ?? null, icon: Database },
-    { key: 'rls', label: 'Active RLS rules', value: a.active_rls ?? null, icon: Filter },
-    { key: 'masked', label: 'Masked columns', value: a.masked_columns ?? null, icon: ShieldCheck },
-    { key: 'encrypted', label: 'Encrypted columns', value: a.encrypted_columns ?? null, icon: KeyRound },
+    { key: 'people', label: 'People with access', value: pick(ap.people, a.people), icon: Users, method, sub: stagedSub(st.people) },
+    { key: 'roles', label: 'App roles', value: pick(ap.app_roles, a.app_roles), icon: UserRound, method, sub: stagedSub(st.roles) },
+    {
+      key: 'datasets',
+      label: 'Governed datasets',
+      value: pick(ap.governed_datasets, a.governed_datasets),
+      icon: Database,
+      method,
+      sub:
+        fp.datasets != null
+          ? `of ${fp.datasets} in footprint${st.datasets ? ` · ${st.datasets} staged` : ''}`
+          : stagedSub(st.datasets),
+    },
+    { key: 'rls', label: 'Active RLS rules', value: pick(ap.rls_rules, a.active_rls), icon: Filter, method, sub: stagedSub(st.rls_rules) },
+    {
+      key: 'masked',
+      label: 'Masked columns',
+      value: maskedApplied,
+      icon: ShieldCheck,
+      method,
+      // PII confirmed but nothing masked yet = a real compliance gap, flagged
+      tone: (fp.pii_columns_confirmed ?? 0) > 0 && (maskedApplied ?? 0) === 0 ? 'warn' : 'default',
+      sub:
+        fp.pii_columns_confirmed
+          ? `${fp.pii_columns_confirmed} PII confirmed`
+          : stagedSub(st.masked_columns),
+    },
+    { key: 'encrypted', label: 'Encrypted columns', value: pick(ap.encrypted_columns, a.encrypted_columns), icon: KeyRound, method, sub: stagedSub(st.encrypted_columns) },
     {
       key: 'approvals',
       label: 'Pending approvals',
@@ -103,22 +142,43 @@ function jobsKpis(j: JobsSummary): Kpi[] {
 export default function StudioViewKpis({ draftId, view }: { draftId: string; view: SummaryView }) {
   const [kpis, setKpis] = useState<Kpi[] | null>(null);
 
+  const build = useCallback(
+    (r: StudioSummary): Kpi[] => {
+      if (view === 'sources') return sourcesKpis(r.sources ?? {});
+      if (view === 'access') return accessKpis(r.access ?? {});
+      if (view === 'jobs') return jobsKpis(r.jobs ?? {});
+      return [];
+    },
+    [view],
+  );
+
+  const load = useCallback(
+    async (soft = false) => {
+      // a soft reload (after an access apply) keeps the current figures on
+      // screen while the fresh ones arrive — no flash back to skeletons.
+      if (!soft) setKpis(null);
+      try {
+        setKpis(build(await getStudioSummary(draftId, [view])));
+      } catch {
+        // never silently blank the strip: keep the last figures when we have
+        // them, otherwise render the shell (every value "—") so the strip and
+        // its labels stay put instead of vanishing on a transient error.
+        setKpis((prev) => (prev && prev.length ? prev : build({})));
+      }
+    },
+    [draftId, view, build],
+  );
+
   useEffect(() => {
-    let alive = true;
-    setKpis(null);
-    void getStudioSummary(draftId, [view])
-      .then((r) => {
-        if (!alive) return;
-        if (view === 'sources') setKpis(sourcesKpis(r.sources ?? {}));
-        else if (view === 'access') setKpis(accessKpis(r.access ?? {}));
-        else if (view === 'jobs') setKpis(jobsKpis(r.jobs ?? {}));
-        else setKpis([]);
-      })
-      .catch(() => alive && setKpis([]));
-    return () => {
-      alive = false;
-    };
-  }, [draftId, view]);
+    void load();
+  }, [load]);
+
+  // Re-read after an APPLIED access change so the counts stop reading stale 0s
+  // (the "counts stuck" the user photographed). Only the access strip cares.
+  const softReload = useCallback(() => {
+    void load(true);
+  }, [load]);
+  useAccessChanged(view === 'access' ? draftId : null, softReload);
 
   if (kpis !== null && kpis.length === 0) return null;
   return <StudioKpiHeader kpis={kpis ?? []} loading={kpis === null} />;

@@ -47,6 +47,9 @@ test('access review: decision categories, collapsed, explicit apply, dry-run out
       await adv.click().catch(() => undefined);
     }
 
+    // the grid is now the default sub-tab — go to People & roles to map someone
+    await page.getByRole('tab', { name: /People & roles/i }).first().click();
+
     // MAP a principal: click a person in the left list, then a role in the detail
     await page.getByText('AI_ENGINEER_TEST', { exact: false }).first().click();
     await page.waitForTimeout(800);
@@ -62,18 +65,23 @@ test('access review: decision categories, collapsed, explicit apply, dry-run out
     notes.push('✓ mapped a principal and prepared the change');
 
     // go to the Review & apply sub-tab
-    await page.getByRole('button', { name: /Review & apply/i }).first().click();
+    await page.getByRole('tab', { name: /Review & apply/i }).first().click();
 
-    // decision-shaped summary — the category headers, not SQL verbs
-    const readCat = page.getByRole('button', { name: /What data they read/i });
-    await expect(readCat).toBeVisible({ timeout: 60_000 });
-    notes.push('✓ review groups by decision (What data they read)');
+    // decision-shaped summary — the category headers, not SQL verbs. Which
+    // categories appear depends on the plan (a View grant that reuses existing
+    // read access yields "Who gets in" but no new "What data they read"), so
+    // assert the review is decision-shaped, not one specific category.
+    const anyCat = page
+      .getByRole('button', { name: /Who gets in|What data they read|Row rules \(RLS\)|Column masking \(CLS\)/i })
+      .first();
+    await expect(anyCat).toBeVisible({ timeout: 60_000 });
+    notes.push('✓ review groups by decision (Who gets in / What they read / RLS / CLS)');
     await expect(page.getByRole('button', { name: /Apply all \d+ operation/i })).toBeVisible();
     notes.push('✓ one explicit primary — Apply all N operations');
     await page.screenshot({ path: `${OUT}/access-review-collapsed.png`, fullPage: false });
 
     // expand a category → its lines appear
-    await readCat.click();
+    await anyCat.click();
     await expect(page.getByText(/line\(s\)|grant/i).first()).toBeVisible({ timeout: 15_000 });
     notes.push('✓ expanding a category reveals its operations');
 

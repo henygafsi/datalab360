@@ -46,6 +46,7 @@ import {
   type AccessView,
   type RlsSuggestion,
 } from '@/app/services/studio/studio-api';
+import { emitAccessChanged } from '@/app/services/studio/studio-bus';
 import StudioGovernanceMap, {
   type PolicyMapping,
   type Principal,
@@ -806,8 +807,11 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
               onClick={() =>
                 void run('apply', async () => {
                   setApplyResult(null);
-                  setApplyOutcome(await applyDraftAccess(draftId, applyIds, true));
+                  const out = await applyDraftAccess(draftId, applyIds, true);
+                  setApplyOutcome(out);
                   setPicked(new Set());
+                  // a real apply moved the in-force counts — tell the KPI strip
+                  if (out.status !== 'dry_run') emitAccessChanged(draftId);
                 })
               }
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"

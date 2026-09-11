@@ -1634,6 +1634,23 @@ export const API = {
         validate: p.validate,
       })}`,
 
+    /* ── PII / GDPR classification (studio.pii.v1) — detect → confirm →
+     * mask → compliant. Name basis = a proposal (truth "proposed"), content
+     * (scan/sample) = evidence; opaque/encrypted columns are never guessed.
+     * Nothing is masked until a profile is confirmed AND applied. ── */
+    /** GET — the last persisted classification {findings[], counts, …}
+     *  (never re-runs detection). */
+    pii: (draftId: string) => `/studio/drafts/${enc(draftId)}/pii`,
+    /** POST {use_sample?, fqns?} — classify columns (name by default; sample
+     *  adds bounded content evidence). Never on mount. */
+    piiDetect: (draftId: string) => `/studio/drafts/${enc(draftId)}/pii/detect`,
+    /** POST {fqn, column, decision:"confirm"|"reject", category?, note?}. */
+    piiDecide: (draftId: string) => `/studio/drafts/${enc(draftId)}/pii/decide`,
+    /** POST {profile_id?, profile_name?} — writes CONFIRMED columns into a
+     *  profile (mask→columns_masked, hash→columns_encrypted). 409
+     *  PII_NOTHING_CONFIRMED when none confirmed. */
+    piiApply: (draftId: string) => `/studio/drafts/${enc(draftId)}/pii/apply`,
+
     /* ── the ApplicationContext (convergence 2026-09-08, 420/420):
      * ONE versioned context read per application — 7 questions, truth on
      * every artifact, server lifecycle, the Intelligence Brief, the

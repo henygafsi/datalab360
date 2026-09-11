@@ -1852,6 +1852,120 @@ export async function testDraftAccess(
   return data?.tests ?? data?.results ?? [];
 }
 
+/* ── PII / GDPR classification (detect → confirm → mask → compliant) ────
+ *  The honesty spine: a NAME match is a proposal (truth "proposed"), content
+ *  (scan / sample) is evidence (truth "inferred"/"observed"), an opaque or
+ *  already-encrypted column is NEVER guessed (pii:null). Detection classifies;
+ *  nothing is masked until a profile is confirmed AND applied. */
+
+export interface PiiBasis {
+  /** name = column-name pattern (a proposal); scan/scan_values/sample =
+   *  real content evidence. */
+  kind: 'name' | 'scan' | 'scan_values' | 'sample' | string;
+  detail?: string;
+  category?: string;
+  /** share of sampled values that matched, when evidence-based */
+  share?: number | null;
+  evidence?: unknown;
+}
+
+export interface PiiFinding {
+  fqn?: string;
+  dataset_kind?: 'source' | 'target' | string;
+  column?: string;
+  type?: string;
+  /** true = classified PII; null = opaque/encrypted, never guessed */
+  pii?: boolean | null;
+  category?: string;
+  label?: string;
+  gdpr?: boolean;
+  /** GDPR "special category" (health, biometrics, national id…) — hash, not mask */
+  special?: boolean;
+  confidence?: number | null;
+  basis?: PiiBasis[];
+  basis_summary?: string;
+  recommended_action?: 'mask' | 'hash' | 'row_restrict' | 'none' | string;
+  why_action?: string;
+  /** proposed = name-only (a proposal, not a fact); inferred = content match;
+   *  observed = value sample. */
+  truth?: 'proposed' | 'inferred' | 'observed' | string;
+  note?: string;
+  /** the reader's call — null until decided, then confirm | reject */
+  decision?: 'confirm' | 'reject' | null;
+}
+
+export interface PiiCounts {
+  columns_classified?: number | null;
+  pii?: number | null;
+  special?: number | null;
+  opaque?: number | null;
+  confirmed?: number | null;
+  rejected?: number | null;
+  by_category?: Record<string, number>;
+}
+
+export interface PiiCategoryInfo {
+  label?: string;
+  gdpr?: boolean;
+  special?: boolean;
+  default_action?: string;
+}
+
+export interface PiiReport {
+  schema_version?: string;
+  run_id?: string;
+  at?: string;
+  findings?: PiiFinding[];
+  counts?: PiiCounts;
+  bases_used?: { name?: boolean; scan?: boolean; sample?: boolean };
+  categories?: Record<string, PiiCategoryInfo>;
+  actions?: Record<string, string>;
+  principle?: string;
+  next?: Record<string, string>;
+  scan?: { scan_id?: string | null; note?: string };
+  [k: string]: unknown;
+}
+
+/** GET the last persisted PII classification — never re-runs detection. */
+export async function getPii(draftId: string): Promise<PiiReport> {
+  const { data } = await apiClient.get<PiiReport>(API.studio.pii(draftId), { timeout: 60_000 });
+  return data ?? {};
+}
+
+/** POST detect — classify columns by NAME by default (each a proposal);
+ *  use_sample:true adds bounded content evidence (a credit-costing read).
+ *  Never called on mount. */
+export async function detectPii(
+  draftId: string,
+  body?: { use_sample?: boolean; fqns?: string[] },
+): Promise<PiiReport> {
+  return studioMutate<PiiReport>('POST', API.studio.piiDetect(draftId), body ?? {}, 180_000);
+}
+
+/** POST a per-column decision — confirm keeps the proposal, reject drops it.
+ *  Only CONFIRMED columns are written by apply. */
+export async function decidePii(
+  draftId: string,
+  body: { fqn: string; column: string; decision: 'confirm' | 'reject'; category?: string; note?: string },
+): Promise<PiiReport> {
+  return studioMutate<PiiReport>('POST', API.studio.piiDecide(draftId), body, 60_000);
+}
+
+/** POST apply — writes the CONFIRMED columns into a profile (mask →
+ *  columns_masked, hash → columns_encrypted). 409 PII_NOTHING_CONFIRMED when
+ *  none is confirmed. The profile still has to be compiled + applied. */
+export async function applyPii(
+  draftId: string,
+  body?: { profile_id?: string; profile_name?: string },
+): Promise<Record<string, unknown>> {
+  return studioMutate<Record<string, unknown>>(
+    'POST',
+    API.studio.piiApply(draftId),
+    { profile_name: 'PII (GDPR)', ...(body ?? {}) },
+    180_000,
+  );
+}
+
 /* ── AI registry (interventions journal + enrichment directory) ────── */
 
 export interface AiIntervention {

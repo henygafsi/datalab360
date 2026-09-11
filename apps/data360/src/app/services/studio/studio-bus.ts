@@ -58,3 +58,44 @@ export function useModelChanged(draftId: string | null | undefined, reload: () =
     });
   }, [draftId, reload]);
 }
+
+/* ── access-changed: same pattern, a SEPARATE channel ─────────────────────
+ * An applied access change (a grant, an RLS/mask apply, a PII profile apply)
+ * moves the summary counts — applied{}/staged{}/footprint{}. But the KPI strip
+ * reads the summary ONCE on mount, so after an apply it kept showing the
+ * pre-apply figures (the "counts stuck at 0" the user photographed). The apply
+ * paths announce here and the strip re-reads. Separate from model-changed so a
+ * governance apply doesn't churn the workflow surfaces and vice-versa. */
+
+type AccessChangedHandler = (draftId: string) => void;
+const accessHandlers = new Set<AccessChangedHandler>();
+
+/** Announce that DRAFT's access state changed (an applied grant/policy/PII). */
+export function emitAccessChanged(draftId: string): void {
+  for (const h of [...accessHandlers]) {
+    try {
+      h(draftId);
+    } catch {
+      /* one broken subscriber must not stop the others */
+    }
+  }
+}
+
+/** Subscribe to access changes; returns an unsubscribe. */
+export function onAccessChanged(handler: AccessChangedHandler): () => void {
+  accessHandlers.add(handler);
+  return () => {
+    accessHandlers.delete(handler);
+  };
+}
+
+/** Run `reload` whenever the given draft's access state changes. Pass a STABLE
+ *  `reload` (useCallback) so the subscription is not rebuilt every render. */
+export function useAccessChanged(draftId: string | null | undefined, reload: () => void): void {
+  useEffect(() => {
+    if (!draftId) return;
+    return onAccessChanged((changed) => {
+      if (changed === draftId) reload();
+    });
+  }, [draftId, reload]);
+}

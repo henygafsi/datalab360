@@ -100,18 +100,66 @@ export interface AccessPendingApproval {
   requires?: string[];
 }
 
+/** What is REALLY in force — profiles/assignments applied to the warehouse. */
+export interface AccessApplied {
+  people?: number | null;
+  app_roles?: number | null;
+  governed_datasets?: number | null;
+  rls_rules?: number | null;
+  masked_columns?: number | null;
+  encrypted_columns?: number | null;
+  truth?: 'applied' | string;
+}
+
+/** Prepared plans NOT yet applied — the staged change waiting on an admin. */
+export interface AccessStaged {
+  datasets?: number | null;
+  roles?: number | null;
+  people?: number | null;
+  rls_rules?: number | null;
+  masked_columns?: number | null;
+  encrypted_columns?: number | null;
+  mutations?: number | null;
+  plan_run_id?: string | null;
+  truth?: 'inferred' | string;
+  apply?: string;
+}
+
+/** What the application actually READS — the observed data footprint. This is
+ *  the honest denominator: "N governed of M in footprint", never invented. */
+export interface AccessFootprint {
+  datasets?: number | null;
+  sources?: number | null;
+  targets?: number | null;
+  columns?: number | null;
+  pii_columns_confirmed?: number | null;
+  truth?: 'observed' | string;
+}
+
 export interface AccessSummary {
+  /** flat keys = declared profiles/assignments in ANY state (kept for
+   *  back-compat; prefer applied/staged/footprint, which separate what is in
+   *  force from what is prepared from what merely exists). */
   people?: number | null;
   app_roles?: number | null;
   governed_datasets?: number | null;
   active_rls?: number | null;
   masked_columns?: number | null;
   encrypted_columns?: number | null;
+  /** really in force */
+  applied?: AccessApplied;
+  /** prepared but not applied */
+  staged?: AccessStaged;
+  /** what the app reads — the honest denominator */
+  footprint?: AccessFootprint;
+  /** how each figure was computed — rendered so nothing reads as invented */
+  kpi_method?: string;
   pending_approvals?: AccessPendingApproval[];
   pending_count?: number | null;
   risk_level?: 'low' | 'medium' | 'high' | string | null;
   risk_reasons?: string[];
-  persisted_risk?: boolean;
+  /** persisted_risk is an object on the wire, defensively widened */
+  persisted_risk?: boolean | Record<string, unknown>;
 }
 
 export interface StudioSummary {

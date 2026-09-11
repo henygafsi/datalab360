@@ -27,9 +27,7 @@ import {
   Check,
   ChevronRight,
   Database,
-  Eye,
-  EyeOff,
-  KeyRound,
+  LayoutGrid,
   Layers,
   Play,
   RefreshCw,
@@ -38,11 +36,8 @@ import {
   UserRound,
   Users,
 } from 'lucide-react';
-import {
-  simulateRlsPlan,
-  type RlsPlanSimulation,
-} from '@/app/services/studio/studio-api';
 import type { AccessView, RlsSuggestion } from '@/app/services/studio/studio-api';
+import StudioAccessGrid from '@/app/shared/studio/StudioAccessGrid';
 
 export interface Principal {
   name: string;
@@ -68,7 +63,7 @@ export interface GrantTypeInfo {
   product_level?: string;
 }
 
-type SubTab = 'people' | 'rows' | 'masking' | 'review';
+type SubTab = 'grid' | 'people' | 'review';
 
 export default function StudioGovernanceMap({
   draftId,
@@ -114,44 +109,13 @@ export default function StudioGovernanceMap({
   canPrepare?: boolean;
   footer?: React.ReactNode;
 }) {
-  const [subTab, setSubTab] = useState<SubTab>('people');
+  const [subTab, setSubTab] = useState<SubTab>('grid');
   /** the principal whose access is being edited — SHARED across every tab:
    *  pick a person on « People & roles » and the policy tabs edit what THAT
    *  person sees (resolved to their Data360 role, since row/column policies
    *  live on the role, never on the individual). */
   const [selected, setSelected] = useState<string | null>(null);
-  const [maskInput, setMaskInput] = useState('');
   const [q, setQ] = useState('');
-  /** plan-level RLS simulation per column: who WOULD see what, pre-apply */
-  const [sims, setSims] = useState<Record<string, RlsPlanSimulation | 'running' | { error: string }>>({});
-  const simulate = async (column: string, fqn: string) => {
-    /* mirror the plan EXACTLY: a role narrowed to values keeps them, every
-       other functional role gets `*` (sees everything). Sending only the
-       narrowed role would simulate the others as FALSE and misreport who sees
-       what. */
-    const narrowed = Object.values(policy[column] ?? {}).some((v) => Array.isArray(v) && v.length > 0);
-    if (!narrowed) return;
-    const byGrant: Record<string, string[] | '*'> = {};
-    for (const g of grantTypes) {
-      const v = policy[column]?.[g.id];
-      byGrant[g.id] = Array.isArray(v) && v.length > 0 ? v : '*';
-    }
-    setSims((m) => ({ ...m, [column]: 'running' }));
-    try {
-      const r = await simulateRlsPlan(draftId, {
-        fqn,
-        column,
-        allowed_values_by_grant_type: byGrant,
-        rows: 3,
-      });
-      setSims((m) => ({ ...m, [column]: r }));
-    } catch (e) {
-      setSims((m) => ({
-        ...m,
-        [column]: { error: e instanceof Error ? e.message : 'The simulation failed.' },
-      }));
-    }
-  };
   const roles = gov?.roles ?? view.diff?.roles ?? {};
   const functional = roles.functional ?? {};
   const objects = view.me?.objects ?? [];
@@ -184,7 +148,6 @@ export default function StudioGovernanceMap({
   }, [gov]);
 
   const grantLabel = (id: string): string => grantTypes.find((g) => g.id === id)?.label ?? id;
-  const grantInfo = (id: string): GrantTypeInfo | undefined => grantTypes.find((g) => g.id === id);
   const mapped = Object.values(mapping).filter(Boolean).length;
   /* a rule is a role NARROWED to specific values — `*`/unset means "sees
    * every row", the default, which is not a restriction. */
@@ -197,63 +160,6 @@ export default function StudioGovernanceMap({
 
   const selectedPrincipal = selected ? (principals ?? []).find((p) => p.name === selected) ?? null : null;
   const selectedGrant = selected ? mapping[selected] ?? '' : '';
-  /** the role a policy tab edits — the selected principal's Data360 role.
-   *  Row/column policies live on the ROLE, not the person, so "edit what X
-   *  sees" edits X's role and affects everyone else who holds it. */
-  const anchorRole = selectedGrant;
-  const sharers = anchorRole
-    ? Object.entries(mapping)
-        .filter(([n, gt]) => gt === anchorRole && n !== selected)
-        .map(([n]) => n)
-    : [];
-
-  /* one compact picker, shared by the policy tabs — the SAME `selected` the
-     People & roles master list drives, so the anchor never diverges. */
-  const principalPicker = (
-    <label className="flex flex-wrap items-center gap-2">
-      <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        Whose access
-      </span>
-      <select
-        value={selected ?? ''}
-        onChange={(e) => setSelected(e.target.value || null)}
-        className="h-8 min-w-[14rem] rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-      >
-        <option value="">Pick a person or group…</option>
-        {(principals ?? []).map((p) => (
-          <option key={`${p.kind}:${p.name}`} value={p.name}>
-            {p.name} · {p.kind}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-
-  /* the role a principal will get — an inline picker for the policy tabs, so
-     restricting what someone sees also grants them the role it lives on. */
-  const rolePicker = selected && (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-xs text-slate-500 dark:text-slate-400">via role</span>
-      {grantTypes.map((g) => {
-        const on = anchorRole === g.id;
-        return (
-          <button
-            key={g.id}
-            type="button"
-            aria-pressed={on}
-            onClick={() => onMap(selected, g.id)}
-            className={`rounded-full border px-2 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-              on
-                ? 'border-accent-500 bg-accent-600 text-white'
-                : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
-            }`}
-          >
-            {g.label ?? g.id}
-          </button>
-        );
-      })}
-    </div>
-  );
 
   /* Prepare / Test on the policy tab itself — the full checkboxed apply
      stays under « Review & apply », one click away. */
@@ -302,9 +208,8 @@ export default function StudioGovernanceMap({
   );
 
   const TABS: Array<{ id: SubTab; label: string; icon: typeof Users; count?: number }> = [
+    { id: 'grid', label: 'Access grid', icon: LayoutGrid, count: ruleCount + masking.columns.length || undefined },
     { id: 'people', label: 'People & roles', icon: Users, count: mapped || undefined },
-    { id: 'rows', label: 'Row policies', icon: KeyRound, count: ruleCount || undefined },
-    { id: 'masking', label: 'Column masking', icon: EyeOff, count: masking.columns.length || undefined },
     { id: 'review', label: 'Review & apply', icon: ShieldCheck },
   ];
 
@@ -613,304 +518,21 @@ export default function StudioGovernanceMap({
         </div>
       )}
 
-      {/* ══ ROW POLICIES — pick a person, edit the rows their role sees ══ */}
-      {subTab === 'rows' && (
-        <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            <KeyRound aria-hidden className="h-3.5 w-3.5" />
-            Row policies — which rows a person or group may see
-          </p>
-          {columns.length === 0 ? (
-            <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
-              No column in this application carries a small set of repeated values, so there is
-              nothing to restrict rows by.
-            </p>
-          ) : (
-            <>
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-                {principalPicker}
-                {selected && rolePicker}
-              </div>
-
-              {!selected ? (
-                <p className="mt-3 text-[13px] text-slate-500 dark:text-slate-400">
-                  Pick a person or group above to choose which rows they may see. A row rule is
-                  written on the Data360 role they hold, so the same rule covers everyone with that
-                  role.
-                </p>
-              ) : !anchorRole ? (
-                <p className="mt-3 text-[13px] text-amber-700 dark:text-amber-400">
-                  {selected} has no Data360 role yet — pick one above. A row rule lives on the role,
-                  so {selected} needs one before their rows can be restricted.
-                </p>
-              ) : (
-                <>
-                  <p className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
-                    Editing what <span className="font-medium">{selected}</span> sees, through the{' '}
-                    <span className="font-medium">{grantLabel(anchorRole)}</span> role.{' '}
-                    {sharers.length
-                      ? `This rule also applies to ${sharers.length} other principal(s) with ${grantLabel(anchorRole)}: ${sharers.slice(0, 3).join(', ')}${sharers.length > 3 ? '…' : ''}.`
-                      : `No one else holds ${grantLabel(anchorRole)} yet — for now the rule is theirs alone.`}{' '}
-                    Every other role keeps seeing every row — you only restrict {grantLabel(anchorRole)} here.
-                  </p>
-
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {columns.map((c) => {
-                      const cur = policy[c.column]?.[anchorRole];
-                      const kept = Array.isArray(cur) ? cur : [];
-                      /* unset OR `*` both mean "sees every row" — the default;
-                         narrowing starts the moment a value is picked. */
-                      const seeAll = kept.length === 0;
-                      return (
-                        <div key={c.column} className="min-w-[220px] max-w-xs flex-1 rounded-lg border border-slate-200 p-2 dark:border-slate-700">
-                          <p className="flex items-baseline gap-1.5">
-                            <span className="font-mono text-xs font-medium text-slate-800 dark:text-slate-200">{c.column}</span>
-                            <span className="truncate text-xs text-slate-400">{c.tables.join(', ')}</span>
-                          </p>
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            <button
-                              type="button"
-                              aria-pressed={seeAll}
-                              title={`${selected} sees every row of ${c.column} (no restriction)`}
-                              onClick={() => onPolicy(c.column, anchorRole, '*')}
-                              className={`rounded-full border px-2 py-0.5 text-xs ${
-                                seeAll
-                                  ? 'border-accent-500 bg-accent-600 text-white'
-                                  : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
-                              }`}
-                            >
-                              every row
-                            </button>
-                            {c.values.map((v) => {
-                              const on = kept.includes(v);
-                              return (
-                                <button
-                                  key={v}
-                                  type="button"
-                                  aria-pressed={on}
-                                  title={`Restrict ${selected} to rows where ${c.column} = ${v}`}
-                                  onClick={() =>
-                                    onPolicy(
-                                      c.column,
-                                      anchorRole,
-                                      seeAll ? [v] : on ? kept.filter((x) => x !== v) : [...kept, v],
-                                    )
-                                  }
-                                  className={`rounded-full border px-2 py-0.5 text-xs ${
-                                    on
-                                      ? 'border-accent-500 bg-accent-600 text-white'
-                                      : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
-                                  }`}
-                                >
-                                  {v}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-                            {seeAll
-                              ? `${selected} sees every row of this column`
-                              : `restricted to ${kept.length} value(s) — ${selected} sees no other rows`}
-                          </p>
-                          {(() => {
-                            const hasRule = Object.values(policy[c.column] ?? {}).some((v) => Array.isArray(v) && v.length > 0);
-                            const sim = sims[c.column];
-                            const simTable = c.fqns[0]?.split('.').slice(-1)[0] ?? c.column;
-                            return (
-                              <div className="mt-1.5">
-                                <button
-                                  type="button"
-                                  disabled={!hasRule || sim === 'running'}
-                                  title={hasRule ? 'Count, on the real data, what each role would see — nothing is applied' : 'Paint at least one rule first'}
-                                  onClick={() => void simulate(c.column, c.fqns[0] ?? '')}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:border-slate-300 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-300"
-                                >
-                                  {sim === 'running' ? <RefreshCw aria-hidden className="h-3 w-3 animate-spin" /> : <Eye aria-hidden className="h-3 w-3" />}
-                                  Who would see what?
-                                </button>
-                                {sim && sim !== 'running' && 'error' in sim && (
-                                  <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{sim.error}</p>
-                                )}
-                                {sim && sim !== 'running' && !('error' in sim) && (
-                                  <div role="status" className="mt-1 space-y-0.5 rounded-lg bg-slate-50 p-1.5 text-xs dark:bg-slate-800/60">
-                                    <p className="text-slate-500 dark:text-slate-400">
-                                      measured on <span className="font-mono">{simTable}</span> · {sim.total_rows ?? '—'} rows — simulated on the plan, nothing applied
-                                    </p>
-                                    {c.fqns.length > 1 && (
-                                      <p className="text-slate-400 dark:text-slate-500">
-                                        {c.fqns.length - 1} other table(s) with {c.column} carry their own rows and are not counted here.
-                                      </p>
-                                    )}
-                                    {Object.entries(sim.by_grant_type ?? {}).map(([gt, r]) => {
-                                      const everything = r.allowed_values !== '*' && (r.share ?? 0) >= 1;
-                                      return (
-                                        <p key={gt} title={r.filter} className={everything ? 'font-medium text-amber-700 dark:text-amber-300' : 'text-slate-700 dark:text-slate-200'}>
-                                          {grantLabel(gt)}: {r.visible_rows ?? '—'} of {sim.total_rows ?? '—'} rows
-                                          {r.share != null ? ` (${Math.round(r.share * 100)}%)` : ''}
-                                          {everything && ' — the chosen values cover the whole table; this restricts nothing'}
-                                        </p>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-          <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-            Values come from the data actually observed in each column. A row rule is written on the
-            Data360 role and reused by everyone who holds it — nothing is applied here; stage it
-            below, then run it under Review &amp; apply.
-          </p>
-          {actionBar}
-        </section>
-      )}
-
-      {/* ══ COLUMN MASKING (CLS) ═════════════════════════════════════ */}
-      {subTab === 'masking' && (
-        <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            <EyeOff aria-hidden className="h-3.5 w-3.5" />
-            Column masking (CLS) — which columns a person or group reads in clear
-          </p>
-
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-            {principalPicker}
-            {selected && rolePicker}
-          </div>
-
-          {selected && anchorRole && (
-            <div className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 dark:bg-slate-800/60">
-              <p className="text-xs text-slate-600 dark:text-slate-300">
-                {masking.columns.length === 0 ? (
-                  <>Nothing is masked yet.</>
-                ) : masking.unmasked.includes(anchorRole) ? (
-                  <>
-                    <span className="font-medium">{selected}</span> reads the{' '}
-                    {masking.columns.length} masked column(s) <span className="font-medium">in clear</span> —
-                    their <span className="font-medium">{grantLabel(anchorRole)}</span> role is exempt.
-                  </>
-                ) : (
-                  <>
-                    <span className="font-medium">{selected}</span> sees the {masking.columns.length}{' '}
-                    masked column(s) <span className="font-medium">masked</span> (their{' '}
-                    <span className="font-medium">{grantLabel(anchorRole)}</span> role is not exempt).
-                  </>
-                )}
-              </p>
-              <label className="mt-1 flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={masking.unmasked.includes(anchorRole)}
-                  onChange={() => onToggleUnmask(anchorRole)}
-                  className="h-3.5 w-3.5"
-                />
-                <span>
-                  Let <span className="font-medium">{selected}</span> read masked columns in clear
-                  (exempt their <span className="font-medium">{grantLabel(anchorRole)}</span> role).
-                </span>
-              </label>
-            </div>
-          )}
-
-          <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            Masking has ONE exemption list for the whole change — it applies to every masked column,
-            not per person. A column is seen in clear only by the roles below (ACCOUNTADMIN always
-            reads clear); everyone else reads it masked:
-          </p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Seen in clear by</p>
-          <div className="mt-1 flex flex-wrap gap-1" role="group" aria-label="Roles that see masked columns unmasked">
-            {grantTypes.map((g) => {
-              const on = masking.unmasked.includes(g.id);
-              return (
-                <button
-                  key={g.id}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => onToggleUnmask(g.id)}
-                  className={`rounded-lg px-2.5 py-1 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-                    on ? 'bg-accent-600 font-medium text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  {g.label ?? g.id}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <input
-              value={maskInput}
-              onChange={(e) => setMaskInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && maskInput.trim()) {
-                  onToggleMask(maskInput.trim().toUpperCase());
-                  setMaskInput('');
-                }
-              }}
-              placeholder="column to mask (e.g. EMAIL)"
-              aria-label="Column to mask"
-              className="h-8 w-56 rounded-lg border border-slate-200 bg-white px-2 font-mono text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-            />
-            <button
-              type="button"
-              disabled={!maskInput.trim()}
-              onClick={() => {
-                onToggleMask(maskInput.trim().toUpperCase());
-                setMaskInput('');
-              }}
-              className="h-8 rounded-lg border border-slate-200 px-2.5 text-[13px] text-slate-700 hover:border-slate-300 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
-            >
-              Mask
-            </button>
-            {columns.length > 0 && <span className="text-xs text-slate-400 dark:text-slate-500">or pick:</span>}
-            {columns.slice(0, 8).map((c) => (
-              <button
-                key={c.column}
-                type="button"
-                onClick={() => onToggleMask(c.column)}
-                className={`rounded-full border px-2 py-0.5 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-                  masking.columns.includes(c.column)
-                    ? 'border-accent-500 bg-accent-50 text-accent-700 dark:bg-accent-900/20 dark:text-accent-300'
-                    : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
-                }`}
-              >
-                {c.column}
-              </button>
-            ))}
-          </div>
-
-          {masking.columns.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {masking.columns.map((col) => (
-                <span key={col} className="inline-flex items-center gap-1 rounded-lg border border-accent-500 bg-accent-50 px-2 py-0.5 font-mono text-xs text-accent-700 dark:bg-accent-900/20 dark:text-accent-300">
-                  {col}
-                  <button type="button" aria-label={`Stop masking ${col}`} onClick={() => onToggleMask(col)} className="text-accent-500 hover:text-accent-700 dark:hover:text-accent-200">
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
-
-          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-            {masking.columns.length === 0
-              ? 'No column masked — every role reads the real value.'
-              : `${masking.columns.length} column(s) masked · seen in clear by ${masking.unmasked.map((u) => grantLabel(u)).join(', ') || 'no one'}.`}{' '}
-            The masking policy is written for text columns — adapt the column type before applying. There is no row-style
-            preview for masking: it is prepared as a high-risk change and takes effect only once an administrator applies
-            it. A column you type is sent as written and is not checked against the model — pick from the observed columns
-            when you can.
-          </p>
-          {actionBar}
-        </section>
+      {/* ══ ACCESS GRID — columns × roles, navigable by grant type ════ */}
+      {subTab === 'grid' && (
+        <StudioAccessGrid
+          draftId={draftId}
+          grantTypes={grantTypes}
+          columns={columns}
+          policy={policy}
+          onPolicy={onPolicy}
+          masking={masking}
+          onToggleMask={onToggleMask}
+          onToggleUnmask={onToggleUnmask}
+          accessRole={roles.access_role}
+          tablesCount={objects.length}
+          actionBar={actionBar}
+        />
       )}
 
       {/* ══ REVIEW & APPLY — the parent's prepared-change footer ═════ */}
