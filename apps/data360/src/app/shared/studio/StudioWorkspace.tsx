@@ -102,6 +102,7 @@ import {
   type AiEnrichment,
   type DqGateResult,
   type GlobalFilter,
+  type SkippedGlobalFilter,
   type StudioDataView,
   type ModelTable,
   type RunResult,
@@ -569,6 +570,11 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
    * (which would re-run the whole application read). */
   const [globalFilters, setGlobalFilters] = useState<GlobalFilter[]>([]);
   const filtersRef = useRef<GlobalFilter[]>([]);
+  /* Which dataset-bound page filters the backend did NOT apply to which widgets
+   * (per-widget meta.skipped_global_filters). Kept per chart_id and merged like
+   * `tiles`, so a single-widget re-run updates only its own entry — surfaced so
+   * a filter that scopes to its dataset is honest, not a silent partial apply. */
+  const [skippedByChart, setSkippedByChart] = useState<Record<string, SkippedGlobalFilter[]>>({});
   /* The dashboard page being read. A report with no `pages` is one page,
    * so this stays null and every widget shows — existing applications are
    * untouched by the multi-page contract. */
@@ -607,6 +613,18 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
         globalFilters: filtersRef.current,
       });
       if (batch.version) setVersion(batch.version);
+      // record which global filters were skipped per widget (honest partial
+      // apply). A tile with no skipped list applied every filter → clear it.
+      setSkippedByChart((prev) => {
+        const next = { ...prev };
+        for (const r of batch.results ?? []) {
+          if (!r.chart_id) continue;
+          const sk = r.meta?.skipped_global_filters;
+          if (Array.isArray(sk) && sk.length) next[r.chart_id] = sk;
+          else delete next[r.chart_id];
+        }
+        return next;
+      });
       for (const r of batch.results ?? []) {
         if (!r.chart_id) continue;
         setTiles((prev) => ({
@@ -902,6 +920,31 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
   /* model graph (same mapping as /studio/model) */
 
   const report = model?.report ?? null;
+
+  /* Invert the per-widget skipped lists into a per-FILTER summary: which
+   * dataset-bound page filters did not reach some widgets, and which. So a
+   * filter that only applies to its own dataset says so, instead of leaving
+   * half the report silently unfiltered. */
+  const skippedSummary = useMemo(() => {
+    if (!report) return [] as Array<{ column?: string; fqn?: string; charts: string[] }>;
+    const titleById = new Map<string, string>();
+    const collect = (specs?: Array<{ chart_id?: string; title?: string }> | null) => {
+      for (const s of specs ?? []) if (s.chart_id) titleById.set(s.chart_id, s.title || s.chart_id);
+    };
+    collect(report.kpis);
+    collect(report.charts);
+    if (report.detail) collect([report.detail]);
+    const byFilter = new Map<string, { column?: string; fqn?: string; charts: Set<string> }>();
+    for (const [chartId, skips] of Object.entries(skippedByChart)) {
+      for (const s of skips) {
+        const key = s.filter_id ?? `${s.column ?? ''}|${s.fqn ?? ''}`;
+        const cur = byFilter.get(key) ?? { column: s.column, fqn: s.fqn, charts: new Set<string>() };
+        cur.charts.add(titleById.get(chartId) ?? chartId);
+        byFilter.set(key, cur);
+      }
+    }
+    return [...byFilter.values()].map((v) => ({ column: v.column, fqn: v.fqn, charts: [...v.charts] }));
+  }, [report, skippedByChart]);
 
   /* ── Filter values from the real data ───────────────────────────────
    * A report filter is declared as { filter_id, column, type } with no
@@ -1734,6 +1777,29 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                       )
                     }
                   />
+                  {skippedSummary.length > 0 && (
+                    <div
+                      role="status"
+                      className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200"
+                    >
+                      <p className="flex items-center gap-1.5 font-medium">
+                        <AlertCircle aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                        {skippedSummary.length} filter{skippedSummary.length > 1 ? 's are' : ' is'} scoped to
+                        {skippedSummary.length > 1 ? ' their datasets' : ' its dataset'} — not every widget uses
+                        {skippedSummary.length > 1 ? ' them' : ' it'}
+                      </p>
+                      <ul className="mt-0.5 space-y-0.5">
+                        {skippedSummary.map((s, i) => (
+                          <li key={`${s.column}-${s.fqn}-${i}`}>
+                            <span className="font-mono">{s.column}</span>
+                            {s.fqn ? ` · ${s.fqn.split('.').slice(-1)[0]}` : ''} — didn&rsquo;t apply to{' '}
+                            {s.charts.length} widget{s.charts.length > 1 ? 's' : ''}
+                            {s.charts.length <= 3 ? ` (${s.charts.join(', ')})` : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {fullSpecs(report.kpis).filter((k) => onActivePage(k.chart_id)).map((k) => {
                       const t = tiles[k.chart_id];

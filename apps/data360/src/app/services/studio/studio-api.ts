@@ -814,12 +814,24 @@ export async function generateReport(body: {
   return studioMutate('POST', '/studio/report/generate', body, 150_000);
 }
 
+/** One global filter that did NOT apply to a given widget — reported PER WIDGET
+ *  in RunResult.meta.skipped_global_filters. `filter_id` is null for a bare
+ *  (apply-everywhere) filter; `fqn` is the dataset the filter is bound to; the
+ *  widget it was skipped for is the enclosing tile's chart_id. `[]` (or absent)
+ *  means every global filter applied to that widget. */
+export interface SkippedGlobalFilter {
+  filter_id?: string | null;
+  column?: string;
+  fqn?: string;
+  reason?: string;
+}
+
 export interface RunResult {
   columns: string[];
   rows: unknown[][];
   row_count: number;
   sql?: string;
-  meta?: Record<string, unknown>;
+  meta?: { skipped_global_filters?: SkippedGlobalFilter[]; [k: string]: unknown };
   scope?: { is_production_total?: boolean; [k: string]: unknown };
   duration_ms?: number;
 }
