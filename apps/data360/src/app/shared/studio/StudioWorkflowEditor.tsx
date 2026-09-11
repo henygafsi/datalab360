@@ -27,7 +27,7 @@ import ReactFlow, {
   type Node,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Play, RefreshCw, Search, Sparkles, Square, X } from 'lucide-react';
+import { Mail, Play, RefreshCw, Search, Sparkles, Square, X } from 'lucide-react';
 import {
   editModel,
   getBlocksCatalog,
@@ -411,6 +411,9 @@ export default function StudioWorkflowEditor({
   const [history, setHistory] = useState<{ runs: WorkflowRunsPage; versions: WorkflowVersions } | null>(null);
   /** the canvas selection — click a block, configure it beside */
   const [selStep, setSelStep] = useState<number | null>(null);
+  /** e-mail delivery is folded unless already configured — opening it is what
+   *  reads the capability (never on mount) */
+  const [emailOpen, setEmailOpen] = useState<boolean>(Boolean(w.email?.configured));
   /* AI lane */
   const [aiText, setAiText] = useState('');
   const [aiState, setAiState] = useState<
@@ -791,16 +794,29 @@ export default function StudioWorkflowEditor({
               </p>
             )}
 
-            {/* Deliver by e-mail — the destination reads « in-app / e-mail:
-                not integrated » until this is configured; a save stores, it
-                never sends, and a test is one governed [TEST] message. */}
+            {/* Deliver by e-mail — FOLDED by default: a reader who doesn't
+                want e-mail isn't shown a setup card under every workflow, and
+                the capability is read only when they open it (the same
+                never-on-mount discipline as the filter values). A workflow
+                that already has e-mail configured opens expanded. */}
             <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
-              <StudioEmailAlertPanel
-                draftId={draftId}
-                automationId={aid}
-                initialEmail={w.email}
-                onConfigured={onChanged}
-              />
+              {emailOpen ? (
+                <StudioEmailAlertPanel
+                  draftId={draftId}
+                  automationId={aid}
+                  initialEmail={w.email}
+                  onConfigured={onChanged}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEmailOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-[13px] text-accent-700 hover:underline dark:text-accent-400"
+                >
+                  <Mail aria-hidden className="h-4 w-4" />
+                  {w.email?.configured ? 'E-mail delivery — configured · edit' : 'Deliver by e-mail…'}
+                </button>
+              )}
             </div>
           </div>
 
