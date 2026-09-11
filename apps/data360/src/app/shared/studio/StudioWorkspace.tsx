@@ -112,6 +112,7 @@ import {
 } from '@/app/services/studio/studio-api';
 import StudioExportMenu from '@/app/shared/studio/StudioExportMenu';
 import StudioReportFilters from '@/app/shared/studio/StudioReportFilters';
+import { getObservedValues } from '@/app/services/studio/access-profiles';
 import StudioReportPages, { MoveToPage } from '@/app/shared/studio/StudioReportPages';
 import { readFailure } from '@/app/shared/studio/studio-errors';
 import { useAuth } from '@/hooks/useAuth';
@@ -902,6 +903,68 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
 
   const report = model?.report ?? null;
 
+  /* ── Filter values from the real data ───────────────────────────────
+   * A report filter is declared as { filter_id, column, type } with no
+   * table, but the distinct-values endpoint needs an fqn. Resolve it from
+   * the widgets: a chart that GROUPS BY (dimension/time) a column proves
+   * that column belongs to ITS dataset, so it names the table the values
+   * live in. Group-by columns win over measures/selection, so a shared
+   * dimension resolves to the table that groups by it — not a fact that
+   * merely reads it. A column no widget references stays unresolved and
+   * the picker honestly falls back to free typing. */
+  const filterFqn = useMemo(() => {
+    const map = new Map<string, string>();
+    const specs = fullSpecs(report?.kpis)
+      .concat(fullSpecs(report?.charts))
+      .concat(report?.detail ? [report.detail] : []);
+    const fqnOf = (c: StudioChartSpec): string | null => {
+      const d = c.dataset;
+      return d?.database && d?.schema && d?.table ? `${d.database}.${d.schema}.${d.table}` : null;
+    };
+    // pass 1 — the true group-by columns (dimensions + time)
+    for (const c of specs) {
+      const fqn = fqnOf(c);
+      if (!fqn) continue;
+      for (const dim of c.dimensions ?? []) {
+        const col = typeof dim === 'string' ? dim : dim?.column;
+        if (col && !map.has(col)) map.set(col, fqn);
+      }
+      if (c.time?.column && !map.has(c.time.column)) map.set(c.time.column, fqn);
+    }
+    // pass 2 — measures / explicit columns / a widget's own filters
+    for (const c of specs) {
+      const fqn = fqnOf(c);
+      if (!fqn) continue;
+      for (const m of c.measures ?? []) if (m.column && !map.has(m.column)) map.set(m.column, fqn);
+      for (const col of c.columns ?? []) if (col && !map.has(col)) map.set(col, fqn);
+      for (const f of c.filters ?? []) if (f.column && !map.has(f.column)) map.set(f.column, fqn);
+    }
+    return map;
+  }, [report]);
+
+  /* Bounded distinct values for a filter column. Only ever called on the
+   * reader's intent (focus / typing), never on mount — each read spends the
+   * sample_read envelope. A refusal (envelope used up, column not found)
+   * degrades to free typing, never a crash. */
+  const filterValuesFor = useCallback(
+    async (column: string, q: string): Promise<Array<{ value: string; count?: number }>> => {
+      const fqn = filterFqn.get(column);
+      const id = loadedIdRef.current;
+      if (!fqn || !id) return [];
+      const res = await getObservedValues(id, {
+        fqn,
+        column,
+        q: q.trim() ? q.trim() : undefined,
+        limit: 25,
+      });
+      if (!res.ok) return [];
+      return res.value.values
+        .map((val) => ({ value: String(val.value ?? ''), count: val.count }))
+        .filter((val) => val.value !== '');
+    },
+    [filterFqn],
+  );
+
   /* ── The dashboard's pages ──────────────────────────────────────────
    * `page_id` lives on the LAYOUT entry, never on the widget spec, so
    * moving a chart between pages is a placement change and its definition
@@ -1649,6 +1712,8 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                   <StudioReportFilters
                     filters={report.filters ?? []}
                     applied={globalFilters}
+                    valuesFor={filterValuesFor}
+                    hasValues={(col) => filterFqn.has(col)}
                     busy={Object.values(tiles).some((t) => t.status === 'running')}
                     onApply={(next) =>
                       applyFilters(

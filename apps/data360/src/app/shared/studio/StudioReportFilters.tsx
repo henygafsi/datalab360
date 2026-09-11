@@ -17,12 +17,18 @@
  * every keystroke would spend the preview envelope on half-typed values.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Filter, X } from 'lucide-react';
 import type { GlobalFilter, StudioReportSpec } from '@/app/services/studio/studio-api';
 
 type Decl = NonNullable<StudioReportSpec['filters']>[number];
 export type FilterDraft = Record<string, { from?: string; to?: string; values?: string[]; text?: string }>;
+
+/** A distinct value observed in the column's data, with its sample count. */
+export type FilterValue = { value: string; count?: number };
+/** Resolve real values for a column — bounded, only ever called on the
+ *  reader's intent, and free to return [] (unresolvable / envelope spent). */
+export type FilterValuesFor = (column: string, q: string) => Promise<FilterValue[]>;
 
 const isRange = (t: string) => /date_range|range|between/i.test(t);
 const isIn = (t: string) => /^in$|multi|list|categor/i.test(t);
@@ -48,17 +54,206 @@ export function toGlobalFilters(decls: Decl[], draft: FilterDraft): GlobalFilter
   return out;
 }
 
+const inputCls =
+  'h-8 w-[200px] rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200';
+
+function ValueChips({
+  values,
+  onRemove,
+}: {
+  values: string[];
+  onRemove: (val: string) => void;
+}) {
+  if (values.length === 0) return null;
+  return (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {values.map((val) => (
+        <button
+          key={val}
+          type="button"
+          onClick={() => onRemove(val)}
+          className="inline-flex items-center gap-1 rounded-full bg-accent-50 px-2 py-0.5 text-xs text-accent-800 hover:bg-accent-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:bg-accent-900/30 dark:text-accent-200"
+        >
+          {val}
+          <X aria-hidden className="h-3 w-3" />
+          <span className="sr-only">remove {val}</span>
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * A picker for an `in` filter whose column resolves to a real table: it
+ * offers the column's OWN distinct values (with their sample counts — the
+ * "understand" signal: how common each value is) instead of asking the
+ * reader to guess strings. Free typing is retained on purpose — the values
+ * come from a BOUNDED sample, so a value absent from the sample may still
+ * exist, and Enter adds whatever was typed. Values are read only on focus
+ * or typing (never on mount), debounced, and cached per query, because each
+ * read spends the sample envelope.
+ */
+function InValuesField({
+  column,
+  values,
+  onAdd,
+  onRemove,
+  valuesFor,
+}: {
+  column: string;
+  values: string[];
+  onAdd: (vals: string[]) => void;
+  onRemove: (val: string) => void;
+  valuesFor: FilterValuesFor;
+}) {
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [opts, setOpts] = useState<FilterValue[] | null>(null);
+  const cache = useRef<Map<string, FilterValue[]>>(new Map());
+  const seq = useRef(0);
+
+  const fetchOpts = useCallback(
+    async (query: string) => {
+      const key = query.trim().toLowerCase();
+      const cached = cache.current.get(key);
+      if (cached) {
+        setOpts(cached);
+        return;
+      }
+      const mine = ++seq.current;
+      setLoading(true);
+      try {
+        const r = await valuesFor(column, query);
+        if (mine !== seq.current) return; // a newer query supersedes this one
+        cache.current.set(key, r);
+        setOpts(r);
+      } catch {
+        if (mine === seq.current) setOpts([]);
+      } finally {
+        if (mine === seq.current) setLoading(false);
+      }
+    },
+    [column, valuesFor],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => void fetchOpts(q), 220);
+    return () => clearTimeout(t);
+  }, [q, open, fetchOpts]);
+
+  const addTyped = useCallback(() => {
+    const raw = q.trim();
+    if (!raw) return;
+    const parts = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s !== '' && !values.includes(s));
+    if (parts.length) onAdd(parts);
+    setQ('');
+  }, [q, values, onAdd]);
+
+  const shown = (opts ?? []).filter((o) => !values.includes(o.value));
+
+  return (
+    <div className="relative">
+      <label className="block">
+        <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">
+          {column} is one of
+        </span>
+        <input
+          value={q}
+          role="combobox"
+          aria-expanded={open}
+          aria-label={`${column} — pick or type a value`}
+          title="Values seen in a bounded sample of the data — a value not listed may still exist, so you can type it."
+          onFocus={() => {
+            setOpen(true);
+            if (opts == null) void fetchOpts('');
+          }}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ',') {
+              e.preventDefault();
+              addTyped();
+            } else if (e.key === 'Escape') {
+              setOpen(false);
+            }
+          }}
+          onBlur={() => {
+            addTyped();
+            // let a click on an option land before the list unmounts
+            window.setTimeout(() => setOpen(false), 120);
+          }}
+          placeholder="pick or type a value"
+          className={inputCls}
+        />
+      </label>
+
+      {open && (loading || shown.length > 0) && (
+        <ul
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-56 w-[220px] overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          {loading && shown.length === 0 && (
+            <li className="px-2 py-1.5 text-xs text-slate-400 dark:text-slate-500">Reading values…</li>
+          )}
+          {shown.map((o) => (
+            <li key={o.value}>
+              <button
+                type="button"
+                // mousedown fires before the input's blur, so the pick lands
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  if (!values.includes(o.value)) onAdd([o.value]);
+                  setQ('');
+                }}
+                className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-[13px] text-slate-700 hover:bg-accent-50 focus-visible:outline-none dark:text-slate-200 dark:hover:bg-accent-900/20"
+              >
+                <span className="truncate">{o.value}</span>
+                {typeof o.count === 'number' && (
+                  <span
+                    title="rows with this value in the sample"
+                    className="shrink-0 tabular-nums text-xs text-slate-400 dark:text-slate-500"
+                  >
+                    {o.count.toLocaleString()}
+                  </span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {open && !loading && opts != null && shown.length === 0 && values.length === 0 && (
+        <p className="absolute z-20 mt-1 w-[220px] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-400 shadow-lg dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500">
+          No sampled values — type a value and press Enter.
+        </p>
+      )}
+
+      <ValueChips values={values} onRemove={onRemove} />
+    </div>
+  );
+}
+
 export default function StudioReportFilters({
   filters,
   applied,
   onApply,
   busy,
+  valuesFor,
+  hasValues,
 }: {
   filters: Decl[];
   /** what is currently applied to the widgets — for the honest summary */
   applied: GlobalFilter[];
   onApply: (next: GlobalFilter[]) => void;
   busy?: boolean;
+  /** bounded distinct values for a column — enables the value picker */
+  valuesFor?: FilterValuesFor;
+  /** whether a column resolves to a table (so its values can be read) */
+  hasValues?: (column: string) => boolean;
 }) {
   const [draft, setDraft] = useState<FilterDraft>({});
   const [token, setToken] = useState<Record<string, string>>({});
@@ -134,6 +329,21 @@ export default function StudioReportFilters({
           }
           if (isIn(f.type)) {
             const vals = v.values ?? [];
+            // A resolvable column offers its OWN real values (with counts);
+            // an unresolvable one keeps the free-typing box — visibly the
+            // same control, honestly without a value list.
+            if (valuesFor && hasValues?.(f.column)) {
+              return (
+                <InValuesField
+                  key={id}
+                  column={f.column}
+                  values={vals}
+                  valuesFor={valuesFor}
+                  onAdd={(add) => set(id, { values: [...vals, ...add] })}
+                  onRemove={(val) => set(id, { values: vals.filter((x) => x !== val) })}
+                />
+              );
+            }
             return (
               <div key={id}>
                 <label className="block">
