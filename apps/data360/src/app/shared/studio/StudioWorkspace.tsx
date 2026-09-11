@@ -947,14 +947,17 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
    * sample_read envelope. A refusal (envelope used up, column not found)
    * degrades to free typing, never a crash. */
   const filterValuesFor = useCallback(
-    async (column: string, q: string): Promise<Array<{ value: string; count?: number }>> => {
-      const fqn = filterFqn.get(column);
+    async (args: {
+      fqn: string;
+      column: string;
+      q: string;
+    }): Promise<Array<{ value: string; count?: number }>> => {
       const id = loadedIdRef.current;
-      if (!fqn || !id) return [];
+      if (!args.fqn || !id) return [];
       const res = await getObservedValues(id, {
-        fqn,
-        column,
-        q: q.trim() ? q.trim() : undefined,
+        fqn: args.fqn,
+        column: args.column,
+        q: args.q.trim() ? args.q.trim() : undefined,
         limit: 25,
       });
       if (!res.ok) return [];
@@ -962,7 +965,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
         .map((val) => ({ value: String(val.value ?? ''), count: val.count }))
         .filter((val) => val.value !== '');
     },
-    [filterFqn],
+    [],
   );
 
   /* ── The dashboard's pages ──────────────────────────────────────────
@@ -1713,7 +1716,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                     filters={report.filters ?? []}
                     applied={globalFilters}
                     valuesFor={filterValuesFor}
-                    hasValues={(col) => filterFqn.has(col)}
+                    fallbackFqn={(col) => filterFqn.get(col)}
                     busy={Object.values(tiles).some((t) => t.status === 'running')}
                     onApply={(next) =>
                       applyFilters(

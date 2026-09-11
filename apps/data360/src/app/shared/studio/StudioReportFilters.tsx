@@ -26,29 +26,38 @@ export type FilterDraft = Record<string, { from?: string; to?: string; values?: 
 
 /** A distinct value observed in the column's data, with its sample count. */
 export type FilterValue = { value: string; count?: number };
-/** Resolve real values for a column — bounded, only ever called on the
- *  reader's intent, and free to return [] (unresolvable / envelope spent). */
-export type FilterValuesFor = (column: string, q: string) => Promise<FilterValue[]>;
+/** Read real values with the EXACT params the backend resolved for this filter
+ *  (its fqn — own dataset OR a reference table). Bounded, only ever called on
+ *  the reader's intent, free to return [] (unresolvable / envelope spent). */
+export type FilterValuesFor = (args: {
+  fqn: string;
+  column: string;
+  q: string;
+}) => Promise<FilterValue[]>;
 
 const isRange = (t: string) => /date_range|range|between/i.test(t);
 const isIn = (t: string) => /^in$|multi|list|categor/i.test(t);
 
-/** What the draft means as server filters — the single translation point. */
+/** What the draft means as server filters — the single translation point.
+ *  Each emitted filter carries its filter_id and (when known) its fqn, so the
+ *  backend scopes it to the widgets reading that dataset and reports the ones
+ *  it skipped, instead of applying every filter to every widget by bare name. */
 export function toGlobalFilters(decls: Decl[], draft: FilterDraft): GlobalFilter[] {
   const out: GlobalFilter[] = [];
   for (const d of decls) {
     const v = draft[d.filter_id];
     if (!v) continue;
+    const tag = { filter_id: d.filter_id, ...(d.fqn ? { fqn: d.fqn } : {}) };
     if (isRange(d.type)) {
       const { from, to } = v;
-      if (from && to) out.push({ column: d.column, operator: 'between', value: [from, to] });
-      else if (from) out.push({ column: d.column, operator: '>=', value: from });
-      else if (to) out.push({ column: d.column, operator: '<=', value: to });
+      if (from && to) out.push({ column: d.column, operator: 'between', value: [from, to], ...tag });
+      else if (from) out.push({ column: d.column, operator: '>=', value: from, ...tag });
+      else if (to) out.push({ column: d.column, operator: '<=', value: to, ...tag });
     } else if (isIn(d.type)) {
       const vals = (v.values ?? []).filter((s) => s !== '');
-      if (vals.length) out.push({ column: d.column, operator: 'in', value: vals });
+      if (vals.length) out.push({ column: d.column, operator: 'in', value: vals, ...tag });
     } else if ((v.text ?? '').trim() !== '') {
-      out.push({ column: d.column, operator: 'ilike', value: `%${v.text!.trim()}%` });
+      out.push({ column: d.column, operator: 'ilike', value: `%${v.text!.trim()}%`, ...tag });
     }
   }
   return out;
@@ -95,16 +104,19 @@ function ValueChips({
  */
 function InValuesField({
   column,
+  reference,
   values,
   onAdd,
   onRemove,
-  valuesFor,
+  fetchValues,
 }: {
   column: string;
+  /** shown when the values come from a different table (cross-model lookup) */
+  reference?: string | null;
   values: string[];
   onAdd: (vals: string[]) => void;
   onRemove: (val: string) => void;
-  valuesFor: FilterValuesFor;
+  fetchValues: (q: string) => Promise<FilterValue[]>;
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -124,7 +136,7 @@ function InValuesField({
       const mine = ++seq.current;
       setLoading(true);
       try {
-        const r = await valuesFor(column, query);
+        const r = await fetchValues(query);
         if (mine !== seq.current) return; // a newer query supersedes this one
         cache.current.set(key, r);
         setOpts(r);
@@ -134,7 +146,7 @@ function InValuesField({
         if (mine === seq.current) setLoading(false);
       }
     },
-    [column, valuesFor],
+    [fetchValues],
   );
 
   useEffect(() => {
@@ -161,6 +173,14 @@ function InValuesField({
       <label className="block">
         <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">
           {column} is one of
+          {reference && (
+            <span
+              title={`Values from the reference table ${reference}`}
+              className="ml-1 rounded bg-slate-100 px-1 py-px text-[10px] font-normal text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+            >
+              ref
+            </span>
+          )}
         </span>
         <input
           value={q}
@@ -243,17 +263,18 @@ export default function StudioReportFilters({
   onApply,
   busy,
   valuesFor,
-  hasValues,
+  fallbackFqn,
 }: {
   filters: Decl[];
   /** what is currently applied to the widgets — for the honest summary */
   applied: GlobalFilter[];
   onApply: (next: GlobalFilter[]) => void;
   busy?: boolean;
-  /** bounded distinct values for a column — enables the value picker */
+  /** read values with the backend-resolved params — enables the value picker */
   valuesFor?: FilterValuesFor;
-  /** whether a column resolves to a table (so its values can be read) */
-  hasValues?: (column: string) => boolean;
+  /** resolve a column's fqn for an OLDER payload whose declaration has no
+   *  `values` (the current backend always ships it) */
+  fallbackFqn?: (column: string) => string | undefined;
 }) {
   const [draft, setDraft] = useState<FilterDraft>({});
   const [token, setToken] = useState<Record<string, string>>({});
@@ -329,16 +350,24 @@ export default function StudioReportFilters({
           }
           if (isIn(f.type)) {
             const vals = v.values ?? [];
-            // A resolvable column offers its OWN real values (with counts);
-            // an unresolvable one keeps the free-typing box — visibly the
-            // same control, honestly without a value list.
-            if (valuesFor && hasValues?.(f.column)) {
+            // The backend resolved the exact values call (own dataset OR a
+            // reference table) — use it verbatim; only fall back to a column
+            // fqn for an older payload that has no `values`. A column that
+            // resolves to nothing keeps the free-typing box.
+            const p =
+              f.values?.params ??
+              (fallbackFqn?.(f.column)
+                ? { fqn: fallbackFqn(f.column)!, column: f.column }
+                : undefined);
+            if (valuesFor && p) {
+              const refLabel = f.values?.from === 'reference' ? f.reference?.fqn ?? null : null;
               return (
                 <InValuesField
                   key={id}
                   column={f.column}
+                  reference={refLabel}
                   values={vals}
-                  valuesFor={valuesFor}
+                  fetchValues={(q) => valuesFor({ fqn: p.fqn, column: p.column, q })}
                   onAdd={(add) => set(id, { values: [...vals, ...add] })}
                   onRemove={(val) => set(id, { values: vals.filter((x) => x !== val) })}
                 />

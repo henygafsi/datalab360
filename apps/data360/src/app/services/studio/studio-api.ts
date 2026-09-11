@@ -760,12 +760,46 @@ export interface StudioLayoutEntry {
   h?: number;
 }
 
+/** Where a filter's values come from — the backend RESOLVES the fqn (declared
+ *  at generation, or from the widgets that read the column) and hands us the
+ *  exact call params. The FE never resolves the fqn itself. */
+export interface FilterValuesSpec {
+  route?: string;
+  params?: { fqn: string; column: string; q?: string; limit?: number };
+  /** own_dataset = the widget's own table; reference = a cross-model lookup */
+  from?: 'own_dataset' | 'reference' | string;
+  label_column?: string | null;
+}
+
+/** A cross-model reference dimension: the table the VALUES are drawn from,
+ *  distinct from the widget dataset the filter scopes. */
+export interface FilterReference {
+  fqn: string;
+  column: string;
+  label_column?: string | null;
+}
+
+export interface ReportFilterDecl {
+  filter_id: string;
+  column: string;
+  type: string;
+  /** resolved table for the column (declared or resolved_from_widgets) */
+  fqn?: string;
+  fqn_source?: 'declared' | 'resolved_from_widgets' | string;
+  /** true when several datasets read the column — declare fqn to disambiguate */
+  ambiguous?: boolean;
+  applies_to?: string[];
+  values?: FilterValuesSpec;
+  reference?: FilterReference;
+  label?: string;
+}
+
 export interface StudioReportSpec {
   title: string;
   kpis: StudioChartSpec[];
   charts: StudioChartSpec[];
   detail?: StudioChartSpec | null;
-  filters?: Array<{ filter_id: string; column: string; type: string }>;
+  filters?: ReportFilterDecl[];
   pages?: StudioReportPage[];
   layout?: StudioLayoutEntry[];
   unavailable?: Array<{ label: string; reason: string }>;
@@ -790,7 +824,16 @@ export interface RunResult {
   duration_ms?: number;
 }
 
-export type GlobalFilter = { column: string; operator: string; value: unknown };
+/** A filter carrying `fqn` applies ONLY to widgets reading that dataset; a
+ *  bare one (no fqn) keeps the apply-everywhere behaviour. `filter_id` lets
+ *  the run response report which widgets skipped it (meta.skipped_global_filters). */
+export type GlobalFilter = {
+  column: string;
+  operator: string;
+  value: unknown;
+  filter_id?: string;
+  fqn?: string;
+};
 
 export async function runChart(
   spec: StudioChartSpec,
