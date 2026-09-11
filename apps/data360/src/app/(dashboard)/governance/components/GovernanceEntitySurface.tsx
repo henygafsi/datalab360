@@ -18,22 +18,24 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import {
-  ExternalLink, Grid3x3, KeyRound, ShieldCheck, Users as UsersIcon,
+  ExternalLink, Grid3x3, IdCard, KeyRound, ShieldCheck, Users as UsersIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UsersSurface } from '../users/users-content';
 import { RolesSurface } from '../roles/roles-content';
 import { GrantsSurface } from '../grants/grants-content';
 import { AccessMatrixSurface } from '../access-matrix/AccessMatrixSurface';
+import { RoleMembershipSurface } from './RoleMembershipSurface';
 import { routes } from '@/config/routes';
 
-export type GovernanceTabId = 'users' | 'roles' | 'grants' | 'access';
+export type GovernanceTabId = 'users' | 'roles' | 'grants' | 'access' | 'byrole';
 
 const TABS: Array<{ id: GovernanceTabId; label: string; icon: React.ElementType }> = [
   { id: 'users', label: 'Users', icon: UsersIcon },
   { id: 'roles', label: 'Roles', icon: ShieldCheck },
   { id: 'grants', label: 'Grants', icon: KeyRound },
   { id: 'access', label: 'Access matrix', icon: Grid3x3 },
+  { id: 'byrole', label: 'By Data360 role', icon: IdCard },
 ];
 
 // Heavy, self-contained governance pages that stay as routes (draw.io note:
@@ -90,6 +92,7 @@ export default function GovernanceEntitySurface({
       {tab === 'roles' && <RolesSurface />}
       {tab === 'grants' && <GrantsSurface />}
       {tab === 'access' && <AccessMatrixSurface />}
+      {tab === 'byrole' && <RoleMembershipSurface />}
     </div>
   );
 }
