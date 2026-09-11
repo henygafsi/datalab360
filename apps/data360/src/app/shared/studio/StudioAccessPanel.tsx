@@ -21,7 +21,17 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Check, Play, RefreshCw, ShieldCheck, Table2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Play,
+  RefreshCw,
+  ShieldCheck,
+  Table2,
+} from 'lucide-react';
 import {
   applyDraftAccess,
   getAccess,
@@ -30,6 +40,7 @@ import {
   listAccountPrincipals,
   suggestRls,
   testDraftAccess,
+  type AccessApplyResult,
   type AccessMutation,
   type AccessObjectRead,
   type AccessView,
@@ -105,6 +116,52 @@ export function groupMutations(mutations: AccessMutation[]): MutationGroup[] {
   return groups;
 }
 
+/* ── decision-shaped review ────────────────────────────────────────────
+ *  The prepared change grouped by what it MEANS to the reader — who gets in,
+ *  what data they read, row rules, column masking — not by SQL verb. The
+ *  three WHO/WHAT/WHICH steps are authored above; this makes the REVIEW read
+ *  back as those decisions instead of a statement list. */
+export interface DecisionCategory {
+  id: string;
+  title: string;
+  hint: string;
+  groups: MutationGroup[];
+  count: number;
+  supported: number;
+  risk: string;
+}
+
+const DECISION_DEFS: Array<{ id: string; title: string; hint: string; test: (k: string) => boolean }> = [
+  { id: 'rls', title: 'Row rules (RLS)', hint: 'which rows a role may see', test: (k) => /(^|_)(row|rls)/.test(k) },
+  { id: 'cls', title: 'Column masking (CLS)', hint: 'which columns are masked, and for whom', test: (k) => /(mask|cls|column)/.test(k) },
+  { id: 'read', title: 'What data they read', hint: 'schema usage and table read grants', test: (k) => /(usage|select|read)/.test(k) },
+  { id: 'who', title: 'Who gets in', hint: 'the roles this application needs, and who holds them', test: (k) => /role/.test(k) },
+];
+
+const CAT_ORDER: Record<string, number> = { who: 0, read: 1, rls: 2, cls: 3, other: 4 };
+
+export function decisionCategories(mutations: AccessMutation[]): DecisionCategory[] {
+  const rank: Record<string, number> = { low: 0, medium: 1, high: 2 };
+  const cats = new Map<string, DecisionCategory>();
+  const put = (id: string, title: string, hint: string, g: MutationGroup) => {
+    let c = cats.get(id);
+    if (!c) {
+      c = { id, title, hint, groups: [], count: 0, supported: 0, risk: 'low' };
+      cats.set(id, c);
+    }
+    c.groups.push(g);
+    c.count += g.items.length;
+    c.supported += g.items.filter((m) => m.apply_supported !== false).length;
+    if ((rank[g.risk] ?? 0) > (rank[c.risk] ?? 0)) c.risk = g.risk;
+  };
+  for (const g of groupMutations(mutations)) {
+    const def = DECISION_DEFS.find((d) => d.test(g.kind));
+    if (def) put(def.id, def.title, def.hint, g);
+    else put('other', 'Other changes', 'supporting operations', g);
+  }
+  return [...cats.values()].sort((a, b) => (CAT_ORDER[a.id] ?? 9) - (CAT_ORDER[b.id] ?? 9));
+}
+
 function ReadChip({ r }: { r?: string }) {
   const allowed = r === 'allowed' || r === 'predicted_allowed';
   const predicted = String(r ?? '').startsWith('predicted');
@@ -136,6 +193,86 @@ interface GrantType {
   product_level?: string;
 }
 
+/** Brand rule: vendor engine names never reach customer copy; apply failures
+ *  carry the raw warehouse message. */
+function neutralizeVendor(s?: string | null): string {
+  return (s ?? '')
+    .replace(/snowflake/gi, 'the data warehouse')
+    .replace(/cortex/gi, 'the analytics engine');
+}
+
+/** The apply/dry-run outcome, per the backend's uniform results[]/summary:
+ *  "N applied · M not granted", each failure named with its reason. */
+function AccessOutcome({ outcome }: { outcome: AccessApplyResult }) {
+  const s = outcome.summary ?? {};
+  const results = outcome.results ?? [];
+  const dry = outcome.status === 'dry_run';
+  const failed = results.filter((r) => r.status === 'failed');
+  const ok = dry
+    ? s.would_apply ?? results.filter((r) => r.status === 'would_apply').length
+    : s.applied ?? results.filter((r) => r.status === 'applied').length;
+  const failCount = s.failed ?? failed.length;
+  const skipCount = s.skipped ?? results.filter((r) => r.status === 'skipped').length;
+  const headline = dry
+    ? `Dry run — ${ok} would apply${skipCount ? ` · ${skipCount} not applicable` : ''}. Nothing changed.`
+    : `${ok} applied${failCount ? ` · ${failCount} not granted` : ''}${skipCount ? ` · ${skipCount} skipped` : ''}.`;
+  const bad = failCount > 0;
+  return (
+    <div
+      className={`mt-2 rounded-lg border p-2.5 text-[13px] ${
+        bad
+          ? 'border-amber-300/70 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-950/30'
+          : 'border-slate-200 bg-slate-50/60 dark:border-slate-800 dark:bg-slate-900/40'
+      }`}
+    >
+      <p
+        className={`flex items-center gap-1.5 font-medium ${
+          bad
+            ? 'text-amber-800 dark:text-amber-200'
+            : dry
+              ? 'text-slate-700 dark:text-slate-200'
+              : 'text-emerald-700 dark:text-emerald-300'
+        }`}
+      >
+        {bad ? (
+          <AlertTriangle aria-hidden className="h-3.5 w-3.5" />
+        ) : (
+          <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
+        )}
+        {headline}
+      </p>
+      {failed.length > 0 && (
+        <ul className="mt-1.5 space-y-1">
+          {failed.map((r, i) => (
+            <li
+              key={r.mutation_id ?? i}
+              className="rounded bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
+            >
+              <span className="font-medium">{r.object ?? r.kind ?? 'operation'}</span>
+              {r.subject?.name ? ` → ${r.subject.name}` : ''}:{' '}
+              {neutralizeVendor(r.reason) || r.error_code || 'not granted'}
+              {r.failed_sql && (
+                <span
+                  className="mt-0.5 block truncate font-mono text-[11px] opacity-80"
+                  title={r.failed_sql}
+                >
+                  {r.failed_sql}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {!dry && failCount > 0 && (
+        <p className="mt-1 text-xs text-amber-700/90 dark:text-amber-300/80">
+          The operations that applied are kept with their undo. Fix the cause above, then re-run —
+          only the not-granted lines remain to apply.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function StudioAccessPanel({ draftId }: { draftId: string }) {
   const [view, setView] = useState<AccessView | 'loading' | 'error'>('loading');
   const [grantTypes, setGrantTypes] = useState<GrantType[]>([]);
@@ -148,6 +285,12 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [applyResult, setApplyResult] = useState<string | null>(null);
+  /** the per-mutation outcome of the last dry-run/apply — "N applied · M not
+   *  granted", each failure named with its reason */
+  const [applyOutcome, setApplyOutcome] = useState<AccessApplyResult | null>(null);
+  /** which decision categories are expanded (collapsed by default, so the
+   *  review opens as a short summary, not a wall of ticked lines) */
+  const [openCats, setOpenCats] = useState<Set<string>>(new Set());
   const [tests, setTests] = useState<AccessObjectRead[] | null>(null);
   /** the plan's reuse decisions — "template X already grants READ", the
    *  honest reason a plan can be right while creating NOTHING */
@@ -216,6 +359,14 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
 
   const me = view.me ?? {};
   const mutations: AccessMutation[] = view.diff?.mutations ?? [];
+  const cats = decisionCategories(mutations);
+  const allSupportedIds = mutations
+    .filter((m) => m.apply_supported !== false)
+    .map((m) => m.mutation_id ?? '')
+    .filter(Boolean);
+  /** what apply/dry-run acts on: the ticked lines when the reader narrowed,
+   *  otherwise every supported operation (the one-click common case) */
+  const applyIds = picked.size > 0 ? [...picked] : allSupportedIds;
   const roles = view.diff?.roles ?? gov?.roles;
   const candidates = gov?.candidates ?? [];
   /* Resolved by TABLE + column, never by the bare column name: RLS
@@ -469,154 +620,202 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
       {mutations.length > 0 && (
         <>
           <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Prepared change — tick a group or single lines
+            Review &amp; apply — {allSupportedIds.length} operation{allSupportedIds.length > 1 ? 's' : ''} to run
           </p>
           <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
-            {mutations.length} operation(s):{' '}
-            {groupMutations(mutations)
-              .map((g) => `${g.items.length} ${g.words}`)
-              .join(' · ')}
+            {cats.map((c) => `${c.title} ${c.count}`).join(' · ')}
+            {mutations.length !== allSupportedIds.length &&
+              ` · ${mutations.length - allSupportedIds.length} not applicable from here`}
             . Nothing runs before an explicit dry run or apply below.
           </p>
-          <div className="mt-1.5 space-y-2">
-            {groupMutations(mutations).map((g) => {
-              const ids = g.items.map((m) => m.mutation_id ?? '').filter(Boolean);
-              const pickable = g.items
-                .filter((m) => m.apply_supported !== false)
-                .map((m) => m.mutation_id ?? '');
-              const pickedCount = ids.filter((id) => picked.has(id)).length;
-              const allPicked = pickable.length > 0 && pickable.every((id) => picked.has(id));
+
+          {/* decision categories — collapsed to a summary; expand to see and
+              narrow the individual operations (who gets in / what they read /
+              row rules / column masking), not a wall of SQL-verb rows */}
+          <div className="mt-1.5 space-y-1.5">
+            {cats.map((c) => {
+              const open = openCats.has(c.id);
+              const catIds = c.groups
+                .flatMap((g) => g.items.map((m) => m.mutation_id ?? ''))
+                .filter(Boolean);
+              const pickedHere = catIds.filter((id) => picked.has(id)).length;
               return (
-                <section key={g.kind} className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-                  <label className="flex items-center gap-2 text-[13px]">
-                    <input
-                      type="checkbox"
-                      checked={allPicked}
-                      disabled={pickable.length === 0}
-                      ref={(el) => {
-                        if (el) el.indeterminate = pickedCount > 0 && !allPicked;
-                      }}
-                      onChange={(e) =>
-                        setPicked((p) => {
-                          const n = new Set(p);
-                          for (const id of pickable) {
-                            if (e.target.checked) n.add(id);
-                            else n.delete(id);
-                          }
-                          return n;
-                        })
-                      }
-                      aria-label={`Tick all: ${g.words}`}
-                      className="h-3.5 w-3.5"
-                    />
-                    <span className="font-medium text-slate-800 dark:text-slate-100">
-                      {g.words}
+                <section key={c.id} className="rounded-lg border border-slate-200 dark:border-slate-800">
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() =>
+                      setOpenCats((s) => {
+                        const n = new Set(s);
+                        if (n.has(c.id)) n.delete(c.id);
+                        else n.add(c.id);
+                        return n;
+                      })
+                    }
+                    className="flex w-full items-center gap-2 p-2 text-left text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                  >
+                    {open ? (
+                      <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-slate-400" />
+                    ) : (
+                      <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-slate-400" />
+                    )}
+                    <span className="font-medium text-slate-800 dark:text-slate-100">{c.title}</span>
+                    <span className="hidden text-xs text-slate-400 dark:text-slate-500 sm:inline">
+                      {c.hint}
                     </span>
-                    <span className={`rounded-full px-1.5 py-px text-xs ${RISK_CLS[g.risk] ?? RISK_CLS.low}`}>
-                      {g.risk} risk
+                    <span className={`ml-auto rounded-full px-1.5 py-px text-xs ${RISK_CLS[c.risk] ?? RISK_CLS.low}`}>
+                      {c.risk} risk
                     </span>
-                    <span className="text-xs text-slate-400 dark:text-slate-500">
-                      {pickedCount ? `${pickedCount}/${g.items.length} ticked` : `${g.items.length} line(s)`}
+                    <span className="rounded-full bg-slate-100 px-2 py-px text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      {pickedHere ? `${pickedHere}/${c.count}` : c.count}
                     </span>
-                  </label>
-                  <ul className="mt-1 space-y-0.5 pl-5">
-                    {g.items.map((m) => (
-                      <li key={m.mutation_id} className="text-[13px]">
-                        <label className="flex flex-wrap items-center gap-2">
-                          <input
-                            type="checkbox"
-                            disabled={m.apply_supported === false}
-                            checked={picked.has(m.mutation_id ?? '')}
-                            onChange={(e) =>
-                              setPicked((p) => {
-                                const n = new Set(p);
-                                if (e.target.checked) n.add(m.mutation_id ?? '');
-                                else n.delete(m.mutation_id ?? '');
-                                return n;
-                              })
-                            }
-                            className="h-3.5 w-3.5"
-                          />
-                          <span className="min-w-0 truncate font-mono text-xs text-slate-600 dark:text-slate-300" title={(m.sql ?? []).join('\n')}>
-                            {mutationTarget(m)}
-                          </span>
-                          {m.apply_supported === false && (
-                            <span className="text-xs text-amber-700 dark:text-amber-400">
-                              not applicable from here — product-role layer
-                            </span>
-                          )}
-                        </label>
-                        {showSql && (
-                          <div className="mb-1 ml-5 mt-0.5">
-                            <pre className="overflow-x-auto rounded bg-slate-50 p-1.5 font-mono text-xs text-slate-600 dark:bg-slate-950 dark:text-slate-400">
-                              {(m.sql ?? []).join('\n')}
-                            </pre>
-                            {(m.undo_sql?.length ?? 0) > 0 && (
-                              <p
-                                className="mt-0.5 truncate font-mono text-xs text-slate-400 dark:text-slate-500"
-                                title={(m.undo_sql ?? []).join('\n')}
-                              >
-                                undo: {(m.undo_sql ?? [])[0]}
-                              </p>
-                            )}
+                  </button>
+
+                  {open && (
+                    <div className="space-y-2 border-t border-slate-100 p-2 dark:border-slate-800">
+                      {c.groups.map((g) => {
+                        const pickable = g.items
+                          .filter((m) => m.apply_supported !== false)
+                          .map((m) => m.mutation_id ?? '');
+                        const pickedCount = g.items.filter((m) => picked.has(m.mutation_id ?? '')).length;
+                        const allPicked = pickable.length > 0 && pickable.every((id) => picked.has(id));
+                        return (
+                          <div key={g.kind}>
+                            <label className="flex items-center gap-2 text-[13px]">
+                              <input
+                                type="checkbox"
+                                checked={allPicked}
+                                disabled={pickable.length === 0}
+                                ref={(el) => {
+                                  if (el) el.indeterminate = pickedCount > 0 && !allPicked;
+                                }}
+                                onChange={(e) =>
+                                  setPicked((p) => {
+                                    const n = new Set(p);
+                                    for (const id of pickable) {
+                                      if (e.target.checked) n.add(id);
+                                      else n.delete(id);
+                                    }
+                                    return n;
+                                  })
+                                }
+                                aria-label={`Tick all: ${g.words}`}
+                                className="h-3.5 w-3.5"
+                              />
+                              <span className="font-medium text-slate-700 dark:text-slate-200">{g.words}</span>
+                              <span className="text-xs text-slate-400 dark:text-slate-500">
+                                {pickedCount ? `${pickedCount}/${g.items.length} ticked` : `${g.items.length} line(s)`}
+                              </span>
+                            </label>
+                            <ul className="mt-1 space-y-0.5 pl-5">
+                              {g.items.map((m) => (
+                                <li key={m.mutation_id} className="text-[13px]">
+                                  <label className="flex flex-wrap items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      disabled={m.apply_supported === false}
+                                      checked={picked.has(m.mutation_id ?? '')}
+                                      onChange={(e) =>
+                                        setPicked((p) => {
+                                          const n = new Set(p);
+                                          if (e.target.checked) n.add(m.mutation_id ?? '');
+                                          else n.delete(m.mutation_id ?? '');
+                                          return n;
+                                        })
+                                      }
+                                      className="h-3.5 w-3.5"
+                                    />
+                                    <span className="min-w-0 truncate font-mono text-xs text-slate-600 dark:text-slate-300" title={(m.sql ?? []).join('\n')}>
+                                      {mutationTarget(m)}
+                                    </span>
+                                    {m.apply_supported === false && (
+                                      <span className="text-xs text-amber-700 dark:text-amber-400">
+                                        not applicable from here — product-role layer
+                                      </span>
+                                    )}
+                                  </label>
+                                  {showSql && (
+                                    <div className="mb-1 ml-5 mt-0.5">
+                                      <pre className="overflow-x-auto rounded bg-slate-50 p-1.5 font-mono text-xs text-slate-600 dark:bg-slate-950 dark:text-slate-400">
+                                        {(m.sql ?? []).join('\n')}
+                                      </pre>
+                                      {(m.undo_sql?.length ?? 0) > 0 && (
+                                        <p className="mt-0.5 truncate font-mono text-xs text-slate-400 dark:text-slate-500" title={(m.undo_sql ?? []).join('\n')}>
+                                          undo: {(m.undo_sql ?? [])[0]}
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
                           </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        aria-expanded={showSql}
+                        onClick={() => setShowSql((v) => !v)}
+                        className="text-xs text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+                      >
+                        {showSql ? 'Hide' : 'Show'} the exact SQL and its undo
+                      </button>
+                    </div>
+                  )}
                 </section>
               );
             })}
           </div>
-          <button
-            type="button"
-            aria-expanded={showSql}
-            onClick={() => setShowSql((v) => !v)}
-            className="mt-1 text-xs text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
-          >
-            {showSql ? 'Hide' : 'Show'} the exact SQL and its undo, under each line
-          </button>
+
+          {picked.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setPicked(new Set())}
+              className="mt-1 text-xs text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+            >
+              {picked.size} selected — clear to apply all instead
+            </button>
+          )}
+
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={picked.size === 0 || busy != null}
+              disabled={applyIds.length === 0 || busy != null}
               onClick={() =>
                 void run(
                   'dry',
                   async () => {
-                    const r = await applyDraftAccess(draftId, [...picked], false);
-                    setApplyResult(
-                      `Dry run — nothing changed: the SQL above is exactly what would run (${String(r.status ?? 'previewed')}).`,
-                    );
+                    setApplyResult(null);
+                    setApplyOutcome(await applyDraftAccess(draftId, applyIds, false));
                   },
                   false,
                 )
               }
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-[13px] text-slate-600 hover:border-slate-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
             >
-              Dry run {picked.size || ''}
+              Dry run
             </button>
             <button
               type="button"
-              disabled={picked.size === 0 || busy != null}
+              disabled={applyIds.length === 0 || busy != null}
               title={
                 me.can_change_access
-                  ? 'Executes ONLY the ticked lines — proofs and undo are kept'
+                  ? 'Runs the operations below — proofs and undo are kept'
                   : 'Applying needs the product ACCOUNTADMIN — the refusal renders as-is'
               }
               onClick={() =>
                 void run('apply', async () => {
-                  const r = await applyDraftAccess(draftId, [...picked], true);
-                  setApplyResult(
-                    `Applied — status ${String(r.status)}; the undo SQL is kept on the record.`,
-                  );
+                  setApplyResult(null);
+                  setApplyOutcome(await applyDraftAccess(draftId, applyIds, true));
                   setPicked(new Set());
                 })
               }
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"
             >
               {busy === 'apply' && <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />}
-              Apply {picked.size || ''} for real
+              {picked.size > 0
+                ? `Apply ${picked.size} selected`
+                : `Apply all ${allSupportedIds.length} operation${allSupportedIds.length > 1 ? 's' : ''}`}
             </button>
             <button
               type="button"
@@ -632,6 +831,11 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
               Test the reads
             </button>
           </div>
+
+          {/* the outcome — "N applied · M not granted", failures named */}
+          {applyOutcome && (
+            <AccessOutcome outcome={applyOutcome} />
+          )}
         </>
       )}
 

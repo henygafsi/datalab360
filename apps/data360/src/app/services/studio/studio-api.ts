@@ -1610,6 +1610,29 @@ export interface AccessMutation {
   apply_supported?: boolean;
 }
 
+/** One entry per requested mutation, in request order. dry-run →
+ *  would_apply | skipped; real apply → applied | failed | skipped. */
+export interface AccessApplyLine {
+  mutation_id?: string;
+  kind?: string;
+  object?: string;
+  subject?: { type?: string; name?: string };
+  risk?: string;
+  status?: 'would_apply' | 'applied' | 'failed' | 'skipped' | string;
+  error_code?: string;
+  reason?: string;
+  failed_sql?: string;
+  query_ids?: string[];
+}
+
+export interface AccessApplyResult {
+  /** dry_run | applied | partially_applied */
+  status?: string;
+  results?: AccessApplyLine[];
+  summary?: { requested?: number; applied?: number; would_apply?: number; failed?: number; skipped?: number };
+  [k: string]: unknown;
+}
+
 export interface AccessView {
   me?: {
     username?: string;
@@ -1807,8 +1830,8 @@ export async function applyDraftAccess(
   draftId: string,
   mutationIds: string[],
   confirm: boolean,
-): Promise<Record<string, unknown>> {
-  return studioMutate(
+): Promise<AccessApplyResult> {
+  return studioMutate<AccessApplyResult>(
     'POST',
     `/studio/drafts/${encodeURIComponent(draftId)}/access/apply`,
     { mutation_ids: mutationIds, confirm },
