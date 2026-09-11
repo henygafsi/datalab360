@@ -1386,10 +1386,17 @@ export const API = {
      *  TASKS), schedule_inactive, linked_job_trigger_manual, state}. */
     workflowStop: (draftId: string, aid: string) =>
       `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}/stop`,
-    /** DELETE — 409 STOP_FIRST unless stopped; returns post_removal
-     *  verification. */
+    /** DELETE — dismisses a never-run, non-job-linked PROPOSAL
+     *  ({status:"dismissed"}, goes to automation.removed[], never re-derived
+     *  silently); anything that ran or a job-linked schedule → 409 STOP_FIRST.
+     *  Returns post_removal verification. */
     workflowRemove: (draftId: string, aid: string) =>
       `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}`,
+    /** POST — restore a dismissed proposal → {status:"restored", item}
+     *  (or "not_derivable" if the model no longer produces it; 404
+     *  WORKFLOW_NOT_REMOVED if it was never removed). */
+    workflowRestore: (draftId: string, aid: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}/restore`,
 
     /** GET — the e-mail alerting capability: engine, enrollment (integration
      *  status + ACCOUNTADMIN enroll_sql), templates (professional | custom),

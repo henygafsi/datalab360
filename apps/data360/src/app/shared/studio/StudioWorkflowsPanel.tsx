@@ -13,10 +13,11 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Search } from 'lucide-react';
+import { RefreshCw, Search, Sparkles, Undo2 } from 'lucide-react';
 import {
   getWorkflows,
   removeWorkflow,
+  restoreWorkflow,
   type WorkflowItem,
 } from '@/app/services/studio/studio-api';
 import { useModelChanged } from '@/app/services/studio/studio-bus';
@@ -45,6 +46,9 @@ export default function StudioWorkflowsPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removeArmed, setRemoveArmed] = useState<string | null>(null);
+  const [proposing, setProposing] = useState(false);
+  /** the last-dismissed suggestion, kept so a Dismiss can be undone in place */
+  const [dismissed, setDismissed] = useState<{ aid: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +59,54 @@ export default function StudioWorkflowsPanel({
       setItems('error');
     }
   }, [draftId]);
+
+  /** self-service: ask the AI to (re-)derive the workflows this application
+   *  likely needs from its model — new candidates arrive as `proposed`. */
+  const suggest = useCallback(async () => {
+    setProposing(true);
+    setError(null);
+    try {
+      const r = await getWorkflows(draftId, true);
+      setItems(r.items);
+      if (r.trigger_choices?.length) setChoices(r.trigger_choices);
+    } catch {
+      setError('Could not propose more workflows right now.');
+    } finally {
+      setProposing(false);
+    }
+  }, [draftId]);
+
+  /** dismiss a proposal (never-run, not job-linked): DELETE → "dismissed";
+   *  kept in `dismissed` so it can be restored without re-deriving. */
+  const dismiss = useCallback(
+    (aid: string, name: string) => {
+      setRemoveArmed(null);
+      setBusy(`rm:${aid}`);
+      setError(null);
+      void removeWorkflow(draftId, aid)
+        .then((r) => {
+          if (r.status === 'dismissed') setDismissed({ aid, name });
+          return load();
+        })
+        .catch((e) => setError(e instanceof Error ? e.message : 'Dismiss failed.'))
+        .finally(() => setBusy(null));
+    },
+    [draftId, load],
+  );
+
+  const undoDismiss = useCallback(() => {
+    if (!dismissed) return;
+    const { aid } = dismissed;
+    setBusy(`restore:${aid}`);
+    setError(null);
+    void restoreWorkflow(draftId, aid)
+      .then(() => {
+        setDismissed(null);
+        return load();
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : 'Restore failed.'))
+      .finally(() => setBusy(null));
+  }, [draftId, dismissed, load]);
 
   useEffect(() => {
     setItems('loading');
@@ -102,6 +154,12 @@ export default function StudioWorkflowsPanel({
       </p>
     );
 
+  const isSuggestion = (w: WorkflowItem) =>
+    (w.state ?? 'proposed') === 'proposed' && (w.runs_summary?.count ?? 0) === 0;
+  /** dismissible = a suggestion that never ran and is not a job's schedule */
+  const canDismiss = (w: WorkflowItem) => isSuggestion(w) && !w.job_id;
+  const suggestedCount = list.filter(isSuggestion).length;
+
   const open = openId ? list.find((w) => w.automation_id === openId) : null;
   if (open) {
     return (
@@ -134,6 +192,20 @@ export default function StudioWorkflowsPanel({
             />
           </label>
         )}
+        <button
+          type="button"
+          onClick={() => void suggest()}
+          disabled={proposing}
+          title="Ask the AI to propose the workflows this application likely needs, from its model"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-accent-200 px-2.5 py-1 text-xs font-medium text-accent-700 hover:bg-accent-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-accent-500/40 dark:text-accent-300 dark:hover:bg-accent-900/20"
+        >
+          {proposing ? (
+            <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Sparkles aria-hidden className="h-3.5 w-3.5" />
+          )}
+          {proposing ? 'Proposing…' : 'Suggest workflows'}
+        </button>
         {onOpenActivation && (
           <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
             Schedules run once the application is activated —{' '}
@@ -148,10 +220,48 @@ export default function StudioWorkflowsPanel({
         )}
       </div>
 
-      {list.length === 0 ? (
-        <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
-          No workflow can be proposed yet — they derive from the understood model.
+      {dismissed && (
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[13px] dark:border-slate-700 dark:bg-slate-800/50">
+          <span className="min-w-0 truncate text-slate-600 dark:text-slate-300">
+            Dismissed « {dismissed.name} » — it won’t be proposed again.
+          </span>
+          <button
+            type="button"
+            onClick={undoDismiss}
+            disabled={busy != null}
+            className="ml-auto inline-flex shrink-0 items-center gap-1 text-accent-700 hover:underline disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+          >
+            <Undo2 aria-hidden className="h-3.5 w-3.5" /> Undo
+          </button>
+        </div>
+      )}
+      {suggestedCount > 0 && (
+        <p className="mt-2 flex items-center gap-1.5 text-[13px] text-slate-500 dark:text-slate-400">
+          <Sparkles aria-hidden className="h-3.5 w-3.5 shrink-0 text-accent-500" />
+          {suggestedCount} workflow{suggestedCount > 1 ? 's are' : ' is'} proposed for this
+          application — open one to review and keep it (preview / test-run), or dismiss it.
         </p>
+      )}
+
+      {list.length === 0 ? (
+        <div className="mt-2 space-y-2">
+          <p className="text-[13px] text-slate-500 dark:text-slate-400">
+            No workflow yet — they derive from the understood model.
+          </p>
+          <button
+            type="button"
+            onClick={() => void suggest()}
+            disabled={proposing}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"
+          >
+            {proposing ? (
+              <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles aria-hidden className="h-3.5 w-3.5" />
+            )}
+            {proposing ? 'Proposing…' : 'Suggest workflows from the model'}
+          </button>
+        </div>
       ) : (
         <div className="mt-3 overflow-x-auto">
           <table className="min-w-full">
@@ -246,8 +356,29 @@ export default function StudioWorkflowsPanel({
                           onClick={() => setOpenId(aid)}
                           className="rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
                         >
-                          Edit
+                          {isSuggestion(w) ? 'Review' : 'Edit'}
                         </button>
+                        {canDismiss(w) && (
+                          <button
+                            type="button"
+                            disabled={busy === `rm:${aid}`}
+                            onClick={() => {
+                              if (removeArmed !== aid) {
+                                setRemoveArmed(aid);
+                                return;
+                              }
+                              dismiss(aid, String(w.name ?? aid));
+                            }}
+                            title="Dismiss this suggestion — it won’t be proposed again (you can undo)"
+                            className={`rounded-lg px-2 py-1 text-xs disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                              removeArmed === aid
+                                ? 'bg-amber-50 font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                                : 'text-slate-500 hover:text-amber-700 dark:text-slate-400 dark:hover:text-amber-400'
+                            }`}
+                          >
+                            {removeArmed === aid ? 'Dismiss it?' : 'Dismiss'}
+                          </button>
+                        )}
                         {w.state === 'stopped' && (
                           <button
                             type="button"

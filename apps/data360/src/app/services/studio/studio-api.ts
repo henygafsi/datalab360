@@ -2356,6 +2356,14 @@ export async function removeWorkflow(
   return data ?? {};
 }
 
+/** Restore a dismissed proposal (undo a Dismiss). */
+export async function restoreWorkflow(
+  draftId: string,
+  aid: string,
+): Promise<{ status?: string; item?: WorkflowItem }> {
+  return studioMutate('POST', API.studio.workflowRestore(draftId, aid), undefined, 120_000);
+}
+
 /* ── Tranche A — target model, jobs, runs, DLQ, quality ────────────── */
 
 export interface TargetColumn {
