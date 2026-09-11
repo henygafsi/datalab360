@@ -2049,10 +2049,23 @@ export interface WorkflowEmailConfig {
   include?: { rows_limit?: number };
 }
 
+/** Per-recipient status the backend can judge at PUT time. Honest limit:
+ *  address verification only resolves to verified/rejected AFTER a real send —
+ *  before that it is "unknown"; what IS known is account_user / allowed list. */
+export interface RecipientStatus {
+  address: string;
+  index?: number;
+  account_user?: boolean | null;
+  allowed_by_integration?: boolean | null;
+  verified?: 'verified' | 'rejected' | 'unknown' | string;
+  evidence?: string;
+}
+
 export interface WorkflowEmailState {
   capability?: string;
   configured?: boolean;
   config?: WorkflowEmailConfig | null;
+  recipients?: RecipientStatus[];
   last_test?: Record<string, unknown> | null;
 }
 
@@ -2060,6 +2073,8 @@ export interface EmailSaveResult {
   status?: string;
   version?: number;
   config?: WorkflowEmailConfig;
+  /** per-address status the backend can judge at save time */
+  recipients?: RecipientStatus[];
   warnings?: string[];
   preview?: { subject?: string; html?: string; rows_source?: string };
   sql?: string | string[];

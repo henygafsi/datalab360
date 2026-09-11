@@ -27,6 +27,7 @@ import {
   type EmailCapability,
   type EmailSaveResult,
   type EmailTestResult,
+  type RecipientStatus,
   type WorkflowEmailState,
 } from '@/app/services/studio/studio-api';
 import { readFailure } from '@/app/shared/studio/studio-errors';
@@ -129,6 +130,11 @@ export default function StudioEmailAlertPanel({
   const [copied, setCopied] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [cleared, setCleared] = useState(false);
+  const [recipStatus, setRecipStatus] = useState<Record<string, RecipientStatus>>(() => {
+    const m: Record<string, RecipientStatus> = {};
+    for (const r of initialEmail?.recipients ?? []) if (r.address) m[r.address.toLowerCase()] = r;
+    return m;
+  });
   const htmlRef = useRef<HTMLTextAreaElement | null>(null);
 
   const { role } = useAuth();
@@ -207,6 +213,11 @@ export default function StudioEmailAlertPanel({
         include: { rows_limit: rowsLimit },
       });
       setSaved(res);
+      if (res.recipients) {
+        const m: Record<string, RecipientStatus> = {};
+        for (const r of res.recipients) if (r.address) m[r.address.toLowerCase()] = r;
+        setRecipStatus(m);
+      }
       onConfigured?.();
     } catch (e) {
       const f = failure(e);
@@ -235,6 +246,18 @@ export default function StudioEmailAlertPanel({
       try {
         const res = await testWorkflowEmail(draftId, automationId, confirm);
         setTest(res);
+        // a rejected send names the bad addresses — flag those chips
+        const bad = (res as { bad_recipients?: string[] }).bad_recipients ?? [];
+        if (bad.length) {
+          setRecipStatus((cur) => {
+            const m = { ...cur };
+            for (const a of bad) {
+              const k = a.toLowerCase();
+              m[k] = { ...(m[k] ?? { address: a }), verified: 'rejected' };
+            }
+            return m;
+          });
+        }
       } catch (e) {
         setError(failure(e).text);
       } finally {
@@ -436,19 +459,41 @@ export default function StudioEmailAlertPanel({
         {recipients.length > 0 && (
           <span className="mt-1.5 flex flex-wrap gap-1">
             {recipients.map((r) => {
-              const bad = !EMAIL_RE.test(r);
+              const st = recipStatus[r.toLowerCase()];
+              const invalid = !EMAIL_RE.test(r);
+              const rejected = st?.verified === 'rejected' || st?.account_user === false;
+              const warn = st?.allowed_by_integration === false && !rejected;
+              const verified = st?.verified === 'verified';
+              const tone =
+                invalid || rejected
+                  ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
+                  : warn
+                    ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                    : verified
+                      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                      : 'bg-accent-50 text-accent-800 dark:bg-accent-900/30 dark:text-accent-200';
+              const title = invalid
+                ? 'Not a valid e-mail address'
+                : st?.account_user === false
+                  ? 'Not a user of this account — mail is only delivered to account users'
+                  : st?.verified === 'rejected'
+                    ? 'Rejected by the last send — the address is not verified'
+                    : warn
+                      ? "Not in the integration's allowed-recipients list"
+                      : verified
+                        ? 'Verified by a successful send'
+                        : st?.evidence
+                          ? neutralize(st.evidence)
+                          : 'Remove';
               return (
                 <button
                   key={r}
                   type="button"
                   onClick={() => setRecipients((cur) => cur.filter((x) => x !== r))}
-                  title={bad ? 'Not a valid e-mail address' : 'Remove'}
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
-                    bad
-                      ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
-                      : 'bg-accent-50 text-accent-800 dark:bg-accent-900/30 dark:text-accent-200'
-                  }`}
+                  title={title}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${tone}`}
                 >
+                  {verified && <Check aria-hidden className="h-3 w-3" />}
                   {r}
                   <X aria-hidden className="h-3 w-3" />
                   <span className="sr-only">remove {r}</span>
@@ -457,6 +502,13 @@ export default function StudioEmailAlertPanel({
             })}
           </span>
         )}
+        {Object.keys(recipStatus).length > 0 &&
+          recipients.some((r) => recipStatus[r.toLowerCase()]?.account_user === false) && (
+            <span className="mt-1 block text-[11px] text-rose-600 dark:text-rose-400">
+              A red recipient is not a user of this account — replace it. Final address
+              verification only resolves after a test send.
+            </span>
+          )}
         {errOf('recipients') && (
           <span className="mt-0.5 block text-[11px] text-rose-600 dark:text-rose-400">
             {errOf('recipients')}
