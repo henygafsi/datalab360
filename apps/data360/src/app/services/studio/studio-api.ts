@@ -2086,6 +2086,43 @@ export async function getEmailCapability(): Promise<EmailCapability> {
   return data ?? {};
 }
 
+export interface EmailEnrollResult {
+  status?: 'dry_run' | 'enrolled' | 'already_enrolled' | 'failed' | string;
+  name?: string;
+  sql?: string[];
+  executed?: Array<{ sql?: string; query_id?: string; error_code?: string; reason?: string }>;
+  enrollment?: EmailEnrollment;
+  by?: string;
+  at?: string;
+  note?: string;
+}
+
+/** Enrol the account's EMAIL integration under the CALLER's own session
+ *  (admin-role gated — a 403 APPROVAL_REQUIRED is re-thrown for the caller to
+ *  read `who`). confirm:false is a dry-run that returns the DDL. */
+export async function enrollEmail(body: {
+  confirm: boolean;
+  name?: string;
+  allowed_recipients?: string[];
+  grant_to_role?: string;
+}): Promise<EmailEnrollResult> {
+  return studioMutate<EmailEnrollResult>(
+    'POST',
+    API.studio.capabilitiesEmailEnroll(),
+    body,
+    120_000,
+  );
+}
+
+/** DELETE a workflow's e-mail config → {status:"cleared", previous,
+ *  tests_kept}; the channel returns to not_available/to_configure. */
+export async function clearWorkflowEmail(
+  draftId: string,
+  aid: string,
+): Promise<{ status?: string; previous?: WorkflowEmailConfig; tests_kept?: unknown }> {
+  return studioMutate('DELETE', API.studio.workflowEmail(draftId, aid), undefined, 60_000);
+}
+
 /** PUT the e-mail config on a workflow. Validates + stores; SENDS NOTHING. A
  *  422 EMAIL_CONFIG_INVALID is re-thrown for the caller to read as errors[]. */
 export async function putWorkflowEmail(

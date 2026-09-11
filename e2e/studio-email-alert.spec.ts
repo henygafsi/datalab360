@@ -63,20 +63,17 @@ test('e-mail delivery: folded by default, opens to the enrollment card + form, s
     await expect(page.getByText(/isn't set up on this account/i)).toHaveCount(0);
     notes.push('✓ e-mail delivery is folded on a workflow without it');
 
-    // OPEN: reading the capability paints the enrollment card + the form
+    // OPEN: reading the capability paints the form (enrollment card only when
+    // the account is not enrolled — the form is present either way)
     await disclosure.click();
     await expect(
       page.getByRole('heading', { name: /Deliver by e-mail/i }).or(page.getByText(/Deliver by e-mail/i).first()),
     ).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/isn't set up on this account|setup status could not/i)).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(page.getByText(/Setup SQL/i)).toBeVisible();
-    await expect(page.locator('input[placeholder="DATA360_EMAIL"]')).toBeVisible();
+    await expect(page.locator('input[placeholder="DATA360_EMAIL"]')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByLabel(/Add a recipient e-mail/i)).toBeVisible();
     await expect(page.getByRole('button', { name: /Professional/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /Custom HTML/i })).toBeVisible();
-    notes.push('✓ opening reads the capability and paints the enrollment card + form');
+    notes.push('✓ opening reads the capability and paints the form');
     await page.screenshot({ path: `${OUT}/email-panel-enrollment.png`, fullPage: false });
 
     // Custom template reveals the HTML editor + placeholder chips

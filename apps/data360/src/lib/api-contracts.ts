@@ -1395,6 +1395,12 @@ export const API = {
      *  status + ACCOUNTADMIN enroll_sql), templates (professional | custom),
      *  limits and governance. Metadata only, nothing is created. */
     capabilitiesEmail: () => '/studio/capabilities/email',
+    /** POST {confirm, name?, allowed_recipients?, grant_to_role?} — enrol the
+     *  account's EMAIL integration UNDER THE CALLER'S OWN SESSION (admin-role
+     *  gated; 403 APPROVAL_REQUIRED{who} otherwise). confirm:false = dry-run
+     *  (returns the DDL); confirm:true runs CREATE … IF NOT EXISTS (idempotent
+     *  → already_enrolled). Never routed through a service identity. */
+    capabilitiesEmailEnroll: () => '/studio/capabilities/email/enroll',
     /** PUT {integration, recipients[1..10], subject?, template, custom_html?,
      *  include{rows_limit 0..50}} — validates + stores; sends NOTHING. 422
      *  EMAIL_CONFIG_INVALID{errors[]} or {status, config, warnings, preview,

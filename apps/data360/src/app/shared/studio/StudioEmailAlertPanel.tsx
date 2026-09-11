@@ -17,8 +17,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Copy, Mail, Send, X } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Mail, Send, ShieldCheck, Trash2, X } from 'lucide-react';
 import {
+  clearWorkflowEmail,
+  enrollEmail,
   getEmailCapability,
   putWorkflowEmail,
   testWorkflowEmail,
@@ -28,16 +30,56 @@ import {
   type WorkflowEmailState,
 } from '@/app/services/studio/studio-api';
 import { readFailure } from '@/app/shared/studio/studio-errors';
+import { useAuth } from '@/hooks/useAuth';
+import { isAdminRole } from '@/config/constants';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Brand rule: vendor engine names never reach customer copy. Backend
- *  validation/reason strings can mention them — scrub before display. */
+ *  validation/reason strings can mention them (incl. run together, e.g.
+ *  "SnowflakeSQLException"), so scrub WITHOUT requiring word boundaries. */
 function neutralize(s?: string | null): string {
   return (s ?? '')
-    .replace(/\bsnowflake\b/gi, 'the data warehouse')
-    .replace(/\bcortex\b/gi, 'the analytics engine')
+    .replace(/snowflake/gi, 'the data warehouse')
+    .replace(/cortex/gi, 'the analytics engine')
     .replace(/\bkimi\b/gi, 'the AI');
+}
+
+/** Turn a test-send outcome into one clear sentence. Known error codes get
+ *  guidance; the raw reason (scrubbed) stays available as a title. */
+function testSummary(t: {
+  status?: string;
+  error_code?: string;
+  reason?: string;
+}): { text: string; ok: boolean; raw?: string } {
+  if (t.status === 'sent') return { text: 'Test sent to the recipients above.', ok: true };
+  if (t.status === 'dry_run')
+    return { text: 'Dry run: the call is valid — nothing was sent.', ok: true };
+  const raw = neutralize(t.reason);
+  switch (t.error_code) {
+    case 'EMAIL_RECIPIENT_UNVERIFIED':
+      return {
+        text: 'A recipient is not a verified account user yet — the address must belong to a user of this account and be confirmed (the user verifies the e-mail sent to them, or an administrator sets it). Remove or replace the unverified recipient and test again.',
+        ok: false,
+        raw,
+      };
+    case 'EMAIL_INTEGRATION_MISSING':
+      return {
+        text: 'No e-mail integration exists on this account yet — enable it from the card above (or ask an administrator), then test again.',
+        ok: false,
+        raw,
+      };
+    case 'EMAIL_NOT_CONFIGURED':
+      return { text: 'Save the configuration first, then send a test.', ok: false, raw };
+    case 'EMAIL_SEND_FAILED':
+      return { text: `The send failed${raw ? ` — ${raw}` : ''}.`, ok: false, raw };
+    default:
+      return {
+        text: `Not sent${t.error_code ? ` (${t.error_code})` : ''}${raw ? ` — ${raw}` : ''}.`,
+        ok: false,
+        raw,
+      };
+  }
 }
 
 function failure(e: unknown): { text: string; errors?: Array<{ field?: string; error?: string }> } {
@@ -85,9 +127,13 @@ export default function StudioEmailAlertPanel({
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Array<{ field?: string; error?: string }>>([]);
   const [copied, setCopied] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
+  const [cleared, setCleared] = useState(false);
   const htmlRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const isConfigured = Boolean(initialEmail?.configured) || Boolean(saved);
+  const { role } = useAuth();
+  const admin = isAdminRole(role);
+  const isConfigured = (Boolean(initialEmail?.configured) || Boolean(saved)) && !cleared;
 
   useEffect(() => {
     let live = true;
@@ -207,6 +253,51 @@ export default function StudioEmailAlertPanel({
     });
   }, [enroll]);
 
+  /** Enrol the account's e-mail integration under the admin's own session.
+   *  Dry-run first so the exact DDL is confirmed before it runs; re-read the
+   *  capability after so the card flips to enrolled. */
+  const doEnroll = useCallback(async () => {
+    setEnrolling(true);
+    setError(null);
+    try {
+      const name = integration.trim() || 'DATA360_EMAIL';
+      const dry = await enrollEmail({ confirm: false, name });
+      if (dry.status !== 'already_enrolled') {
+        const ddl = (dry.sql ?? []).join('\n');
+        if (!window.confirm(`Create the account e-mail integration now?\n\n${ddl}\n\nThis runs under your session.`)) {
+          setEnrolling(false);
+          return;
+        }
+        await enrollEmail({ confirm: true, name });
+      }
+      setCap(await getEmailCapability());
+    } catch (e) {
+      setError(failure(e).text);
+    } finally {
+      setEnrolling(false);
+    }
+  }, [integration]);
+
+  const clearConfig = useCallback(async () => {
+    if (
+      !window.confirm(
+        'Remove the e-mail configuration from this alert? Nothing is sent; the in-app notification stays.',
+      )
+    )
+      return;
+    setError(null);
+    try {
+      await clearWorkflowEmail(draftId, automationId);
+      setCleared(true);
+      setSaved(null);
+      setTest(null);
+      setRecipients([]);
+      onConfigured?.();
+    } catch (e) {
+      setError(failure(e).text);
+    }
+  }, [draftId, automationId, onConfigured]);
+
   const inputCls =
     'h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200';
   const errOf = (field: string) => fieldErrors.find((f) => f.field === field)?.error;
@@ -245,15 +336,26 @@ export default function StudioEmailAlertPanel({
               : "E-mail delivery isn't set up on this account yet."}
           </p>
           <p className="mt-1 text-amber-700 dark:text-amber-300/90">
-            An administrator ({enroll?.enroll_sql?.who ?? 'ACCOUNTADMIN'}) runs this once. You can
-            still configure the alert below — it saves without sending; a test will report the
-            missing setup until this is done.
+            {admin
+              ? 'You can enable it now — the one-time setup runs under your own session. Or configure the alert below first; a save sends nothing.'
+              : `An administrator (${enroll?.enroll_sql?.who ?? 'ACCOUNTADMIN'}) enables this once. You can still configure the alert below — it saves without sending; a test reports the missing setup until then.`}
           </p>
+          {admin && (
+            <button
+              type="button"
+              disabled={enrolling}
+              onClick={doEnroll}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-2.5 py-1.5 text-[13px] font-medium text-white hover:bg-amber-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+            >
+              <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
+              {enrolling ? 'Enabling…' : 'Enable e-mail for this account'}
+            </button>
+          )}
           {(enroll?.enroll_sql?.sql?.length ?? 0) > 0 && (
             <div className="mt-2">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] uppercase tracking-wide text-amber-700/80 dark:text-amber-300/70">
-                  Setup SQL
+                  {admin ? 'Or run it manually' : 'Setup SQL'}
                 </span>
                 <button
                   type="button"
@@ -456,10 +558,26 @@ export default function StudioEmailAlertPanel({
         >
           {saving ? 'Saving…' : isConfigured ? 'Update configuration' : 'Save configuration'}
         </button>
+        {isConfigured && (
+          <button
+            type="button"
+            onClick={clearConfig}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[13px] text-slate-600 hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:text-slate-300 dark:hover:text-rose-400"
+          >
+            <Trash2 aria-hidden className="h-3.5 w-3.5" />
+            Remove
+          </button>
+        )}
         <span className="text-[11px] text-slate-400 dark:text-slate-500">
           Saving stores the configuration — it sends nothing.
         </span>
       </div>
+
+      {cleared && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          E-mail configuration removed — this alert delivers in-app only.
+        </p>
+      )}
 
       {error && (
         <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">
@@ -531,25 +649,24 @@ export default function StudioEmailAlertPanel({
             </span>
           </div>
 
-          {test && (
-            <p
-              className={`text-xs ${
-                test.status === 'sent'
-                  ? 'text-emerald-700 dark:text-emerald-400'
-                  : test.status === 'dry_run'
-                    ? 'text-slate-600 dark:text-slate-300'
-                    : 'text-rose-600 dark:text-rose-400'
-              }`}
-            >
-              {test.status === 'sent'
-                ? `Test sent to ${recipients.length} recipient${recipients.length > 1 ? 's' : ''}.`
-                : test.status === 'dry_run'
-                  ? 'Dry run: the call is valid — nothing was sent.'
-                  : `Not sent${test.error_code ? ` (${test.error_code})` : ''}${
-                      test.reason ? ` — ${neutralize(test.reason)}` : ''
-                    }.`}
-            </p>
-          )}
+          {test &&
+            (() => {
+              const s = testSummary(test);
+              return (
+                <p
+                  title={s.raw && s.raw !== s.text ? s.raw : undefined}
+                  className={`text-xs ${
+                    s.ok && test.status === 'sent'
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : s.ok
+                        ? 'text-slate-600 dark:text-slate-300'
+                        : 'text-rose-600 dark:text-rose-400'
+                  }`}
+                >
+                  {s.text}
+                </p>
+              );
+            })()}
         </div>
       )}
 
