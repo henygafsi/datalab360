@@ -79,13 +79,20 @@ export default function StudioDetectionsPanel({ draftId }: { draftId: string }) 
       try {
         const r = await actOnDetection(draftId, d.detector_id, confirm);
         setActs((a) => ({ ...a, [d.detector_id]: r }));
-        if (confirm) await load();
+        // Keep the row ARMED after the dry-run so the next click can confirm;
+        // clear it only once the confirmed action has run (or on error). The
+        // old `finally { setArmed(null) }` cleared it after the arming dry-run
+        // too, so confirm was unreachable — the action could never execute.
+        if (confirm) {
+          await load();
+          setArmed(null);
+        }
       } catch (e) {
         const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
         setError(readFailure(detail ?? e).text);
+        setArmed(null);
       } finally {
         setBusy(null);
-        setArmed(null);
       }
     },
     [busy, draftId, load],
