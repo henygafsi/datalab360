@@ -1250,6 +1250,12 @@ export async function editModel(
   /** Optimistic lock — the backend refuses BEFORE spending an AI unit
    *  (ai_call_spent:false) when another tab saved in between. */
   expectedUpdatedAt?: string,
+  /** SCOPE the edit to one workflow: the backend restricts the AI to that
+   *  automation's edit_paths (name/trigger/condition/window/destinations/
+   *  email/steps, report + model read-only) and answers 422
+   *  EDIT_OUT_OF_SCOPE{offending_paths, editable} if the AI drifts out —
+   *  so « with the KPIs in the report » can no longer touch /report. */
+  automationId?: string,
 ): Promise<ModelPatchResult> {
   return studioMutate<ModelPatchResult>(
     'POST',
@@ -1259,6 +1265,7 @@ export async function editModel(
       model,
       apply: false,
       ...(expectedUpdatedAt ? { expected_updated_at: expectedUpdatedAt } : {}),
+      ...(automationId ? { automation_id: automationId } : {}),
     },
     120_000,
   );

@@ -54,28 +54,46 @@ function errText(e: unknown): string {
   return readFailure(detail ?? e).text;
 }
 
+/** Name the app area a set of drifted paths belongs to, in the reader's terms. */
+function humanScope(paths: string[]): string {
+  const set = new Set<string>();
+  for (const p of paths) {
+    if (/\/report\b/.test(p)) set.add('the report');
+    else if (/\/understanding\b/.test(p)) set.add('the understanding');
+    else if (/\/model\b/.test(p)) set.add('the model');
+    else if (/\/data\b/.test(p)) set.add('the data');
+  }
+  return [...set].join(' and ') || 'another part of the application';
+}
+
 /**
- * The AI refine lane (editModel) is NOT scoped to this workflow's edit_paths,
- * so a phrase like "with the KPIs in the report" can make it target the
- * report or the model instead of the alert — and the reader gets a raw
- * "max 5 kpis per report" that names a part of the app this chat can't touch.
- * When the refusal carries a `path` OUTSIDE /automation, say the AI drifted
- * and name what this chat CAN edit (the alert's schedule / condition /
- * destination) instead of surfacing the misdirected backend message.
+ * The workflow refine (editModel WITH automation_id) is scoped to this
+ * workflow's edit_paths server-side; when the AI drifts out, the backend
+ * refuses with EDIT_OUT_OF_SCOPE and names the offending paths — so a phrase
+ * like "with the KPIs in the report" can no longer silently rewrite the
+ * report. We translate that refusal into "the AI aimed at the report, not
+ * this alert; here is what this chat can change". (An older backend that
+ * doesn't scope sends a single out-of-/automation `path` with a raw message
+ * like "max 5 kpis per report" — kept as a fallback.)
  */
 function refineErrorText(e: unknown): string {
-  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-  const path = (detail as { path?: unknown })?.path;
+  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail as
+    | { error_code?: string; offending_paths?: unknown; path?: unknown }
+    | undefined;
+  const drifted =
+    'This chat only edits the alert itself — when it fires (its schedule), the ' +
+    'condition that triggers it (When / If), and where it sends (Then, e-mail ' +
+    'included). Try naming one of those — e.g. “send it every hour” or “only ' +
+    'when the daily total drops below 100”.';
+
+  if (detail?.error_code === 'EDIT_OUT_OF_SCOPE') {
+    const offending = Array.isArray(detail.offending_paths) ? (detail.offending_paths as string[]) : [];
+    return `The AI aimed that at ${humanScope(offending)}, not this alert — nothing was changed. ${drifted}`;
+  }
+
+  const path = detail?.path;
   if (typeof path === 'string' && path.length > 0 && !path.startsWith('/automation')) {
-    return (
-      'The AI read that as a change to the report, not to this alert — so the ' +
-      'backend refused it (' +
-      errText(e) +
-      '). This chat only edits the alert itself: when it fires (its schedule), ' +
-      'the condition that triggers it (When / If), and where it sends (Then). ' +
-      'Try naming one of those — e.g. “send it every hour” or “only when the ' +
-      'daily total drops below 100”.'
-    );
+    return `The AI read that as a change to ${humanScope([path])}, not this alert (${errText(e)}). ${drifted}`;
   }
   return errText(e);
 }
@@ -444,13 +462,28 @@ export default function StudioWorkflowEditor({
     setAiState({ kind: 'running' });
     setError(null);
     try {
-      const r = await editModel(draftId, `On workflow "${w.name ?? aid}" (${aid}): ${text}`);
+      // automation_id SCOPES the edit to this workflow — the backend bounds
+      // the AI to its edit_paths, so the instruction no longer needs to carry
+      // the workflow name to stay on target.
+      const r = await editModel(draftId, text, undefined, undefined, aid);
       const ops = (r.ops ?? []) as ModelPatchOp[];
       const questions = (r as { questions?: string[] }).questions ?? [];
       if (questions.length > 0) setAiState({ kind: 'questions', questions });
-      else if (ops.length > 0)
-        setAiState({ kind: 'preview', ops, summary: (r as { summary?: string }).summary });
-      else {
+      else if (ops.length > 0) {
+        // The scoped edit may drop parts that aimed outside the alert; say so
+        // rather than silently applying only some of what was asked.
+        const dropped = (r as { dropped_out_of_scope?: string[] }).dropped_out_of_scope ?? [];
+        const base = (r as { summary?: string }).summary;
+        const summary =
+          dropped.length > 0
+            ? `${base ? `${base} ` : ''}(${dropped.length} part${
+                dropped.length > 1 ? 's' : ''
+              } of your request aimed outside this alert and ${
+                dropped.length > 1 ? 'were' : 'was'
+              } left out.)`
+            : base;
+        setAiState({ kind: 'preview', ops, summary });
+      } else {
         setAiState({ kind: 'idle' });
         setError('The AI proposed no change for that instruction.');
       }
@@ -458,7 +491,7 @@ export default function StudioWorkflowEditor({
       setAiState({ kind: 'idle' });
       setError(refineErrorText(e));
     }
-  }, [aiState.kind, aiText, aid, draftId, w.name]);
+  }, [aiState.kind, aiText, aid, draftId]);
 
   const applyAi = useCallback(async () => {
     if (aiState.kind !== 'preview' || busy) return;
