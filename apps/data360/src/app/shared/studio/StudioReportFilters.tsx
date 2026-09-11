@@ -468,9 +468,22 @@ export default function StudioReportFilters({
       <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
         {applied.length === 0
           ? 'No filter is applied — every widget reads its full scope, within the preview cap.'
-          : `${applied.length} filter${applied.length > 1 ? 's' : ''} applied to every widget: ${applied
-              .map((g) => `${g.column} ${g.operator}`)
-              .join(', ')}.`}
+          : (() => {
+              // a filter carrying an fqn is dataset-bound (it reaches only the
+              // widgets on that dataset); a bare one applies to every widget.
+              // Say which, honestly — the per-widget skips render below the bar.
+              const name = (g: GlobalFilter) => `${g.column} ${g.operator}`;
+              const bare = applied.filter((g) => !g.fqn);
+              const bound = applied.filter((g) => g.fqn);
+              const parts: string[] = [];
+              if (bare.length)
+                parts.push(`${bare.length} applied to every widget: ${bare.map(name).join(', ')}`);
+              if (bound.length)
+                parts.push(
+                  `${bound.length} scoped to ${bound.length > 1 ? 'their datasets' : 'its dataset'}: ${bound.map(name).join(', ')}`,
+                );
+              return `${parts.join(' · ')}.`;
+            })()}
         {dirty && ' What you changed is not applied yet.'}
       </p>
     </section>
