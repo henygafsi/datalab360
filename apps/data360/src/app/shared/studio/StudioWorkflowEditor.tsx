@@ -54,6 +54,32 @@ function errText(e: unknown): string {
   return readFailure(detail ?? e).text;
 }
 
+/**
+ * The AI refine lane (editModel) is NOT scoped to this workflow's edit_paths,
+ * so a phrase like "with the KPIs in the report" can make it target the
+ * report or the model instead of the alert — and the reader gets a raw
+ * "max 5 kpis per report" that names a part of the app this chat can't touch.
+ * When the refusal carries a `path` OUTSIDE /automation, say the AI drifted
+ * and name what this chat CAN edit (the alert's schedule / condition /
+ * destination) instead of surfacing the misdirected backend message.
+ */
+function refineErrorText(e: unknown): string {
+  const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  const path = (detail as { path?: unknown })?.path;
+  if (typeof path === 'string' && path.length > 0 && !path.startsWith('/automation')) {
+    return (
+      'The AI read that as a change to the report, not to this alert — so the ' +
+      'backend refused it (' +
+      errText(e) +
+      '). This chat only edits the alert itself: when it fires (its schedule), ' +
+      'the condition that triggers it (When / If), and where it sends (Then). ' +
+      'Try naming one of those — e.g. “send it every hour” or “only when the ' +
+      'daily total drops below 100”.'
+    );
+  }
+  return errText(e);
+}
+
 function isUnsupportedPath(e: unknown): boolean {
   return JSON.stringify((e as { response?: { data?: unknown } })?.response?.data ?? '').includes(
     'EDIT_PATH_NOT_ALLOWED',
@@ -430,7 +456,7 @@ export default function StudioWorkflowEditor({
       }
     } catch (e) {
       setAiState({ kind: 'idle' });
-      setError(errText(e));
+      setError(refineErrorText(e));
     }
   }, [aiState.kind, aiText, aid, draftId, w.name]);
 
