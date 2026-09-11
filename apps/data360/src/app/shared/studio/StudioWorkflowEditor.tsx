@@ -48,6 +48,7 @@ import {
   type WorkflowVersions,
 } from '@/app/services/studio/studio-api';
 import { readFailure } from '@/app/shared/studio/studio-errors';
+import StudioEmailAlertPanel from '@/app/shared/studio/StudioEmailAlertPanel';
 
 function errText(e: unknown): string {
   const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
@@ -789,6 +790,18 @@ export default function StudioWorkflowEditor({
                 )}
               </p>
             )}
+
+            {/* Deliver by e-mail — the destination reads « in-app / e-mail:
+                not integrated » until this is configured; a save stores, it
+                never sends, and a test is one governed [TEST] message. */}
+            <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+              <StudioEmailAlertPanel
+                draftId={draftId}
+                automationId={aid}
+                initialEmail={w.email}
+                onConfigured={onChanged}
+              />
+            </div>
           </div>
 
           {/* the NL lane — same definition, previewed ops, never silent */}

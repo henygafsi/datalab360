@@ -1994,6 +1994,126 @@ export interface WorkflowItem {
   last_preview?: Record<string, unknown> | null;
   test_runs?: Array<Record<string, unknown>>;
   stopped?: { verification?: { ok?: boolean; checks?: Record<string, unknown> } } | null;
+  /** the wired delivery channels — in_app is always here; email joins once
+   *  it is configured (before that it lives under `email`, not_available). */
+  destinations?: Array<{
+    capability?: string;
+    executable?: boolean;
+    kind?: string;
+    label?: string;
+    status?: string;
+    test_destination?: string;
+  }>;
+  /** e-mail channel state on this workflow (configured?/config/last_test). */
+  email?: WorkflowEmailState;
+}
+
+/* ── E-mail alerting (notify.email — SYSTEM$SEND_EMAIL, no external SMTP) ─ */
+
+export interface EmailTemplate {
+  id: 'professional' | 'custom' | string;
+  label?: string;
+  description?: string;
+  placeholders?: string[];
+}
+
+export interface EmailEnrollment {
+  status?: 'enrolled' | 'not_enrolled' | 'not_readable' | string;
+  enrolled?: boolean;
+  readable?: boolean;
+  error?: string | null;
+  at?: string;
+  integrations?: Array<{ name?: string; enabled?: boolean }>;
+  enroll_sql?: { sql?: string[]; who?: string; note?: string };
+}
+
+export interface EmailCapability {
+  capability?: string;
+  label?: string;
+  engine?: string;
+  requirements?: Array<{ id?: string; what?: string; who?: string; checked_by?: string }>;
+  config_schema?: Record<string, unknown>;
+  templates?: EmailTemplate[];
+  limits?: { recipients_max?: number; body_max_chars?: number; rows_max?: number };
+  routes?: Record<string, string>;
+  governance?: string[];
+  enrollment?: EmailEnrollment;
+}
+
+export interface WorkflowEmailConfig {
+  integration?: string;
+  recipients?: string[];
+  subject?: string | null;
+  template?: 'professional' | 'custom' | string;
+  custom_html?: string | null;
+  include?: { rows_limit?: number };
+}
+
+export interface WorkflowEmailState {
+  capability?: string;
+  configured?: boolean;
+  config?: WorkflowEmailConfig | null;
+  last_test?: Record<string, unknown> | null;
+}
+
+export interface EmailSaveResult {
+  status?: string;
+  version?: number;
+  config?: WorkflowEmailConfig;
+  warnings?: string[];
+  preview?: { subject?: string; html?: string; rows_source?: string };
+  sql?: string | string[];
+  sent?: boolean;
+  next?: Record<string, unknown>;
+  /** on 422 EMAIL_CONFIG_INVALID (returned by the caller's catch) */
+  errors?: Array<{ field?: string; error?: string; values?: unknown }>;
+}
+
+export interface EmailTestResult {
+  status?: 'sent' | 'failed' | 'dry_run' | string;
+  query_id?: string;
+  error_code?: string;
+  reason?: string;
+  call?: string;
+  [k: string]: unknown;
+}
+
+/** GET the e-mail capability + this account's enrollment. Metadata only. */
+export async function getEmailCapability(): Promise<EmailCapability> {
+  const { data } = await apiClient.get<EmailCapability>(API.studio.capabilitiesEmail(), {
+    timeout: 30_000,
+  });
+  return data ?? {};
+}
+
+/** PUT the e-mail config on a workflow. Validates + stores; SENDS NOTHING. A
+ *  422 EMAIL_CONFIG_INVALID is re-thrown for the caller to read as errors[]. */
+export async function putWorkflowEmail(
+  draftId: string,
+  aid: string,
+  body: WorkflowEmailConfig,
+): Promise<EmailSaveResult> {
+  return studioMutate<EmailSaveResult>(
+    'PUT',
+    API.studio.workflowEmail(draftId, aid),
+    body,
+    120_000,
+  );
+}
+
+/** POST a test. confirm:false = dry-run (the exact call, nothing sent);
+ *  confirm:true = ONE [TEST] message to the configured recipients. */
+export async function testWorkflowEmail(
+  draftId: string,
+  aid: string,
+  confirm: boolean,
+): Promise<EmailTestResult> {
+  return studioMutate<EmailTestResult>(
+    'POST',
+    API.studio.workflowEmailTest(draftId, aid),
+    { confirm },
+    120_000,
+  );
 }
 
 export interface WorkflowPreview {

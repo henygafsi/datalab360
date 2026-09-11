@@ -1391,6 +1391,22 @@ export const API = {
     workflowRemove: (draftId: string, aid: string) =>
       `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}`,
 
+    /** GET — the e-mail alerting capability: engine, enrollment (integration
+     *  status + ACCOUNTADMIN enroll_sql), templates (professional | custom),
+     *  limits and governance. Metadata only, nothing is created. */
+    capabilitiesEmail: () => '/studio/capabilities/email',
+    /** PUT {integration, recipients[1..10], subject?, template, custom_html?,
+     *  include{rows_limit 0..50}} — validates + stores; sends NOTHING. 422
+     *  EMAIL_CONFIG_INVALID{errors[]} or {status, config, warnings, preview,
+     *  sql, sent:false}. */
+    workflowEmail: (draftId: string, aid: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}/email`,
+    /** POST {confirm} — confirm:false dry-run; confirm:true sends ONE
+     *  [TEST] message to the configured recipients. 409 EMAIL_NOT_CONFIGURED
+     *  before a save. */
+    workflowEmailTest: (draftId: string, aid: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}/email/test`,
+
     /** POST {} — the app's GENERATED governance names (app_key, hidden
      *  access role, ≤5 functional roles) + per-column RLS candidates with
      *  observed values; read-only suggestion, nothing executes. */
