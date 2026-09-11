@@ -23,11 +23,30 @@ import ReactFlow, {
   Background,
   BackgroundVariant,
   Controls,
+  Handle,
+  Position,
   type Edge,
   type Node,
+  type NodeProps,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Mail, Play, RefreshCw, Search, Sparkles, Square, X } from 'lucide-react';
+import {
+  BarChart3,
+  Bell,
+  Database,
+  GitBranch,
+  type LucideIcon,
+  Mail,
+  Play,
+  RefreshCw,
+  Search,
+  Send,
+  Sparkles,
+  Square,
+  Ticket,
+  Workflow,
+  X,
+} from 'lucide-react';
 import {
   editModel,
   getBlocksCatalog,
@@ -104,6 +123,79 @@ function isUnsupportedPath(e: unknown): boolean {
     'EDIT_PATH_NOT_ALLOWED',
   );
 }
+
+/** The step's kind → an icon + a semantic tone, so the canvas reads as a real
+ *  workflow (a bell for a notification, an envelope for e-mail, a branch for a
+ *  condition) instead of identical boxes. Capability is authoritative; the
+ *  block type and the (possibly localized) label are the fallback signal. */
+function stepIcon(blockType?: string, capability?: string, label?: string): {
+  Icon: LucideIcon;
+  tone: string;
+} {
+  const cap = (capability ?? '').toLowerCase();
+  if (cap.startsWith('notify.email')) return { Icon: Mail, tone: 'text-sky-600 dark:text-sky-400' };
+  if (cap.startsWith('notify')) return { Icon: Bell, tone: 'text-amber-600 dark:text-amber-400' };
+  if (cap.startsWith('ticket')) return { Icon: Ticket, tone: 'text-violet-600 dark:text-violet-400' };
+  const k = `${blockType ?? ''} ${label ?? ''}`.toLowerCase();
+  if (/mail|e-mail|courriel/.test(k)) return { Icon: Mail, tone: 'text-sky-600 dark:text-sky-400' };
+  if (/notif|alert|inbox|in.?app/.test(k)) return { Icon: Bell, tone: 'text-amber-600 dark:text-amber-400' };
+  if (/ticket/.test(k)) return { Icon: Ticket, tone: 'text-violet-600 dark:text-violet-400' };
+  if (/condition|branch|filtre|filter|lorsque|quand|\bif\b|\bsi\b/.test(k))
+    return { Icon: GitBranch, tone: 'text-fuchsia-600 dark:text-fuchsia-400' };
+  if (/rapport|report|kpi|chart|résumé|resume|summary|indicateur/.test(k))
+    return { Icon: BarChart3, tone: 'text-emerald-600 dark:text-emerald-400' };
+  if (/requ|query|sql|exécut|execut|\brun\b|read|calcul|compute/.test(k))
+    return { Icon: Database, tone: 'text-blue-600 dark:text-blue-400' };
+  if (/export|livr|deliver|send|envoi|webhook|http/.test(k))
+    return { Icon: Send, tone: 'text-teal-600 dark:text-teal-400' };
+  return { Icon: Workflow, tone: 'text-slate-500 dark:text-slate-400' };
+}
+
+interface StepNodeData {
+  n: number;
+  label: string;
+  blockType?: string;
+  capability?: string;
+  selected?: boolean;
+  [k: string]: unknown;
+}
+
+/** A workflow step as a real component: icon + « Step N » + business label,
+ *  with source/target handles so the sequence edges connect. */
+function StudioStepNode({ data }: NodeProps<StepNodeData>) {
+  const { Icon, tone } = stepIcon(data.blockType, data.capability, data.label);
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-xl border bg-white px-3 py-2 shadow-sm dark:bg-slate-900 ${
+        data.selected
+          ? 'border-accent-500 ring-2 ring-accent-500/40'
+          : 'border-slate-300 dark:border-slate-700'
+      }`}
+      style={{ minWidth: 156 }}
+    >
+      <Handle type="target" position={Position.Left} style={{ background: '#94a3b8' }} />
+      <span
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 ${tone}`}
+      >
+        <Icon aria-hidden className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          Step {data.n}
+        </div>
+        <div
+          title={data.label}
+          className="max-w-[160px] truncate text-[13px] font-medium text-slate-800 dark:text-slate-100"
+        >
+          {data.label}
+        </div>
+      </div>
+      <Handle type="source" position={Position.Right} style={{ background: '#94a3b8' }} />
+    </div>
+  );
+}
+
+const STEP_NODE_TYPES = { studioStep: StudioStepNode };
 
 interface EditPaths {
   name?: string;
@@ -573,18 +665,20 @@ export default function StudioWorkflowEditor({
     () =>
       steps.map((s, i) => {
         const gn = graphMeta[i] as { position?: { x?: number; y?: number } } | undefined;
+        const step = s as StepDef;
         return {
           id: String(i),
+          type: 'studioStep',
           position:
             gn?.position?.x != null && gn?.position?.y != null
               ? { x: gn.position.x, y: gn.position.y }
               : { x: i * 240, y: (i % 2) * 90 },
-          data: { label: `${i + 1} · ${s.label ?? s.block_type ?? 'step'}` },
-          style: {
-            fontSize: 12,
-            borderRadius: 12,
-            padding: 8,
-            ...(selStep === i ? { border: '2px solid rgb(124 58 237)' } : {}),
+          data: {
+            n: i + 1,
+            label: String(step.label ?? step.block_type ?? 'step'),
+            blockType: step.block_type,
+            capability: step.capability,
+            selected: selStep === i,
           },
         };
       }),
@@ -961,6 +1055,7 @@ export default function StudioWorkflowEditor({
                 <ReactFlow
                   nodes={flowNodes}
                   edges={flowEdges}
+                  nodeTypes={STEP_NODE_TYPES}
                   onNodeClick={(_, n) => setSelStep(Number(n.id))}
                   fitView
                   proOptions={{ hideAttribution: true }}
