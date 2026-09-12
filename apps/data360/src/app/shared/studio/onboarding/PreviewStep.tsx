@@ -6,10 +6,11 @@
  * Generated once from the understanding the user confirmed in the previous
  * step (sessionStorage seam `studio:understanding:v1`), then every figure is
  * actually RUN on the user's permitted data via /studio/report/run — nothing
- * is faked, and unavailable pieces say so. Light edits (aggregator / time
- * grain) mutate the chart spec LOCALLY, validate, and re-run that one tile;
- * there is never a full regeneration. Provenance stays visible: read time,
- * sample scope, and the exact SQL behind the figures.
+ * is faked, and unavailable pieces say so. The preview is READ-ONLY (user
+ * directive): it renders the LLM-proposed tracking with the real chart
+ * engine — refining happens in words via the chat, and free editing belongs
+ * to the application's report editor once created. Provenance stays visible:
+ * read time, sample scope, and the exact SQL behind the figures.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -260,43 +261,10 @@ export default function PreviewStep({
     [dateFrom, dateTo, dateFilter, runAll],
   );
 
-  /** Light edit: patch the spec locally (stable id), validate, re-run ONE tile. */
-  const editChart = useCallback(
-    async (chartId: string, patch: { aggregator?: string; grain?: string }) => {
-      const prev = specsRef.current[chartId];
-      if (!prev) return;
-      const next: StudioChartSpec = { ...prev };
-      if (patch.aggregator && prev.measures.length > 0) {
-        next.measures = prev.measures.map((m, i) =>
-          i === 0 ? { ...m, aggregator: patch.aggregator as string } : m,
-        );
-      }
-      if (patch.grain && prev.time) next.time = { ...prev.time, grain: patch.grain };
-      specsRef.current = { ...specsRef.current, [chartId]: next };
-      setSpecs(specsRef.current);
-      setTile(chartId, { status: 'running' });
-      try {
-        const v = await validateChart(next, gfRef.current);
-        const valid = v?.ok === true || (v as { status?: string })?.status === 'valid';
-        if (!valid) {
-          const reason = (v as { error?: unknown })?.error;
-          setTile(chartId, {
-            status: 'error',
-            error:
-              typeof reason === 'string' && reason
-                ? reason
-                : 'That combination is not valid for this data.',
-          });
-          return;
-        }
-        const result = await runChart(next, gfRef.current);
-        setTile(chartId, { status: 'done', result });
-      } catch (e) {
-        setTile(chartId, { status: 'error', error: errMsg(e) });
-      }
-    },
-    [setTile],
-  );
+  /* the per-tile aggregator/grain selects were removed (user directive: the
+     preview is a READ-ONLY rendering of the LLM-proposed tracking) — refining
+     happens in words via the chat below; free editing belongs to the report
+     editor once the application is created. */
 
   /** K3 apply landed: fold the exact before→after diff into the local
    *  report (no regeneration), then re-run ONLY the tiles whose DATA
@@ -551,9 +519,7 @@ export default function PreviewStep({
             const tile = tiles[c.chart_id];
             const unavailable = spec.status === 'unavailable';
             const agg = (spec.measures[0]?.aggregator ?? 'SUM').toUpperCase();
-            const aggOptions = AGGREGATORS.includes(agg) ? AGGREGATORS : [agg, ...AGGREGATORS];
             const grain = spec.time?.grain ?? '';
-            const grainOptions = grain && !GRAINS.includes(grain) ? [grain, ...GRAINS] : GRAINS;
             return (
               <div key={c.chart_id} className="rounded-xl border border-slate-200 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-900">
                 <div className="flex items-center justify-between gap-2">
@@ -563,38 +529,18 @@ export default function PreviewStep({
                   >
                     {spec.title}
                   </p>
+                  {/* the preview is READ-ONLY — the LLM's proposed tracking,
+                      rendered by the real chart engine. The definition (agg,
+                      grain) shows as text; editing belongs to the application's
+                      report editor once created, or to the refine chat in words. */}
                   {!unavailable && (
-                    <div className="flex shrink-0 items-center gap-1">
-                      {spec.measures.length > 0 && (
-                        <select
-                          aria-label={`Aggregation for ${spec.title}`}
-                          value={agg}
-                          onChange={(e) => void editChart(c.chart_id, { aggregator: e.target.value })}
-                          className="h-6 rounded border border-slate-200 bg-white px-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                        >
-                          {aggOptions.map((a) => (
-                            <option key={a} value={a}>{a}</option>
-                          ))}
-                        </select>
-                      )}
-                      {spec.time && (
-                        <select
-                          aria-label={`Time grain for ${spec.title}`}
-                          value={grain}
-                          onChange={(e) => void editChart(c.chart_id, { grain: e.target.value })}
-                          className="h-6 rounded border border-slate-200 bg-white px-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                        >
-                          {/* A chart with a time axis but no declared grain
-                              has value "" — which matches no option, so the
-                              control rendered blank on a spec that is
-                              perfectly valid. Name the state instead. */}
-                          {grain === '' && <option value="">grain…</option>}
-                          {grainOptions.map((g) => (
-                            <option key={g} value={g}>{g}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
+                    <p
+                      className="shrink-0 text-[11px] text-slate-400 dark:text-slate-500"
+                      title="The preview is read-only — refine it in words in the chat, or edit freely once the application is created."
+                    >
+                      {agg}
+                      {grain ? ` · ${grain}` : ''}
+                    </p>
                   )}
                 </div>
                 <div className="mt-1.5 h-56">

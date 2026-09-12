@@ -134,6 +134,18 @@ function toErrorMessage(e: unknown): string {
     data && typeof data === 'object' && 'detail' in data && data.detail && typeof data.detail === 'object'
       ? data.detail
       : data;
+  // A validation refusal (FastAPI/Pydantic) arrives as an ARRAY of
+  // {type, loc, msg, input} — it must NEVER render as raw JSON in the UI.
+  if (Array.isArray(payload)) {
+    const msgs = [
+      ...new Set(
+        payload
+          .map((p) => (p as { msg?: string })?.msg)
+          .filter((m): m is string => typeof m === 'string' && m.length > 0),
+      ),
+    ].slice(0, 2);
+    if (msgs.length) return `The request was refused: ${msgs.join(' · ')}.`;
+  }
   if (payload != null) {
     const f = readFailure(payload);
     if (f.text && f.text !== 'This did not go through.') return f.text;
@@ -246,8 +258,15 @@ export default function UnderstandingStep({
 
   const aiPickTables = async (hint?: string) => {
     if (aiPick === 'running' || byDb == null) return;
-    const candidates = byDb.flatMap((d) => d.objects.map((o) => ({ fqn: o.fqn })));
-    if (candidates.length === 0) return;
+    const all = byDb.flatMap((d) => d.objects.map((o) => ({ fqn: o.fqn })));
+    if (all.length === 0) return;
+    /* the ranking endpoint takes at most 200 candidates — a wide database
+       (389 tables on a real account) used to bounce as a raw validation
+       refusal painted into the UI. Cap deterministically and SAY so below,
+       never a silent truncation nor raw JSON. */
+    const RANK_CAP = 200;
+    const candidates = all.slice(0, RANK_CAP);
+    const capped = all.length > RANK_CAP;
     setAiPick('running');
     setAiPickError(null);
     setRefineNote(null);
@@ -284,6 +303,11 @@ export default function UnderstandingStep({
       if (hint?.trim() && rankSig(suggestions) === priorSig) {
         setRefineNote(
           'That refinement didn’t change the ranking — the match is on words that appear in the table and column names. Try a table name, a column, or a term you can see in the list.',
+        );
+      } else if (capped) {
+        // never a silent cap — the reader must know the ranking saw a subset
+        setRefineNote(
+          `Ranked the first ${RANK_CAP} of ${all.length} tables — the ranker takes at most ${RANK_CAP} at a time. Narrow the database pick to cover the rest.`,
         );
       }
       setAiPick('done');
@@ -1004,6 +1028,7 @@ export default function UnderstandingStep({
           <DecisionsPanel
             draftId={analysisDraftId}
             decisions={decisions}
+            entities={entities}
             onReportStale={() => setReportStale(true)}
           />
           {reportStale && (
