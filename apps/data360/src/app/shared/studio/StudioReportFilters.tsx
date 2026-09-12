@@ -333,7 +333,7 @@ export default function StudioReportFilters({
                     type="date"
                     value={v.from ?? ''}
                     onChange={(e) => set(id, { from: e.target.value })}
-                    className="h-8 w-[150px] rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    className="h-8 w-[150px] rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 [color-scheme:light] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:[color-scheme:dark]"
                   />
                 </label>
                 <label className="block">
@@ -342,7 +342,7 @@ export default function StudioReportFilters({
                     type="date"
                     value={v.to ?? ''}
                     onChange={(e) => set(id, { to: e.target.value })}
-                    className="h-8 w-[150px] rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    className="h-8 w-[150px] rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 [color-scheme:light] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:[color-scheme:dark]"
                   />
                 </label>
               </div>

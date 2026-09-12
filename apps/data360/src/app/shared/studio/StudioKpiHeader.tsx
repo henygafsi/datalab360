@@ -76,6 +76,9 @@ export default function StudioKpiHeader({
             <div className="flex items-center gap-1.5">
               {Icon && <Icon aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />}
               <span className="truncate text-xs text-slate-500 dark:text-slate-400">{k.label}</span>
+              {/* the method is the honesty mechanism — reach it without a mouse:
+                  the title serves hover, this serves keyboard/screen-reader */}
+              {k.method && <span className="sr-only"> — how computed: {k.method}</span>}
             </div>
             <div
               className={`mt-0.5 truncate text-xl font-semibold tabular-nums ${
