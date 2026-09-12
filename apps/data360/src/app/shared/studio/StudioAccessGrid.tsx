@@ -155,10 +155,20 @@ export default function StudioAccessGrid({
     }
   }, [draftId]);
 
-  // opening the PII layer reads what's already there (detect is explicit).
+  /* AGENTIC: the persisted classification is read when the grid mounts — a
+     free GET of an existing run, never a re-detection — so the grid can LEAD
+     with what the AI already understood ("N columns look personal") instead
+     of waiting for someone to press a button. Detection itself (a new run)
+     stays an explicit click. */
   useEffect(() => {
-    if (layer === 'pii' && pii === null) void loadPii();
-  }, [layer, pii, loadPii]);
+    if (pii === null) void loadPii();
+  }, [pii, loadPii]);
+
+  /** proposals still waiting on a human call — the deduced call-to-action */
+  const piiUndecided = useMemo(
+    () => (pii && pii !== null ? (pii.findings ?? []).filter((f) => f.pii !== false && !f.decision).length : 0),
+    [pii],
+  );
 
   const decide = useCallback(
     async (f: PiiFinding, decision: 'confirm' | 'reject') => {
@@ -294,6 +304,20 @@ export default function StudioAccessGrid({
             </span>
           )}
         </div>
+        {/* the DEDUCED call-to-action — the AI already classified the columns
+            (persisted run, free read); the user accepts or rejects, they never
+            have to know a "detect" button exists. */}
+        {piiUndecided > 0 && layer !== 'pii' && (
+          <button
+            type="button"
+            onClick={() => setLayer('pii')}
+            className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-amber-300/70 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-200 dark:hover:bg-amber-950/50"
+          >
+            <Fingerprint aria-hidden className="h-3.5 w-3.5" />
+            {piiUndecided} column{piiUndecided > 1 ? 's' : ''} look{piiUndecided > 1 ? '' : 's'} personal —
+            review &amp; mask
+          </button>
+        )}
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           Every role reads the {tablesCount ?? '—'} table(s) this application exposes
           {accessRole ? (
@@ -315,7 +339,11 @@ export default function StudioAccessGrid({
           const on = layer === l.id;
           const Icon = l.icon;
           const count =
-            l.id === 'rls' ? stagedRules || undefined : l.id === 'cls' ? stagedMasks || undefined : undefined;
+            l.id === 'rls'
+              ? stagedRules || undefined
+              : l.id === 'cls'
+                ? stagedMasks || undefined
+                : piiUndecided || undefined;
           return (
             <button
               key={l.id}

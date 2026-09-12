@@ -1415,16 +1415,13 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
 
   return (
     <div className="flex flex-col gap-3 p-4 md:p-6">
+      {/* the header carries the NAME and the state chips only — the long
+          AI-written need paragraph moved off it (user directive: standardized
+          headers without the AI description); the why/goal lives on Overview. */}
       <PlainQuestionHeader
         question={(() => {
           const d = drafts.find((x) => x.draft_id === draftId);
           return String(d?.display_name ?? model?.title ?? d?.title ?? 'Application workspace');
-        })()}
-        detail={(() => {
-          /* the subtitle describes THIS application, never the implementation */
-          const d = drafts.find((x) => x.draft_id === draftId);
-          const need = d?.need ?? null;
-          return need ? String(need) : undefined;
         })()}
         onRename={async (next) => {
           if (!draftId) return;

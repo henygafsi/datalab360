@@ -204,7 +204,9 @@ export default function StudioWorkflowsPanel({
           ) : (
             <Sparkles aria-hidden className="h-3.5 w-3.5" />
           )}
-          {proposing ? 'Proposing…' : 'Suggest workflows'}
+          {/* when proposals are already on screen the AI has spoken — the
+              button is a secondary "more", not the way to wake it up */}
+          {proposing ? 'Proposing…' : suggestedCount > 0 ? 'Propose more' : 'Suggest workflows'}
         </button>
         {onOpenActivation && (
           <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
