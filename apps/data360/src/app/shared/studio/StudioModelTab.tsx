@@ -37,12 +37,20 @@ function pctTone(p?: number | null): Kpi['tone'] {
  *  render as "—" (StudioKpiHeader), never an invented 0 or 100. */
 function modelKpis(s: ModelSummary | null): Kpi[] {
   if (!s) return [];
-  const m = s.method ?? undefined;
+  /* `method` is either ONE string for the whole model or a per-metric map
+     keyed by score field — resolve the right string per KPI, never the map. */
+  const methodOf = (key: string): string | undefined => {
+    const m = s.method;
+    if (m == null) return undefined;
+    if (typeof m === 'string') return m;
+    if (typeof m === 'object') return m[key];
+    return undefined;
+  };
   return [
-    { key: 'coverage', label: 'Model coverage', value: s.model_coverage_pct ?? null, unit: '%', icon: Target, tone: pctTone(s.model_coverage_pct), method: m },
-    { key: 'readiness', label: 'Semantic readiness', value: s.semantic_readiness_pct ?? null, unit: '%', icon: ShieldCheck, tone: pctTone(s.semantic_readiness_pct), method: m },
-    { key: 'alignment', label: 'Business alignment', value: s.business_alignment_pct ?? null, unit: '%', icon: Sparkles, tone: pctTone(s.business_alignment_pct), method: m },
-    { key: 'join', label: 'Join confidence', value: s.join_confidence_pct ?? null, unit: '%', icon: GitBranch, tone: pctTone(s.join_confidence_pct), method: m },
+    { key: 'coverage', label: 'Model coverage', value: s.model_coverage_pct ?? null, unit: '%', icon: Target, tone: pctTone(s.model_coverage_pct), method: methodOf('model_coverage_pct') },
+    { key: 'readiness', label: 'Semantic readiness', value: s.semantic_readiness_pct ?? null, unit: '%', icon: ShieldCheck, tone: pctTone(s.semantic_readiness_pct), method: methodOf('semantic_readiness_pct') },
+    { key: 'alignment', label: 'Business alignment', value: s.business_alignment_pct ?? null, unit: '%', icon: Sparkles, tone: pctTone(s.business_alignment_pct), method: methodOf('business_alignment_pct') },
+    { key: 'join', label: 'Join confidence', value: s.join_confidence_pct ?? null, unit: '%', icon: GitBranch, tone: pctTone(s.join_confidence_pct), method: methodOf('join_confidence_pct') },
     { key: 'facts', label: 'Fact tables', value: s.facts ?? null, icon: Table2 },
     { key: 'dims', label: 'Conformed dimensions', value: s.dimensions ?? null, icon: Boxes },
     { key: 'entities', label: 'Business entities', value: s.entities ?? null, icon: Layers },

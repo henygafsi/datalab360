@@ -33,7 +33,11 @@ export interface ModelSummary {
   used_by_reports?: Record<string, { kpis?: string[]; charts?: string[]; reports?: number }> | null;
   last_build?: string | null;
   version?: number | string | null;
-  method?: string | null;
+  definition_version?: number | string | null;
+  /** how each score was computed. The backend may send ONE string for the whole
+   *  model, or a per-metric map keyed by the score field ({model_coverage_pct:
+   *  "…", …}) — both shapes are handled where it is rendered. */
+  method?: string | Record<string, string> | null;
 }
 
 export interface SourcesSummary {

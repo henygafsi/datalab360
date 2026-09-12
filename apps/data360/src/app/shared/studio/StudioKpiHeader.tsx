@@ -67,10 +67,14 @@ export default function StudioKpiHeader({
       {kpis.map((k) => {
         const Icon = k.icon;
         const known = k.value != null && k.value !== '';
+        // a method must be a string before it can reach a title or a child — a
+        // non-string (e.g. a per-metric map the caller forgot to resolve) is
+        // dropped, never rendered, so it can never crash the strip.
+        const methodStr = typeof k.method === 'string' ? k.method : undefined;
         return (
           <div
             key={k.key}
-            title={k.method ? `${k.label} — ${k.method}` : k.label}
+            title={methodStr ? `${k.label} — ${methodStr}` : k.label}
             className="min-w-0 rounded-xl border border-slate-200 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-900"
           >
             <div className="flex items-center gap-1.5">
@@ -78,7 +82,7 @@ export default function StudioKpiHeader({
               <span className="truncate text-xs text-slate-500 dark:text-slate-400">{k.label}</span>
               {/* the method is the honesty mechanism — reach it without a mouse:
                   the title serves hover, this serves keyboard/screen-reader */}
-              {k.method && <span className="sr-only"> — how computed: {k.method}</span>}
+              {methodStr && <span className="sr-only"> — how computed: {methodStr}</span>}
             </div>
             <div
               className={`mt-0.5 truncate text-xl font-semibold tabular-nums ${
