@@ -20,6 +20,7 @@ import {
   type TargetsView,
 } from '@/app/services/studio/studio-api';
 import { getStudioSummary, type ModelSummary } from '@/app/services/studio/summary';
+import StudioModelDelivers from '@/app/shared/studio/StudioModelDelivers';
 import StudioModelCanvas from '@/app/shared/studio/StudioModelCanvas';
 import StudioModelCompletion from '@/app/shared/studio/StudioModelCompletion';
 import StudioModelInspector from '@/app/shared/studio/StudioModelInspector';
@@ -150,6 +151,10 @@ export default function StudioModelTab({
       {/* the business-KPI strip — real served figures; a score not yet
           evaluated shows "—", never an invented 0 or 100 */}
       <StudioKpiHeader kpis={modelKpis(summary)} loading={summary === null} />
+
+      {/* what the model DELIVERS — the ROI (which reports/KPIs each object
+          feeds), the impact of a change, and the honest cost picture */}
+      <StudioModelDelivers draftId={draftId} summary={summary} report={report} targets={targets} />
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700" role="tablist" aria-label="Model view">
