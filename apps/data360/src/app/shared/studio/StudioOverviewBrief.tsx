@@ -43,9 +43,12 @@ import { getDraftSources, type DraftSourcesView } from '@/app/services/studio/co
 import { useModelChanged } from '@/app/services/studio/studio-bus';
 import {
   getApplicationContext,
+  getKnowledge,
   type ApplicationContext,
+  type KnowledgeView,
   type ServerLifecycle,
 } from '@/app/services/studio/context';
+import { getStudioSummary, type AccessSummary } from '@/app/services/studio/summary';
 import ActivationStep from '@/app/shared/studio/onboarding/ActivationStep';
 import {
   LIFECYCLE_CLS,
@@ -110,6 +113,8 @@ export default function StudioOverviewBrief({
   const [ctx, setCtx] = useState<ApplicationContext | null>(null);
   const [sources, setSources] = useState<DraftSourcesView | 'error' | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowItem[] | 'error' | null>(null);
+  const [access, setAccess] = useState<AccessSummary | null>(null);
+  const [knowledge, setKnowledge] = useState<KnowledgeView | null>(null);
   const [activationOpen, setActivationOpen] = useState(false);
   const lastSignal = useRef(activationSignal);
 
@@ -131,6 +136,12 @@ export default function StudioOverviewBrief({
     void getWorkflows(draftId)
       .then((r) => setWorkflows(r.items))
       .catch(() => setWorkflows('error'));
+    // live words for the Access and Knowledge rows — free persisted reads;
+    // "—" while unread, never a static sentence pretending to be this app's.
+    void getStudioSummary(draftId, ['access'])
+      .then((r) => setAccess(r.access ?? {}))
+      .catch(() => setAccess(null));
+    void getKnowledge(draftId).then(setKnowledge);
   }, [draftId]);
 
   useEffect(() => load(), [load]);
@@ -337,13 +348,24 @@ export default function StudioOverviewBrief({
     {
       icon: ShieldCheck,
       label: 'Access',
-      words: 'roles, data profiles and the exact grants — with their proof',
+      // live served counts, not the same sentence on every application
+      words: access
+        ? `${access.applied?.masked_columns ?? access.masked_columns ?? '—'} masked applied · ${
+            (access.staged?.mutations ?? 0) > 0 ? `${access.staged?.mutations} staged · ` : ''
+          }${access.footprint?.columns ?? '—'} columns in footprint${
+            (access.pending_count ?? 0) > 0 ? ` · ${access.pending_count} pending approval` : ''
+          }`
+        : '—',
       go: 'governance',
     },
     {
       icon: BookOpen,
       label: 'Knowledge',
-      words: 'your words and what the analyses learned — review what is proposed',
+      words: knowledge?.counts
+        ? `${knowledge.counts.confirmed ?? '—'} confirmed · ${knowledge.counts.proposed ?? '—'} proposed to review${
+            (knowledge.counts.stale ?? 0) > 0 ? ` · ${knowledge.counts.stale} stale` : ''
+          }`
+        : '—',
       go: 'knowledge',
     },
   ];

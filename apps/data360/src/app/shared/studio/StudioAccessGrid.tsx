@@ -143,17 +143,20 @@ export default function StudioAccessGrid({
     }
   }, [draftId]);
 
-  const runDetect = useCallback(async () => {
-    setPiiBusy(true);
-    setPiiErr(null);
-    try {
-      setPii(await detectPii(draftId, { use_sample: false }));
-    } catch (e) {
-      setPiiErr(e instanceof Error ? e.message : 'Detection failed.');
-    } finally {
-      setPiiBusy(false);
-    }
-  }, [draftId]);
+  const runDetect = useCallback(
+    async (useSample = false) => {
+      setPiiBusy(true);
+      setPiiErr(null);
+      try {
+        setPii(await detectPii(draftId, { use_sample: useSample }));
+      } catch (e) {
+        setPiiErr(e instanceof Error ? e.message : 'Detection failed.');
+      } finally {
+        setPiiBusy(false);
+      }
+    },
+    [draftId],
+  );
 
   /* AGENTIC: the persisted classification is read when the grid mounts — a
      free GET of an existing run, never a re-detection — so the grid can LEAD
@@ -377,7 +380,9 @@ export default function StudioAccessGrid({
           piiBusy={piiBusy}
           piiErr={piiErr}
           deciding={deciding}
-          onDetect={runDetect}
+          onDetect={() => void runDetect(false)}
+          onDetectContent={() => void runDetect(true)}
+          footprintColumns={fp?.columns ?? null}
           onDecide={decide}
           masking={masking}
         />
@@ -832,6 +837,8 @@ function PiiPanel({
   piiErr,
   deciding,
   onDetect,
+  onDetectContent,
+  footprintColumns,
   onDecide,
   masking,
 }: {
@@ -840,6 +847,10 @@ function PiiPanel({
   piiErr: string | null;
   deciding: string | null;
   onDetect: () => void;
+  /** the bounded content pass (use_sample) — credit-costing, labelled so */
+  onDetectContent?: () => void;
+  /** the honest denominator — how many columns the app actually reads */
+  footprintColumns?: number | null;
   onDecide: (f: PiiFinding, d: 'confirm' | 'reject') => void;
   masking: { columns: string[]; unmasked: string[] };
 }) {
@@ -857,15 +868,35 @@ function PiiPanel({
           <Fingerprint aria-hidden className="h-3.5 w-3.5" />
           PII / GDPR — sensitive columns
         </p>
-        <button
-          type="button"
-          disabled={piiBusy}
-          onClick={onDetect}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
-        >
-          {piiBusy ? <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" /> : <Fingerprint aria-hidden className="h-3.5 w-3.5" />}
-          {pii && (pii.findings?.length ?? 0) > 0 ? 'Re-detect' : 'Detect PII / GDPR'}
-        </button>
+        <span className="ml-auto flex items-center gap-1.5">
+          {/* a NAME-only run already exists: the credit-costing content pass is
+              the deduced next step for proposals stuck at "proposed" — labelled
+              with its cost, never a bare verb */}
+          {onDetectContent && pii && (pii.findings?.length ?? 0) > 0 && (
+            <button
+              type="button"
+              disabled={piiBusy}
+              onClick={onDetectContent}
+              title="Reads a bounded sample of the real values to turn name-based proposals into evidence — a credit-costing read, never run on its own"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:border-slate-300 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-300"
+            >
+              Add content evidence (credit-costing)
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={piiBusy}
+            onClick={onDetect}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+          >
+            {piiBusy ? <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" /> : <Fingerprint aria-hidden className="h-3.5 w-3.5" />}
+            {/* the button carries its deduced denominator — what it would
+                classify, and that the name pass is free */}
+            {pii && (pii.findings?.length ?? 0) > 0
+              ? 'Re-detect (name-based, free)'
+              : `Detect PII / GDPR${footprintColumns != null ? ` — classify the ${footprintColumns} columns` : ''} (name-based, free)`}
+          </button>
+        </span>
       </div>
 
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">

@@ -143,6 +143,9 @@ export default function SourcesStep({
   const [scanProgress, setScanProgress] = useState<ContentScanProgress | null>(null);
   /** the backend's own per-table time estimate, shown while it runs */
   const [scanEta, setScanEta] = useState<string | null>(null);
+  /** a scan that outlived the poll window — kept so « Check again » re-reads
+   *  THE SAME paid scan (a free GET) instead of paying for a new one */
+  const [pendingScanId, setPendingScanId] = useState<string | null>(null);
   const discovered = useRef(false);
 
   /** Iteration B: when name-match finds nothing, the user can point the
@@ -193,7 +196,7 @@ export default function SourcesStep({
    *  uniqueness, FKs by join coverage, per-column sample DQ and a
    *  fact/dimension sketch — and ranks by CONTENT relevance to the need.
    *  202 + polling; a budget stop is said and raisable, never hidden. */
-  const scanAll = async () => {
+  const scanAll = async (resumeScanId?: string) => {
     if (basket === 'running') return;
     setBasket('running');
     setScanProgress(null);
@@ -203,7 +206,7 @@ export default function SourcesStep({
       .catch(() => undefined);
     try {
       let scanDraftId = draft.draftId ?? null;
-      if (!scanDraftId) {
+      if (!scanDraftId && !resumeScanId) {
         scanDraftId = await createDraftDirect({ title: draft.need.text.slice(0, 80) || 'New application' });
         if (scanDraftId) onPatch({ draftId: scanDraftId });
       }
@@ -214,26 +217,42 @@ export default function SourcesStep({
       // the scan takes at most 10 databases — the bound is SAID below
       const target = dbs.slice(0, 10);
 
-      const start = await startContentScan({
-        databases: target,
-        draft_id: scanDraftId,
-        need: draft.need.text,
-        domain_id: draft.need.domainId ?? undefined,
-        use_ai: true,
-      });
-      if (!start.scan_id) throw new Error('The content scan did not start.');
-      setScanEta(start.budget?.expected_seconds_per_table ?? null);
-
-      let view: ContentScanView = start;
+      /* resuming re-reads THE SAME scan (free GETs) — the paid start only
+         happens on a fresh run */
+      let scanId: string;
+      let view: ContentScanView;
+      if (resumeScanId) {
+        scanId = resumeScanId;
+        view = await getContentScan(resumeScanId);
+        setScanProgress(view.progress ?? null);
+      } else {
+        const start = await startContentScan({
+          databases: target,
+          draft_id: scanDraftId,
+          need: draft.need.text,
+          domain_id: draft.need.domainId ?? undefined,
+          use_ai: true,
+        });
+        if (!start.scan_id) throw new Error('The content scan did not start.');
+        scanId = start.scan_id;
+        setPendingScanId(start.scan_id);
+        setScanEta(start.budget?.expected_seconds_per_table ?? null);
+        view = start;
+      }
       for (
         let i = 0;
         i < 200 && !['done', 'partial', 'failed'].includes(String(view.status));
         i++
       ) {
         await new Promise((r) => setTimeout(r, 3000));
-        view = await getContentScan(start.scan_id);
+        view = await getContentScan(scanId);
         setScanProgress(view.progress ?? null);
       }
+      /* the poll window can close while the scan still runs server-side — that
+         is a TIMEOUT, never a "nothing matched": the paid scan keeps its id and
+         « Check again » re-reads it for free. */
+      const timedOut = !['done', 'partial', 'failed'].includes(String(view.status));
+      if (!timedOut) setPendingScanId(null);
 
       const tables = view.result?.tables ?? [];
       const items: NonNullable<Exclude<typeof basket, null | 'running'>>['items'] = tables
@@ -269,6 +288,9 @@ export default function SourcesStep({
       const aiErrors = view.result?.ai?.errors ?? [];
       const stopped =
         [
+          timedOut
+            ? 'The scan is still running server-side — nothing here is a « no ». Check again in a moment; the same scan is re-read, never restarted or re-charged.'
+            : null,
           view.status === 'failed' ? 'The scan failed — what was read before the failure is kept.' : null,
           view.status === 'partial' || view.truncated
             ? 'The budget stopped the scan before every table — what was read is kept, and the limit is raisable below.'
@@ -609,6 +631,15 @@ export default function SourcesStep({
               <p role="alert" className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                 {basket.stopped}
               </p>
+              {pendingScanId && (
+                <button
+                  type="button"
+                  onClick={() => void scanAll(pendingScanId)}
+                  className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-amber-300/70 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-amber-500/30 dark:text-amber-200 dark:hover:bg-amber-950/40"
+                >
+                  Check the scan again — free, same scan
+                </button>
+              )}
               {/* raise the limit RIGHT HERE — the answer to "where do I set
                   it?" is where you hit it, admin-gated and recorded */}
               <StudioLimitControl onChanged={() => void scanAll()} />

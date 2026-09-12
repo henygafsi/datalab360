@@ -225,6 +225,8 @@ export default function AutomationStep({
   const simsRef = useRef<Record<string, AutomationSimulateResponse>>({});
   const thresholdsRef = useRef<Record<string, string>>({});
 
+  /** what the proposal itself cost — null until known; the header says it */
+  const [proposeCost, setProposeCost] = useState<number | null>(null);
   const load = useCallback(async (draftId: string) => {
     setPhase({ kind: 'loading' });
     try {
@@ -232,6 +234,7 @@ export default function AutomationStep({
       const list = r.candidates ?? [];
       candidatesRef.current = list;
       setCandidates(list);
+      setProposeCost(typeof r.credits_charged === 'number' ? r.credits_charged : null);
       setPhase({ kind: 'ready' });
     } catch (e) {
       if (errCode(e) === 'REPORT_REQUIRED') setPhase({ kind: 'report-required' });
@@ -316,7 +319,13 @@ export default function AutomationStep({
   const header = (
     <PlainQuestionHeader
       question="Should anything run on its own?"
-      detail="Optional — a simple report needs none of this. Proposed from the report you actually built."
+      detail={`Optional — a simple report needs none of this. Proposed from the report you actually built.${
+        proposeCost != null
+          ? proposeCost === 0
+            ? ' Proposed at no cost.'
+            : ` Proposal cost: ${proposeCost} credit${proposeCost === 1 ? '' : 's'}.`
+          : ''
+      }`}
     />
   );
 
@@ -401,7 +410,12 @@ export default function AutomationStep({
           <QuietAction
             label="Retry"
             icon={RotateCw}
-            onClick={() => draft.draftId && void load(draft.draftId)}
+            // same fallback as boot (:244) — retrying with only draft.draftId
+            // was silently dead when just the report draft exists
+            onClick={() => {
+              const id = draft.preview.reportDraftId ?? draft.draftId;
+              if (id) void load(id);
+            }}
           />
         </div>
         {continueRow}
@@ -743,7 +757,7 @@ export default function AutomationStep({
                       )}
                       <p className="text-slate-500 dark:text-slate-400">
                         {clean
-                          ? `No side effects — nothing was sent. ${r.credits_charged ?? 0} credits.`
+                          ? `No side effects — nothing was sent.${r.credits_charged != null ? ` ${r.credits_charged} credits.` : ' credits: —.'}`
                           : 'The backend reported side effects — check before keeping this automation.'}
                       </p>
                     </div>

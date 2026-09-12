@@ -41,9 +41,19 @@ const STEPS: Array<{ id: JourneyStep; label: string }> = [
 
 function StepRail({ current }: { current: JourneyStep }) {
   const idx = STEPS.findIndex((s) => s.id === current);
+  /* The primary path ends at Understanding — « Looks right — open the
+     application » opens the APPLICATION, where preview, automation and
+     activation live as its views. The rail must not promise steps this wizard
+     will not walk: past-understanding entries render as a separate « then in
+     your application » note — unless a resumed draft is actually ON one of
+     them (the legacy path), where the full rail stays truthful. */
+  const JOURNEY_END = STEPS.findIndex((s) => s.id === 'understanding');
+  const inTail = idx > JOURNEY_END;
+  const shown = inTail ? STEPS : STEPS.slice(0, JOURNEY_END + 1);
+  const tail = STEPS.slice(JOURNEY_END + 1);
   return (
     <ol className="flex flex-wrap items-center gap-1.5" aria-label="Journey progress">
-      {STEPS.map((s, i) => {
+      {shown.map((s, i) => {
         const state = i < idx ? 'done' : i === idx ? 'current' : 'upcoming';
         return (
           <li key={s.id} className="flex items-center gap-1.5">
@@ -64,6 +74,17 @@ function StepRail({ current }: { current: JourneyStep }) {
           </li>
         );
       })}
+      {!inTail && (
+        <li className="flex items-center gap-1.5">
+          <span className="h-px w-4 bg-slate-200 dark:bg-slate-700" aria-hidden />
+          <span
+            className="text-xs text-slate-400 dark:text-slate-500"
+            title="These live inside the application once it opens — its Insights, Automation and Activation views. They are not steps of this wizard."
+          >
+            then in your application: {tail.map((t) => t.label).join(' · ')}
+          </span>
+        </li>
+      )}
     </ol>
   );
 }

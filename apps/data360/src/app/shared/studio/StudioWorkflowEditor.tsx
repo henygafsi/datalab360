@@ -1074,6 +1074,22 @@ export default function StudioWorkflowEditor({
               {testRun.evidence?.is_test_data ? ' · test data' : ''}
             </p>
           )}
+          {/* the deduced NEXT step at the success moment — a green test on an
+              inactive schedule would otherwise end in silence, and the chain
+              propose → review → test → activate stalls right where it worked */}
+          {testRun && onOpenActivation && !(w.schedule as { active?: boolean } | undefined)?.active && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              The test delivered — this workflow&rsquo;s schedule starts once the application is
+              activated.{' '}
+              <button
+                type="button"
+                onClick={onOpenActivation}
+                className="text-accent-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+              >
+                Open the activation panel
+              </button>
+            </p>
+          )}
         </div>
       )}
 

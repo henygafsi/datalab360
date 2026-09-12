@@ -409,6 +409,18 @@ export default function UnderstandingStep({
         draft_id: draft.draftId ?? undefined,
       });
       setAnalysis({ kind: 'done', u });
+      /* persist the PAID run's identity IMMEDIATELY — patching it only when
+         the application is opened meant a closed tab lost the run_id and the
+         only path forward was paying for the analysis again. The draft also
+         learns its backend id when understand auto-created one. */
+      const runId = (u as { run_id?: string }).run_id ?? null;
+      const patch: Partial<JourneyDraft> = {
+        ...(u.draft?.draft_id && !draft.draftId ? { draftId: u.draft.draft_id } : {}),
+        ...(runId
+          ? { understanding: { ...draft.understanding, approvedPlanId: runId } }
+          : {}),
+      };
+      if (Object.keys(patch).length > 0) onPatch(patch);
     } catch (e) {
       setAnalysis({ kind: 'error', message: toErrorMessage(e) });
     }
