@@ -209,11 +209,22 @@ export default function StudioExportMenu({
             >
               {outcome.ok
                 ? outcome.scope === 'visible'
-                  ? `Saved the ${'rows' in outcome ? outcome.rows : 0} rows that were on screen.`
-                  : `Saved ${(outcome as ExportOutcome).rows ?? 0} rows.${
-                      (outcome as ExportOutcome).truncated
+                  ? 'rows' in outcome && outcome.rows != null
+                    ? `Saved the ${outcome.rows} rows that were on screen.`
+                    : 'Saved the rows that were on screen.'
+                  : `${
+                      (outcome as ExportOutcome).rows != null
+                        ? `Saved ${(outcome as ExportOutcome).rows} rows.`
+                        : 'Saved the file — the server did not report a row count.'
+                    }${
+                      // three-state: only claim a cap (or its absence) when the
+                      // server actually said so — silence must not read as a
+                      // guarantee that nothing was capped.
+                      (outcome as ExportOutcome).truncated === true
                         ? ' This is capped by the free preview — it is not the whole answer.'
-                        : ' The server reported no cap on this result.'
+                        : (outcome as ExportOutcome).truncated === false
+                          ? ' The server reported no cap on this result.'
+                          : ''
                     }`
                 : (outcome as ExportOutcome).gated
                   ? `${(outcome as ExportOutcome).gated!.message}${

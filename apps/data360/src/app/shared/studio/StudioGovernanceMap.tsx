@@ -169,7 +169,13 @@ export default function StudioGovernanceMap({
         <button
           type="button"
           disabled={busy != null || canPrepare === false}
-          onClick={onPrepare}
+          // the prepared change, its result and any error render under
+          // « Review & apply »; open it so the outcome is on the tab the user
+          // is looking at, instead of a spinner that stops with nothing shown.
+          onClick={() => {
+            onPrepare();
+            setSubTab('review');
+          }}
           title={
             canPrepare === false
               ? 'Map a person/role, paint a row rule, or mask a column first'
@@ -185,7 +191,12 @@ export default function StudioGovernanceMap({
         <button
           type="button"
           disabled={busy != null}
-          onClick={onTest}
+          // the test results render under « Review & apply » — open it so the
+          // reads show where the user is looking, not on a hidden tab.
+          onClick={() => {
+            onTest();
+            setSubTab('review');
+          }}
           className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-[13px] text-slate-600 hover:border-slate-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
         >
           {busy === 'test' ? (

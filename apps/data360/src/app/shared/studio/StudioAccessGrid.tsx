@@ -277,7 +277,7 @@ export default function StudioAccessGrid({
               title={access.kpi_method ?? undefined}
             >
               <span className="font-medium text-slate-700 dark:text-slate-200">
-                {ap?.masked_columns ?? 0}
+                {ap?.masked_columns ?? '—'}
               </span>{' '}
               masked applied ·{' '}
               <span className="font-medium text-slate-700 dark:text-slate-200">

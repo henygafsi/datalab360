@@ -171,9 +171,20 @@ const PIE_CLASSES = [
 ];
 
 function PieSvg({ s }: { s: { label: string; value: number }[] }) {
-  const parts = s.filter((p) => p.value > 0).slice(0, 8);
-  const total = parts.reduce((a, p) => a + p.value, 0);
-  if (parts.length === 0 || total <= 0) return null;
+  // Sort by size and total over EVERY positive value, so the percentages are
+  // true fractions of the whole — the old first-8/percent-of-subset dropped the
+  // largest category and always fake-summed to 100%.
+  const positive = s.filter((p) => p.value > 0).sort((a, b) => b.value - a.value);
+  const total = positive.reduce((a, p) => a + p.value, 0);
+  if (positive.length === 0 || total <= 0) return null;
+  // top 7 real slices; the tail folds into one honest "Other" that closes the
+  // circle instead of being silently hidden.
+  const TOP = 7;
+  const head = positive.slice(0, TOP);
+  const tail = positive.slice(TOP);
+  const tailValue = tail.reduce((a, p) => a + p.value, 0);
+  const parts =
+    tailValue > 0 ? [...head, { label: `Other (${tail.length})`, value: tailValue }] : head;
   const R = 54;
   const C = 60;
   let angle = -Math.PI / 2;

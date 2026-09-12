@@ -327,11 +327,19 @@ export default function StudioSourceCard({
             <Coins aria-hidden className="h-3.5 w-3.5" />
             Storage cost
           </p>
-          {cost.state === 'estimated' && a ? (
+          {cost.state === 'estimated' && a && usd != null ? (
             <p className="mt-1 text-slate-700 dark:text-slate-200">
-              ≈ ${Number(usd ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}/month
+              ≈ ${Number(usd).toLocaleString(undefined, { maximumFractionDigits: 2 })}/month
               <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">
-                {a.standard_price_usd_per_tb_month ?? 23}$/TB × {a.factor ?? 10}, {a.scope ?? 'active bytes'}
+                {/* only the assumptions the account actually configured —
+                    never a hardcoded 23$/TB × 10 presented as its own */}
+                {[
+                  a.standard_price_usd_per_tb_month != null ? `${a.standard_price_usd_per_tb_month}$/TB` : null,
+                  a.factor != null ? `× ${a.factor}` : null,
+                  a.scope ?? 'active bytes',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
                 {cost.gb != null ? ` · ${cost.gb.toLocaleString(undefined, { maximumFractionDigits: 2 })} GB` : ''}
               </span>
             </p>

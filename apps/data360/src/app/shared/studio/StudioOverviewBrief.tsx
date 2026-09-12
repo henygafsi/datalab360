@@ -493,7 +493,9 @@ export default function StudioOverviewBrief({
                 </span>
               </p>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Every operation so far is within the free preview.
+                {spentCredits == null || Number(spentCredits) === 0
+                  ? 'Every operation so far is within the free preview.'
+                  : `${Number(spentCredits).toLocaleString()} credit(s) charged to date.`}
               </p>
             </div>
             <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">

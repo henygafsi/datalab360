@@ -796,7 +796,7 @@ export default function StudioWorkflowEditor({
               <div className="flex flex-wrap items-baseline gap-2">
                 <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">If</dt>
                 <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">
-                  {w.phrase?.condition ?? (condition ? `${condition.measure ?? ''} ${condition.operator ?? ''} ${condition.threshold ?? '?'}` : 'always')}
+                  {w.phrase?.condition ?? (condition ? `${condition.measure ?? ''} ${condition.operator ?? ''} ${condition.threshold ?? '—'}` : 'always')}
                 </dd>
                 {condition && ep.condition && (
                   <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">

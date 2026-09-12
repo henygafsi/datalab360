@@ -138,18 +138,30 @@ function GateRow({ g }: { g: QualityGate }) {
 }
 
 function IndicatorCard({ label, ind }: { label: string; ind?: { value?: number | string; unit?: string; numerator?: number; denominator?: number; note?: string } }) {
-  if (!ind || ind.value == null) return null;
-  const pct = typeof ind.value === 'number' && ind.denominator != null;
+  // The five columns are fixed, known indicators. An unmeasured one must still
+  // hold its place with an honest "—", not vanish and leave the row ragged.
+  const hasValue = ind != null && ind.value != null;
+  const pct = hasValue && typeof ind!.value === 'number' && ind!.denominator != null;
   return (
     <div
       className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 dark:border-slate-800 dark:bg-slate-900"
-      title={[ind.unit, ind.note].filter(Boolean).join(' — ')}
+      title={hasValue ? [ind!.unit, ind!.note].filter(Boolean).join(' — ') : `${label} — not measured yet`}
     >
       <p className="text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</p>
-      <p className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-        {pct ? `${(Number(ind.value) * 100).toFixed(1)}%` : typeof ind.value === 'number' ? ind.value.toLocaleString() : String(ind.value).slice(0, 16)}
+      <p
+        className={`text-sm font-semibold tabular-nums ${
+          hasValue ? 'text-slate-900 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'
+        }`}
+      >
+        {!hasValue
+          ? '—'
+          : pct
+            ? `${(Number(ind!.value) * 100).toFixed(1)}%`
+            : typeof ind!.value === 'number'
+              ? ind!.value.toLocaleString()
+              : String(ind!.value).slice(0, 16)}
       </p>
-      {ind.numerator != null && ind.denominator != null && (
+      {ind?.numerator != null && ind?.denominator != null && (
         <p className="text-xs tabular-nums text-slate-400 dark:text-slate-500">
           {ind.numerator.toLocaleString()} / {ind.denominator.toLocaleString()}
         </p>
@@ -187,7 +199,10 @@ export default function StudioQualityPanel({
           // residue) — the score gate reads "not measured", never a green
           // pass, when the quarantine could not be read.
           getDlq(draftId, 'open').catch(() => null),
-          getDlq(draftId, 'resolved').catch(() => []),
+          // same rule as the open read: a failed resolved read is null, not []
+          // — [] would let "0 resolved" and the "nothing hidden" copy read as
+          // fact when the audit trail simply could not be read.
+          getDlq(draftId, 'resolved').catch(() => null),
         ]);
         setQ(qv);
         setDlqOpen(open);
@@ -385,7 +400,7 @@ export default function StudioQualityPanel({
                     <span className="text-xs text-slate-400 dark:text-slate-500" title={a.fix?.instruction}>
                       {a.fix?.kind === 'draft_job'
                         ? 'no responsible job yet — a job draft is the next step'
-                        : ''}
+                        : `unavailable — ${a.fix?.instruction ?? 'no responsible job identified'}`}
                     </span>
                   )}
                 </li>
@@ -400,8 +415,8 @@ export default function StudioQualityPanel({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             Quarantine (DLQ) —{' '}
-            {dlqOpen == null ? 'could not be read' : `${open.length} open`} · {resolved.length} resolved
-            kept in audit
+            {dlqOpen == null ? 'could not be read' : `${open.length} open`} ·{' '}
+            {dlqResolved == null ? '—' : resolved.length} resolved kept in audit
           </h3>
           {open.length > 0 && jobForReplay && (
             <button
@@ -439,6 +454,10 @@ export default function StudioQualityPanel({
         {dlqOpen == null ? (
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
             The quarantine could not be read — the score above marks it not measured, never clean.
+          </p>
+        ) : open.length === 0 && dlqResolved == null ? (
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            No open record. The resolved audit could not be read, so nothing here is claimed clean.
           </p>
         ) : open.length === 0 && resolved.length === 0 ? (
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">

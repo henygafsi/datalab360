@@ -126,7 +126,11 @@ export default function StudioReportPages({
                 }
                 onClick={() => held === 0 && void onRemove?.(p.page_id)}
                 aria-disabled={held > 0}
-                className="ml-0.5 rounded p-1 text-slate-400 hover:text-red-600 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                className={`ml-0.5 rounded p-1 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                  held > 0
+                    ? 'cursor-not-allowed text-slate-300 dark:text-slate-600'
+                    : 'text-slate-400 hover:text-red-600'
+                }`}
               >
                 <X aria-hidden className="h-3.5 w-3.5" />
                 <span className="sr-only">Remove the page {p.title}</span>

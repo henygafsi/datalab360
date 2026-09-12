@@ -1295,7 +1295,9 @@ export default function StudioAccessProfilesPanel({ draftId }: { draftId: string
                     {p.objects?.length ?? 0}
                   </td>
                   <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-600 dark:text-slate-300">
-                    {(p.rows?.length ?? 0) + (p.columns_masked?.length ? 1 : 0)}
+                    {/* count every masked column as a rule — collapsing N to 1
+                        under-reported a profile's real governance surface */}
+                    {(p.rows?.length ?? 0) + (p.columns_masked?.length ?? 0)}
                   </td>
                   <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-600 dark:text-slate-300">
                     {p.assignments ?? '—'}

@@ -1301,8 +1301,8 @@ export default function StudioModelInspector({
                 >
                   {'verdict' in relCheck
                     ? relCheck.verdict === 'pass'
-                      ? `Checked on the real data: ${relCheck.orphans ?? 0} orphan(s) of ${(relCheck.leftRows ?? 0).toLocaleString()} rows — the key holds.`
-                      : `The key does NOT hold: ${(relCheck.orphans ?? 0).toLocaleString()} orphan(s) of ${(relCheck.leftRows ?? 0).toLocaleString()} rows (${Math.round((relCheck.orphanPct ?? 0) * 100) / 100}%). The relation stays declared so Quality can point at the rows.`
+                      ? `Checked on the real data: ${relCheck.orphans ?? '—'} orphan(s) of ${relCheck.leftRows != null ? relCheck.leftRows.toLocaleString() : '—'} rows — the key holds.`
+                      : `The key does NOT hold: ${relCheck.orphans != null ? relCheck.orphans.toLocaleString() : '—'} orphan(s) of ${relCheck.leftRows != null ? relCheck.leftRows.toLocaleString() : '—'} rows${relCheck.orphanPct != null ? ` (${Math.round(relCheck.orphanPct * 100) / 100}%)` : ''}. The relation stays declared so Quality can point at the rows.`
                     : relCheck.note}
                 </p>
               )}
