@@ -86,6 +86,27 @@ function humanScope(paths: string[]): string {
   return [...set].join(' and ') || 'another part of the application';
 }
 
+/** A proposed patch op → a business phrase, so the AI preview leads with what
+ *  CHANGES, not a raw JSON pointer. Falls back to the pointer's own tail so an
+ *  unmapped path is still truthful, never blank. */
+function humanOp(op: { op?: string; path?: string }): string {
+  const path = String(op.path ?? '');
+  const verb =
+    op.op === 'remove' ? 'Remove' : op.op === 'add' ? 'Add' : 'Update';
+  let what = '';
+  if (/\/trigger\b/.test(path)) what = 'when it runs (the trigger)';
+  else if (/\/condition\/threshold\b/.test(path)) what = 'the alert threshold';
+  else if (/\/condition\b/.test(path)) what = 'the condition (When / If)';
+  else if (/\/window\b/.test(path)) what = 'the time window';
+  else if (/\/steps\/(\d+)/.test(path)) {
+    const n = path.match(/\/steps\/(\d+)/)?.[1];
+    what = `step ${n != null ? Number(n) + 1 : ''} (a destination)`.trim();
+  } else if (/\/steps\b/.test(path)) what = 'a destination step';
+  else if (/\/name\b/.test(path)) what = 'the name';
+  else what = path.split('/').filter(Boolean).slice(-1)[0] || 'the workflow';
+  return `${verb} ${what}`;
+}
+
 /**
  * The workflow refine (editModel WITH automation_id) is scoped to this
  * workflow's edit_paths server-side; when the AI drifts out, the backend
@@ -940,13 +961,29 @@ export default function StudioWorkflowEditor({
                 <p className="text-slate-700 dark:text-slate-200">
                   {aiState.summary ?? 'The AI proposes these allowlisted changes:'}
                 </p>
+                {/* lead with the business change, not the JSON pointer; the raw
+                    ops stay one click away for anyone who wants them */}
                 <ul className="mt-1 space-y-0.5">
                   {aiState.ops.map((op, i) => (
-                    <li key={i} className="font-mono text-xs text-slate-500 dark:text-slate-400">
-                      {(op as { op?: string }).op} {(op as { path?: string }).path}
+                    <li key={i} className="text-xs text-slate-600 dark:text-slate-300">
+                      {humanOp(op as { op?: string; path?: string })}
                     </li>
                   ))}
                 </ul>
+                {aiState.ops.length > 0 && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-500 dark:hover:text-slate-300">
+                      What changes, technically
+                    </summary>
+                    <ul className="mt-1 space-y-0.5">
+                      {aiState.ops.map((op, i) => (
+                        <li key={i} className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                          {(op as { op?: string }).op} {(op as { path?: string }).path}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 <div className="mt-1.5 flex items-center gap-2">
                   <button
                     type="button"

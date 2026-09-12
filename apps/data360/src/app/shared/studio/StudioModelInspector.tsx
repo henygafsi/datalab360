@@ -154,6 +154,11 @@ export default function StudioModelInspector({
   const [addCol, setAddCol] = useState<{ open: boolean; name: string; type: string; expr: string }>(
     { open: false, name: '', type: 'TEXT', expr: '' },
   );
+  /** the join builders open ON DEMAND (like Add-a-column) — not permanently
+   *  mounted in the short inspector, which forced constant scrolling. The
+   *  relations LIST stays always visible; only the multi-field editor toggles. */
+  const [declareRelOpen, setDeclareRelOpen] = useState(false);
+  const [addLinkOpen, setAddLinkOpen] = useState(false);
   /** the AI-derived column: type it in words → free preview (SQL + probe) →
    *  confirm persists and regenerates the producer job. */
   const [derive, setDerive] = useState<{ nl: string; preview: DerivedColumnPreview | 'loading' | null }>(
@@ -817,9 +822,15 @@ export default function StudioModelInspector({
       {/* declare a relation — sources only, selects from real columns */}
       {srcTable && others.length > 0 && (
         <div className="mt-2.5 rounded-lg border border-slate-100 p-2.5 dark:border-slate-800">
-          <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <button
+            type="button"
+            aria-expanded={declareRelOpen}
+            onClick={() => setDeclareRelOpen((v) => !v)}
+            className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400 dark:hover:text-slate-200"
+          >
             <Link2 aria-hidden className="h-3 w-3" /> Declare a relation
-          </p>
+          </button>
+          {declareRelOpen && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[13px]">
             <select
               value={rel.fromCol}
@@ -916,6 +927,7 @@ export default function StudioModelInspector({
               {busy === 'rel' ? 'Declaring…' : 'Declare'}
             </button>
           </div>
+          )}
         </div>
       )}
 
@@ -1146,7 +1158,15 @@ export default function StudioModelInspector({
               scrolling a hub table's relations first */}
           {(view?.targets.length ?? 0) > 1 && (
             <div className="mt-2.5 border-t border-slate-100 pt-2 dark:border-slate-800">
-              <p className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">Add a link</p>
+              <button
+                type="button"
+                aria-expanded={addLinkOpen}
+                onClick={() => setAddLinkOpen((v) => !v)}
+                className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-300 dark:hover:text-slate-100"
+              >
+                <Link2 aria-hidden className="h-3 w-3" /> Add a link
+              </button>
+              {addLinkOpen && (
               <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 text-[13px]">
               <label className="min-w-0 text-xs text-slate-500 dark:text-slate-400">
                 This column
@@ -1217,6 +1237,7 @@ export default function StudioModelInspector({
                 </select>
               </label>
               </div>
+              )}
             </div>
           )}
 

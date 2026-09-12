@@ -493,7 +493,13 @@ export default function StudioEmailAlertPanel({
                   title={title}
                   className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${tone}`}
                 >
-                  {verified && <Check aria-hidden className="h-3 w-3" />}
+                  {/* state carries a glyph, not just a hue — a colour-blind reader
+                      must tell rejected/warn/verified apart without the colour */}
+                  {invalid || rejected || warn ? (
+                    <AlertTriangle aria-hidden className="h-3 w-3" />
+                  ) : verified ? (
+                    <Check aria-hidden className="h-3 w-3" />
+                  ) : null}
                   {r}
                   <X aria-hidden className="h-3 w-3" />
                   <span className="sr-only">remove {r}</span>

@@ -32,7 +32,9 @@ const LAYERS: Array<{ key: keyof NonNullable<QualitySummary['layers']>; n: numbe
 ];
 
 function tone(score?: number | null): string {
-  if (score == null) return 'text-slate-300 dark:text-slate-600';
+  // a legible muted, not the near-invisible slate-300/600 the em-dash used to
+  // render at text-xl (an unscored value must still be readable)
+  if (score == null) return 'text-slate-400 dark:text-slate-500';
   return score >= 85
     ? 'text-emerald-600 dark:text-emerald-400'
     : score >= 60
@@ -70,7 +72,7 @@ function ScoreCard({
       </div>
       <div className={`mt-0.5 text-xl font-semibold tabular-nums ${tone(score)}`}>{fmt(score)}</div>
       {sub && <div className="truncate text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
-      {metric && metric.evaluated === false && score == null && (
+      {score == null && (
         <div className="truncate text-[11px] text-slate-400 dark:text-slate-500">not evaluated yet</div>
       )}
     </div>

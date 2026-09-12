@@ -17,11 +17,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpen,
+  Check,
   ChevronDown,
   ChevronRight,
   Database,
   Gauge,
   LayoutDashboard,
+  Minus,
   Network,
   Receipt,
   ShieldCheck,
@@ -427,21 +429,28 @@ export default function StudioOverviewBrief({
           </p>
         )}
         {questions && (
-          <p className="mt-1.5 flex flex-wrap gap-1" aria-label="The seven questions">
+          <ul role="list" className="mt-1.5 flex flex-wrap gap-1" aria-label="The seven questions">
             {Object.entries(questions).map(([k, ok]) => (
-              <span
+              <li
                 key={k}
-                className={`rounded-full px-1.5 py-px text-[10px] uppercase tracking-wide ${
+                role="listitem"
+                aria-label={`${k}: ${ok ? 'answered by the context' : 'not answered yet'}`}
+                title={ok ? `${k}: answered by the context` : `${k}: not answered yet`}
+                className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-xs uppercase tracking-wide ${
                   ok
                     ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                    : 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
+                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                 }`}
-                title={ok ? `${k}: answered by the context` : `${k}: not answered yet`}
               >
+                {ok ? (
+                  <Check aria-hidden className="h-3 w-3" />
+                ) : (
+                  <Minus aria-hidden className="h-3 w-3" />
+                )}
                 {k}
-              </span>
+              </li>
             ))}
-          </p>
+          </ul>
         )}
         <ul className={`${goal ? 'mt-2 border-t border-slate-100 pt-2 dark:border-slate-800' : ''} divide-y divide-slate-100 dark:divide-slate-800`}>
           {rows.map((r) => {

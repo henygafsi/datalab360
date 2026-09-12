@@ -550,7 +550,10 @@ export default function StudioModelCanvas({
           source: from.id,
           target: to.id,
           type: 'smoothstep',
-          label: `${cardinalityGlyph(r.cardinality)}${keys ? ` · ${keys}` : ''}${proposed ? ' · proposed' : ''}`,
+          // the duplication risk must not live in the stroke colour alone —
+          // spell it out when it is anything other than low (a colour-blind
+          // reader can't see a red edge)
+          label: `${cardinalityGlyph(r.cardinality)}${keys ? ` · ${keys}` : ''}${proposed ? ' · proposed' : ''}${risk && risk !== 'low' ? ` · dup risk ${risk}` : ''}`,
           labelStyle: { fontSize: 11, fill: 'currentColor' },
           labelBgPadding: [6, 3] as [number, number],
           labelBgBorderRadius: 4,
