@@ -443,13 +443,20 @@ export default function UnderstandingStep({
       const source = ends.from.id ?? ends.from.name;
       const target = ends.to.id ?? ends.to.name;
       if (!source || !target) return []; // a relation without references never draws
-      const label = ends.keys ?? ends.label;
+      /* business phrase FIRST (« each sales to its transactions »), the
+         technical key pair only when no functional label exists — the column
+         pairs stay one glance away in « How they connect » below. And an
+         unvalidated link says so in words, not only in a dashed stroke. */
+      const base = ends.label ?? ends.keys;
+      const label = base
+        ? `${base}${r.status !== 'validated' ? ' · to validate' : ''}`
+        : undefined;
       return [
         {
           id: `e${i}`,
           source: String(source),
           target: String(target),
-          label: label ? String(label) : undefined,
+          label,
           markerEnd: { type: MarkerType.ArrowClosed },
           labelStyle: { fontSize: 10 },
           // sample-inferred link — dashed until the user validates it
