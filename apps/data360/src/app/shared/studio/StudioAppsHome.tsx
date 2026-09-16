@@ -14,7 +14,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, Check, Pencil, Plus, RefreshCw, X } from 'lucide-react';
+import { AlertCircle, Check, Hammer, Pencil, Plus, RefreshCw, X, Zap } from 'lucide-react';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
 import EmptyState from '@/components/ui/EmptyState';
 import {
@@ -115,7 +115,11 @@ export default function StudioAppsHome() {
     };
   }, [drafts]);
 
-  const visible = showAll ? apps : apps.slice(0, PAGE);
+  /* lifecycle sections — LIVE first, then in build; counts are client
+     tallies over the SERVED rows (the list is complete), never invented. */
+  const live = apps.filter((d) => d.active_version != null);
+  const building = apps.filter((d) => d.active_version == null);
+  const visibleOf = (arr: StudioDraftSummary[]) => (showAll ? arr : arr.slice(0, PAGE));
 
   const saveRename = async () => {
     if (!renaming || renameBusy) return;
@@ -137,51 +141,8 @@ export default function StudioAppsHome() {
     }
   };
 
-  return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
-      <PlainQuestionHeader
-        question="Your applications"
-        detail="Open one to work on its reports, model, data and access — or start a new one from your need."
-        actions={
-          <Link
-            href={routes.studioNew}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
-          >
-            <Plus aria-hidden className="h-4 w-4" />
-            New application
-          </Link>
-        }
-      />
-
-      {drafts == null && !error && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-hidden>
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-28 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
-          ))}
-        </div>
-      )}
-
-      {error && (
-        <EmptyState
-          icon={AlertCircle}
-          title="Your applications could not be read"
-          description={error}
-          action={<QuietAction label="Retry" icon={RefreshCw} onClick={load} />}
-        />
-      )}
-
-      {drafts != null && apps.length === 0 && (
-        <EmptyState
-          title="No application yet"
-          description="Start from your need — the AI proposes the sources, the model and the first report; you decide everything."
-          action={<QuietAction label="Create the first one" icon={Plus} href={routes.studioNew} />}
-        />
-      )}
-
-      {drafts != null && apps.length > 0 && (
-        <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {visible.map((d) => {
+  /* one application card — unchanged; the lifecycle sections reuse it */
+  const renderCard = (d: StudioDraftSummary) => {
               const name = cleanName(d);
               const need = String(d.need ?? '').trim();
               const when = fmtDate(d.updated_at) ?? dateFromTitle(d.title);
@@ -270,8 +231,98 @@ export default function StudioAppsHome() {
                   </p>
                 </Link>
               );
-            })}
+  };
+
+  return (
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
+      <PlainQuestionHeader
+        question="Your applications"
+        detail="Open one to work on its reports, model, data and access — or start a new one from your need."
+        actions={
+          <Link
+            href={routes.studioNew}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+          >
+            <Plus aria-hidden className="h-4 w-4" />
+            New application
+          </Link>
+        }
+      />
+
+      {drafts == null && !error && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-28 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <EmptyState
+          icon={AlertCircle}
+          title="Your applications could not be read"
+          description={error}
+          action={<QuietAction label="Retry" icon={RefreshCw} onClick={load} />}
+        />
+      )}
+
+      {drafts != null && apps.length === 0 && (
+        <EmptyState
+          title="No application yet"
+          description="Start from your need — the AI proposes the sources, the model and the first report; you decide everything."
+          action={<QuietAction label="Create the first one" icon={Plus} href={routes.studioNew} />}
+        />
+      )}
+
+      {drafts != null && apps.length > 0 && (
+        <>
+          {/* the portfolio summary — icons + real counts */}
+          <div className="flex flex-wrap items-center gap-1.5" aria-label="Portfolio summary">
+            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:border-slate-700 dark:text-slate-300">
+              {apps.length} application{apps.length === 1 ? '' : 's'}
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:border-slate-700 dark:text-slate-300">
+              <Zap aria-hidden className="h-3 w-3 text-emerald-500" />
+              {live.length} live
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:border-slate-700 dark:text-slate-300">
+              <Hammer aria-hidden className="h-3 w-3 text-slate-400" />
+              {building.length} in build
+            </span>
+            {analysisCount > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-0.5 text-xs tabular-nums text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                {analysisCount} source analys{analysisCount === 1 ? 'is' : 'es'}
+              </span>
+            )}
           </div>
+
+          {/* LIVE — running with an active version */}
+          {live.length > 0 && (
+            <section>
+              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <Zap aria-hidden className="h-3.5 w-3.5 text-emerald-500" />
+                Live
+                <span className="rounded-full bg-slate-100 px-1.5 py-px text-xs tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">{live.length}</span>
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {visibleOf(live).map(renderCard)}
+              </div>
+            </section>
+          )}
+
+          {/* IN BUILD — the stage each one is at stays on its card */}
+          {building.length > 0 && (
+            <section>
+              <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <Hammer aria-hidden className="h-3.5 w-3.5 text-slate-400" />
+                In build
+                <span className="rounded-full bg-slate-100 px-1.5 py-px text-xs tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">{building.length}</span>
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {visibleOf(building).map(renderCard)}
+              </div>
+            </section>
+          )}
 
           <div className="flex flex-wrap items-center gap-4">
             {!showAll && apps.length > PAGE && (
