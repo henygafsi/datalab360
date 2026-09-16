@@ -19,7 +19,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, RefreshCw, Search, X } from 'lucide-react';
+import { Fingerprint, Plus, RefreshCw, Search, X } from 'lucide-react';
 import {
   applyProfiles,
   compileProfiles,
@@ -43,7 +43,7 @@ import {
 } from '@/app/services/studio/access-profiles';
 import { getDraftSources, type Refusal } from '@/app/services/studio/connections';
 import { listAccountPrincipals, type AccessMutation } from '@/app/services/studio/studio-api';
-import { QuietAction } from '@/app/shared/studio/PlainKit';
+import { QuietAction, SectionHead } from '@/app/shared/studio/PlainKit';
 import {
   RISK_CLS,
   groupMutations,
@@ -1237,10 +1237,12 @@ export default function StudioAccessProfilesPanel({ draftId }: { draftId: string
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Data profiles</h3>
-        <span className="text-xs text-slate-400 dark:text-slate-500">
-          roles say what people DO — a profile says what data they SEE
-        </span>
+        <SectionHead
+          icon={Fingerprint}
+          label="Data profiles"
+          count={meta.count ?? (meta.profiles.length || null)}
+          hint="roles say what people DO — a profile says what data they SEE"
+        />
         <button
           type="button"
           onClick={() => setOpen('new')}

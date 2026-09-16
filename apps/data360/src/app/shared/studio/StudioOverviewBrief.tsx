@@ -398,35 +398,62 @@ export default function StudioOverviewBrief({
 
   return (
     <div className="space-y-3">
-      {/* ── lifecycle: ONE state, its reasons, ONE activation surface ── */}
-      <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-2.5 py-1 text-[13px] font-medium ${LIFECYCLE_CLS[lifecycle.state]}`}>
-            {LIFECYCLE_WORDS[lifecycle.state]}
-          </span>
-          <span className="min-w-0 text-[13px] text-slate-600 dark:text-slate-300">
-            {lifecycle.reasons.join(' · ')}
-          </span>
-          <button
-            type="button"
-            aria-expanded={activationOpen}
-            onClick={() => setActivationOpen((v) => !v)}
-            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
-          >
-            {activationOpen ? (
-              <ChevronDown aria-hidden className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight aria-hidden className="h-3.5 w-3.5" />
+      {/* ── the COCKPIT hero: what this app is FOR, where it stands, and
+             the ONE next move — nothing above the fold but the essentials ── */}
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-white to-accent-50/50 p-4 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-accent-950/20">
+        <div className="flex flex-wrap items-start gap-4">
+          <div className="min-w-0 flex-1">
+            {goal && (
+              <h2 className="text-base font-semibold leading-snug text-slate-900 dark:text-slate-50">
+                {goal}
+              </h2>
             )}
-            Activation panel
-          </button>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-2.5 py-1 text-[13px] font-medium ${LIFECYCLE_CLS[lifecycle.state]}`}>
+                {LIFECYCLE_WORDS[lifecycle.state]}
+              </span>
+              <span className="min-w-0 text-[13px] text-slate-600 dark:text-slate-300">
+                {lifecycle.reasons.join(' · ')}
+              </span>
+              <button
+                type="button"
+                aria-expanded={activationOpen}
+                onClick={() => setActivationOpen((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
+              >
+                {activationOpen ? (
+                  <ChevronDown aria-hidden className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight aria-hidden className="h-3.5 w-3.5" />
+                )}
+                Activation panel
+              </button>
+            </div>
+            {lifecycle.derived && (
+              <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                State derived from publish + activation + consistency on this screen — the unified
+                lifecycle contract replaces it server-side.
+              </p>
+            )}
+          </div>
+          {/* the ONE next best action, promoted to the hero's right rail */}
+          <div className="w-full shrink-0 rounded-xl border border-accent-200/80 bg-white/80 p-3 shadow-sm backdrop-blur-sm sm:w-72 dark:border-accent-900/50 dark:bg-slate-900/70">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-accent-700 dark:text-accent-300">
+              Next best action
+            </p>
+            <p className="mt-1 text-[13px] leading-snug text-slate-700 dark:text-slate-200">{next.words}</p>
+            <button
+              type="button"
+              onClick={() => {
+                if (next.go === 'activation') setActivationOpen(true);
+                else onGo(next.go);
+              }}
+              className="mt-2 w-full rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white shadow-sm shadow-accent-600/30 hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+            >
+              {next.label}
+            </button>
+          </div>
         </div>
-        {lifecycle.derived && (
-          <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-            State derived from publish + activation + consistency on this screen — the unified
-            lifecycle contract replaces it server-side.
-          </p>
-        )}
         {activationOpen && (
           <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
             <ActivationStep draftId={draftId} onChanged={load} />
@@ -436,20 +463,14 @@ export default function StudioOverviewBrief({
 
       {/* ── the brief: goal → each facet in one honest line ──────────── */}
       <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        {goal && (
-          <p className="text-[13px] text-slate-700 dark:text-slate-200">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Goal ·{' '}
-            </span>
-            {goal}
-            {bizCtx?.industry_id ? (
-              <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">
-                {String(bizCtx.industry_id)}
-                {bizCtx.category_id ? ` › ${String(bizCtx.category_id)}` : ''}
-              </span>
-            ) : null}
+        {/* the goal itself is the HERO's headline now; only the business
+            framing facet stays here */}
+        {bizCtx?.industry_id ? (
+          <p className="text-xs text-slate-400 dark:text-slate-500">
+            {String(bizCtx.industry_id)}
+            {bizCtx.category_id ? ` › ${String(bizCtx.category_id)}` : ''}
           </p>
-        )}
+        ) : null}
         {questions && (
           <ul role="list" className="mt-1.5 flex flex-wrap gap-1" aria-label="The seven questions">
             {Object.entries(questions).map(([k, ok]) => (
@@ -644,25 +665,7 @@ export default function StudioOverviewBrief({
         </section>
       )}
 
-      {/* ── next best action — ONE, from real blockers ────────────────── */}
-      <section className="rounded-xl border border-accent-200 bg-accent-50/40 p-4 dark:border-accent-900/50 dark:bg-accent-900/10">
-        <p className="text-xs font-medium uppercase tracking-wide text-accent-800 dark:text-accent-300">
-          Next best action
-        </p>
-        <div className="mt-1 flex flex-wrap items-center gap-3">
-          <p className="min-w-0 flex-1 text-[13px] text-slate-700 dark:text-slate-200">{next.words}</p>
-          <button
-            type="button"
-            onClick={() => {
-              if (next.go === 'activation') setActivationOpen(true);
-              else onGo(next.go);
-            }}
-            className="shrink-0 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
-          >
-            {next.label}
-          </button>
-        </div>
-      </section>
+      {/* next best action lives in the HERO now — one place, first thing seen */}
     </div>
   );
 }

@@ -14,7 +14,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, MoreHorizontal, Play, RefreshCw, Search } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, MoreHorizontal, Play, RefreshCw, Search, Workflow } from 'lucide-react';
+import { SectionHead } from '@/app/shared/studio/PlainKit';
 import {
   getTargetsView,
   patchModel,
@@ -293,10 +294,8 @@ export default function StudioJobsPanel({
     <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center gap-2">
         {/* automations moved to the Automation group — one nav, one surface */}
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          {/* not all of them are loads — fact builds and event jobs sit here too */}
-          Processes{jobs.length ? ` (${jobs.length})` : ''}
-        </h3>
+        {/* not all of them are loads — fact builds and event jobs sit here too */}
+        <SectionHead icon={Workflow} label="Processes" count={jobs.length || null} />
         {staleView && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" role="status">
             showing the last known state — the refresh failed

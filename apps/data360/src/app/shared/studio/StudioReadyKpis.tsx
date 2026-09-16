@@ -51,6 +51,8 @@ export default function StudioReadyKpis({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // the 51-proposal wall folds — top 4 visible, the rest one click away
+  const [showAllCandidates, setShowAllCandidates] = useState(false);
 
   const { readyCount, candidates, notExpressible } = useMemo(() => {
     const widgets = [...(report?.kpis ?? []), ...(report?.charts ?? [])];
@@ -153,7 +155,7 @@ export default function StudioReadyKpis({
                 {candidates.length} more the scan proposed
               </p>
               <ul className="mt-1 space-y-1.5">
-                {candidates.slice(0, 12).map((c) => {
+                {candidates.slice(0, showAllCandidates ? candidates.length : 4).map((c) => {
                   const id = c.kpi_id ?? c.title ?? '';
                   return (
                     <li
@@ -185,6 +187,16 @@ export default function StudioReadyKpis({
                   );
                 })}
               </ul>
+              {candidates.length > 4 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllCandidates((v) => !v)}
+                  aria-expanded={showAllCandidates}
+                  className="mt-1.5 rounded text-xs text-accent-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+                >
+                  {showAllCandidates ? 'show fewer' : `show all ${candidates.length} proposals`}
+                </button>
+              )}
             </div>
           )}
 

@@ -25,6 +25,7 @@ import {
   Send,
   Sparkles,
   Undo2,
+  Waypoints,
   Workflow as WorkflowIcon,
   Zap,
 } from 'lucide-react';
@@ -36,7 +37,7 @@ import {
 } from '@/app/services/studio/studio-api';
 import { useModelChanged } from '@/app/services/studio/studio-bus';
 import StudioWorkflowEditor from '@/app/shared/studio/StudioWorkflowEditor';
-import { QuietAction } from '@/app/shared/studio/PlainKit';
+import { QuietAction, SectionHead } from '@/app/shared/studio/PlainKit';
 
 const STATE_CLS: Record<string, string> = {
   proposed: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
@@ -467,9 +468,7 @@ export default function StudioWorkflowsPanel({
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Workflows{list.length ? ` (${list.length})` : ''}
-        </h3>
+        <SectionHead icon={Waypoints} label="Workflows" count={list.length || null} />
         {list.length > 6 && (
           <label className="relative">
             <Search aria-hidden className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400 dark:text-slate-500" />

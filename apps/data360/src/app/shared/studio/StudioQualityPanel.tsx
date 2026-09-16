@@ -12,7 +12,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, HelpCircle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Gauge, HelpCircle, RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { SectionHead } from '@/app/shared/studio/PlainKit';
 import {
   confirmDateContract,
   getDlq,
@@ -338,7 +339,7 @@ export default function StudioQualityPanel({
              visible one by one (DLQ residues included), no averaged % ── */}
       <section className={`rounded-xl border bg-white p-4 dark:bg-slate-900 ${verdict.ring}`}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Data quality score</h3>
+          <SectionHead icon={ShieldCheck} label="Data quality score" />
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${verdict.badge}`}>
             {verdict.headline}
             {evaluated.length > 0 ? ` · ${passed.length}/${evaluated.length}` : ''}
@@ -355,9 +356,11 @@ export default function StudioQualityPanel({
       {/* id: the summary's weak-score cards scroll here — DQ's act station */}
       <section id="dq-act" className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Model quality — sources, targets and their relations
-          </h3>
+          <SectionHead
+            icon={Gauge}
+            label="Model quality"
+            hint="sources, targets and their relations"
+          />
           <span className="flex items-center gap-2">
             {(() => {
               /* the root evaluated_at is the RESPONSE time, never shown as an
@@ -672,7 +675,7 @@ export default function StudioQualityPanel({
                         <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{instruction}</p>
                       )}
                       <ul className="mt-1 space-y-0.5">
-                        {rs.map((a) => (
+                        {rs.slice(0, 6).map((a) => (
                           <li key={a.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                             <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
                               {a.level}
@@ -701,6 +704,12 @@ export default function StudioQualityPanel({
                           </li>
                         ))}
                       </ul>
+                      {rs.length > 6 && (
+                        <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                          + {rs.length - 6} more object{rs.length - 6 === 1 ? '' : 's'} — same rule,
+                          same fix
+                        </p>
+                      )}
                     </section>
                   );
                 });
@@ -712,11 +721,16 @@ export default function StudioQualityPanel({
       {/* ── the quarantine — persistent, auditable, replayable ─────────── */}
       <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Quarantine (DLQ) —{' '}
-            {dlqOpen == null ? 'could not be read' : `${open.length} open`} ·{' '}
-            {dlqResolved == null ? '—' : resolved.length} resolved kept in audit
-          </h3>
+          <SectionHead
+            icon={ShieldAlert}
+            label="Quarantine (DLQ)"
+            count={dlqGrouped?.total ?? (dlqOpen == null ? null : open.length)}
+            hint={
+              dlqOpen == null
+                ? 'could not be read'
+                : `open · ${dlqResolved == null ? '—' : resolved.length} resolved kept in audit`
+            }
+          />
           {open.length > 0 && jobForReplay && (
             <button
               type="button"

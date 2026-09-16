@@ -306,3 +306,39 @@ export function SampleSetNotice({ children }: SampleSetNoticeProps) {
     </p>
   );
 }
+
+/* ── SectionHead — ONE header grammar for every panel ─────────────────
+ * icon in a tinted tile · semibold business label · honest count chip ·
+ * muted hint · the section's action on the right. The same skeleton on
+ * quality, jobs, workflows, access — the reader learns it once. */
+export interface SectionHeadProps {
+  icon?: LucideIcon;
+  label: string;
+  /** null/undefined ⇒ no chip (a count must be real, never invented) */
+  count?: number | null;
+  hint?: string;
+  children?: ReactNode;
+}
+
+export function SectionHead({ icon: Icon, label, count, hint, children }: SectionHeadProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {Icon && (
+        <span
+          aria-hidden="true"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-500/10 text-accent-600 dark:bg-accent-400/10 dark:text-accent-300"
+        >
+          <Icon className="h-4 w-4" />
+        </span>
+      )}
+      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{label}</h3>
+      {count != null && (
+        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          {count.toLocaleString()}
+        </span>
+      )}
+      {hint && <span className="min-w-0 text-xs text-slate-400 dark:text-slate-500">{hint}</span>}
+      {children && <span className="ml-auto flex flex-wrap items-center gap-2">{children}</span>}
+    </div>
+  );
+}

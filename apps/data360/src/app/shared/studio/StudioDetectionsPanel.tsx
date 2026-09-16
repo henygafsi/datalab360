@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { Radar, RefreshCw } from 'lucide-react';
 import {
   actOnDetection,
   getDetections,
@@ -22,7 +22,7 @@ import {
   type DetectionsView,
   type Detector,
 } from '@/app/services/studio/context';
-import { QuietAction } from '@/app/shared/studio/PlainKit';
+import { QuietAction, SectionHead } from '@/app/shared/studio/PlainKit';
 import TruthChip from '@/app/shared/studio/TruthChip';
 import { readFailure } from '@/app/shared/studio/studio-errors';
 
@@ -117,12 +117,12 @@ export default function StudioDetectionsPanel({ draftId }: { draftId: string }) 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Detection & alerts
-        </h3>
-        <span className="text-xs text-slate-400 dark:text-slate-500">
-          {(view.loop ?? ['detect', 'explain', 'recommend', 'act', 'verify']).join(' → ')}
-        </span>
+        <SectionHead
+          icon={Radar}
+          label="Detection & alerts"
+          count={detectors.length || null}
+          hint={(view.loop ?? ['detect', 'explain', 'recommend', 'act', 'verify']).join(' → ')}
+        />
         {view.by_severity && (
           // the served tally as REAL KPI chips, colour + word (never hue alone)
           <span className="ml-auto flex flex-wrap items-center gap-1.5">

@@ -138,14 +138,26 @@ export interface StudioTableNodeData {
   footNote?: string | null;
 }
 
+/* the node header wears its ROLE — a fact anchors, a dimension slices, a
+ * source feeds; the tint says which at a glance across the whole canvas */
+const NODE_HEAD_TONE: Record<string, string> = {
+  fact: 'bg-gradient-to-r from-accent-50 to-white dark:from-accent-950/40 dark:to-slate-900',
+  dimension: 'bg-gradient-to-r from-sky-50 to-white dark:from-sky-950/40 dark:to-slate-900',
+  source: 'bg-gradient-to-r from-slate-100 to-white dark:from-slate-800/70 dark:to-slate-900',
+};
+
 function StudioTableNodeInner({ data, selected }: NodeProps<StudioTableNodeData>) {
   return (
     <div
-      className={`w-[252px] rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md dark:bg-slate-900 ${
+      className={`w-[252px] rounded-xl border bg-white shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg motion-reduce:transition-none dark:bg-slate-900 ${
         selected ? 'border-accent-500 ring-2 ring-accent-500' : 'border-slate-200 dark:border-slate-700'
       }`}
     >
-      <div className="rounded-t-xl border-b border-slate-100 bg-slate-50 px-2.5 py-1.5 dark:border-slate-800 dark:bg-slate-800/60">
+      <div
+        className={`rounded-t-xl border-b border-slate-100 px-2.5 py-1.5 dark:border-slate-800 ${
+          NODE_HEAD_TONE[String(data.kind ?? '')] ?? NODE_HEAD_TONE.source
+        }`}
+      >
         <div className="flex items-center justify-between gap-2">
           <span className="flex min-w-0 items-center gap-1.5">
             <Table2 aria-hidden className="h-3.5 w-3.5 shrink-0 text-accent-500" />
