@@ -290,14 +290,37 @@ export default function StudioJobEditor({
   /** the dry ingestion test — not a run, kept beside the history */
   const [ingestionTest, setIngestionTest] = useState<JobTestResult | null>(null);
 
-  const dirty = isDirty(buf, job);
+  /* Clean = the buffer matches the saved job. But after OUR OWN save the
+   * server normalizes rule order/defaults, so the strict `isDirty` compare
+   * against the reloaded job can stay true forever and the Save button
+   * would never clear. `savedClean` deterministically marks the editor
+   * clean the instant a save succeeds, independent of when the reload
+   * lands; any genuine edit flips it back off. */
+  /* Dirty is the buffer vs a BASELINE, not vs the live job prop. The server
+   * normalizes rule order/defaults on save, so comparing against the
+   * reloaded job could stay true forever and leave the Save button lit. On
+   * a successful save we snapshot the buffer as the new baseline — clean
+   * instantly, before any reload — and the reload just refreshes it. */
+  const [baseline, setBaseline] = useState<Buffer>(() => bufferFrom(job));
+  const dirty =
+    buf.sql !== baseline.sql ||
+    buf.sqlExpert !== baseline.sqlExpert ||
+    buf.triggerChoice !== baseline.triggerChoice ||
+    JSON.stringify(buf.rules) !== JSON.stringify(baseline.rules);
 
-  /* A reload with no local edits re-syncs the buffer (reopen restores
-   * the saved values); local edits are never clobbered by a refresh. */
+  /* A reload re-syncs both buffer and baseline when there are no local
+   * edits (reopen restores the saved values); local edits survive a
+   * refresh. */
   useEffect(() => {
-    setBuf((cur) => (isDirty(cur, job) ? cur : bufferFrom(job)));
+    const fresh = bufferFrom(job);
+    setBuf((cur) => (isDirty(cur, job) ? cur : fresh));
+    setBaseline((cur) =>
+      JSON.stringify(cur) === JSON.stringify(fresh) ? cur : fresh,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job]);
+
+  const editBuf = setBuf;
 
   const targetById = useMemo(
     () => new Map(view.targets.map((t) => [t.target_id, t])),
@@ -345,6 +368,7 @@ export default function StudioJobEditor({
       );
       setSavedNote(true);
       setTimeout(() => setSavedNote(false), 4000);
+      setBaseline(buf); // the buffer IS the saved truth — clean instantly
       onChanged();
       return true;
     } catch (e) {
@@ -513,6 +537,7 @@ export default function StudioJobEditor({
           <span className="ml-auto flex items-center gap-2">
             <button
               type="button"
+              data-dirty={dirty ? 'yes' : 'no'}
               disabled={!dirty || busy != null}
               onClick={() => void save()}
               className="rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-40"
@@ -769,7 +794,7 @@ export default function StudioJobEditor({
                   <div className="mt-2 space-y-1.5">
                     <textarea
                       value={buf.sql}
-                      onChange={(e) => setBuf((b) => ({ ...b, sql: e.target.value }))}
+                      onChange={(e) => editBuf((b) => ({ ...b, sql: e.target.value }))}
                       rows={16}
                       spellCheck={false}
                       aria-label={`SQL of ${job.name ?? job.job_id}`}
@@ -781,7 +806,7 @@ export default function StudioJobEditor({
                     </p>
                     <button
                       type="button"
-                      onClick={() => setBuf((b) => ({ ...b, sqlExpert: false, sql: job.sql ?? '' }))}
+                      onClick={() => editBuf((b) => ({ ...b, sqlExpert: false, sql: job.sql ?? '' }))}
                       title="Back to the mapping — the SQL is regenerated from it on save; the expert text is dropped"
                       className="text-[13px] text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400 dark:hover:text-slate-200"
                     >
@@ -795,7 +820,7 @@ export default function StudioJobEditor({
                     </pre>
                     <button
                       type="button"
-                      onClick={() => setBuf((b) => ({ ...b, sqlExpert: true }))}
+                      onClick={() => editBuf((b) => ({ ...b, sqlExpert: true }))}
                       className="mt-1.5 text-[13px] text-accent-700 hover:underline dark:text-accent-400"
                     >
                       Edit as expert SQL
@@ -870,7 +895,7 @@ export default function StudioJobEditor({
                               value={r.behavior ?? 'quarantine'}
                               aria-label={`Behavior of ${r.rule_id ?? r.kind}`}
                               onChange={(e) =>
-                                setBuf((b) => ({
+                                editBuf((b) => ({
                                   ...b,
                                   rules: b.rules.map((x, xi) =>
                                     xi === ri ? { ...x, behavior: e.target.value } : x,
@@ -977,7 +1002,7 @@ export default function StudioJobEditor({
               Frequency
               <select
                 value={buf.triggerChoice}
-                onChange={(e) => setBuf((b) => ({ ...b, triggerChoice: e.target.value }))}
+                onChange={(e) => editBuf((b) => ({ ...b, triggerChoice: e.target.value }))}
                 className="mt-1 block h-8 w-56 rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
               >
                 {['manual', 'hourly', 'daily', 'weekly', 'monthly']
