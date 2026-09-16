@@ -257,9 +257,26 @@ export default function GovernanceKpiStrip({
       if (!cancelled && retryS != null) timer = setTimeout(() => void run(), retryS * 1000);
     };
     void run();
+    // The background grant pass announces its completion on the cache
+    // stream (relayed here as a window `d360-sse` event) with
+    // affected_entities {domain:"governance_grants", event:"prepared"} —
+    // re-read the moment it lands instead of waiting out the poll. The
+    // key hash is not stable, so match ONLY on domain+event; the
+    // retry_after_s polling above stays as the no-SSE fallback.
+    const onSse = (e: Event) => {
+      const ae = (e as CustomEvent).detail?.affected_entities as
+        | { domain?: string; event?: string }
+        | undefined;
+      if (ae?.event === 'prepared' && ae?.domain === 'governance_grants' && !cancelled) {
+        if (timer) clearTimeout(timer);
+        void run();
+      }
+    };
+    window.addEventListener('d360-sse', onSse);
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
+      window.removeEventListener('d360-sse', onSse);
     };
   }, [load]);
 
