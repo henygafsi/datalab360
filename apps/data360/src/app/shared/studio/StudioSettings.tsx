@@ -78,6 +78,45 @@ function enrichmentPreview(value: unknown): string {
   return flatten(value).trim() || 'nothing recorded for this entry';
 }
 
+/** kind-aware BUSINESS phrasing for a suggestion row — the raw flattened
+ *  payload («rel_13.referential_integrity: evidence: unknown · left rows:
+ *  10000 · orphan pct: 100 …») is a leak, not a sentence; it stays one hover
+ *  away. Unknown kinds fall back to the generic preview, never blank. */
+function humanizeEnrichment(
+  kind: string | undefined,
+  scopeKey: string | undefined,
+  value: unknown,
+): string | null {
+  const v = (value ?? {}) as Record<string, unknown>;
+  const k = String(kind ?? '');
+  if (k === 'dq_rule') {
+    const rule = (String(scopeKey ?? '').split('.').slice(-1)[0] || 'quality rule').replace(/_/g, ' ');
+    const verdict =
+      typeof v.verdict === 'string' ? v.verdict : typeof v.status === 'string' ? v.status : undefined;
+    const orphans = v.orphans ?? v.violations;
+    const left = v.left_rows ?? v.rows;
+    const pct = v.orphan_pct ?? v.violation_pct;
+    return [
+      `${rule} ${verdict === 'fail' ? 'FAILS' : verdict === 'pass' ? 'holds' : 'is proposed'}`,
+      orphans != null && left != null
+        ? `${Number(orphans).toLocaleString()} of ${Number(left).toLocaleString()} rows without a match`
+        : null,
+      pct != null ? `(${Number(pct).toLocaleString()}%)` : null,
+      typeof v.evidence === 'string' && v.evidence !== 'unknown' ? `evidence ${v.evidence}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
+  if (k === 'relationship') {
+    const from = (v.from_column ?? v.from) as string | undefined;
+    const to = (v.to_column ?? v.to) as string | undefined;
+    const label = typeof v.label === 'string' ? v.label : undefined;
+    if (label || (from && to))
+      return `${label ?? `link ${from} → ${to}`}${typeof v.status === 'string' ? ` · ${String(v.status).replace(/_/g, ' ')}` : ''}`;
+  }
+  return null;
+}
+
 type ModelPhase =
   | { kind: 'idle' }
   | { kind: 'loading' }
@@ -585,9 +624,12 @@ export default function StudioSettings() {
                         <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                           {(e.kind ?? '—').replace(/_/g, ' ')}
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-xs text-slate-700 dark:text-slate-200">
-                          {e.scope_key ? `${e.scope_key}: ` : ''}
-                          {enrichmentPreview(e.value)}
+                        <span
+                          className="min-w-0 flex-1 truncate text-xs text-slate-700 dark:text-slate-200"
+                          title={`${e.scope_key ?? ''} — ${enrichmentPreview(e.value)}`}
+                        >
+                          {humanizeEnrichment(e.kind, e.scope_key, e.value) ??
+                            `${e.scope_key ? `${e.scope_key}: ` : ''}${enrichmentPreview(e.value)}`}
                         </span>
                         <button
                           type="button"

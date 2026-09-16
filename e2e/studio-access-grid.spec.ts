@@ -43,9 +43,10 @@ test('access grid: matrix + grant-type navigator + PII detect→confirm', async 
     const adv = page.getByText(/Advanced governance/i).first();
     if (await adv.isVisible().catch(() => false)) await adv.click().catch(() => undefined);
 
-    // the grid is the DEFAULT sub-tab — its header proves the matrix layout
+    // « Give access » (person-first) is now the default — open the grid tab
+    await page.getByRole('tab', { name: /Access grid/i }).first().click();
     await expect(page.getByText(/Access grid — columns × roles/i).first()).toBeVisible({ timeout: 60_000 });
-    notes.push('✓ "Access grid" is the default governance surface (columns × roles)');
+    notes.push('✓ the Access grid renders (columns × roles)');
 
     // the grant-type navigator — navigable BY grant type
     await expect(page.getByRole('tab', { name: /Row rules \(RLS\)/i })).toBeVisible();

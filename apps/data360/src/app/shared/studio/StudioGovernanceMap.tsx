@@ -33,11 +33,13 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  UserPlus,
   UserRound,
   Users,
 } from 'lucide-react';
 import type { AccessView, RlsSuggestion } from '@/app/services/studio/studio-api';
 import StudioAccessGrid from '@/app/shared/studio/StudioAccessGrid';
+import StudioGiveAccess from '@/app/shared/studio/StudioGiveAccess';
 
 export interface Principal {
   name: string;
@@ -63,7 +65,7 @@ export interface GrantTypeInfo {
   product_level?: string;
 }
 
-type SubTab = 'grid' | 'people' | 'review';
+type SubTab = 'give' | 'grid' | 'people' | 'review';
 
 export default function StudioGovernanceMap({
   draftId,
@@ -109,7 +111,7 @@ export default function StudioGovernanceMap({
   canPrepare?: boolean;
   footer?: React.ReactNode;
 }) {
-  const [subTab, setSubTab] = useState<SubTab>('grid');
+  const [subTab, setSubTab] = useState<SubTab>('give');
   /** the principal whose access is being edited — SHARED across every tab:
    *  pick a person on « People & roles » and the policy tabs edit what THAT
    *  person sees (resolved to their Data360 role, since row/column policies
@@ -219,8 +221,9 @@ export default function StudioGovernanceMap({
   );
 
   const TABS: Array<{ id: SubTab; label: string; icon: typeof Users; count?: number }> = [
+    { id: 'give', label: 'Give access', icon: UserPlus, count: mapped || undefined },
     { id: 'grid', label: 'Access grid', icon: LayoutGrid, count: ruleCount + masking.columns.length || undefined },
-    { id: 'people', label: 'People & roles', icon: Users, count: mapped || undefined },
+    { id: 'people', label: 'People & roles', icon: Users },
     { id: 'review', label: 'Review & apply', icon: ShieldCheck },
   ];
 
@@ -527,6 +530,19 @@ export default function StudioGovernanceMap({
         </div>
         {actionBar}
         </div>
+      )}
+
+      {/* ══ GIVE ACCESS — person-first, deny-by-default, ≤4 roles ═════ */}
+      {subTab === 'give' && (
+        <StudioGiveAccess
+          draftId={draftId}
+          principals={principals}
+          principalsNote={principalsNote}
+          grantTypes={grantTypes}
+          onMap={onMap}
+          tablesCount={objects.length}
+          actionBar={actionBar}
+        />
       )}
 
       {/* ══ ACCESS GRID — columns × roles, navigable by grant type ════ */}
