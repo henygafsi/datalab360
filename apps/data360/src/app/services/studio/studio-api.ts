@@ -2215,6 +2215,17 @@ export interface WorkflowItem {
     status?: string;
     test_destination?: string;
   }>;
+  /** channels that exist but are NOT wired on this workflow — to_configure
+   *  (e-mail before enrollment/config) or not_integrated (Slack, webhook,
+   *  external tickets). Shown honestly, never as activable. */
+  not_available?: Array<{
+    capability?: string;
+    executable?: boolean;
+    kind?: string | null;
+    label?: string;
+    status?: string;
+    test_destination?: string | null;
+  }>;
   /** e-mail channel state on this workflow (configured?/config/last_test). */
   email?: WorkflowEmailState;
 }

@@ -33,6 +33,7 @@ import 'reactflow/dist/style.css';
 import {
   BarChart3,
   Bell,
+  Check,
   Database,
   GitBranch,
   type LucideIcon,
@@ -233,6 +234,57 @@ type StepDef = {
   label?: string;
   config?: Record<string, unknown>;
 };
+
+/* ── typed per-step params — the config presented BY STEP, not behind a
+ *  canvas click. Each known key gets its real control and a business label;
+ *  unknown scalars keep a generic input so nothing served is hidden. ── */
+type ParamKind = 'text' | 'number' | 'list' | 'select' | 'readonly' | 'predicate';
+interface ParamField {
+  key: string;
+  label: string;
+  kind: ParamKind;
+  hint?: string;
+  options?: string[];
+  mono?: boolean;
+}
+
+const KNOWN_PARAMS: Record<string, Omit<ParamField, 'key'>> = {
+  database: { label: 'database', kind: 'readonly', mono: true },
+  schema: { label: 'schema', kind: 'readonly', mono: true },
+  table: { label: 'table', kind: 'text', mono: true, hint: 'the object this step reads' },
+  chart_ids: { label: 'KPIs / charts it runs', kind: 'list', mono: true, hint: 'comma-separated chart ids from the report' },
+  quality_predicate: {
+    label: 'condition (SQL predicate)',
+    kind: 'predicate',
+    mono: true,
+    hint: 'rows matching this predicate trigger the workflow',
+  },
+  max_violations: { label: 'tolerated violations', kind: 'number', hint: '0 = any match fires' },
+  key: { label: 'deduplication key', kind: 'list', mono: true, hint: 'one delivery per distinct key' },
+  store: { label: 'delivery store', kind: 'readonly', mono: true },
+  kind: { label: 'notification kind', kind: 'readonly', mono: true },
+  audience: { label: 'audience', kind: 'text', hint: 'who receives it (e.g. PROJECT_READERS)' },
+  format: { label: 'file format', kind: 'select', options: ['CSV', 'JSON', 'PARQUET'] },
+  path: { label: 'stage path', kind: 'text', mono: true, hint: 'where the file lands' },
+};
+
+function paramFieldsOf(cfg: Record<string, unknown>): ParamField[] {
+  return Object.keys(cfg).map((key) => {
+    const known = KNOWN_PARAMS[key];
+    if (known) return { key, ...known };
+    const v = cfg[key];
+    if (Array.isArray(v)) return { key, label: key.replace(/_/g, ' '), kind: 'list' as ParamKind, mono: true };
+    if (typeof v === 'number') return { key, label: key.replace(/_/g, ' '), kind: 'number' as ParamKind };
+    if (v != null && typeof v === 'object') return { key, label: key.replace(/_/g, ' '), kind: 'readonly' as ParamKind, mono: true };
+    return { key, label: key.replace(/_/g, ' '), kind: 'text' as ParamKind };
+  });
+}
+
+/** an unresolved server placeholder (« <decided threshold> ») is a state,
+ *  not a value the user should edit as text */
+function isPlaceholder(v: unknown): boolean {
+  return typeof v === 'string' && /^<.*>$/.test(v.trim());
+}
 
 /** Inline decision for a missing prerequisite — grounded in its carried
  *  proposal; a confirmed value stays RE-EDITABLE through the same
@@ -1103,8 +1155,10 @@ export default function StudioWorkflowEditor({
               This workflow carries no explicit steps — its action is derived from the phrase.
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr,340px]">
-              <div className="h-64 rounded-lg border border-slate-200 dark:border-slate-800">
+            <>
+              {/* the visual pipeline stays as the compact overview — clicking a
+                  block highlights its card in the rail below */}
+              <div className="h-44 rounded-lg border border-slate-200 dark:border-slate-800">
                 <ReactFlow
                   nodes={flowNodes}
                   edges={flowEdges}
@@ -1121,75 +1175,250 @@ export default function StudioWorkflowEditor({
                   <Controls showInteractive={false} />
                 </ReactFlow>
               </div>
-              <aside className="rounded-lg border border-slate-200 p-2.5 text-[13px] dark:border-slate-800">
-                {selStep == null || !steps[selStep] ? (
-                  <p className="text-xs text-slate-400 dark:text-slate-500">
-                    Click a block on the canvas to configure it here.
-                  </p>
-                ) : (
-                  (() => {
-                    const i = selStep;
-                    const s0 = steps[i];
-                    const path = ep.steps?.[i];
-                    const stagedStep = staged(path, s0);
-                    const cfg = (stagedStep?.config ?? {}) as Record<string, unknown>;
-                    return (
-                      <div>
+
+              {/* ── the STEP RAIL — every step is a card with its params
+                  visible and editable IN PLACE (no hunting behind a click);
+                  arrays and typed fields render as what they are ────────── */}
+              <ol className="space-y-0">
+                {steps.map((s0, i) => {
+                  const path = ep.steps?.[i];
+                  const stagedStep = staged(path, s0);
+                  const cfg = (stagedStep?.config ?? {}) as Record<string, unknown>;
+                  const { Icon, tone } = stepIcon(s0.block_type, s0.capability, s0.label);
+                  const meta = graphMeta[i] as { status?: string; executable?: boolean } | undefined;
+                  const isNotify = String(s0.capability ?? '').startsWith('notify');
+                  const fields = paramFieldsOf(cfg);
+                  const setCfg = (k: string, v: unknown) =>
+                    stage(path, { ...stagedStep, config: { ...cfg, [k]: v } }, `step ${i}`);
+                  return (
+                    <li key={s0.step_id ?? i} className="relative">
+                      {i > 0 && (
+                        <div className="ml-6 h-3 w-px bg-slate-200 dark:bg-slate-700" aria-hidden />
+                      )}
+                      <section
+                        className={`rounded-xl border bg-white p-3 dark:bg-slate-900 ${
+                          selStep === i
+                            ? 'border-accent-500 ring-1 ring-accent-500/40'
+                            : 'border-slate-200 dark:border-slate-800'
+                        }`}
+                      >
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-xs text-slate-400 dark:text-slate-500">{i + 1}</span>
-                          <span className="font-medium text-slate-800 dark:text-slate-100">
-                            {s0.label ?? s0.block_type ?? `step ${i + 1}`}
+                          <span
+                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800 ${tone}`}
+                          >
+                            <Icon aria-hidden className="h-4 w-4" />
+                          </span>
+                          <span className="font-mono text-xs text-slate-400 dark:text-slate-500">
+                            {i + 1}
+                          </span>
+                          <span className="min-w-0 truncate text-[13px] font-medium text-slate-800 dark:text-slate-100">
+                            {stagedStep?.label ?? s0.label ?? s0.block_type ?? `step ${i + 1}`}
                           </span>
                           {s0.block_type && (
                             <span className="rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                              {s0.block_type}
+                              {s0.block_type.replace(/_/g, ' ')}
                             </span>
                           )}
+                          {meta?.status && meta.status !== 'available' && (
+                            <span className="rounded-full bg-amber-50 px-1.5 py-px text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                              {meta.status.replace(/_/g, ' ')}
+                            </span>
+                          )}
+                          {path && stepsBasePath && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = steps.filter((_, j) => j !== i);
+                                setBuffer((b) => ({
+                                  ...b,
+                                  [stepsBasePath]: { op: 'set', path: stepsBasePath, value: next } as ModelPatchOp,
+                                }));
+                                setSelStep(null);
+                              }}
+                              className="ml-auto rounded px-1.5 py-0.5 text-xs text-slate-400 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-500 dark:hover:text-red-400"
+                              title="Removes this step from the staged sequence — nothing changes before Save"
+                            >
+                              remove
+                            </button>
+                          )}
                         </div>
-                        {path ? (
-                          <div className="mt-2 space-y-2">
-                            {Object.entries(cfg)
-                              .filter(([, v]) => typeof v !== 'object')
-                              .slice(0, 8)
-                              .map(([k, v]) => (
-                                <label key={k} className="block">
-                                  <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">{k.replace(/_/g, ' ')}</span>
+
+                        {/* params, BY STEP — typed controls, nothing hidden */}
+                        {fields.length > 0 && (
+                          <div className="mt-2 grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+                            {fields.map((f) => {
+                              const raw = cfg[f.key];
+                              const editable = Boolean(path) && f.kind !== 'readonly';
+                              if (f.kind === 'predicate' && isPlaceholder(raw)) {
+                                return (
+                                  <div key={f.key} className="sm:col-span-2 lg:col-span-3">
+                                    <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">{f.label}</span>
+                                    <p className="rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                                      {String(raw).replace(/[<>]/g, '')} — filled at save from the decision on the
+                                      Definition tab; the AI never invents it.
+                                    </p>
+                                  </div>
+                                );
+                              }
+                              if (f.kind === 'select') {
+                                const cur = String(raw ?? f.options?.[0] ?? '');
+                                return (
+                                  <label key={f.key} className="block">
+                                    <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">{f.label}</span>
+                                    <select
+                                      value={cur}
+                                      disabled={!editable}
+                                      onChange={(e) => setCfg(f.key, e.target.value)}
+                                      className="h-7 w-full rounded border border-slate-200 bg-white px-1.5 text-xs text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                    >
+                                      {(f.options ?? []).map((o) => (
+                                        <option key={o} value={o}>{o}</option>
+                                      ))}
+                                    </select>
+                                  </label>
+                                );
+                              }
+                              if (f.kind === 'readonly') {
+                                return (
+                                  <div key={f.key} className="min-w-0">
+                                    <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">{f.label}</span>
+                                    <p className={`truncate text-xs text-slate-600 dark:text-slate-300 ${f.mono ? 'font-mono' : ''}`} title={String(raw ?? '')}>
+                                      {Array.isArray(raw) ? raw.join(', ') : typeof raw === 'object' && raw != null ? JSON.stringify(raw) : String(raw ?? '—')}
+                                    </p>
+                                  </div>
+                                );
+                              }
+                              const value =
+                                f.kind === 'list' && Array.isArray(raw)
+                                  ? raw.join(', ')
+                                  : String(raw ?? '');
+                              const wide = f.kind === 'predicate' || f.key === 'chart_ids';
+                              return (
+                                <label key={f.key} className={`block ${wide ? 'sm:col-span-2 lg:col-span-3' : ''}`} title={f.hint}>
+                                  <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                                    {f.label}
+                                    {f.hint && <span className="ml-1 text-slate-300 dark:text-slate-600">· {f.hint}</span>}
+                                  </span>
                                   <input
-                                    value={String(v ?? '')}
+                                    value={value}
+                                    disabled={!editable}
+                                    type={f.kind === 'number' ? 'number' : 'text'}
                                     onChange={(e) =>
-                                      stage(path, { ...stagedStep, config: { ...cfg, [k]: e.target.value } }, `step ${i}`)
+                                      setCfg(
+                                        f.key,
+                                        f.kind === 'number'
+                                          ? Number(e.target.value)
+                                          : f.kind === 'list'
+                                            ? e.target.value.split(',').map((x) => x.trim()).filter(Boolean)
+                                            : e.target.value,
+                                      )
                                     }
-                                    className="h-7 w-full rounded border border-slate-200 bg-white px-1.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                                    className={`h-7 w-full rounded border border-slate-200 bg-white px-1.5 text-xs text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 ${f.mono ? 'font-mono' : ''}`}
                                   />
                                 </label>
-                              ))}
-                            {stepsBasePath && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const next = steps.filter((_, j) => j !== i);
-                                  setBuffer((b) => ({
-                                    ...b,
-                                    [stepsBasePath]: { op: 'set', path: stepsBasePath, value: next } as ModelPatchOp,
-                                  }));
-                                  setSelStep(null);
-                                }}
-                                className="rounded px-1.5 py-0.5 text-xs text-slate-400 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-500 dark:hover:text-red-400"
-                                title="Removes this step from the staged sequence — nothing changes before Save"
-                              >
-                                remove this step
-                              </button>
-                            )}
+                              );
+                            })}
                           </div>
-                        ) : (
+                        )}
+                        {!path && (
                           <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">read-only in this version</p>
                         )}
-                      </div>
-                    );
-                  })()
-                )}
-              </aside>
-            </div>
+
+                        {/* ── the DESTINATION space, deep and honest — on the
+                            notify step only: where this workflow can deliver,
+                            each channel with its REAL status ─────────────── */}
+                        {isNotify && (
+                          <div className="mt-2.5 border-t border-slate-100 pt-2 dark:border-slate-800">
+                            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                              Where it delivers
+                            </p>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              {(w.destinations ?? []).map((d) => (
+                                <span
+                                  key={d.capability}
+                                  title={d.test_destination ? `Test goes to ${d.test_destination}` : undefined}
+                                  className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                >
+                                  <Check aria-hidden className="h-3 w-3" />
+                                  {d.label ?? d.capability}
+                                </span>
+                              ))}
+                              {(w.not_available ?? []).map((d) =>
+                                d.status === 'to_configure' ? (
+                                  <button
+                                    key={d.capability}
+                                    type="button"
+                                    onClick={() => setEmailOpen(true)}
+                                    title="Configurable — opens the e-mail delivery panel below"
+                                    className="inline-flex items-center gap-1 rounded-full border border-sky-300/70 px-2 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-sky-500/40 dark:text-sky-300 dark:hover:bg-sky-950/30"
+                                  >
+                                    <Mail aria-hidden className="h-3 w-3" />
+                                    {d.label ?? d.capability} — configure…
+                                  </button>
+                                ) : (
+                                  <span
+                                    key={d.capability}
+                                    title="Not integrated on this account — shown so the possibility space is honest, never as activable"
+                                    className="inline-flex cursor-not-allowed items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-400 dark:bg-slate-800 dark:text-slate-500"
+                                  >
+                                    {d.label ?? d.capability} — not integrated
+                                  </span>
+                                ),
+                              )}
+                            </div>
+                            {stepsBasePath && (
+                              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs text-slate-400 dark:text-slate-500">also deliver as</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next: StepDef = {
+                                      step_id: `s_${Math.abs(Date.now() % 1_000_000)}`,
+                                      block_type: 'export',
+                                      capability: 'workflow.export_file',
+                                      label: 'Export the result file',
+                                      config: { format: 'CSV' },
+                                    };
+                                    setBuffer((b) => ({
+                                      ...b,
+                                      [stepsBasePath]: { op: 'set', path: stepsBasePath, value: [...steps, next] } as ModelPatchOp,
+                                    }));
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-300"
+                                  title="Appends an export step (CSV/JSON/PARQUET to a stage file) — staged, nothing changes before Save"
+                                >
+                                  <Send aria-hidden className="h-3 w-3" /> a stage file
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next: StepDef = {
+                                      step_id: `s_${Math.abs(Date.now() % 1_000_000)}`,
+                                      block_type: 'destination',
+                                      capability: 'workflow.destination',
+                                      label: 'Write the result table',
+                                      config: {},
+                                    };
+                                    setBuffer((b) => ({
+                                      ...b,
+                                      [stepsBasePath]: { op: 'set', path: stepsBasePath, value: [...steps, next] } as ModelPatchOp,
+                                    }));
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-300"
+                                  title="Appends a write-a-table step — staged, nothing changes before Save"
+                                >
+                                  <Database aria-hidden className="h-3 w-3" /> a table
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </section>
+                    </li>
+                  );
+                })}
+              </ol>
+            </>
           )}
 
           {/* palette — the catalogue's real blocks, a grid of ready-to-pick
