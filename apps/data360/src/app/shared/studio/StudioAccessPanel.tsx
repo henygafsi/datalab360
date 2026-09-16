@@ -40,6 +40,7 @@ import {
   listAccountPrincipals,
   suggestRls,
   testDraftAccess,
+  type AccessApplyLine,
   type AccessApplyResult,
   type AccessMutation,
   type AccessObjectRead,
@@ -273,6 +274,42 @@ function AccessOutcome({ outcome }: { outcome: AccessApplyResult }) {
           ))}
         </ul>
       )}
+      {/* skipped is NOT a failure — the plan caught these before any ALTER.
+          already-attached is benign; a DIFFERENT policy offers the swap. */}
+      {(() => {
+        const skipped = results.filter((r) => r.status === 'skipped');
+        const notable = skipped.filter((r) => r.reason || r.error_code);
+        if (notable.length === 0) return null;
+        return (
+          <ul className="mt-1.5 space-y-1">
+            {notable.map((r, i) => {
+              const rr = r as AccessApplyLine & {
+                already_attached?: boolean;
+                existing_policy?: string;
+              };
+              const benign = rr.already_attached === true;
+              return (
+                <li
+                  key={r.mutation_id ?? `sk${i}`}
+                  className={`rounded px-2 py-1 text-xs ${
+                    benign
+                      ? 'bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-400'
+                      : 'bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200'
+                  }`}
+                >
+                  <span className="font-medium">{r.object ?? r.kind ?? 'operation'}</span>:{' '}
+                  {neutralizeVendor(r.reason) || 'skipped'}
+                  {rr.existing_policy && !benign && (
+                    <span className="mt-0.5 block truncate font-mono text-[11px] opacity-80" title={rr.existing_policy}>
+                      existing: {String(rr.existing_policy).split('.').slice(-1)[0]}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        );
+      })()}
       {!dry && failCount > 0 && (
         <p className="mt-1 text-xs text-amber-700/90 dark:text-amber-300/80">
           The operations that applied are kept with their undo. Fix the cause above, then re-run —
