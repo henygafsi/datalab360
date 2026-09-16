@@ -142,7 +142,26 @@ export default function StudioAdminDigest() {
                 <span>job runs: {n((d.tests as { job_runs?: number } | undefined)?.job_runs)}</span>
                 <span>workflow tests: {n((d.tests as { workflow_test_runs?: number } | undefined)?.workflow_test_runs)}</span>
                 <span>DLQ open: {n((d.errors as { dlq_open_records?: number } | undefined)?.dlq_open_records)}</span>
-                <span>failed runs: {n((d.errors as { failed_runs?: number } | undefined)?.failed_runs)}</span>
+                {(() => {
+                  // the backend serves failed_runs as a LIST of run objects —
+                  // counting is honest, '[object Object]' was not; the first
+                  // error line makes the cell a triage, not a number
+                  const fr = (d.errors as { failed_runs?: unknown } | undefined)?.failed_runs;
+                  const list = Array.isArray(fr) ? (fr as Array<Record<string, unknown>>) : null;
+                  const count = list ? list.length : typeof fr === 'number' ? fr : null;
+                  const first = list?.[0];
+                  const firstLine = first
+                    ? `${String(first.job_id ?? first.run_id ?? '')}: ${String(first.error ?? '').split('\n')[0].slice(0, 90)}`
+                    : null;
+                  return (
+                    <span title={firstLine ?? undefined}>
+                      failed runs: {n(count)}
+                      {count != null && count > 0 && firstLine && (
+                        <span className="ml-1 text-rose-600 dark:text-rose-400">— {firstLine}</span>
+                      )}
+                    </span>
+                  );
+                })()}
               </p>
               <p className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-400 dark:text-slate-500">
                 <span>

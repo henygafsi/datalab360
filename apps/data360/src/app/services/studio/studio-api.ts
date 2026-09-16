@@ -626,8 +626,10 @@ export interface StudioDraftSummary {
 export async function listDrafts(
   purpose?: 'application' | 'source_analysis' | 'all',
 ): Promise<StudioDraftSummary[]> {
+  // the server default caps at 50 — an account past that silently
+  // undercounted everywhere; 100 is the server max (verified live: 84 of 84)
   const { data } = await apiClient.get<{ drafts?: StudioDraftSummary[] }>(
-    `/studio/drafts${purpose ? `?purpose=${purpose}` : ''}`,
+    `/studio/drafts?limit=100${purpose ? `&purpose=${purpose}` : ''}`,
   );
   return Array.isArray(data?.drafts) ? data.drafts : [];
 }
@@ -1588,7 +1590,7 @@ export async function getAppCost(draftId: string, days = 7): Promise<AppCost> {
 /** All the account's studio applications — light digest rows. */
 export async function getAdminStudioApps(): Promise<StudioDraftSummary[]> {
   const { data } = await apiClient.get<{ apps?: StudioDraftSummary[] }>(
-    '/api/administration/studio/apps',
+    '/api/administration/studio/apps?limit=100',
     { timeout: 60_000 },
   );
   return Array.isArray(data?.apps) ? data.apps : [];
@@ -2584,6 +2586,15 @@ export interface JobRun {
   finished_at?: string;
   duration_ms?: number;
   error?: string | null;
+  /** the SERVED failure classification + its fix options (2026-09-16) —
+   *  richer than any client regex; render it when present. */
+  error_detail?: {
+    blocked_by?: string;
+    error_kind?: string;
+    message?: string;
+    is_product_failure?: boolean;
+    fix?: { kind?: string; options?: string[] };
+  } | null;
   results?: JobRunCounts[];
   proofs?: Array<{ step?: string; query_id?: string; duration_ms?: number; sql?: string }>;
   query_ids?: string[];

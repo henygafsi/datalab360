@@ -206,8 +206,20 @@ function RunRow({ run }: { run: JobRun }) {
           <td colSpan={6} className="px-2 pb-2">
             {run.error && (
               <div role="alert" className="mb-1.5 rounded-lg bg-red-50 px-2 py-1.5 dark:bg-red-900/20">
-                {/* business diagnosis first, the raw error as evidence */}
-                <p className="text-[13px] text-red-700 dark:text-red-300">{runFailureWords(asText(run.error))}</p>
+                {/* the SERVED classification first; the client regex only
+                    when the backend sent no diagnosis */}
+                <p className="text-[13px] text-red-700 dark:text-red-300">
+                  {run.error_detail?.blocked_by
+                    ? `Blocked by ${run.error_detail.blocked_by.replace(/_/g, ' ')}.`
+                    : runFailureWords(asText(run.error))}
+                </p>
+                {(run.error_detail?.fix?.options?.length ?? 0) > 0 && (
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-red-700/90 dark:text-red-300/80">
+                    {run.error_detail!.fix!.options!.map((o) => (
+                      <li key={o}>{o}</li>
+                    ))}
+                  </ul>
+                )}
                 <p className="mt-0.5 truncate font-mono text-[11px] text-red-600/70 dark:text-red-300/60" title={asText(run.error)}>
                   {asText(run.error)}
                 </p>
@@ -908,6 +920,13 @@ export default function StudioJobEditor({
                 <p className="mt-0.5 text-[13px] text-amber-800/90 dark:text-amber-200/80">
                   {runFailureWords(lastRun.error)}
                 </p>
+                {(lastRun.error_detail?.fix?.options?.length ?? 0) > 0 && (
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs text-amber-800/80 dark:text-amber-200/70">
+                    {lastRun.error_detail!.fix!.options!.map((o) => (
+                      <li key={o}>{o}</li>
+                    ))}
+                  </ul>
+                )}
                 {lastRun.error && (
                   <p className="mt-0.5 truncate font-mono text-[11px] text-amber-700/70 dark:text-amber-300/60" title={lastRun.error}>
                     {lastRun.error}

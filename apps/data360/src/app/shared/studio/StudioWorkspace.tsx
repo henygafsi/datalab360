@@ -1310,25 +1310,30 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
       try {
         // the backend drops the matching layout entry itself
         await patchModel(draftId, [{ op: 'remove', path: `/report/${kind}/${idx}` }], true, 'remove widget');
-        setModel((prev) =>
-          prev?.report
-            ? {
-                ...prev,
-                report: {
-                  ...prev.report,
-                  charts: prev.report.charts?.filter(
-                    (x) =>
-                      !(typeof x === 'object' && x != null && (x as StudioChartSpec).chart_id === chartId),
-                  ),
-                  layout: Array.isArray(prev.report.layout)
-                    ? (prev.report.layout as Array<{ chart_id?: string }>).filter(
-                        (l) => l.chart_id !== chartId,
-                      )
-                    : prev.report.layout,
-                },
-              }
-            : prev,
-        );
+        setModel((prev) => {
+          if (!prev?.report) return prev;
+          // filter the array the widget actually LIVES in — removing a KPI
+          // used to filter charts, leaving the removed KPI on screen and the
+          // next remove pointing at a stale index
+          const drop = (arr?: unknown[]) =>
+            arr?.filter(
+              (x) => !(typeof x === 'object' && x != null && (x as StudioChartSpec).chart_id === chartId),
+            );
+          return {
+            ...prev,
+            report: {
+              ...prev.report,
+              kpis: kind === 'kpis' ? (drop(prev.report.kpis) as typeof prev.report.kpis) : prev.report.kpis,
+              charts:
+                kind === 'charts' ? (drop(prev.report.charts) as typeof prev.report.charts) : prev.report.charts,
+              layout: Array.isArray(prev.report.layout)
+                ? (prev.report.layout as Array<{ chart_id?: string }>).filter(
+                    (l) => l.chart_id !== chartId,
+                  )
+                : prev.report.layout,
+            },
+          };
+        });
         setVersion((v) => (v ? { ...v, is_draft: true } : v));
       } catch (e) {
         setTileEditError({ chartId, message: patchErrText(e) });
