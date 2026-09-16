@@ -1615,8 +1615,9 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
       />
 
       {/* nav rail — two levels over ONE application context: five groups,
-          the former tabs as second-level views (deep URLs unchanged) */}
-      <div className="space-y-1.5">
+          the former tabs as second-level views (deep URLs unchanged).
+          STICKY: switching views never requires scrolling back up. */}
+      <div className="sticky top-0 z-30 -mx-4 space-y-1.5 border-b border-slate-100 bg-white/85 px-4 py-2 backdrop-blur-md md:-mx-6 md:px-6 dark:border-slate-800/60 dark:bg-slate-950/85">
         <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Workspace views">
           {GROUPS.map((g) => {
             const Icon = g.icon;
@@ -1628,10 +1629,10 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                 role="tab"
                 aria-selected={active}
                 onClick={() => setTab(g.tabs[0].id)}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
                   active
-                    ? 'border-accent-500 bg-accent-600 text-white'
-                    : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
+                    ? 'border-accent-500 bg-accent-600 font-medium text-white shadow-sm shadow-accent-600/30'
+                    : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800/60'
                 }`}
               >
                 <Icon className="h-3.5 w-3.5" aria-hidden />
@@ -1644,7 +1645,11 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           const group = GROUPS.find((g) => g.id === TAB_GROUP[tab]);
           if (!group || group.tabs.length < 2) return null;
           return (
-            <div className="flex flex-wrap gap-1.5 pl-1" role="tablist" aria-label={`${group.label} views`}>
+            <div
+              className="inline-flex flex-wrap gap-0.5 rounded-lg bg-slate-100/80 p-0.5 dark:bg-slate-800/60"
+              role="tablist"
+              aria-label={`${group.label} views`}
+            >
               {group.tabs.map((t) => {
                 const Icon = t.icon;
                 const active = t.id === tab;
@@ -1655,9 +1660,9 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                     role="tab"
                     aria-selected={active}
                     onClick={() => setTab(t.id)}
-                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-0.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                    className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
                       active
-                        ? 'bg-slate-100 font-medium text-slate-900 dark:bg-slate-800 dark:text-slate-100'
+                        ? 'bg-white font-medium text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100'
                         : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
                     }`}
                   >
