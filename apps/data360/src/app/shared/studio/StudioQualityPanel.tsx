@@ -16,6 +16,8 @@ import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, HelpCircle, Ref
 import {
   confirmDateContract,
   getDlq,
+  getDlqGrouped,
+  type DlqGroupedView,
   getQuality,
   getTargetsView,
   replayDlq,
@@ -234,6 +236,7 @@ export default function StudioQualityPanel({
   const [q, setQ] = useState<QualityView | 'loading' | 'error' | null>(null);
   const [dlqOpen, setDlqOpen] = useState<DlqItem[] | null>(null);
   const [dlqResolved, setDlqResolved] = useState<DlqItem[] | null>(null);
+  const [dlqGrouped, setDlqGrouped] = useState<DlqGroupedView | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [openOriginal, setOpenOriginal] = useState<string | null>(null);
   // per-table expand-beneath: the served checks[] + indicators{} were typed
@@ -247,7 +250,7 @@ export default function StudioQualityPanel({
     async (refresh = false) => {
       setQ('loading');
       try {
-        const [qv, open, resolved] = await Promise.all([
+        const [qv, open, resolved, grouped] = await Promise.all([
           getQuality(draftId, refresh),
           // null (read failed) must stay distinct from [] (genuinely no
           // residue) — the score gate reads "not measured", never a green
@@ -257,10 +260,14 @@ export default function StudioQualityPanel({
           // — [] would let "0 resolved" and the "nothing hidden" copy read as
           // fact when the audit trail simply could not be read.
           getDlq(draftId, 'resolved').catch(() => null),
+          // server GROUP BY — the authoritative totals at ANY volume (the
+          // items above are a bounded sample once the quarantine grows)
+          getDlqGrouped(draftId, 'open').catch(() => null),
         ]);
         setQ(qv);
         setDlqOpen(open);
         setDlqResolved(resolved);
+        setDlqGrouped(grouped);
       } catch {
         setQ('error');
       }
@@ -762,6 +769,69 @@ export default function StudioQualityPanel({
                 stays on the row. Resolved (audit) stays a flat list. */}
             <div className="mt-2 space-y-2">
               {(() => {
+                // At volume the server's GROUP BY is the truth and the items
+                // are a bounded sample — lead with the SERVED groups when the
+                // open view has them (counts survive millions of records).
+                if (!showResolved && dlqGrouped && dlqGrouped.groups.length > 0) {
+                  const sampleByRule = new Map<string, DlqItem[]>();
+                  for (const r of dlqGrouped.items) {
+                    const k = String(r.rule_id ?? 'unknown_rule');
+                    sampleByRule.set(k, [...(sampleByRule.get(k) ?? []), r]);
+                  }
+                  return (
+                    <>
+                      {dlqGrouped.items_note && dlqGrouped.total != null && dlqGrouped.total > dlqGrouped.items.length && (
+                        <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                          {dlqGrouped.items_note}
+                        </p>
+                      )}
+                      {[...dlqGrouped.groups]
+                        .sort((a, b) => (b.count ?? 0) - (a.count ?? 0))
+                        .map((g) => {
+                          const rule = String(g.rule_id ?? 'unknown_rule');
+                          const rs = sampleByRule.get(rule) ?? [];
+                          return (
+                            <section key={`${g.target}-${rule}`} className="rounded-lg border border-slate-100 dark:border-slate-800">
+                              <p className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/60 px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-800/40">
+                                <span className="font-medium text-slate-700 dark:text-slate-200">
+                                  {RULE_WORDS[rule] ?? rule.replace(/_/g, ' ')}
+                                </span>
+                                <span className="rounded bg-violet-50 px-1 py-px font-mono text-[10px] text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
+                                  {rule}
+                                </span>
+                                {g.column && (
+                                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                    {g.target ? `${g.target}.` : ''}{g.column}
+                                  </span>
+                                )}
+                                <span className="ml-auto tabular-nums text-slate-500 dark:text-slate-400">
+                                  {(g.count ?? 0).toLocaleString()} record{(g.count ?? 0) === 1 ? '' : 's'} held
+                                </span>
+                                {g.last_seen && (
+                                  <span className="text-[11px] text-slate-400 dark:text-slate-500" title={`first ${g.first_seen ?? '—'}`}>
+                                    last {String(g.last_seen).slice(0, 10)}
+                                  </span>
+                                )}
+                              </p>
+                              {rs.length > 0 && (
+                                <ul className="divide-y divide-slate-50 dark:divide-slate-800/60">
+                                  {rs.slice(0, 5).map((r, ri) => (
+                                    <li key={r.record_key ?? ri} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 text-xs text-slate-600 dark:text-slate-300">
+                                      <span className="font-mono text-[11px]">{r.record_key ?? '—'}</span>
+                                      <span className="text-slate-400 dark:text-slate-500">
+                                        attempts {r.attempts ?? '—'} · {r.status}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </section>
+                          );
+                        })}
+                    </>
+                  );
+                }
+
                 const shown = showResolved ? resolved : open;
                 const byRule = new Map<string, typeof shown>();
                 for (const r of shown) {

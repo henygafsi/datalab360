@@ -1458,8 +1458,27 @@ export const API = {
       `/studio/drafts/${encodeURIComponent(draftId)}/jobs/${encodeURIComponent(jobId)}/replay`,
     /** GET — the persistent quarantine: original VARIANT, rule, cause,
      *  attempts, open|resolved (resolved kept for audit). */
-    dlq: (draftId: string, status?: string) =>
-      `/studio/drafts/${encodeURIComponent(draftId)}/dlq${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+    dlq: (draftId: string, status?: string, groupBy?: string) => {
+      const q = [
+        status ? `status=${encodeURIComponent(status)}` : '',
+        groupBy ? `group_by=${encodeURIComponent(groupBy)}` : '',
+      ]
+        .filter(Boolean)
+        .join('&');
+      return `/studio/drafts/${encodeURIComponent(draftId)}/dlq${q ? `?${q}` : ''}`;
+    },
+    /** GET — one run with its live progress (chunks_done/total, pct, eta_s)
+     *  while the async loader executes; error_detail.blocked_by classifies
+     *  a failure (e.g. statement_timeout). */
+    jobRunStatus: (draftId: string, jobId: string, runId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/jobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(runId)}`,
+    /** GET — the PRICED scan options (2026-09-16): scope, warehouse, llm
+     *  pricing, the account credit budget, and options[] each carrying
+     *  estimated_credits + estimate_method + requires_confirmation +
+     *  launch{route, body}. A metadata read — launching an option is the
+     *  spend, always an explicit click. */
+    scanOptions: (databases: string[]) =>
+      `/studio/scan/options?databases=${encodeURIComponent(databases.join(','))}`,
     /** GET — whole-model quality: source/target/cross_table checks,
      *  indicators with numerator/denominator (never averaged %), anomalies
      *  with actionable fix{kind, job_id, available}. refresh=true runs

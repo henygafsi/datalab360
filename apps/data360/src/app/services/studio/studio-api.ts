@@ -2987,6 +2987,140 @@ export async function getDlq(
   return data?.items ?? data?.rejects ?? [];
 }
 
+/** One quarantine group (server GROUP BY) — the shape that scales to
+ *  millions of held records where a row dump cannot. */
+export interface DlqGroup {
+  target?: string;
+  rule_id?: string;
+  column?: string;
+  status?: string;
+  count?: number;
+  first_seen?: string;
+  last_seen?: string;
+  attempts?: number;
+}
+
+export interface DlqGroupedView {
+  /** server totals per rule — authoritative at any volume */
+  groups: DlqGroup[];
+  total: number | null;
+  by_rule: Record<string, number>;
+  by_status: Record<string, number>;
+  /** bounded sample rows (items_note says how bounded) */
+  items: DlqItem[];
+  items_note: string | null;
+}
+
+export async function getDlqGrouped(
+  draftId: string,
+  status: 'open' | 'resolved',
+): Promise<DlqGroupedView | null> {
+  const { data } = await apiClient.get<{
+    items?: DlqItem[];
+    grouped?: {
+      groups?: DlqGroup[];
+      total?: number;
+      by_rule?: Record<string, number>;
+      by_status?: Record<string, number>;
+    };
+    items_note?: string;
+  }>(API.studio.dlq(draftId, status, 'rule'), { timeout: 45_000 });
+  if (!data?.grouped) return null; // un-migrated backend — caller falls back
+  return {
+    groups: data.grouped.groups ?? [],
+    total: data.grouped.total ?? null,
+    by_rule: data.grouped.by_rule ?? {},
+    by_status: data.grouped.by_status ?? {},
+    items: data.items ?? [],
+    items_note: data.items_note ?? null,
+  };
+}
+
+/** Live progress of one (async) run — served only while/after the chunked
+ *  loader executes; rows_* appear once results exist. */
+export interface JobRunProgress {
+  started_at?: string;
+  chunks_done?: number;
+  chunks_total?: number;
+  chunks_failed?: number;
+  pct?: number;
+  elapsed_s?: number;
+  avg_chunk_s?: number;
+  eta_s?: number;
+  current?: { step?: string; event?: string; at?: string; query_id?: string };
+  rows_total?: number;
+  rows_done?: number;
+}
+
+export async function getJobRunStatus(
+  draftId: string,
+  jobId: string,
+  runId: string,
+): Promise<(JobRun & { progress?: JobRunProgress; error_detail?: { blocked_by?: string } }) | null> {
+  const { data } = await apiClient.get<{
+    run?: JobRun & { progress?: JobRunProgress; error_detail?: { blocked_by?: string } };
+  }>(API.studio.jobRunStatus(draftId, jobId, runId), { timeout: 30_000 });
+  return data?.run ?? null;
+}
+
+/* ── priced scan options (2026-09-16) — the COST at the centre ────────── */
+
+export interface ScanOption {
+  id?: string;
+  label?: string;
+  scope?: Record<string, unknown>;
+  estimated_credits?: number;
+  estimate_method?: string;
+  requires_confirmation?: boolean;
+  launch?: { route?: string; body?: Record<string, unknown> };
+}
+
+export interface ScanOptionsView {
+  scope?: {
+    databases?: string[];
+    tables?: number;
+    rows?: number;
+    compressed_gb?: number;
+    biggest?: Array<{ fqn?: string; rows?: number }>;
+  };
+  warehouse?: { size?: string; credits_per_hour?: number };
+  llm?: { model?: string; credits_per_m_tokens?: number; provider?: string; price_source?: string };
+  budget?: {
+    state?: string;
+    monitor?: string;
+    quota_credits?: number;
+    used_credits?: number;
+    remaining_credits?: number;
+  };
+  options?: ScanOption[];
+}
+
+/** Metadata read — the OPTIONS are free to look at; launching one is the
+ *  spend and stays an explicit, confirmed click. */
+export async function getScanOptions(databases: string[]): Promise<ScanOptionsView> {
+  const { data } = await apiClient.get<ScanOptionsView>(API.studio.scanOptions(databases), {
+    timeout: 30_000,
+  });
+  return data ?? {};
+}
+
+/** Launch a scan option through ITS OWN served route/body — the server is
+ *  the authority on what each option executes. Only /studio routes are
+ *  accepted (the route came off the wire; never POST it blindly). */
+export async function launchScanOption(
+  option: ScanOption,
+): Promise<Record<string, unknown>> {
+  const route = option.launch?.route ?? '';
+  const path = route.replace(/^POST\s+/i, '').trim();
+  if (!path.startsWith('/studio/')) {
+    throw new Error(`refusing to launch a non-studio route: ${path || '(empty)'}`);
+  }
+  const { data } = await apiClient.post<Record<string, unknown>>(path, option.launch?.body ?? {}, {
+    timeout: 120_000,
+  });
+  return data ?? {};
+}
+
 /** Explicit SOURCE-CONTRACT confirmation for an ambiguous date format —
  *  the backend refuses (422) without it; never an AI interpretation. */
 export async function confirmDateContract(

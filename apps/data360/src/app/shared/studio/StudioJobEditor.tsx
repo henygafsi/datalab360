@@ -26,10 +26,12 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import {
+  getJobRunStatus,
   getTargetsView,
   patchModel,
   runJob,
   testJob,
+  type JobRunProgress,
   type JobTestResult,
   type JobRun,
   type StudioJob,
@@ -348,6 +350,35 @@ export default function StudioJobEditor({
     }
   }, [dirty, busy, buf, job, jobIndex, draftId, view.updated_at, onChanged]);
 
+  // Poll the served run progress while the latest run executes — the
+  // chunked loader reports pct/chunks/eta; when it resolves, refresh.
+  const [liveProgress, setLiveProgress] = useState<JobRunProgress | null>(null);
+  useEffect(() => {
+    const lr = latestRun(job);
+    if (!lr?.run_id || (lr.status !== 'running' && lr.status !== 'pending')) {
+      setLiveProgress(null);
+      return;
+    }
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      const r = await getJobRunStatus(draftId, job.job_id, lr.run_id!).catch(() => null);
+      if (!alive) return;
+      setLiveProgress(r?.progress ?? null);
+      if (r?.status && r.status !== 'running' && r.status !== 'pending') {
+        onChanged();
+        return;
+      }
+      timer = setTimeout(() => void poll(), 10_000);
+    };
+    void poll();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job, draftId]);
+
   const [runElapsed, setRunElapsed] = useState<number | null>(null);
   const runTest = useCallback(async () => {
     if (busy) return;
@@ -505,6 +536,47 @@ export default function StudioJobEditor({
             {env}
           </span>
         </p>
+        {/* LIVE progress of a chunked run — served pct/chunks/eta polled
+            every 10 s while the loader executes; a long load shows its
+            advance instead of a silent spinner */}
+        {liveProgress && (
+          <div className="mt-2 rounded-lg border border-sky-200/70 bg-sky-50/50 px-3 py-2 dark:border-sky-800/50 dark:bg-sky-950/20" role="status">
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-sky-800 dark:text-sky-200">
+              <span className="font-medium">Run in progress</span>
+              {liveProgress.chunks_total != null && (
+                <span className="tabular-nums">
+                  chunk {liveProgress.chunks_done ?? 0} / {liveProgress.chunks_total}
+                  {(liveProgress.chunks_failed ?? 0) > 0 && ` · ${liveProgress.chunks_failed} failed`}
+                </span>
+              )}
+              {liveProgress.rows_done != null && liveProgress.rows_total != null && (
+                <span className="tabular-nums">
+                  {liveProgress.rows_done.toLocaleString()} / {liveProgress.rows_total.toLocaleString()} rows
+                </span>
+              )}
+              {liveProgress.eta_s != null && (
+                <span className="tabular-nums">≈ {Math.round(liveProgress.eta_s)} s left</span>
+              )}
+              {liveProgress.current?.step && (
+                <span className="text-sky-700/80 dark:text-sky-300/70">{liveProgress.current.step}</span>
+              )}
+            </p>
+            {liveProgress.pct != null && (
+              <div
+                className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-sky-100 dark:bg-sky-900/40"
+                role="progressbar"
+                aria-valuenow={Math.round(liveProgress.pct)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <div
+                  className="h-full rounded-full bg-sky-500 transition-[width] duration-500 dark:bg-sky-400"
+                  style={{ width: `${Math.max(0, Math.min(100, liveProgress.pct))}%` }}
+                />
+              </div>
+            )}
+          </div>
+        )}
         {leaving && (
           <div
             role="alertdialog"

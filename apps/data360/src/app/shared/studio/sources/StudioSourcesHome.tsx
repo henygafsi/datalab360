@@ -23,6 +23,7 @@ import { invalidateSourcesCaches } from '@/app/services/studio/studio-api';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
 import ConnectionsPanel from '@/app/shared/studio/sources/ConnectionsPanel';
 import ObjectsPanel from '@/app/shared/studio/sources/ObjectsPanel';
+import StudioScanOptionsPanel from '@/app/shared/studio/sources/StudioScanOptionsPanel';
 import StudioSourceOnboarding from '@/app/shared/studio/StudioSourceOnboarding';
 import { routes } from '@/config/routes';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
@@ -183,6 +184,13 @@ export default function StudioSourcesHome() {
           }}
         />
         )}
+
+        {/* every way of scanning the estate, PRICED — the cost is the
+            centre of the understanding work (user directive); reading the
+            options is free, launching one is the explicit spend */}
+        <div className="mt-3">
+          <StudioScanOptionsPanel databases={['DATA360_LITE']} />
+        </div>
       </div>
     </div>
   );
