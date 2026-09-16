@@ -129,7 +129,7 @@ export default function StudioModelInspector({
   /** Open the responsible process in the Jobs editor. */
   onOpenJob?: (jobId: string) => void;
   /** Hand a row-access restriction to the Access view (plan → apply). */
-  onOpenAccess?: () => void;
+  onOpenAccess?: (intent?: { kind: 'mask' | 'row'; column?: string }) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1419,7 +1419,7 @@ export default function StudioModelInspector({
                     <>
                       <button
                         type="button"
-                        onClick={onOpenAccess}
+                        onClick={() => onOpenAccess({ kind: 'row', column: c.column })}
                         className="text-xs text-accent-700 hover:underline dark:text-accent-400"
                         title="Plan the row restriction in Governance — it attaches to the data role, reused by every functional role"
                       >
@@ -1427,7 +1427,7 @@ export default function StudioModelInspector({
                       </button>
                       <button
                         type="button"
-                        onClick={onOpenAccess}
+                        onClick={() => onOpenAccess({ kind: 'mask', column: c.column })}
                         className="text-xs text-accent-700 hover:underline dark:text-accent-400"
                         title="Mask this column (CLS) in Governance — hidden for the base roles, kept clear for admin & approve"
                       >

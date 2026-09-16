@@ -594,6 +594,12 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
   const [jobsFocus, setJobsFocus] = useState<string | null>(null);
   // a job's Target cell opens the model with that node selected ('t:<id>')
   const [modelFocus, setModelFocus] = useState<string | null>(null);
+  // a model/quality detection redirects to Access with a seeded form
+  const [accessPrefill, setAccessPrefill] = useState<{ kind: 'mask' | 'row'; column?: string } | null>(null);
+  const openAccessWith = useCallback((intent?: { kind: 'mask' | 'row'; column?: string } | null) => {
+    setAccessPrefill(intent ?? null);
+    setTab('governance');
+  }, []);
   /* the model canvas selection — opens the editable table detail */
   const [composer, setComposer] = useState<{
     open: boolean;
@@ -2492,7 +2498,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                   setJobsFocus(jobId);
                   setTab('jobs');
                 }}
-                onOpenAccess={() => setTab('governance')}
+                onOpenAccess={(intent) => openAccessWith(intent)}
                 onOpenInsights={() => setTab('reporting')}
                 focusEntity={modelFocus}
               />
@@ -2892,7 +2898,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
               {/* the page's ONE job leads: give access — WHO gets it, on
                   WHAT data, with WHICH rights, then review & apply. The
                   proof wall and the role engine live INSIDE it, folded. */}
-              <StudioAccessPanel draftId={draftId} />
+              <StudioAccessPanel draftId={draftId} prefill={accessPrefill} />
               {/* profiles refine WHAT DATA someone sees — the second move */}
               <StudioAccessProfilesPanel draftId={draftId} />
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">

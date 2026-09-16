@@ -79,7 +79,7 @@ export default function StudioModelTab({
   onApplied: () => void;
   onAskAi?: (instruction: string) => void;
   onOpenJob?: (jobId: string) => void;
-  onOpenAccess?: () => void;
+  onOpenAccess?: (intent?: { kind: 'mask' | 'row'; column?: string }) => void;
   /** the model→ask door — opens the Reporting view */
   onOpenInsights?: () => void;
   /** a hand-off from another tab (a job's Target cell) — pre-select this
@@ -220,7 +220,7 @@ export default function StudioModelTab({
           {onOpenAccess && (
             <button
               type="button"
-              onClick={onOpenAccess}
+              onClick={() => onOpenAccess({ kind: 'mask' })}
               className="ml-auto rounded-lg border border-amber-500 px-2 py-0.5 text-xs font-medium hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:bg-amber-900/40"
             >
               Propose policies in Access

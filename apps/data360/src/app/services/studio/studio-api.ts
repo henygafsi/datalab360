@@ -1645,6 +1645,16 @@ export interface AccessMutation {
 
 /** One entry per requested mutation, in request order. dry-run →
  *  would_apply | skipped; real apply → applied | failed | skipped. */
+/** A pre-fill intent carried from a model/quality detection to the Access
+ *  page so the redirect lands on a READY, seeded form (user directive):
+ *  a mask intent opens the masking layer with the column pre-selected; a
+ *  row intent opens the row-access layer scoped to the column. */
+export interface AccessPrefill {
+  kind: 'mask' | 'row';
+  fqn?: string;
+  column?: string;
+}
+
 export interface AccessApplyLine {
   mutation_id?: string;
   kind?: string;

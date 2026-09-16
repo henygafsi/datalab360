@@ -320,7 +320,14 @@ function AccessOutcome({ outcome }: { outcome: AccessApplyResult }) {
   );
 }
 
-export default function StudioAccessPanel({ draftId }: { draftId: string }) {
+export default function StudioAccessPanel({
+  draftId,
+  prefill,
+}: {
+  draftId: string;
+  /** a model/quality detection redirect — seeds the grid layer + column */
+  prefill?: { kind: 'mask' | 'row'; column?: string } | null;
+}) {
   const [view, setView] = useState<AccessView | 'loading' | 'error'>('loading');
   const [grantTypes, setGrantTypes] = useState<GrantType[]>([]);
   const [gov, setGov] = useState<RlsSuggestion | null>(null);
@@ -561,6 +568,7 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
           and a policy column with the values each role may see. */}
       <StudioGovernanceMap
         draftId={draftId}
+        prefill={prefill}
         view={view}
         gov={gov}
         grantTypes={grantTypes}

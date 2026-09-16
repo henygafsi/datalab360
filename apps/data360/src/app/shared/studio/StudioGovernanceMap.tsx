@@ -22,7 +22,7 @@
  * proof of who can really read is « Test the reads », under Review.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Check,
   ChevronRight,
@@ -86,9 +86,13 @@ export default function StudioGovernanceMap({
   busy,
   canPrepare,
   footer,
+  prefill,
 }: {
   draftId: string;
   view: AccessView;
+  /** a model/quality detection deep-links here with the layer to open and
+   *  the column already in play — the redirect lands on a READY form */
+  prefill?: { kind: 'mask' | 'row'; column?: string } | null;
   gov: RlsSuggestion | null;
   grantTypes: GrantTypeInfo[];
   principals: Principal[] | null;
@@ -112,6 +116,15 @@ export default function StudioGovernanceMap({
   footer?: React.ReactNode;
 }) {
   const [subTab, setSubTab] = useState<SubTab>('give');
+  // a detection redirect opens the grid on the right layer, seeded
+  useEffect(() => {
+    if (!prefill) return;
+    setSubTab('grid');
+    if (prefill.kind === 'mask' && prefill.column && !masking.columns.includes(prefill.column)) {
+      onToggleMask(prefill.column); // pre-stage the mask on the detected column
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill]);
   /** the principal whose access is being edited — SHARED across every tab:
    *  pick a person on « People & roles » and the policy tabs edit what THAT
    *  person sees (resolved to their Data360 role, since row/column policies
@@ -549,6 +562,7 @@ export default function StudioGovernanceMap({
       {/* ══ ACCESS GRID — columns × roles, navigable by grant type ════ */}
       {subTab === 'grid' && (
         <StudioAccessGrid
+          initialLayer={prefill ? (prefill.kind === 'mask' ? 'pii' : 'rls') : undefined}
           draftId={draftId}
           grantTypes={grantTypes}
           columns={columns}

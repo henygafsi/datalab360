@@ -83,6 +83,7 @@ function truthTone(t?: string): { cls: string; word: string } {
 }
 
 export default function StudioAccessGrid({
+  initialLayer,
   draftId,
   grantTypes,
   columns,
@@ -95,6 +96,8 @@ export default function StudioAccessGrid({
   tablesCount,
   actionBar,
 }: {
+  /** which layer to open on (a model detection deep-links to 'pii'/'rls') */
+  initialLayer?: Layer;
   draftId: string;
   grantTypes: GrantTypeInfo[];
   columns: GridColumn[];
@@ -108,7 +111,10 @@ export default function StudioAccessGrid({
   /** the shared Prepare / Test / Review bar, so the grid is self-sufficient */
   actionBar?: React.ReactNode;
 }) {
-  const [layer, setLayer] = useState<Layer>('rls');
+  const [layer, setLayer] = useState<Layer>(initialLayer ?? 'rls');
+  useEffect(() => {
+    if (initialLayer) setLayer(initialLayer);
+  }, [initialLayer]);
   const [openCol, setOpenCol] = useState<string | null>(null);
   const [maskInput, setMaskInput] = useState('');
   const grantLabel = (id: string): string => grantTypes.find((g) => g.id === id)?.label ?? id;
