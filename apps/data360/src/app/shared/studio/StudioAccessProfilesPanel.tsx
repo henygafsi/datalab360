@@ -1251,6 +1251,36 @@ export default function StudioAccessProfilesPanel({ draftId }: { draftId: string
         </button>
       </div>
 
+      {meta.profiles.length > 0 && (
+        // the panel's KPIs before its rows — every figure SERVED or counted
+        // from served rows, never invented ("—" when the cap isn't said)
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 font-medium tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {meta.count ?? meta.profiles.length}
+            {meta.max != null && ` of ${meta.max}`} profile
+            {(meta.max ?? meta.count ?? meta.profiles.length) === 1 ? '' : 's'}
+          </span>
+          {(['applied', 'partially_applied', 'planned'] as const).map((s) => {
+            const n = meta.profiles.filter((p) => (p.state ?? 'planned') === s).length;
+            return n > 0 ? (
+              <span key={s} className={`rounded-full px-2 py-0.5 font-medium tabular-nums ${STATE_CLS[s]}`}>
+                {n} {s.replace('_', ' ')}
+              </span>
+            ) : null;
+          })}
+          {meta.profiles.some((p) => p.stale) && (
+            <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium tabular-nums text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+              {meta.profiles.filter((p) => p.stale).length} stale — recompile before trusting the plan
+            </span>
+          )}
+          {meta.compiled?.mutations != null && meta.compiled.mutations > 0 && (
+            <span className="rounded-full bg-violet-50 px-2 py-0.5 font-medium tabular-nums text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+              {meta.compiled.mutations} compiled mutation{meta.compiled.mutations === 1 ? '' : 's'} awaiting apply
+            </span>
+          )}
+        </div>
+      )}
+
       {meta.profiles.length === 0 ? (
         <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">
           No data profile yet — everyone with a role sees every row (the legacy behaviour, kept).

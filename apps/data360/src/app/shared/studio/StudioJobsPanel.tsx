@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MoreHorizontal, Play, RefreshCw, Search } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, MoreHorizontal, Play, RefreshCw, Search } from 'lucide-react';
 import {
   getTargetsView,
   patchModel,
@@ -216,6 +216,21 @@ export default function StudioJobsPanel({
     });
   }, [jobs, q, targetById]);
 
+  /* the FUNCTIONAL job sections — where correcting the ingestion/transform
+   * starts: what needs a fix first, what is ready to run, what loaded clean.
+   * Buckets are derived from served state + last run, never invented. */
+  const [foldedJobGroups, setFoldedJobGroups] = useState<Record<string, boolean>>({});
+  const jobGroupOf = (j: StudioJob): 'attention' | 'ready' | 'loaded' => {
+    const r = latestRun(j);
+    if (j.state === 'degraded' || !!r?.error || (r?.results?.[0]?.dlq_open ?? 0) > 0) return 'attention';
+    return r == null ? 'ready' : 'loaded';
+  };
+  const JOB_GROUPS = [
+    { key: 'attention' as const, label: 'Needs a fix first', hint: 'degraded, failed or holding rejected rows', Icon: AlertTriangle, tone: 'text-amber-600 dark:text-amber-400' },
+    { key: 'ready' as const, label: 'Ready to run', hint: 'configured — never ran yet', Icon: Play, tone: 'text-slate-500 dark:text-slate-400' },
+    { key: 'loaded' as const, label: 'Loaded clean', hint: 'last run accepted its rows', Icon: CheckCircle2, tone: 'text-emerald-600 dark:text-emerald-400' },
+  ];
+
   const openJob = openJobId ? jobs.find((j) => j.job_id === openJobId) : null;
 
   if (view === 'loading' || view === null)
@@ -325,7 +340,43 @@ export default function StudioJobsPanel({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {rows.map((j) => {
+              {JOB_GROUPS.flatMap((g) => {
+                const ws = rows.filter((j) => jobGroupOf(j) === g.key);
+                if (ws.length === 0) return [];
+                const folded = foldedJobGroups[g.key] ?? (g.key === 'loaded' && ws.length > 8 && !q.trim());
+                const GIcon = g.Icon;
+                const dlqSum = ws.reduce((a, j) => a + (latestRun(j)?.results?.[0]?.dlq_open ?? 0), 0);
+                return [
+                  <tr key={`h-${g.key}`} className="bg-slate-50/70 dark:bg-slate-800/40">
+                    <td colSpan={6} className="px-2 py-1">
+                      <button
+                        type="button"
+                        aria-expanded={!folded}
+                        onClick={() => setFoldedJobGroups((f) => ({ ...f, [g.key]: !folded }))}
+                        className="flex w-full items-center gap-1.5 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                      >
+                        {folded ? (
+                          <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        ) : (
+                          <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        )}
+                        <GIcon aria-hidden className={`h-3.5 w-3.5 shrink-0 ${g.tone}`} />
+                        <span className="font-medium text-slate-700 dark:text-slate-200">{g.label}</span>
+                        <span className="hidden text-slate-400 dark:text-slate-500 sm:inline">{g.hint}</span>
+                        {g.key === 'attention' && dlqSum > 0 && (
+                          <span className="rounded-full bg-amber-50 px-1.5 py-px text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                            {dlqSum} row(s) held in DLQ
+                          </span>
+                        )}
+                        <span className="ml-auto rounded-full bg-white px-1.5 py-px tabular-nums text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                          {ws.length}
+                        </span>
+                      </button>
+                    </td>
+                  </tr>,
+                  ...(folded
+                    ? []
+                    : ws.map((j) => {
                 const feeds = (j.target_ids ?? [])
                   .map((id) => targetById.get(id))
                   .filter((t): t is NonNullable<typeof t> => t != null);
@@ -337,7 +388,7 @@ export default function StudioJobsPanel({
                 const scheduled = !!j.trigger?.cron_choice && j.trigger.cron_choice !== 'manual';
                 const st = JOB_STATE_LABEL[j.state ?? ''] ?? JOB_STATE_LABEL.configured;
                 return (
-                  <tr key={j.job_id} className="text-[13px]">
+                  <tr key={j.job_id} className="group text-[13px] hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                     <td className="px-2 py-2">
                       <button
                         type="button"
@@ -414,7 +465,7 @@ export default function StudioJobsPanel({
                       )}
                     </td>
                     <td className="px-2 py-2">
-                      <span className="flex items-center justify-end gap-1.5">
+                      <span className={`flex translate-x-1 items-center justify-end gap-1.5 opacity-0 transition-all duration-150 focus-within:translate-x-0 focus-within:opacity-100 group-hover:translate-x-0 group-hover:opacity-100 motion-reduce:transition-none ${removeArm === j.job_id || busy != null ? '!translate-x-0 !opacity-100' : ''}`}>
                         <button
                           type="button"
                           onClick={() => setOpenJobId(j.job_id)}
@@ -497,6 +548,8 @@ export default function StudioJobsPanel({
                     </td>
                   </tr>
                 );
+                    })),
+                ];
               })}
             </tbody>
           </table>

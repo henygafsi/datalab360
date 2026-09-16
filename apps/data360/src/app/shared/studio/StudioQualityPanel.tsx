@@ -518,36 +518,62 @@ export default function StudioQualityPanel({
           </p>
         ) : (
           <>
-            <ul className="mt-2 space-y-1.5">
-              {(showResolved ? resolved : open).map((r) => (
-                <li key={r.dlq_id} className="rounded-lg border border-slate-100 p-2 text-xs dark:border-slate-800">
-                  <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="font-mono text-xs text-slate-700 dark:text-slate-300">
-                      {r.target} · key {r.record_key}
-                    </span>
-                    <span className="rounded-full bg-violet-50 px-1.5 py-0.5 text-xs text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
-                      {r.rule_id}
-                    </span>
-                    <span className="text-slate-500 dark:text-slate-400">{r.cause}</span>
-                    <span className="text-xs text-slate-400 dark:text-slate-500">
-                      attempts {r.attempts ?? 0} · {r.status}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setOpenOriginal((o) => (o === r.dlq_id ? null : r.dlq_id!))}
-                      className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                    >
-                      {openOriginal === r.dlq_id ? 'hide original' : 'original record'}
-                    </button>
-                  </p>
-                  {openOriginal === r.dlq_id && (
-                    <pre className="mt-1 max-h-32 overflow-auto rounded bg-slate-50 p-1.5 font-mono text-xs text-slate-600 dark:bg-slate-950 dark:text-slate-400">
-                      {r.original}
-                    </pre>
-                  )}
-                </li>
-              ))}
-            </ul>
+            {/* the quarantine grouped by WHY it was held — same rule, one
+                section, its cause as the business label; the technical key
+                stays on the row. Resolved (audit) stays a flat list. */}
+            <div className="mt-2 space-y-2">
+              {(() => {
+                const shown = showResolved ? resolved : open;
+                const byRule = new Map<string, typeof shown>();
+                for (const r of shown) {
+                  const k = String(r.rule_id ?? 'unknown_rule');
+                  byRule.set(k, [...(byRule.get(k) ?? []), r]);
+                }
+                return [...byRule.entries()]
+                  .sort((a, b) => b[1].length - a[1].length)
+                  .map(([rule, rs]) => (
+                    <section key={rule} className="rounded-lg border border-slate-100 dark:border-slate-800">
+                      <p className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/60 px-2 py-1 text-xs dark:border-slate-800 dark:bg-slate-800/40">
+                        <span className="font-medium text-slate-700 dark:text-slate-200">
+                          {String(rs[0]?.cause ?? rule.replace(/_/g, ' '))}
+                        </span>
+                        <span className="rounded-full bg-violet-50 px-1.5 py-0.5 font-mono text-[11px] text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                          {rule}
+                        </span>
+                        <span className="ml-auto rounded-full bg-white px-1.5 py-px tabular-nums text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                          {rs.length} record{rs.length > 1 ? 's' : ''} held
+                        </span>
+                      </p>
+                      <ul className="space-y-1 p-1.5">
+                        {rs.map((r) => (
+                          <li key={r.dlq_id} className="text-xs">
+                            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <span className="font-mono text-xs text-slate-700 dark:text-slate-300">
+                                {r.target} · key {r.record_key}
+                              </span>
+                              <span className="text-xs text-slate-400 dark:text-slate-500">
+                                attempts {r.attempts ?? 0} · {r.status}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setOpenOriginal((o) => (o === r.dlq_id ? null : r.dlq_id!))}
+                                className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                              >
+                                {openOriginal === r.dlq_id ? 'hide original' : 'original record'}
+                              </button>
+                            </p>
+                            {openOriginal === r.dlq_id && (
+                              <pre className="mt-1 max-h-32 overflow-auto rounded bg-slate-50 p-1.5 font-mono text-xs text-slate-600 dark:bg-slate-950 dark:text-slate-400">
+                                {r.original}
+                              </pre>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  ));
+              })()}
+            </div>
             {resolved.length > 0 && (
               <button
                 type="button"

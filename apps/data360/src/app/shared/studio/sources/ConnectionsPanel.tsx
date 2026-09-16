@@ -222,7 +222,30 @@ export default function ConnectionsPanel({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {items.map((r: ConnectionListItem) => {
+                {/* grouped by TYPE (business words) with a health one-liner —
+                    tallies over the fetched page, said as such when paged */}
+                {[...new Set(items.map((r: ConnectionListItem) => String(r.type ?? '')))].flatMap((t) => {
+                  const rs = items.filter((r: ConnectionListItem) => String(r.type ?? '') === t);
+                  const tested = rs.filter((r) => r.last_test?.overall === 'pass').length;
+                  const failed = rs.filter((r) => r.last_test?.overall === 'fail' || r.last_test?.overall === 'degraded').length;
+                  const never = rs.length - tested - failed;
+                  return [
+                    <tr key={`h-${t}`} className="bg-slate-50/70 dark:bg-slate-800/40">
+                      <td colSpan={6} className="px-2 py-1">
+                        <p className="flex flex-wrap items-center gap-2 text-xs">
+                          <span className="font-medium text-slate-700 dark:text-slate-200">{typeWords(t)}</span>
+                          <span className="text-slate-400 dark:text-slate-500">
+                            {tested > 0 && `${tested} tested ok`}
+                            {failed > 0 && ` · ${failed} failing`}
+                            {never > 0 && `${tested > 0 || failed > 0 ? ' · ' : ''}${never} never tested`}
+                          </span>
+                          <span className="ml-auto rounded-full bg-white px-1.5 py-px tabular-nums text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                            {rs.length}
+                          </span>
+                        </p>
+                      </td>
+                    </tr>,
+                    ...rs.map((r: ConnectionListItem) => {
                   const lt = r.last_test;
                   const usage = r.usage;
                   return (
@@ -287,6 +310,8 @@ export default function ConnectionsPanel({
                       </td>
                     </tr>
                   );
+                    }),
+                  ];
                 })}
               </tbody>
             </table>
