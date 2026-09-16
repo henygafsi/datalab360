@@ -152,11 +152,21 @@ export default function StudioJobsPanel({
   const [removeArm, setRemoveArm] = useState<string | null>(null);
   const [q, setQ] = useState('');
 
+  const [staleView, setStaleView] = useState(false);
   const load = useCallback(async () => {
     try {
       setView(await getTargetsView(draftId));
+      setStaleView(false);
     } catch {
-      setView((v) => (v && typeof v === 'object' ? v : 'error'));
+      // keeping the previous list is kinder than wiping it — but SAY it is
+      // the last known state, never let it pass for current truth
+      setView((v) => {
+        if (v && typeof v === 'object') {
+          setStaleView(true);
+          return v;
+        }
+        return 'error';
+      });
     }
   }, [draftId]);
 
@@ -281,6 +291,18 @@ export default function StudioJobsPanel({
           {/* not all of them are loads — fact builds and event jobs sit here too */}
           Processes{jobs.length ? ` (${jobs.length})` : ''}
         </h3>
+        {staleView && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" role="status">
+            showing the last known state — the refresh failed
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="rounded font-medium underline decoration-dotted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+            >
+              retry
+            </button>
+          </span>
+        )}
         {jobs.length > 6 && (
           <label className="relative">
             <Search aria-hidden className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />

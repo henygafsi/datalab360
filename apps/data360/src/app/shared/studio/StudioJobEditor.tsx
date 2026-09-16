@@ -674,8 +674,19 @@ export default function StudioJobEditor({
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {buf.rules.map((r, ri) => (
                         <tr key={r.rule_id ?? ri} title={r.predicate}>
-                          <td className="whitespace-nowrap px-2.5 py-1.5 font-mono text-slate-700 dark:text-slate-300">
-                            {r.kind ?? '—'}
+                          <td className="whitespace-nowrap px-2.5 py-1.5 text-slate-700 dark:text-slate-300">
+                            {/* business words first — the raw kind stays as evidence */}
+                            <span title={r.kind ?? undefined}>
+                              {({
+                                not_null: 'must be present',
+                                unique: 'no duplicates',
+                                referential_integrity: 'must match its reference',
+                                accepted_values: 'value in the allowed list',
+                                freshness: 'must be fresh',
+                                row_count: 'expected volume',
+                              } as Record<string, string>)[r.kind ?? ''] ??
+                                (r.kind ? r.kind.replace(/_/g, ' ') : '—')}
+                            </span>
                           </td>
                           <td className="whitespace-nowrap px-2.5 py-1.5 font-mono text-slate-600 dark:text-slate-300">
                             {r.column ?? '—'}
