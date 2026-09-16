@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, Pencil, RefreshCw, Search } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle, Pencil, RefreshCw, Search } from 'lucide-react';
 import {
   detachSource,
   getDraftSources,
@@ -49,6 +49,15 @@ const UNDERSTANDING_CLS: Record<string, string> = {
   stale: 'bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
   not_analysed: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
 };
+
+/* the FUNCTIONAL comprehension sections of the objects table — what still
+ * needs the analysis, what drifted stale, what is understood. Grouping is
+ * over the fetched PAGE (the server paginates), and says so. */
+const UND_GROUPS = [
+  { key: 'not_analysed', label: 'Not analysed yet', hint: 'run the understanding to make them usable', Icon: HelpCircle, tone: 'text-amber-600 dark:text-amber-400' },
+  { key: 'stale', label: 'Understanding stale', hint: 'the attachment changed since the analysis', Icon: AlertTriangle, tone: 'text-amber-600 dark:text-amber-400' },
+  { key: 'known', label: 'Understood', hint: 'analysed and current', Icon: CheckCircle2, tone: 'text-emerald-600 dark:text-emerald-400' },
+] as const;
 
 function volumeWords(v?: AttachedSourceItem['volume']): string {
   if (!v || v.state === 'unknown' || v.rows == null) return '—';
@@ -561,6 +570,8 @@ export default function ObjectsPanel({
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(initialSelection ?? null);
   const [removeArm, setRemoveArm] = useState<string | null>(null);
+  /** per-comprehension-section fold — Understood starts folded when long */
+  const [foldedGroups, setFoldedGroups] = useState<Record<string, boolean>>({});
   const [detachBusy, setDetachBusy] = useState<string | null>(null);
   const [detachRefusal, setDetachRefusal] = useState<{ ref: string; refusal: Refusal } | null>(null);
   const [detachNote, setDetachNote] = useState<string | null>(null);
@@ -713,6 +724,11 @@ export default function ObjectsPanel({
           </select>
         </>
       )}
+      {ready != null && (
+        <span className="rounded-full border border-slate-200 px-2 py-px text-xs tabular-nums text-slate-600 dark:border-slate-700 dark:text-slate-300">
+          {total} object{total === 1 ? '' : 's'}
+        </span>
+      )}
       {(ready?.stale_for?.length ?? 0) > 0 && (
         <span
           className="rounded-full bg-amber-50 px-1.5 py-px text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
@@ -810,7 +826,37 @@ export default function ObjectsPanel({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {items.map((s) => {
+                {UND_GROUPS.flatMap((g) => {
+                  const rows = items.filter((s) => (s.understanding?.state ?? 'not_analysed') === g.key);
+                  if (rows.length === 0) return [];
+                  const folded = foldedGroups[g.key] ?? (g.key === 'known' && rows.length > 8 && !q.trim());
+                  const GIcon = g.Icon;
+                  return [
+                    <tr key={`h-${g.key}`} className="bg-slate-50/70 dark:bg-slate-800/40">
+                      <td colSpan={7} className="px-2 py-1">
+                        <button
+                          type="button"
+                          aria-expanded={!folded}
+                          onClick={() => setFoldedGroups((f) => ({ ...f, [g.key]: !folded }))}
+                          className="flex w-full items-center gap-1.5 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                        >
+                          {folded ? (
+                            <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          ) : (
+                            <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          )}
+                          <GIcon aria-hidden className={`h-3.5 w-3.5 shrink-0 ${g.tone}`} />
+                          <span className="font-medium text-slate-700 dark:text-slate-200">{g.label}</span>
+                          <span className="hidden text-slate-400 dark:text-slate-500 sm:inline">{g.hint}</span>
+                          <span className="ml-auto rounded-full bg-white px-1.5 py-px tabular-nums text-slate-500 dark:bg-slate-900 dark:text-slate-400" title="Counted on this page — the server paginates">
+                            {rows.length} on this page
+                          </span>
+                        </button>
+                      </td>
+                    </tr>,
+                    ...(folded
+                      ? []
+                      : rows.map((s) => {
                   const und = s.understanding?.state ?? 'not_analysed';
                   const uCls = UNDERSTANDING_CLS[und] ?? UNDERSTANDING_CLS.not_analysed;
                   const usage = s.usage;
@@ -882,6 +928,8 @@ export default function ObjectsPanel({
                       </td>
                     </tr>
                   );
+                        })),
+                  ];
                 })}
               </tbody>
             </table>
