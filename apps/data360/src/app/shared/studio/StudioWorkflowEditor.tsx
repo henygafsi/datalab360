@@ -1152,6 +1152,29 @@ export default function StudioWorkflowEditor({
               {busy === 'test' ? <RefreshCw aria-hidden className="h-3 w-3 animate-spin" /> : <Play aria-hidden className="h-3 w-3" />}
               Test-run (sandbox)
             </button>
+            {/* a dead button explains NOTHING — when the test is gated, SAY
+                why right here and door to the decision that unblocks it */}
+            {w.activable?.ok === false && (
+              <span className="inline-flex flex-wrap items-center gap-1.5 rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" role="status">
+                {(() => {
+                  const nMissing =
+                    (w.prerequisites?.data?.missing?.length ?? 0) +
+                    (w.prerequisites?.destination?.missing?.length ?? 0);
+                  return nMissing > 0
+                    ? `testing is blocked by ${nMissing} decision${nMissing === 1 ? '' : 's'}`
+                    : (w.activable?.reason ?? 'testing is blocked');
+                })()}
+                {(w.prerequisites?.data?.missing?.length ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSection('definition')}
+                    className="rounded font-medium underline decoration-dotted hover:text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:text-amber-100"
+                  >
+                    decide it on Definition
+                  </button>
+                )}
+              </span>
+            )}
             {w.state !== 'stopped' && (
               <button
                 type="button"

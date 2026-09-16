@@ -262,12 +262,13 @@ export default function StudioGovernanceMap({
                 ))}
           </span>
         </div>
-        <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-          People → Data360 roles → the access role and its policies. A person is never granted a
-          table directly. <span className="font-medium">Access to the application means READING it —
-          the Viewer default;</span> the higher roles add what someone may DO. This panel composes{' '}
-          <span className="font-medium">new</span> access — a person&rsquo;s standing grant is verified by{' '}
-          <span className="font-medium">Test the reads</span>, not assumed here.
+        <p
+          className="mt-1.5 text-xs text-slate-500 dark:text-slate-400"
+          title="People → Data360 roles → the access role and its policies. A person is never granted a table directly. This panel composes NEW access; a standing grant is verified by Test the reads, not assumed."
+        >
+          {/* ONE line — the full doctrine stays in the tooltip, not on the page */}
+          A person gets a role, never a table. Viewer = read the application; higher roles add what
+          they may do.
         </p>
       </section>
 

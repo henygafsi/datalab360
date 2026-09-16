@@ -283,6 +283,9 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
   const [policyColumn, setPolicyColumn] = useState('');
   const [policyValues, setPolicyValues] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  /** your-own-reads proof wall — EVIDENCE, folded under the flow (the page
+   *  is for giving access, not for contemplating one's own table list) */
+  const [meOpen, setMeOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [applyResult, setApplyResult] = useState<string | null>(null);
@@ -505,37 +508,8 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
 
   return (
     <div className="space-y-3">
-      {/* what I can read myself — the only reads that are proven */}
-      <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex flex-wrap items-center gap-2">
-          <ShieldCheck aria-hidden className="h-4 w-4 text-accent-500" />
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Your access on this application
-          </h3>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            {me.username} · {me.data360_role ?? me.snowflake_role ?? '—'}
-            {me.can_change_access ? ' · can change access' : ' · read-only view of your access'}
-          </span>
-        </div>
-        <ul className="mt-2 space-y-1">
-          {(me.objects ?? []).map((o) => (
-            <li key={o.fqn} className="flex flex-wrap items-center gap-2 text-[13px]">
-              <Table2 aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">
-                {String(o.fqn ?? '').split('.').slice(-1)[0]}
-              </span>
-              <ReadChip r={o.read} />
-              {o.query_id && (
-                <span className="text-xs text-slate-400 dark:text-slate-500" title={o.query_id}>
-                  proof {String(o.query_id).slice(0, 12)}…
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-        {me.note && <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{me.note}</p>}
-      </section>
-
+      {/* the give-access FLOW leads — the your-own-reads proof wall moved
+          below it, folded (evidence on demand, never the page's opening) */}
       {/* Governance is a MAP, not a journey: everything on screen, and the
           only act is to associate someone who exists with a Data360 role,
           and a policy column with the values each role may see. */}
@@ -874,6 +848,49 @@ export default function StudioAccessPanel({ draftId }: { draftId: string }) {
       )}
         </>)}
       />
+
+      {/* your own reads — the proofs, folded: open when you need evidence */}
+      <section className="rounded-xl border border-slate-200 dark:border-slate-800">
+        <button
+          type="button"
+          aria-expanded={meOpen}
+          onClick={() => setMeOpen((v) => !v)}
+          className="flex w-full items-center gap-2 rounded-xl px-4 py-2.5 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:bg-slate-800/50"
+        >
+          <ShieldCheck aria-hidden className="h-4 w-4 shrink-0 text-accent-500" />
+          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Your own access — proofs
+          </span>
+          <span className="min-w-0 truncate text-xs text-slate-400 dark:text-slate-500">
+            {me.username} · {me.data360_role ?? me.snowflake_role ?? '—'} ·{' '}
+            {(me.objects ?? []).length} object(s) verified
+          </span>
+          <span className="ml-auto shrink-0 text-xs text-slate-400 dark:text-slate-500">
+            {meOpen ? '−' : '+'}
+          </span>
+        </button>
+        {meOpen && (
+          <div className="border-t border-slate-100 px-4 py-3 dark:border-slate-800">
+            <ul className="space-y-1">
+              {(me.objects ?? []).map((o) => (
+                <li key={o.fqn} className="flex flex-wrap items-center gap-2 text-[13px]">
+                  <Table2 aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">
+                    {String(o.fqn ?? '').split('.').slice(-1)[0]}
+                  </span>
+                  <ReadChip r={o.read} />
+                  {o.query_id && (
+                    <span className="text-xs text-slate-400 dark:text-slate-500" title={o.query_id}>
+                      proof {String(o.query_id).slice(0, 12)}…
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {me.note && <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{me.note}</p>}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
