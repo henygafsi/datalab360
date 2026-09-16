@@ -1634,6 +1634,13 @@ export const API = {
         validate: p.validate,
       })}`,
 
+    /** GET — rehydrate a STORED understanding run (free, no analysis):
+     *  {run_id, draft_id, understanding{entities, relationships, decisions,
+     *  coverage…}, sources[], need, credits_charged:0}. 404
+     *  UNDERSTANDING_RUN_NOT_FOUND when deleted or superseded (the current
+     *  run_id lives on the draft). */
+    understandRun: (runId: string) => `/studio/understand/${enc(runId)}`,
+
     /* ── PII / GDPR classification (studio.pii.v1) — detect → confirm →
      * mask → compliant. Name basis = a proposal (truth "proposed"), content
      * (scan/sample) = evidence; opaque/encrypted columns are never guessed.

@@ -651,6 +651,25 @@ export async function understandDirect(
   return studioPostDirect<StudioUnderstanding>('/studio/understand', body, 180_000);
 }
 
+/** Rehydrate a STORED understanding run — a free metadata GET, never a new
+ *  analysis (credits_charged: 0). Returns null on 404 (run deleted or
+ *  superseded by a later analysis on the same draft) so resume degrades to
+ *  the idle state instead of crashing — the paid proposal is simply gone. */
+export async function getUnderstandingRun(
+  runId: string,
+): Promise<{ run_id?: string; draft_id?: string; understanding?: StudioUnderstanding } | null> {
+  try {
+    const { data } = await apiClient.get<{
+      run_id?: string;
+      draft_id?: string;
+      understanding?: StudioUnderstanding;
+    }>(API.studio.understandRun(runId), { timeout: 60_000 });
+    return data ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Remove ONE application draft — the model/report/decisions with it. */
 export async function deleteDraft(draftId: string): Promise<void> {
   await apiClient.delete(API.studio.draftDelete(draftId), { timeout: 30_000 });

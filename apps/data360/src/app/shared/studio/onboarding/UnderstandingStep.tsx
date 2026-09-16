@@ -46,6 +46,7 @@ import {
   relEndpoints,
   suggestSources,
   understandDirect,
+  getUnderstandingRun,
   type SourceSuggestion,
   type StudioDecision,
   type StudioObject,
@@ -203,6 +204,34 @@ export default function UnderstandingStep({
   const [analysis, setAnalysis] = useState<Analysis>({ kind: 'idle' });
   // Graph → list link: clicking a node rings the matching entity card.
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+
+  /* RESUME without paying twice: when a prior session already ran the paid
+     analysis (its run_id persisted at analyze time), rehydrate the stored
+     proposal with a FREE metadata GET on mount. A 404 (run superseded or
+     draft deleted) degrades silently to idle — never a crash, never a
+     silent re-charge. */
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    const runId = draft.understanding.approvedPlanId;
+    if (hydratedRef.current || !runId) return;
+    hydratedRef.current = true;
+    let alive = true;
+    setAnalysis((a) => (a.kind === 'idle' ? { kind: 'running' } : a));
+    void getUnderstandingRun(runId).then((r) => {
+      if (!alive) return;
+      setAnalysis((a) =>
+        // only fill the slot if nothing newer happened (a fresh analyze wins)
+        a.kind === 'running' && r?.understanding
+          ? { kind: 'done', u: r.understanding }
+          : a.kind === 'running'
+            ? { kind: 'idle' }
+            : a,
+      );
+    });
+    return () => {
+      alive = false;
+    };
+  }, [draft.understanding.approvedPlanId]);
 
   useEffect(() => {
     if (databases.length === 0) {
