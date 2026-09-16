@@ -31,11 +31,13 @@ import {
 } from 'lucide-react';
 import {
   getDraftSummary,
+  getPii,
   getWorkflows,
   type AppCost,
   type ConsistencyIssue,
   type DqGateResult,
   type DraftSummary,
+  type PiiCounts,
   type StudioModelView,
   type WorkflowItem,
 } from '@/app/services/studio/studio-api';
@@ -114,6 +116,7 @@ export default function StudioOverviewBrief({
   const [sources, setSources] = useState<DraftSourcesView | 'error' | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowItem[] | 'error' | null>(null);
   const [access, setAccess] = useState<AccessSummary | null>(null);
+  const [piiCounts, setPiiCounts] = useState<PiiCounts | null>(null);
   const [knowledge, setKnowledge] = useState<KnowledgeView | null>(null);
   const [activationOpen, setActivationOpen] = useState(false);
   const lastSignal = useRef(activationSignal);
@@ -141,6 +144,11 @@ export default function StudioOverviewBrief({
     void getStudioSummary(draftId, ['access'])
       .then((r) => setAccess(r.access ?? {}))
       .catch(() => setAccess(null));
+    // the persisted sensitivity classification (free read, never a detect)
+    // — the cockpit must say when sensitive data sits unsecured
+    void getPii(draftId)
+      .then((r) => setPiiCounts(r.counts ?? (r.findings ? { columns_classified: r.findings.length } : null)))
+      .catch(() => setPiiCounts(null));
     void getKnowledge(draftId).then(setKnowledge);
   }, [draftId]);
 
@@ -246,6 +254,15 @@ export default function StudioOverviewBrief({
         words: `Resolve ${blocking.length} blocking consistency issue(s) — what is published drifted from the model.`,
         go: 'model',
         label: 'Open the model',
+      };
+    // confirmed sensitive data with NO mask outranks a failing check —
+    // anyone with read access sees it in clear today
+    const piiConfirmed = access?.footprint?.pii_columns_confirmed ?? piiCounts?.confirmed ?? 0;
+    if (piiConfirmed > 0 && (access?.applied?.masked_columns ?? 0) === 0)
+      return {
+        words: `Mask the ${piiConfirmed} confirmed sensitive column(s) — anyone with read access sees them in clear today.`,
+        go: 'governance',
+        label: 'Secure them in Access',
       };
     if (dqFailing.length > 0) {
       const first = dqFailing[0];
@@ -454,6 +471,47 @@ export default function StudioOverviewBrief({
             </button>
           </div>
         </div>
+        {/* the SECURITY line — sensitive data detected upstream (by the
+            understanding scan) must be impossible to miss here, whatever
+            the server's next-best-action says */}
+        {(() => {
+          const proposals = piiCounts?.pii ?? piiCounts?.columns_classified ?? 0;
+          const confirmed = access?.footprint?.pii_columns_confirmed ?? piiCounts?.confirmed ?? 0;
+          const masked = access?.applied?.masked_columns ?? null;
+          if (confirmed > 0 && (masked ?? 0) === 0)
+            return (
+              <p className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-rose-50 px-3 py-2 text-[13px] text-rose-800 dark:bg-rose-950/30 dark:text-rose-200" role="alert">
+                <span className="font-medium">
+                  {confirmed} sensitive column{confirmed === 1 ? '' : 's'} confirmed — none masked:
+                </span>
+                anyone who can read this application sees them in clear.
+                <button
+                  type="button"
+                  onClick={() => onGo('governance')}
+                  className="ml-auto rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                >
+                  Secure them in Access
+                </button>
+              </p>
+            );
+          if (proposals > 0 && confirmed === 0)
+            return (
+              <p className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-[13px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                <span className="font-medium">
+                  {proposals} column{proposals === 1 ? '' : 's'} look sensitive
+                </span>
+                — detected by the understanding scan; review them and propose masking policies.
+                <button
+                  type="button"
+                  onClick={() => onGo('governance')}
+                  className="ml-auto rounded-lg border border-amber-500 px-2.5 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                >
+                  Review in Access
+                </button>
+              </p>
+            );
+          return null;
+        })()}
         {activationOpen && (
           <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
             <ActivationStep draftId={draftId} onChanged={load} />

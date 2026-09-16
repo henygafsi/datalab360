@@ -126,6 +126,9 @@ export interface StudioTableNodeData {
   /** how many report widgets this table powers — null when the served
    *  used_by_reports map is absent (say nothing, never a fake 0) */
   powers?: number | null;
+  /** columns of THIS source flagged sensitive by the understanding scan —
+   *  null when no classification is persisted (never invented) */
+  sensitive?: number | null;
   kind?: string | null;
   fieldsTotal?: number | null;
   grainStatus?: string | null;
@@ -183,6 +186,14 @@ function StudioTableNodeInner({ data, selected }: NodeProps<StudioTableNodeData>
                 feeds no report yet
               </span>
             ))}
+          {data.sensitive != null && data.sensitive > 0 && (
+            <span
+              className="shrink-0 rounded-full bg-rose-50 px-1.5 py-px text-xs tabular-nums text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+              title="columns the understanding scan flagged as sensitive — propose policies in Access"
+            >
+              {data.sensitive} sensitive
+            </span>
+          )}
         </div>
         <p className="mt-0.5 truncate font-mono text-xs text-slate-400 dark:text-slate-500" title={data.schemaTable}>
           {data.schemaTable}
@@ -434,6 +445,7 @@ export default function StudioModelCanvas({
   onSelectTable,
   selectedEntity,
   usedByReports,
+  sensitiveByFqn,
 }: {
   model: ModelPayload;
   /** /data contract sources by fqn — state chips when available. */
@@ -454,6 +466,9 @@ export default function StudioModelCanvas({
   /** served used_by_reports map (target_id → widgets) — when present, each
    *  target node says whether it powers the report or feeds nothing yet */
   usedByReports?: Record<string, { kpis?: string[]; charts?: string[]; reports?: number }> | null;
+  /** UPPER fqn → count of columns the persisted PII classification flags —
+   *  source nodes wear it so sensitivity is visible ON the model */
+  sensitiveByFqn?: Map<string, number> | null;
 }) {
   const { nodes, edges } = useMemo((): { nodes: Node<StudioTableNodeData>[]; edges: Edge[] } => {
     const rep = report ?? model.report ?? null;
@@ -527,7 +542,10 @@ export default function StudioModelCanvas({
         type: 'studioTable' as const,
         position: { x: 24, y: 24 + i * 360 },
         selected: selectedEntity === `s:${t.entity_id}`,
-        data: sourceNodeData(t, rep, data?.get(t.fqn)),
+        data: {
+          ...sourceNodeData(t, rep, data?.get(t.fqn)),
+          sensitive: sensitiveByFqn?.get(String(t.fqn ?? '').toUpperCase()) ?? null,
+        },
       }));
       const tgtNodes = tgts.map((t, i) => ({
         id: `t:${t.target_id}`,
@@ -600,7 +618,10 @@ export default function StudioModelCanvas({
         type: 'studioTable' as const,
         position,
         selected: selectedEntity === t.entity_id,
-        data: sourceNodeData(t, rep, data?.get(t.fqn)),
+        data: {
+          ...sourceNodeData(t, rep, data?.get(t.fqn)),
+          sensitive: sensitiveByFqn?.get(String(t.fqn ?? '').toUpperCase()) ?? null,
+        },
       };
     });
 
@@ -634,7 +655,7 @@ export default function StudioModelCanvas({
       .filter((e): e is Edge => e != null);
 
     return { nodes, edges };
-  }, [model, data, report, targets, targetRelationships, rowsByTarget, mode, selectedEntity, usedByReports]);
+  }, [model, data, report, targets, targetRelationships, rowsByTarget, mode, selectedEntity, usedByReports, sensitiveByFqn]);
 
   return (
     <div

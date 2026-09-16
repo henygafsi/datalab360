@@ -18,7 +18,9 @@ import {
   confirmDateContract,
   getDlq,
   getDlqGrouped,
+  getPii,
   type DlqGroupedView,
+  type PiiCounts,
   getQuality,
   getTargetsView,
   replayDlq,
@@ -27,6 +29,7 @@ import {
   type QualityIndicator,
   type QualityView,
 } from '@/app/services/studio/studio-api';
+import { getStudioSummary, type AccessSummary } from '@/app/services/studio/summary';
 
 // served check/verdict vocabulary said in business words — unknown values
 // pass through verbatim rather than being guessed at
@@ -71,6 +74,7 @@ function buildGates(
   ind: Record<string, QualityIndicator>,
   dlqOpen: DlqItem[] | null,
   tables: Array<{ target?: string; state?: string }> = [],
+  sec?: { proposals: number; confirmed: number; masked: number | null } | null,
 ): QualityGate[] {
   const num = (i?: QualityIndicator) => (typeof i?.value === 'number' ? i.value : undefined);
   const gates: QualityGate[] = [];
@@ -151,6 +155,31 @@ function buildGates(
       cov?.numerator != null && cov?.denominator != null
         ? `${cov.numerator.toLocaleString()} of ${cov.denominator.toLocaleString()} checked${cov.numerator < cov.denominator ? ' — coverage partial' : ''}`
         : undefined,
+  });
+
+  // sensitive data is a QUALITY of the model too — the understanding scan
+  // detects it; unmasked-but-confirmed means every read exposes it
+  gates.push({
+    id: 'pii',
+    label: 'Sensitive data protected',
+    state:
+      sec == null
+        ? 'na'
+        : sec.confirmed > 0
+          ? (sec.masked ?? 0) > 0
+            ? 'pass'
+            : 'fail'
+          : 'na',
+    detail:
+      sec == null
+        ? undefined
+        : sec.confirmed > 0
+          ? (sec.masked ?? 0) > 0
+            ? `${sec.masked} column(s) masked`
+            : `${sec.confirmed} confirmed sensitive column(s) · none masked — secure them in Access`
+          : sec.proposals > 0
+            ? `${sec.proposals} column(s) look sensitive — review the proposals in Access`
+            : undefined,
   });
 
   return gates;
@@ -238,6 +267,7 @@ export default function StudioQualityPanel({
   const [dlqOpen, setDlqOpen] = useState<DlqItem[] | null>(null);
   const [dlqResolved, setDlqResolved] = useState<DlqItem[] | null>(null);
   const [dlqGrouped, setDlqGrouped] = useState<DlqGroupedView | null>(null);
+  const [piiSec, setPiiSec] = useState<{ proposals: number; confirmed: number; masked: number | null } | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [openOriginal, setOpenOriginal] = useState<string | null>(null);
   // per-table expand-beneath: the served checks[] + indicators{} were typed
@@ -251,7 +281,7 @@ export default function StudioQualityPanel({
     async (refresh = false) => {
       setQ('loading');
       try {
-        const [qv, open, resolved, grouped] = await Promise.all([
+        const [qv, open, resolved, grouped, sec] = await Promise.all([
           getQuality(draftId, refresh),
           // null (read failed) must stay distinct from [] (genuinely no
           // residue) — the score gate reads "not measured", never a green
@@ -264,11 +294,26 @@ export default function StudioQualityPanel({
           // server GROUP BY — the authoritative totals at ANY volume (the
           // items above are a bounded sample once the quarantine grows)
           getDlqGrouped(draftId, 'open').catch(() => null),
+          // sensitivity: persisted classification + what is actually masked
+          Promise.all([
+            getPii(draftId).catch(() => null),
+            getStudioSummary(draftId, ['access']).catch(() => null),
+          ]).then(([pr, sm]) => {
+            const c: PiiCounts | undefined = pr?.counts ?? undefined;
+            const acc: AccessSummary | undefined = sm?.access ?? undefined;
+            if (!pr) return null;
+            return {
+              proposals: c?.pii ?? c?.columns_classified ?? pr.findings?.length ?? 0,
+              confirmed: acc?.footprint?.pii_columns_confirmed ?? c?.confirmed ?? 0,
+              masked: acc?.applied?.masked_columns ?? null,
+            };
+          }),
         ]);
         setQ(qv);
         setDlqOpen(open);
         setDlqResolved(resolved);
         setDlqGrouped(grouped);
+        setPiiSec(sec);
       } catch {
         setQ('error');
       }
@@ -305,7 +350,7 @@ export default function StudioQualityPanel({
   const measured =
     Object.values(coverage).some((v) => v?.status === 'present') ||
     (q.target?.tables?.length ?? 0) > 0;
-  const gates = buildGates(ind, dlqOpen, targetTables).map((g) =>
+  const gates = buildGates(ind, dlqOpen, targetTables, piiSec).map((g) =>
     measured ? g : { ...g, state: 'na' as GateState, detail: undefined },
   );
   const evaluated = gates.filter((g) => g.state !== 'na');

@@ -34,7 +34,7 @@ import {
   type Refusal,
   type SchemaCheckResult,
 } from '@/app/services/studio/connections';
-import { getUnderstandingRun, listDrafts, type StudioDraftSummary } from '@/app/services/studio/studio-api';
+import { getPii, getUnderstandingRun, listDrafts, type PiiFinding, type StudioDraftSummary } from '@/app/services/studio/studio-api';
 import { QuietAction } from '@/app/shared/studio/PlainKit';
 import StudioSourceCard from '@/app/shared/studio/StudioSourceCard';
 import { RefusalView } from '@/app/shared/studio/sources/connection-bits';
@@ -154,6 +154,26 @@ function ObjectSheet({
       alive = false;
     };
   }, [sheet, refId]);
+
+  // the persisted sensitivity classification for THIS object (free read) —
+  // understanding detected it; the sheet must say it and door to securing
+  const [piiCols, setPiiCols] = useState<PiiFinding[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const target = String(
+      (typeof sheet === 'object' ? sheet.header?.physical_path : null) ?? refId,
+    ).toUpperCase();
+    void getPii(draftId)
+      .then((r) => {
+        if (!alive) return;
+        setPiiCols((r.findings ?? []).filter((f) => String(f.fqn ?? '').toUpperCase() === target));
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, refId, typeof sheet]);
 
   if (sheet === 'loading')
     return (
@@ -313,6 +333,21 @@ function ObjectSheet({
               </span>
             ))}
         </p>
+        {(piiCols?.length ?? 0) > 0 && (
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            <span className="font-medium">
+              {piiCols!.length} column{piiCols!.length === 1 ? '' : 's'} look sensitive:
+            </span>
+            {piiCols!.slice(0, 4).map((f) => `${f.column} (${f.category ?? 'sensitive'})`).join(', ')}
+            {piiCols!.length > 4 ? '…' : ''}
+            <Link
+              href={`${routes.studioApp(draftId)}?view=governance`}
+              className="ml-auto rounded font-medium underline decoration-dotted hover:text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:text-amber-100"
+            >
+              propose policies in Access
+            </Link>
+          </p>
+        )}
         {(syn.business_terms ?? []).length > 0 && (
           // the business vocabulary the analysis established — chips, not prose
           <p className="mt-1 flex flex-wrap gap-1">

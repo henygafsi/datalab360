@@ -19,6 +19,7 @@ import {
   type StudioReportSpec,
   type TargetsView,
 } from '@/app/services/studio/studio-api';
+import { getPii } from '@/app/services/studio/studio-api';
 import { getStudioSummary, type ModelSummary } from '@/app/services/studio/summary';
 import StudioModelDelivers from '@/app/shared/studio/StudioModelDelivers';
 import StudioModelCanvas from '@/app/shared/studio/StudioModelCanvas';
@@ -92,6 +93,32 @@ export default function StudioModelTab({
   useEffect(() => {
     if (focusEntity) setSelection(focusEntity);
   }, [focusEntity]);
+
+  /* the persisted sensitivity classification (free read) — the model must
+     WEAR it: source nodes get a count, the tab a securing banner */
+  const [sensitiveByFqn, setSensitiveByFqn] = useState<Map<string, number> | null>(null);
+  const [piiTotals, setPiiTotals] = useState<{ proposals: number; confirmed: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void getPii(draftId)
+      .then((r) => {
+        if (!alive) return;
+        const m = new Map<string, number>();
+        for (const f of r.findings ?? []) {
+          const k = String(f.fqn ?? '').toUpperCase();
+          if (k) m.set(k, (m.get(k) ?? 0) + 1);
+        }
+        setSensitiveByFqn(m);
+        setPiiTotals({
+          proposals: r.counts?.pii ?? r.findings?.length ?? 0,
+          confirmed: r.counts?.confirmed ?? 0,
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [draftId]);
   const [busy, setBusy] = useState(false);
   const [summary, setSummary] = useState<ModelSummary | null>(null);
 
@@ -181,6 +208,26 @@ export default function StudioModelTab({
           </span>
         </p>
       )}
+      {/* sensitivity detected upstream must be SAID on the model — with the
+          door to the page that secures it */}
+      {piiTotals && piiTotals.proposals > 0 && (
+        <p className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[13px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          <span className="font-medium">
+            {piiTotals.proposals} column{piiTotals.proposals === 1 ? '' : 's'} look sensitive
+          </span>
+          across the sources
+          {piiTotals.confirmed > 0 ? ` — ${piiTotals.confirmed} confirmed` : ' — none reviewed yet'}.
+          {onOpenAccess && (
+            <button
+              type="button"
+              onClick={onOpenAccess}
+              className="ml-auto rounded-lg border border-amber-500 px-2 py-0.5 text-xs font-medium hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:bg-amber-900/40"
+            >
+              Propose policies in Access
+            </button>
+          )}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700" role="tablist" aria-label="Model view">
           {(
@@ -250,6 +297,7 @@ export default function StudioModelTab({
             selectedEntity={selection}
             onSelectTable={(id) => setSelection((cur) => (cur === id ? null : id))}
             usedByReports={summary?.used_by_reports ?? null}
+            sensitiveByFqn={sensitiveByFqn}
           />
           {selection && (
             /* key = the selected table: switching tables must not carry the
