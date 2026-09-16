@@ -12,7 +12,7 @@
  * never as a dead button.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   Bell,
@@ -79,6 +79,9 @@ export default function StudioWorkflowsPanel({
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [choices, setChoices] = useState<string[]>(['manual', 'hourly', 'daily', 'weekly', 'monthly']);
   const [openId, setOpenId] = useState<string | null>(null);
+  /** which rows have their per-step advice expanded beneath (no new fetch —
+   *  the advice already rides the list payload on w.steps) */
+  const [adviceOpen, setAdviceOpen] = useState<Record<string, boolean>>({});
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -237,7 +240,8 @@ export default function StudioWorkflowsPanel({
                   const last = w.runs_summary?.last;
                   const scheduleActive = Boolean((w.schedule as { active?: boolean } | undefined)?.active);
                   return (
-                    <tr key={aid} className="group text-[13px] hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                    <Fragment key={aid}>
+                    <tr className="group text-[13px] hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                       <td className="px-2 py-2">
                         <button
                           type="button"
@@ -254,12 +258,16 @@ export default function StudioWorkflowsPanel({
                           </span>
                         )}
                         {(w.advice_count ?? 0) > 0 && (
-                          <span
-                            className="ml-1.5 rounded-full bg-sky-50 px-1.5 py-px text-xs tabular-nums text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
-                            title="Open the editor — each concerned step carries its note, with the run or fact it is based on"
+                          <button
+                            type="button"
+                            onClick={() => setAdviceOpen((o) => ({ ...o, [aid]: !o[aid] }))}
+                            aria-expanded={adviceOpen[aid] ?? false}
+                            className="ml-1.5 rounded-full bg-sky-50 px-1.5 py-px text-xs tabular-nums text-sky-700 hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:bg-sky-900/30 dark:text-sky-300 dark:hover:bg-sky-900/50"
+                            title="The AI's per-step notes, each with the run or fact it is based on"
                           >
                             {w.advice_count} suggestion{w.advice_count === 1 ? '' : 's'}
-                          </span>
+                            {adviceOpen[aid] ? ' ▴' : ' ▾'}
+                          </button>
                         )}
                       </td>
                       <td className="max-w-[360px] px-2 py-2">
@@ -400,6 +408,55 @@ export default function StudioWorkflowsPanel({
                         </span>
                       </td>
                     </tr>
+                    {(adviceOpen[aid] ?? false) && (
+                      <tr>
+                        <td colSpan={6} className="bg-sky-50/40 px-4 py-2 dark:bg-sky-950/20">
+                          {(() => {
+                            const advised = (w.steps ?? [])
+                              .map((s) => s as { label?: string; block_type?: string; advice?: { kind?: string; text?: string; basis?: string; truth?: string; estimated_credits?: number } })
+                              .filter((s) => s.advice?.text);
+                            return advised.length === 0 ? (
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
+                                the notes live on the step definitions — open the editor to see them
+                              </p>
+                            ) : (
+                              <ul className="space-y-1">
+                                {advised.map((s, si) => (
+                                  <li key={si} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs">
+                                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                                      {s.label ?? s.block_type ?? `step ${si + 1}`}
+                                    </span>
+                                    <span
+                                      className={`rounded-full px-1.5 py-px text-[10px] uppercase tracking-wide ${
+                                        s.advice?.kind === 'risk'
+                                          ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                                          : s.advice?.kind === 'roi'
+                                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                            : 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
+                                      }`}
+                                    >
+                                      {s.advice?.kind === 'roi' ? 'benefit' : s.advice?.kind === 'risk' ? 'risk' : 'suggestion'}
+                                    </span>
+                                    <span className="text-slate-600 dark:text-slate-300">{s.advice?.text}</span>
+                                    {s.advice?.estimated_credits != null && (
+                                      <span className="tabular-nums text-slate-500 dark:text-slate-400">
+                                        ≈ {s.advice.estimated_credits} credit(s)
+                                      </span>
+                                    )}
+                                    {s.advice?.basis && (
+                                      <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                                        {s.advice.basis}
+                                      </span>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            );
+                          })()}
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>

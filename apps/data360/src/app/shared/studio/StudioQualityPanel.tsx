@@ -586,6 +586,50 @@ export default function StudioQualityPanel({
           );
         })()}
 
+        {/* the RELATIONS half of the section title — served cross-table
+            checks (referential integrity between targets), previously typed
+            but never rendered; the note is the honest empty */}
+        {(q.cross_table?.checks?.length ?? 0) > 0 ? (
+          <div className="mt-2.5">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Between the tables
+            </p>
+            <ul className="mt-1 space-y-1">
+              {(q.cross_table?.checks ?? []).map((c, i) => {
+                const rule = String(c.rule ?? c.id ?? `check ${i + 1}`);
+                const verdict = String(c.verdict ?? '');
+                const left = c.left as { target?: string; columns?: string[] } | undefined;
+                const right = c.right as { target?: string; columns?: string[] } | undefined;
+                return (
+                  <li key={String(c.id ?? i)} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      {RULE_WORDS[rule] ?? rule.replace(/_/g, ' ')}
+                    </span>
+                    {left?.target && right?.target && (
+                      <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                        {left.target}.{(left.columns ?? []).join('+')} → {right.target}.{(right.columns ?? []).join('+')}
+                      </span>
+                    )}
+                    <span
+                      className={
+                        verdict === 'fail'
+                          ? 'text-rose-600 dark:text-rose-400'
+                          : verdict === 'not_evaluated' || verdict === ''
+                            ? 'text-slate-400 dark:text-slate-500'
+                            : 'text-emerald-700 dark:text-emerald-400'
+                      }
+                    >
+                      {VERDICT_WORDS[verdict] ?? (verdict || 'declared')}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : q.cross_table?.note ? (
+          <p className="mt-2.5 text-xs text-slate-400 dark:text-slate-500">{q.cross_table.note}</p>
+        ) : null}
+
         {anomalies.length > 0 && (
           <div className="mt-2.5">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
