@@ -233,7 +233,7 @@ export default function StudioWorkflowsPanel({
                   const last = w.runs_summary?.last;
                   const scheduleActive = Boolean((w.schedule as { active?: boolean } | undefined)?.active);
                   return (
-                    <tr key={aid} className="text-[13px]">
+                    <tr key={aid} className="group text-[13px] hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                       <td className="px-2 py-2">
                         <button
                           type="button"
@@ -299,7 +299,10 @@ export default function StudioWorkflowsPanel({
                         ) : null}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-right">
-                        <span className="inline-flex items-center gap-1.5">
+                        {/* the OPTIONS BAR slides in on hover / keyboard focus —
+                            the row's data stays the page; actions come to the
+                            mouse instead of sitting as a permanent column */}
+                        <span className="inline-flex translate-x-1 items-center gap-1.5 opacity-0 transition-all duration-150 focus-within:translate-x-0 focus-within:opacity-100 group-hover:translate-x-0 group-hover:opacity-100 motion-reduce:transition-none">
                           <button
                             type="button"
                             onClick={() => setOpenId(aid)}

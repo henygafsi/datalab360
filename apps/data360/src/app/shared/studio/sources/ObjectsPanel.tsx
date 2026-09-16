@@ -861,7 +861,7 @@ export default function ObjectsPanel({
                   const uCls = UNDERSTANDING_CLS[und] ?? UNDERSTANDING_CLS.not_analysed;
                   const usage = s.usage;
                   return (
-                    <tr key={s.ref} className="text-[13px]">
+                    <tr key={s.ref} className="group text-[13px] hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                       <td className="px-2 py-2">
                         <button
                           type="button"
@@ -913,10 +913,10 @@ export default function ObjectsPanel({
                             setRemoveArm(null);
                             void runDetach(s);
                           }}
-                          className={`rounded-lg px-2.5 py-1 text-xs disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                          className={`rounded-lg px-2.5 py-1 text-xs transition-opacity disabled:opacity-40 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 motion-reduce:transition-none ${
                             removeArm === s.ref
-                              ? 'bg-red-50 font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                              : 'text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400'
+                              ? 'bg-red-50 font-medium text-red-700 opacity-100 dark:bg-red-900/30 dark:text-red-300'
+                              : 'text-slate-500 opacity-0 hover:text-red-600 group-hover:opacity-100 dark:text-slate-400 dark:hover:text-red-400'
                           }`}
                         >
                           {removeArm === s.ref

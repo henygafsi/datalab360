@@ -12,17 +12,28 @@
  */
 
 import { useEffect, useState } from 'react';
+import {
+  CheckSquare,
+  Copy,
+  GitBranch,
+  type LucideIcon,
+  Ruler,
+  Scale,
+  ShieldCheck,
+  Timer,
+  Waypoints,
+} from 'lucide-react';
 import { getStudioSummary, type QualitySummary, type ScoredMetric } from '@/app/services/studio/summary';
 
-const DIMENSIONS: Array<{ key: string; label: string }> = [
-  { key: 'completeness', label: 'Completeness' },
-  { key: 'validity', label: 'Validity' },
-  { key: 'uniqueness', label: 'Uniqueness' },
-  { key: 'freshness', label: 'Freshness' },
-  { key: 'consistency', label: 'Consistency' },
-  { key: 'schema_drift', label: 'Schema drift' },
-  { key: 'lineage_trust', label: 'Lineage trust' },
-  { key: 'business_rules', label: 'Business rules' },
+const DIMENSIONS: Array<{ key: string; label: string; Icon: LucideIcon }> = [
+  { key: 'completeness', label: 'Completeness', Icon: CheckSquare },
+  { key: 'validity', label: 'Validity', Icon: ShieldCheck },
+  { key: 'uniqueness', label: 'Uniqueness', Icon: Copy },
+  { key: 'freshness', label: 'Freshness', Icon: Timer },
+  { key: 'consistency', label: 'Consistency', Icon: Scale },
+  { key: 'schema_drift', label: 'Schema drift', Icon: Ruler },
+  { key: 'lineage_trust', label: 'Lineage trust', Icon: Waypoints },
+  { key: 'business_rules', label: 'Business rules', Icon: GitBranch },
 ];
 
 const LAYERS: Array<{ key: keyof NonNullable<QualitySummary['layers']>; n: number; label: string; sub: string }> = [
@@ -50,11 +61,13 @@ function ScoreCard({
   sub,
   metric,
   badge,
+  Icon,
 }: {
   label: string;
   sub?: string;
   metric?: ScoredMetric;
   badge?: number;
+  Icon?: LucideIcon;
 }) {
   const score = metric?.score;
   return (
@@ -68,9 +81,22 @@ function ScoreCard({
             {badge}
           </span>
         )}
+        {Icon && <Icon aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />}
         <span className="truncate text-xs text-slate-500 dark:text-slate-400">{label}</span>
       </div>
-      <div className={`mt-0.5 text-xl font-semibold tabular-nums ${tone(score)}`}>{fmt(score)}</div>
+      <div className={`mt-0.5 flex items-baseline gap-2 text-xl font-semibold tabular-nums ${tone(score)}`}>
+        {fmt(score)}
+        {/* the score as a GLANCEABLE bar, not only a number — served value,
+            no bar when unevaluated */}
+        {score != null && (
+          <span className="mb-1 inline-block h-1.5 w-16 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" aria-hidden>
+            <span
+              className={`block h-full rounded-full ${score >= 85 ? 'bg-emerald-400 dark:bg-emerald-500' : score >= 60 ? 'bg-amber-400 dark:bg-amber-500' : 'bg-rose-400 dark:bg-rose-500'}`}
+              style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+            />
+          </span>
+        )}
+      </div>
       {sub && <div className="truncate text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
       {score == null && (
         <div className="truncate text-[11px] text-slate-400 dark:text-slate-500">not evaluated yet</div>
@@ -110,7 +136,7 @@ export default function StudioQualitySummary({ draftId }: { draftId: string }) {
         </p>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
           {DIMENSIONS.map((d) => (
-            <ScoreCard key={d.key} label={d.label} metric={dims[d.key]} />
+            <ScoreCard key={d.key} label={d.label} Icon={d.Icon} metric={dims[d.key]} />
           ))}
         </div>
       </section>

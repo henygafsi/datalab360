@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, HelpCircle, RefreshCw } from 'lucide-react';
 import {
   confirmDateContract,
   getDlq,
@@ -340,36 +340,89 @@ export default function StudioQualityPanel({
           <IndicatorCard label="Freshness" ind={ind.freshness} />
         </div>
 
-        {targetTables.length > 0 && (
-          <ul className="mt-2.5 space-y-1.5">
-            {targetTables.map((t) => (
-              <li key={t.target_id ?? t.target} className="rounded-lg border border-slate-100 p-2 dark:border-slate-800">
-                <p className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-medium text-slate-800 dark:text-slate-200">{t.target}</span>
-                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                    {t.state ?? '—'}
-                  </span>
-                  <span className="tabular-nums text-slate-500 dark:text-slate-400">
-                    read {t.population?.rows_read ?? '—'} · accepted {t.population?.rows_accepted ?? '—'} ·
-                    rejected {t.population?.rows_rejected ?? '—'} · in target {t.population?.target_rows ?? '—'}
-                  </span>
-                  <span className="text-xs text-slate-400 dark:text-slate-500">
-                    {t.sample_vs_full ?? ''} {t.method ? `· ${t.method}` : ''}
-                  </span>
-                  {t.producer_job_id && onFixInJob && (
-                    <button
-                      type="button"
-                      onClick={() => onFixInJob(t.producer_job_id!)}
-                      className="ml-auto text-xs text-accent-600 hover:underline dark:text-accent-400"
+        {targetTables.length > 0 && (() => {
+          /* one shared scale so the BARS compare across tables — the volume
+             story at a glance instead of a wall of « read · accepted ·
+             rejected » words. Served numbers only; no number → no bar. */
+          const maxRead = Math.max(
+            1,
+            ...targetTables.map((t) => Number(t.population?.rows_read ?? 0)),
+          );
+          const fmt = (n: number | null | undefined) => (n != null ? Number(n).toLocaleString() : '—');
+          return (
+          <ul className="mt-2.5 space-y-1">
+            {targetTables.map((t) => {
+              const read = t.population?.rows_read != null ? Number(t.population.rows_read) : null;
+              const acc = t.population?.rows_accepted != null ? Number(t.population.rows_accepted) : null;
+              const rej = t.population?.rows_rejected != null ? Number(t.population.rows_rejected) : null;
+              const degraded = t.state === 'degraded';
+              return (
+                <li key={t.target_id ?? t.target} className={`rounded-lg border p-2 ${degraded ? 'border-amber-300/70 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-950/20' : 'border-slate-100 dark:border-slate-800'}`}>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    {degraded ? (
+                      <AlertTriangle aria-hidden className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    ) : t.state === 'loaded' ? (
+                      <CheckCircle2 aria-hidden className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                    ) : (
+                      <HelpCircle aria-hidden className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    )}
+                    <span className="font-medium text-slate-800 dark:text-slate-200">{t.target}</span>
+                    <span className={`rounded-full px-1.5 py-0.5 text-xs ${degraded ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                      {t.state ?? '—'}
+                    </span>
+                    <span
+                      className="text-xs text-slate-400 dark:text-slate-500"
+                      title={`${t.sample_vs_full ?? ''} ${t.method ? `· ${t.method}` : ''}`.trim() || undefined}
                     >
-                      Open job {t.producer_job_id}
-                    </button>
+                      {fmt(read)} read
+                      {rej != null && rej > 0 && (
+                        <span className="text-rose-600 dark:text-rose-400"> · {fmt(rej)} rejected</span>
+                      )}
+                      {t.population?.target_rows != null && ` · ${fmt(t.population.target_rows)} in target`}
+                    </span>
+                    {t.producer_job_id && onFixInJob && (
+                      <button
+                        type="button"
+                        onClick={() => onFixInJob(t.producer_job_id!)}
+                        className={`ml-auto rounded-lg px-2 py-0.5 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                          degraded
+                            ? 'bg-amber-600 font-medium text-white hover:bg-amber-700'
+                            : 'border border-slate-200 text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300'
+                        }`}
+                        title={degraded ? 'This load is degraded — open its process to fix the rule or the mapping' : `Open ${t.producer_job_id}`}
+                      >
+                        {degraded ? 'Fix the load' : 'Open job'}
+                      </button>
+                    )}
+                  </div>
+                  {/* the static volume chart — accepted (green) + rejected
+                      (red) on a shared scale; no served number, no bar */}
+                  {read != null && read > 0 ? (
+                    <div
+                      className="mt-1.5 flex h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
+                      role="img"
+                      aria-label={`${t.target}: ${fmt(acc)} accepted, ${fmt(rej)} rejected of ${fmt(read)} read`}
+                    >
+                      <span
+                        className="h-full bg-emerald-400 dark:bg-emerald-500"
+                        style={{ width: `${((acc ?? 0) / maxRead) * 100}%` }}
+                      />
+                      <span
+                        className="h-full bg-rose-400 dark:bg-rose-500"
+                        style={{ width: `${((rej ?? 0) / maxRead) * 100}%` }}
+                      />
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                      volumes not measured — nothing to draw
+                    </p>
                   )}
-                </p>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
-        )}
+          );
+        })()}
 
         {anomalies.length > 0 && (
           <div className="mt-2.5">

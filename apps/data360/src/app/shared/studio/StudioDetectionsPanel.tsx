@@ -124,10 +124,16 @@ export default function StudioDetectionsPanel({ draftId }: { draftId: string }) 
           {(view.loop ?? ['detect', 'explain', 'recommend', 'act', 'verify']).join(' → ')}
         </span>
         {view.by_severity && (
-          <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
-            {Object.entries(view.by_severity)
-              .map(([k, v]) => `${v} ${k}`)
-              .join(' · ')}
+          // the served tally as REAL KPI chips, colour + word (never hue alone)
+          <span className="ml-auto flex flex-wrap items-center gap-1.5">
+            {Object.entries(view.by_severity).map(([k, v]) => (
+              <span
+                key={k}
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${SEV_CLS[k] ?? SEV_CLS.info}`}
+              >
+                {v} {k}
+              </span>
+            ))}
           </span>
         )}
       </div>
