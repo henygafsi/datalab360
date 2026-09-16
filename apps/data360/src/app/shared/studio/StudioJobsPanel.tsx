@@ -126,6 +126,7 @@ export default function StudioJobsPanel({
   focusJobId,
   onOpenQuality,
   onOpenActivation,
+  entityMeaning,
 }: {
   draftId: string;
   /** Loads/replays change target data — the parent refreshes its report. */
@@ -136,6 +137,9 @@ export default function StudioJobsPanel({
   onOpenQuality?: () => void;
   /** « awaiting activation » is a LINK to the one activation panel. */
   onOpenActivation?: () => void;
+  /** entity_id → the AI's plain-words meaning of the model piece a job
+   *  builds toward — a job says WHAT it loads, not only the table name. */
+  entityMeaning?: Map<string, string> | null;
 }) {
   const [view, setView] = useState<TargetsView | 'loading' | 'error' | null>(null);
   const [openJobId, setOpenJobId] = useState<string | null>(null);
@@ -271,7 +275,8 @@ export default function StudioJobsPanel({
       <div className="flex flex-wrap items-center gap-2">
         {/* automations moved to the Automation group — one nav, one surface */}
         <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Loads{jobs.length ? ` (${jobs.length})` : ''}
+          {/* not all of them are loads — fact builds and event jobs sit here too */}
+          Processes{jobs.length ? ` (${jobs.length})` : ''}
         </h3>
         {jobs.length > 6 && (
           <label className="relative">
@@ -399,14 +404,27 @@ export default function StudioJobsPanel({
                         {j.name ?? j.job_id}
                       </button>
                     </td>
-                    <td className="px-2 py-2">
+                    <td className="max-w-[300px] px-2 py-2">
                       {feeds.length > 0 ? (
-                        <span
-                          className="font-mono text-xs text-slate-600 dark:text-slate-300"
-                          title={feeds.map((t) => t.target_fqn ?? t.name).join(', ')}
-                        >
-                          {feeds.map((t) => t.name).join(', ')}
-                        </span>
+                        <>
+                          <span
+                            className="font-mono text-xs text-slate-600 dark:text-slate-300"
+                            title={feeds.map((t) => t.target_fqn ?? t.name).join(', ')}
+                          >
+                            {feeds.map((t) => t.name).join(', ')}
+                          </span>
+                          {(() => {
+                            // the model's own words for what this job builds
+                            const meaning = feeds
+                              .map((t) => (t.entity_id ? entityMeaning?.get(t.entity_id) : null))
+                              .find(Boolean);
+                            return meaning ? (
+                              <p className="line-clamp-1 text-[11px] text-slate-400 dark:text-slate-500" title={meaning}>
+                                {meaning}
+                              </p>
+                            ) : null;
+                          })()}
+                        </>
                       ) : (
                         '—'
                       )}

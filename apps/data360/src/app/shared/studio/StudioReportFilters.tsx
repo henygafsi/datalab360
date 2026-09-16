@@ -35,6 +35,11 @@ export type FilterValuesFor = (args: {
   q: string;
 }) => Promise<FilterValue[]>;
 
+/** business label first — the served `label` is the AI's wording for the
+ *  filter; the raw column stays as tooltip evidence */
+const filterWords = (f: { label?: string; column: string }) =>
+  f.label ?? f.column.replace(/_/g, ' ').toLowerCase();
+
 const isRange = (t: string) => /date_range|range|between/i.test(t);
 const isIn = (t: string) => /^in$|multi|list|categor/i.test(t);
 
@@ -326,8 +331,8 @@ export default function StudioReportFilters({
             return (
               <div key={id} className="flex items-end gap-1.5">
                 <label className="block">
-                  <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">
-                    {f.column} from
+                  <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400" title={f.column}>
+                    {filterWords(f)} from
                   </span>
                   <input
                     type="date"
@@ -376,8 +381,8 @@ export default function StudioReportFilters({
             return (
               <div key={id}>
                 <label className="block">
-                  <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">
-                    {f.column} is one of
+                  <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400" title={f.column}>
+                    {filterWords(f)} is one of
                   </span>
                   <input
                     value={token[id] ?? ''}
@@ -416,8 +421,8 @@ export default function StudioReportFilters({
           }
           return (
             <label key={id} className="block">
-              <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400">
-                {f.column} contains
+              <span className="mb-0.5 block text-xs text-slate-500 dark:text-slate-400" title={f.column}>
+                {filterWords(f)} contains
               </span>
               <input
                 value={v.text ?? ''}

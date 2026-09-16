@@ -655,8 +655,12 @@ export default function StudioModelInspector({
                     sample unavailable — {derive.preview.probe.reason ?? 'the warehouse could not probe it'}
                   </p>
                 ) : null}
-                <p className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                  translated by {derive.preview.translation?.model ?? 'the model'} · preview is free
+                <p
+                  className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-500"
+                  title={derive.preview.translation?.model ?? undefined}
+                >
+                  {/* engine ids are vendor names — customer copy stays neutral */}
+                  translated by AI · preview is free
                 </p>
                 <button
                   type="button"

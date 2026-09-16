@@ -44,7 +44,8 @@ interface DeliverRow {
   id: string;
   name: string;
   widgets: string[];
-  reports: number;
+  /** null = the served map carried no report count — say nothing, not 0 */
+  reports: number | null;
   powers: number;
 }
 
@@ -89,7 +90,7 @@ export default function StudioModelDelivers({
           id,
           name: nameById.get(id) ?? id.replace(/^tgt_/, '').toUpperCase(),
           widgets,
-          reports: v?.reports ?? 0,
+          reports: v?.reports ?? null,
           powers: kpis.length + charts.length,
         };
       })
@@ -184,7 +185,8 @@ export default function StudioModelDelivers({
                 <BarChart3 aria-hidden className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
                 <span className="text-[13px] font-medium text-slate-800 dark:text-slate-200">{r.name}</span>
                 <span className="text-xs text-slate-500 dark:text-slate-400">
-                  powers {r.powers} widget{r.powers > 1 ? 's' : ''} in {r.reports} report{r.reports > 1 ? 's' : ''}
+                  powers {r.powers} widget{r.powers > 1 ? 's' : ''}
+                  {r.reports != null && ` in ${r.reports} report${r.reports > 1 ? 's' : ''}`}
                 </span>
                 <span className="ml-auto text-[11px] text-slate-400 dark:text-slate-500">
                   editing it re-runs them

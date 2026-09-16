@@ -134,6 +134,89 @@ function fmtVal(v: unknown): string {
   return String(v);
 }
 
+/** The KPI headline must be the MEASURE's cell — rows[0][0] can be a leading
+ *  dimension (a product id, a date, a channel string), and a string presented
+ *  as the figure is an invented number. Resolve the measure's column in the
+ *  result; else the first numeric-looking cell; else say "—" honestly. */
+function kpiHeadline(
+  spec: { measures?: Array<{ column?: string; aggregator?: string }> },
+  result: { columns?: string[] | null; rows?: unknown[][] | null } | undefined,
+): { value: unknown; ok: boolean } {
+  const row = result?.rows?.[0];
+  if (!row || row.length === 0) return { value: null, ok: true };
+  const cols = (result?.columns ?? []).map((c) => String(c).toUpperCase());
+  const m = spec.measures?.[0];
+  if (m?.column) {
+    const col = String(m.column).toUpperCase();
+    const agg = String(m.aggregator ?? '').toUpperCase();
+    const exact = [
+      agg && `${col}_${agg}`,
+      agg && `${agg}_${col}`,
+      agg && `${agg}(${col})`,
+      col,
+    ].filter(Boolean) as string[];
+    for (const w of exact) {
+      const i = cols.indexOf(w);
+      if (i >= 0) return { value: row[i], ok: true };
+    }
+    const i2 = cols.findIndex((c) => c.includes(col) && (!agg || c.includes(agg)));
+    if (i2 >= 0) return { value: row[i2], ok: true };
+  }
+  const isNumeric = (v: unknown) =>
+    typeof v === 'number' ||
+    (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v)) && !/^\d{4}-\d{2}-\d{2}/.test(v));
+  const iNum = row.findIndex(isNumeric);
+  if (iNum >= 0) {
+    const v = row[iNum];
+    return { value: typeof v === 'string' ? Number(v) : v, ok: true };
+  }
+  return { value: null, ok: false };
+}
+
+/** Business-label the chart feed: the measure alias becomes "{agg} {column}"
+ *  in plain words, other columns lose their underscores, and time values
+ *  shorten to the spec's grain — the warehouse alias never labels an axis.
+ *  On any label collision the raw names stay (never merge two series). */
+function chartFeed(
+  spec: {
+    measures?: Array<{ column?: string; aggregator?: string }>;
+    time?: { column?: string; grain?: string } | null;
+  },
+  result: { columns?: string[] | null; rows?: unknown[][] | null },
+): { x: string | null; data: Array<Record<string, unknown>> } {
+  const cols = result.columns ?? [];
+  const m = spec.measures?.[0];
+  const mCol = m?.column ? String(m.column).toUpperCase() : null;
+  const mAgg = m?.aggregator ? String(m.aggregator).toUpperCase() : null;
+  const toLabel = (c: string): string => {
+    const cu = c.toUpperCase();
+    if (mCol && cu.includes(mCol) && (!mAgg || cu.includes(mAgg)))
+      return `${(m?.aggregator ?? '').toLowerCase()} ${String(m?.column ?? '')
+        .replace(/_/g, ' ')
+        .toLowerCase()}`.trim();
+    return c.replace(/_/g, ' ').toLowerCase();
+  };
+  let labels = cols.map(toLabel);
+  if (new Set(labels).size !== labels.length) labels = cols;
+  const grain = String(spec.time?.grain ?? '').toLowerCase();
+  const timeCol = spec.time?.column ? String(spec.time.column).toUpperCase() : null;
+  const fmtTime = (v: unknown): unknown => {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(v)) return v;
+    if (grain.startsWith('year')) return v.slice(0, 4);
+    if (grain.startsWith('month')) return v.slice(0, 7);
+    return v.slice(0, 10);
+  };
+  const data = (result.rows ?? []).map((row) =>
+    Object.fromEntries(
+      cols.map((c, ci) => {
+        const isTime = (timeCol && c.toUpperCase() === timeCol) || ci === 0;
+        return [labels[ci], isTime ? fmtTime(row[ci]) : row[ci]];
+      }),
+    ),
+  );
+  return { x: labels[0] ?? null, data };
+}
+
 type Tab =
   | 'overview'
   | 'reporting'
@@ -1853,8 +1936,33 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                           ) : t.status === 'error' ? (
                             <p className="text-xs text-red-600 dark:text-red-400" title={t.error}>—</p>
                           ) : (
-                            <p className="text-base font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-                              {fmtVal(t.result.rows?.[0]?.[0])}
+                            (() => {
+                              const h = kpiHeadline(k, t.result);
+                              return (
+                                <p
+                                  className="text-base font-semibold tabular-nums text-slate-900 dark:text-slate-100"
+                                  title={h.ok ? undefined : 'the result carries no numeric measure cell — check the widget definition'}
+                                >
+                                  {h.ok ? fmtVal(h.value) : '—'}
+                                </p>
+                              );
+                            })()
+                          )}
+                          {/* the AI's own reading of the number + the method,
+                              both SERVED on the spec — meaning first, formula
+                              as evidence */}
+                          {k.provenance?.rationale && (
+                            <p
+                              className="mt-0.5 line-clamp-1 text-[11px] text-slate-400 dark:text-slate-500"
+                              title={k.provenance.rationale}
+                            >
+                              {k.provenance.rationale}
+                            </p>
+                          )}
+                          {k.measures?.[0]?.column && (
+                            <p className="mt-0.5 truncate font-mono text-[10px] text-slate-300 dark:text-slate-600">
+                              {k.measures[0].aggregator}({k.measures[0].column})
+                              {k.dataset?.table ? ` · ${k.dataset.table}` : ''}
                             </p>
                           )}
                         </div>
@@ -1905,8 +2013,13 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                           } ${wide ? 'md:col-span-2' : ''}`}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <p className="min-w-0 truncate text-xs font-medium text-slate-800 dark:text-slate-200">
+                            <p className="min-w-0 truncate text-xs font-medium text-slate-800 dark:text-slate-200" title={c.provenance?.rationale ?? undefined}>
                               {c.title}
+                              {c.provenance?.rationale && (
+                                <span className="ml-1.5 font-normal text-slate-400 dark:text-slate-500">
+                                  — {c.provenance.rationale}
+                                </span>
+                              )}
                             </p>
                             {editable && (
                               <span className="flex shrink-0 items-center gap-0.5">
@@ -1997,21 +2110,20 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                             ) : (
                               // the LEGACY BI renderer — real axes, grid,
                               // tooltips, 18 types; one spec, two surfaces
-                              <div className={wide ? 'h-64' : 'h-52'}>
-                                <DynamicChart
-                                  config={{
-                                    chartType: c.chart_type,
-                                    x: t.result.columns?.[0] ?? null,
-                                    prefetched: {
-                                      data: t.result.rows.map((row) =>
-                                        Object.fromEntries(
-                                          (t.result.columns ?? []).map((col, ci) => [col, row[ci]]),
-                                        ),
-                                      ),
-                                    },
-                                  }}
-                                />
-                              </div>
+                              (() => {
+                                const feed = chartFeed(c, t.result);
+                                return (
+                                  <div className={wide ? 'h-64' : 'h-52'}>
+                                    <DynamicChart
+                                      config={{
+                                        chartType: c.chart_type,
+                                        x: feed.x,
+                                        prefetched: { data: feed.data },
+                                      }}
+                                    />
+                                  </div>
+                                );
+                              })()
                             )}
                           </div>
                         </div>
@@ -2617,6 +2729,13 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                 onChanged={() => draftId && void load(draftId)}
                 onOpenQuality={() => setTab('quality')}
                 onOpenActivation={openActivation}
+                entityMeaning={
+                  new Map(
+                    (model?.tables ?? [])
+                      .filter((t) => t.entity_id && t.description)
+                      .map((t) => [t.entity_id, t.description as string]),
+                  )
+                }
               />
             </div>
           )}

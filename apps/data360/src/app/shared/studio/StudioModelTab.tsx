@@ -220,6 +220,7 @@ export default function StudioModelTab({
             height={520}
             selectedEntity={selection}
             onSelectTable={(id) => setSelection((cur) => (cur === id ? null : id))}
+            usedByReports={summary?.used_by_reports ?? null}
           />
           {selection && (
             /* key = the selected table: switching tables must not carry the

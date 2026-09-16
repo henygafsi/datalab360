@@ -64,7 +64,11 @@ interface QualityGate {
   detail?: string;
 }
 
-function buildGates(ind: Record<string, QualityIndicator>, dlqOpen: DlqItem[] | null): QualityGate[] {
+function buildGates(
+  ind: Record<string, QualityIndicator>,
+  dlqOpen: DlqItem[] | null,
+  tables: Array<{ target?: string; state?: string }> = [],
+): QualityGate[] {
   const num = (i?: QualityIndicator) => (typeof i?.value === 'number' ? i.value : undefined);
   const gates: QualityGate[] = [];
 
@@ -113,14 +117,36 @@ function buildGates(ind: Record<string, QualityIndicator>, dlqOpen: DlqItem[] | 
     detail: dlqOpen && dlqOpen.length > 0 ? `${dlqOpen.length} residue(s) held in DLQ` : undefined,
   });
 
+  // a degraded load poisons the model whatever the other gates say
+  const degraded = tables.filter((t) => t.state === 'degraded');
+  gates.push({
+    id: 'loads',
+    label: 'No degraded load',
+    state: tables.length === 0 ? 'na' : degraded.length > 0 ? 'fail' : 'pass',
+    detail:
+      degraded.length > 0
+        ? `${degraded.map((t) => t.target).filter(Boolean).join(', ')} degraded`
+        : undefined,
+  });
+
   const cov = ind.coverage;
   gates.push({
     id: 'coverage',
     label: 'Checks cover the model',
-    state: cov?.value == null ? 'na' : Number(cov.value) > 0 ? 'pass' : 'fail',
+    // partial coverage is NOT a pass — 46/70 means 24 objects unguarded
+    state:
+      cov?.value == null
+        ? 'na'
+        : cov.numerator != null && cov.denominator != null
+          ? cov.numerator >= cov.denominator
+            ? 'pass'
+            : 'fail'
+          : Number(cov.value) > 0
+            ? 'pass'
+            : 'fail',
     detail:
       cov?.numerator != null && cov?.denominator != null
-        ? `${cov.numerator.toLocaleString()} of ${cov.denominator.toLocaleString()} checked`
+        ? `${cov.numerator.toLocaleString()} of ${cov.denominator.toLocaleString()} checked${cov.numerator < cov.denominator ? ' — coverage partial' : ''}`
         : undefined,
   });
 
@@ -176,7 +202,15 @@ function IndicatorCard({ label, ind }: { label: string; ind?: { value?: number |
             ? `${(Number(ind!.value) * 100).toFixed(1)}%`
             : typeof ind!.value === 'number'
               ? ind!.value.toLocaleString()
-              : String(ind!.value).slice(0, 16)}
+              : /^\d{4}-\d{2}-\d{2}/.test(String(ind!.value)) && !Number.isNaN(Date.parse(String(ind!.value)))
+                ? // a date headline reads as a date, not a sliced ISO string
+                  new Date(String(ind!.value)).toLocaleString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : String(ind!.value).slice(0, 16)}
       </p>
       {ind?.numerator != null && ind?.denominator != null && (
         <p className="text-xs tabular-nums text-slate-400 dark:text-slate-500">
@@ -263,7 +297,7 @@ export default function StudioQualityPanel({
   const measured =
     Object.values(coverage).some((v) => v?.status === 'present') ||
     (q.target?.tables?.length ?? 0) > 0;
-  const gates = buildGates(ind, dlqOpen).map((g) =>
+  const gates = buildGates(ind, dlqOpen, targetTables).map((g) =>
     measured ? g : { ...g, state: 'na' as GateState, detail: undefined },
   );
   const evaluated = gates.filter((g) => g.state !== 'na');
@@ -282,7 +316,7 @@ export default function StudioQualityPanel({
             ring: 'border-emerald-200 dark:border-emerald-900/40',
             badge: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
             headline: 'Ready to explore',
-            sub: `${passed.length} of ${evaluated.length} checks pass — this data is exact.`,
+            sub: `${passed.length} of ${evaluated.length} measured gates pass.`,
           }
         : {
             ring: 'border-amber-200 dark:border-amber-900/40',
@@ -556,36 +590,69 @@ export default function StudioQualityPanel({
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
               Anomalies
             </p>
-            <ul className="mt-1 space-y-1">
-              {anomalies.map((a) => (
-                <li key={a.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                  <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                    {a.level}
-                  </span>
-                  <span className="text-slate-600 dark:text-slate-300">
-                    {a.rule} · {String(a.object ?? '').split('.').slice(-1)[0]}
-                    {a.count != null ? ` · ${a.count}` : ''}
-                  </span>
-                  {a.fix?.available !== false && a.fix?.job_id && onFixInJob ? (
-                    <button
-                      type="button"
-                      title={a.fix.instruction}
-                      onClick={() => onFixInJob(a.fix!.job_id!)}
-                      className="text-xs text-accent-600 hover:underline dark:text-accent-400"
-                    >
-                      {a.fix.kind === 'edit_rule' ? 'Edit the rule' : 'Fix the transformation'} in{' '}
-                      {a.fix.job_id}
-                    </button>
-                  ) : (
-                    <span className="text-xs text-slate-400 dark:text-slate-500" title={a.fix?.instruction}>
-                      {a.fix?.kind === 'draft_job'
-                        ? 'no responsible job yet — a job draft is the next step'
-                        : `unavailable — ${a.fix?.instruction ?? 'no responsible job identified'}`}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
+            {/* grouped by the RULE that fired — business words first, the
+                served fix instruction visible on the group instead of a
+                tooltip, the objects as compact rows beneath */}
+            {(() => {
+              const byRule = new Map<string, typeof anomalies>();
+              for (const a of anomalies) {
+                const k = String(a.rule ?? 'unknown_rule');
+                byRule.set(k, [...(byRule.get(k) ?? []), a]);
+              }
+              return [...byRule.entries()]
+                .sort((x, y) => y[1].length - x[1].length)
+                .map(([rule, rs]) => {
+                  const instruction = rs.find((a) => a.fix?.instruction)?.fix?.instruction;
+                  return (
+                    <section key={rule} className="mt-1.5 rounded-lg border border-amber-200/60 p-2 dark:border-amber-900/40">
+                      <p className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="font-medium text-slate-700 dark:text-slate-200">
+                          {RULE_WORDS[rule] ?? rule.replace(/_/g, ' ')}
+                        </span>
+                        <span className="rounded bg-violet-50 px-1 py-px font-mono text-[10px] text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
+                          {rule}
+                        </span>
+                        <span className="tabular-nums text-slate-400 dark:text-slate-500">
+                          {rs.length} object{rs.length === 1 ? '' : 's'}
+                        </span>
+                      </p>
+                      {instruction && (
+                        <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">{instruction}</p>
+                      )}
+                      <ul className="mt-1 space-y-0.5">
+                        {rs.map((a) => (
+                          <li key={a.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                            <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                              {a.level}
+                            </span>
+                            <span className="text-slate-600 dark:text-slate-300">
+                              {String(a.object ?? '').split('.').slice(-1)[0]}
+                              {a.count != null ? ` · ${a.count}` : ''}
+                            </span>
+                            {a.fix?.available !== false && a.fix?.job_id && onFixInJob ? (
+                              <button
+                                type="button"
+                                title={a.fix.instruction}
+                                onClick={() => onFixInJob(a.fix!.job_id!)}
+                                className="text-xs text-accent-600 hover:underline dark:text-accent-400"
+                              >
+                                {a.fix.kind === 'edit_rule' ? 'Edit the rule' : 'Fix the transformation'} in{' '}
+                                {a.fix.job_id}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-slate-400 dark:text-slate-500" title={a.fix?.instruction}>
+                                {a.fix?.kind === 'draft_job'
+                                  ? 'no responsible job yet — a job draft is the next step'
+                                  : `unavailable — ${a.fix?.instruction ?? 'no responsible job identified'}`}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  );
+                });
+            })()}
           </div>
         )}
       </section>
@@ -679,7 +746,7 @@ export default function StudioQualityPanel({
                                 {r.target} · key {r.record_key}
                               </span>
                               <span className="text-xs text-slate-400 dark:text-slate-500">
-                                attempts {r.attempts ?? 0} · {r.status}
+                                attempts {r.attempts ?? '—'} · {r.status}
                               </span>
                               <button
                                 type="button"

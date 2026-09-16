@@ -259,10 +259,34 @@ export default function StudioWorkflowsPanel({
                         )}
                       </td>
                       <td className="max-w-[360px] px-2 py-2">
-                        <p className="truncate text-slate-600 dark:text-slate-300" title={`${w.phrase?.event ?? ''}${w.phrase?.condition ? ` when ${w.phrase.condition}` : ''} → ${w.phrase?.action ?? ''} → ${w.phrase?.destination ?? ''}`}>
-                          {w.phrase?.event ?? '—'}
-                          {w.phrase?.condition ? ` when ${w.phrase.condition}` : ''} → {w.phrase?.action ?? '—'}
-                        </p>
+                        {(() => {
+                          // skip the condition segment when it repeats the event
+                          // verbatim ('same as the deadline alert when same as…')
+                          const ev = w.phrase?.event ?? '—';
+                          const cond =
+                            w.phrase?.condition && w.phrase.condition !== w.phrase.event
+                              ? ` when ${w.phrase.condition}`
+                              : '';
+                          return (
+                            <>
+                              <p className="line-clamp-1 text-slate-600 dark:text-slate-300" title={`${ev}${cond} → ${w.phrase?.action ?? ''} → ${w.phrase?.destination ?? ''}`}>
+                                {ev}
+                                {cond}
+                              </p>
+                              {/* the OUTCOME line — action → destination, with the
+                                  served business result; the whole point of the row */}
+                              <p className="line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
+                                → {w.phrase?.action ?? '—'}
+                                {w.phrase?.destination ? ` → ${w.phrase.destination}` : ''}
+                                {w.phrase?.expected_result && (
+                                  <span className="text-slate-400 dark:text-slate-500">
+                                    {' '}— {w.phrase.expected_result}
+                                  </span>
+                                )}
+                              </p>
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATE_CLS[w.state ?? 'proposed'] ?? STATE_CLS.proposed}`}>
@@ -275,7 +299,10 @@ export default function StudioWorkflowsPanel({
                         )}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-slate-600 dark:text-slate-300">
-                        {(w.runs_summary?.count ?? 0) === 0 ? (
+                        {w.runs_summary == null ? (
+                          // absent ≠ zero — the history was not served
+                          <span className="text-slate-400 dark:text-slate-500" title="run history not available">—</span>
+                        ) : (w.runs_summary.count ?? 0) === 0 ? (
                           <span className="text-slate-400 dark:text-slate-500">never ran</span>
                         ) : (
                           <>
@@ -289,7 +316,8 @@ export default function StudioWorkflowsPanel({
                         )}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-slate-600 dark:text-slate-300">
-                        {w.trigger?.cron_choice ?? 'manual'}
+                        {/* no trigger served ≠ a manual trigger */}
+                        {w.trigger == null ? '—' : (w.trigger.cron_choice ?? 'manual')}
                         {scheduleActive ? (
                           <span className="ml-1.5 rounded-full bg-emerald-50 px-1.5 py-px text-xs text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">running</span>
                         ) : w.trigger?.cron_choice && w.trigger.cron_choice !== 'manual' ? (

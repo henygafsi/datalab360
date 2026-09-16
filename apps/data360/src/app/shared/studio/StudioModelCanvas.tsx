@@ -123,6 +123,9 @@ export interface StudioTableNodeData {
   /** e.g. « 12 rows (source) », « 11 rows at last run » — always labeled. */
   rowsLabel?: string | null;
   description?: string | null;
+  /** how many report widgets this table powers — null when the served
+   *  used_by_reports map is absent (say nothing, never a fake 0) */
+  powers?: number | null;
   kind?: string | null;
   fieldsTotal?: number | null;
   grainStatus?: string | null;
@@ -158,10 +161,27 @@ function StudioTableNodeInner({ data, selected }: NodeProps<StudioTableNodeData>
               {data.kind}
             </span>
           )}
+          {data.powers != null &&
+            (data.powers > 0 ? (
+              <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-px text-xs tabular-nums text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                powers {data.powers} widget{data.powers === 1 ? '' : 's'}
+              </span>
+            ) : (
+              <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-px text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                feeds no report yet
+              </span>
+            ))}
         </div>
         <p className="mt-0.5 truncate font-mono text-xs text-slate-400 dark:text-slate-500" title={data.schemaTable}>
           {data.schemaTable}
         </p>
+        {/* the meaning, VISIBLE — a tooltip is unreachable on touch and
+            invisible on a glance; one clamped line says what this table IS */}
+        {data.description && (
+          <p className="mt-0.5 line-clamp-1 text-xs text-slate-500 dark:text-slate-400" title={data.description}>
+            {data.description}
+          </p>
+        )}
         <div className="mt-1 flex flex-wrap items-center gap-1">
           {data.state && (
             <span
@@ -341,7 +361,12 @@ function sourceNodeData(
   };
 }
 
-function targetNodeData(t: StudioTarget, rowsAtLastRun?: number | null): StudioTableNodeData {
+function targetNodeData(
+  t: StudioTarget,
+  rowsAtLastRun?: number | null,
+  description?: string | null,
+  powers?: number | null,
+): StudioTableNodeData {
   const parts = (t.target_fqn ?? '').split('.');
   const gk = grainKeysOf(t.grain);
   const columns: NodeColumn[] = (t.columns ?? []).map((c) => ({
@@ -360,6 +385,10 @@ function targetNodeData(t: StudioTarget, rowsAtLastRun?: number | null): StudioT
     grain && typeof grain === 'object' ? ((grain as ModelGrain).status ?? null) : grain ? 'stated' : null;
   return {
     name: t.name,
+    // the AI's plain-words meaning of the table, resolved from the model —
+    // the node says WHAT it is, not only how it is shaped
+    description: description ?? null,
+    powers: powers ?? null,
     schemaTable: parts.length >= 2 ? parts.slice(-2).join('.') : (t.target_fqn ?? '—'),
     rowsLabel:
       rowsAtLastRun != null
@@ -392,6 +421,7 @@ export default function StudioModelCanvas({
   height = 480,
   onSelectTable,
   selectedEntity,
+  usedByReports,
 }: {
   model: ModelPayload;
   /** /data contract sources by fqn — state chips when available. */
@@ -409,11 +439,25 @@ export default function StudioModelCanvas({
    *  in mixed views; the legacy sources mode keeps bare entity ids. */
   onSelectTable?: (nodeId: string) => void;
   selectedEntity?: string | null;
+  /** served used_by_reports map (target_id → widgets) — when present, each
+   *  target node says whether it powers the report or feeds nothing yet */
+  usedByReports?: Record<string, { kpis?: string[]; charts?: string[]; reports?: number }> | null;
 }) {
   const { nodes, edges } = useMemo((): { nodes: Node<StudioTableNodeData>[]; edges: Edge[] } => {
     const rep = report ?? model.report ?? null;
     const tables = model.tables ?? [];
     const tgts = targets ?? [];
+
+    // the AI's per-table meaning lives on model.tables — resolve it onto the
+    // target nodes so the canvas says WHAT each table is, not only its shape
+    const descByEntity = new Map(
+      tables.filter((t) => t.entity_id && t.description).map((t) => [t.entity_id, t.description ?? null]),
+    );
+    const powersOf = (targetId: string): number | null => {
+      if (!usedByReports) return null;
+      const v = usedByReports[targetId];
+      return (v?.kpis?.length ?? 0) + (v?.charts?.length ?? 0);
+    };
 
     if (mode === 'target') {
       const perRow = 3;
@@ -422,7 +466,12 @@ export default function StudioModelCanvas({
         type: 'studioTable' as const,
         position: { x: 24 + (i % perRow) * 300, y: 24 + Math.floor(i / perRow) * 360 },
         selected: selectedEntity === `t:${t.target_id}`,
-        data: targetNodeData(t, rowsByTarget?.get(t.target_id)),
+        data: targetNodeData(
+          t,
+          rowsByTarget?.get(t.target_id),
+          t.entity_id ? descByEntity.get(t.entity_id) : null,
+          powersOf(t.target_id),
+        ),
       }));
       // the STAR — draw the real target↔target relations as edges (this used
       // to return []). Dedup exact repeats, and let the state read on the
@@ -473,7 +522,12 @@ export default function StudioModelCanvas({
         type: 'studioTable' as const,
         position: { x: 640, y: 24 + i * 360 },
         selected: selectedEntity === `t:${t.target_id}`,
-        data: targetNodeData(t, rowsByTarget?.get(t.target_id)),
+        data: targetNodeData(
+          t,
+          rowsByTarget?.get(t.target_id),
+          t.entity_id ? descByEntity.get(t.entity_id) : null,
+          powersOf(t.target_id),
+        ),
       }));
       const byFqn = new Map(
         tables.map((t, i) => [t.fqn.toUpperCase(), `s:${t.entity_id ?? `i${i}`}`]),
@@ -568,7 +622,7 @@ export default function StudioModelCanvas({
       .filter((e): e is Edge => e != null);
 
     return { nodes, edges };
-  }, [model, data, report, targets, targetRelationships, rowsByTarget, mode, selectedEntity]);
+  }, [model, data, report, targets, targetRelationships, rowsByTarget, mode, selectedEntity, usedByReports]);
 
   return (
     <div

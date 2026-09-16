@@ -34,7 +34,7 @@ import {
   type Refusal,
   type SchemaCheckResult,
 } from '@/app/services/studio/connections';
-import { listDrafts, type StudioDraftSummary } from '@/app/services/studio/studio-api';
+import { getUnderstandingRun, listDrafts, type StudioDraftSummary } from '@/app/services/studio/studio-api';
 import { QuietAction } from '@/app/shared/studio/PlainKit';
 import StudioSourceCard from '@/app/shared/studio/StudioSourceCard';
 import { RefusalView } from '@/app/shared/studio/sources/connection-bits';
@@ -130,6 +130,30 @@ function ObjectSheet({
     setRefusal(null);
     void load();
   }, [load]);
+
+  // The persisted AI understanding is a FREE read (credits_charged 0):
+  // when no one wrote a description yet but an analysis run exists, show
+  // the AI's own words for this object — labelled as proposed, never as fact.
+  const [aiDesc, setAiDesc] = useState<string | null>(null);
+  useEffect(() => {
+    const s = typeof sheet === 'object' ? sheet : null;
+    const runId = s?.synthesis?.understanding?.run_id;
+    if (!runId || s?.synthesis?.description) {
+      setAiDesc(null);
+      return;
+    }
+    let alive = true;
+    void getUnderstandingRun(runId).then((r) => {
+      if (!alive) return;
+      const ents = r?.understanding?.entities ?? [];
+      const target = String(s?.header?.physical_path ?? refId).toUpperCase();
+      const e = ents.find((x) => String(x.source_fqn ?? '').toUpperCase() === target);
+      setAiDesc(e?.description ?? null);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [sheet, refId]);
 
   if (sheet === 'loading')
     return (
@@ -256,7 +280,13 @@ function ObjectSheet({
                 onClick={() => onOpenConnection(connectionId)}
                 className="text-accent-600 hover:underline dark:text-accent-400"
               >
-                via {connectionId}
+                {/* business words first — the raw connection id stays as evidence */}
+                <span title={connectionId}>
+                  via{' '}
+                  {connectionId.startsWith('sf:')
+                    ? 'the data warehouse (your session)'
+                    : neutralLabel(connectionId)}
+                </span>
               </button>
             )}
           </p>
@@ -269,12 +299,30 @@ function ObjectSheet({
           Synthesis
         </p>
         <p className="mt-1 text-slate-700 dark:text-slate-200">
-          {syn.description || (
-            <span className="text-slate-400 dark:text-slate-500">
-              No description yet — add one on the card below; your words feed the AI.
-            </span>
-          )}
+          {syn.description ||
+            (aiDesc ? (
+              <>
+                {aiDesc}{' '}
+                <span className="rounded-full bg-violet-50 px-1.5 py-px text-xs text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                  AI-proposed — confirm in your words below
+                </span>
+              </>
+            ) : (
+              <span className="text-slate-400 dark:text-slate-500">
+                No description yet — add one on the card below; your words feed the AI.
+              </span>
+            ))}
         </p>
+        {(syn.business_terms ?? []).length > 0 && (
+          // the business vocabulary the analysis established — chips, not prose
+          <p className="mt-1 flex flex-wrap gap-1">
+            {(syn.business_terms ?? []).map((t) => (
+              <span key={t} className="rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                {t}
+              </span>
+            ))}
+          </p>
+        )}
         <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
           <span>
             grain:{' '}
@@ -286,7 +334,7 @@ function ObjectSheet({
           <span>
             quality:{' '}
             {syn.quality?.state === 'evaluated'
-              ? `${syn.quality.overall ?? ''} · ${syn.quality.checks ?? 0} check(s)`
+              ? `${syn.quality.overall ?? ''} · ${syn.quality.checks ?? '—'} check(s)`
               : 'not evaluated'}
           </span>
           <span>
@@ -323,8 +371,14 @@ function ObjectSheet({
 
         {cols?.state !== 'known' ? (
           <p className="mt-1.5 text-[13px] text-slate-500 dark:text-slate-400">
-            Columns are not discovered yet — run the understanding from the application to analyse
-            this object (nothing runs on display).
+            Columns are not discovered yet —{' '}
+            <Link
+              href={routes.studioApp(draftId)}
+              className="text-accent-600 hover:underline dark:text-accent-400"
+            >
+              run the understanding from the application
+            </Link>{' '}
+            to analyse this object (nothing runs on display).
           </p>
         ) : (
           <div className="mt-2 overflow-x-auto">
@@ -378,6 +432,13 @@ function ObjectSheet({
                         <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                           {col.key.role.replace(/_/g, ' ')}
                         </span>
+                      )}
+                      {/* the AI's plain-words meaning of the column — served,
+                          previously dropped on the floor */}
+                      {col.description && (
+                        <p className="max-w-[260px] truncate font-sans text-[11px] font-normal text-slate-400 dark:text-slate-500" title={col.description}>
+                          {col.description}
+                        </p>
                       )}
                     </td>
                     <td className="whitespace-nowrap px-2 py-1.5 text-slate-500 dark:text-slate-400">
@@ -940,7 +1001,7 @@ export default function ObjectsPanel({
                             lineage unknown
                           </span>
                         ) : (
-                          `${usage?.targets ?? 0} target(s) · ${usage?.jobs ?? 0} job(s)`
+                          `${usage?.targets ?? '—'} target(s) · ${usage?.jobs ?? '—'} job(s)`
                         )}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-right">
