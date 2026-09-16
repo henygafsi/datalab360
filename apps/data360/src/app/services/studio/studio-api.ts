@@ -2594,6 +2594,16 @@ export interface StudioJob {
   name?: string;
   state?: string;
   mode?: string;
+  /** the transformation said in business words (2026-09-16) — derived
+   *  server-side from persisted facts (load mode, key, dedup, watermark,
+   *  quarantine rules); null for a job without targets. */
+  interpretation?: {
+    text?: string;
+    source?: string;
+    truth?: string;
+    basis?: string;
+    facts?: Record<string, Record<string, unknown>>;
+  } | null;
   sql?: string;
   /** generated | expert — expert never pretends to round-trip. */
   sql_mode?: string;

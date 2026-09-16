@@ -38,6 +38,18 @@ export interface ModelSummary {
    *  model, or a per-metric map keyed by the score field ({model_coverage_pct:
    *  "…", …}) — both shapes are handled where it is rendered. */
   method?: string | Record<string, string> | null;
+  /** the model's own lead sentence (2026-09-16). Precedence server-side:
+   *  the user's text > the AI narrative from the analysis > a derived
+   *  sentence from the model's shape. null = no model yet. */
+  model_description?: {
+    text?: string;
+    source?: 'user' | 'ai' | 'derived' | string;
+    generated_at?: string;
+    truth?: string;
+    model?: string;
+    provider?: string;
+    method?: string;
+  } | null;
 }
 
 /** Per-system KPI card (2026-09-16): one entry per connection id, plus one

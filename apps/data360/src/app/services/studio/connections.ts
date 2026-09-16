@@ -372,6 +372,11 @@ export interface AttachedSourceItem {
   connection_id?: string;
   business_name?: string;
   physical_name?: string;
+  /** the object's meaning on the LIST row (2026-09-16) — the understanding
+   *  entity's description; business_meaning only after a content scan. */
+  description?: string | null;
+  description_source?: 'user' | 'ai' | 'deterministic' | string;
+  business_meaning?: string | null;
   /** words OR {connection_id, database} — never hand it to JSX directly */
   origin?: string | { connection_id?: string; database?: string } | null;
   type?: string;

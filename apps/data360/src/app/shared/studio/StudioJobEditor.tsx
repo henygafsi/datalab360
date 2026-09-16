@@ -500,6 +500,22 @@ export default function StudioJobEditor({
         {/* ── TRANSFORMATION ── */}
         {section === 'transformation' && (
           <div className="space-y-4">
+            {/* WHAT this job does, in business words — served, derived from
+                persisted facts; the mapping below stays the evidence */}
+            {job.interpretation?.text && (
+              <div className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/60">
+                <p className="text-[13px] text-slate-700 dark:text-slate-200">
+                  {job.interpretation.text}
+                </p>
+                {(job.interpretation.basis || job.interpretation.truth) && (
+                  <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                    {job.interpretation.basis}
+                    {job.interpretation.basis && job.interpretation.truth && ' · '}
+                    {job.interpretation.truth}
+                  </p>
+                )}
+              </div>
+            )}
             {mainTarget && (mainTarget.columns?.length ?? 0) > 0 ? (
               <div>
                 <p className="text-[13px] font-medium text-slate-700 dark:text-slate-200">

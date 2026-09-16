@@ -291,8 +291,14 @@ const KNOWN_PARAMS: Record<string, Omit<ParamField, 'key'>> = {
   path: { label: 'stage path', kind: 'text', mono: true, hint: 'where the file lands' },
 };
 
+/** server-RESOLVED labels riding the config (2026-09-16) — display material,
+ *  not knobs; an input for them would invite editing a derived name */
+const RESOLVED_CONFIG_KEYS = new Set(['business_name', 'fqn']);
+
 function paramFieldsOf(cfg: Record<string, unknown>): ParamField[] {
-  return Object.keys(cfg).map((key) => {
+  return Object.keys(cfg)
+    .filter((key) => !RESOLVED_CONFIG_KEYS.has(key))
+    .map((key) => {
     const known = KNOWN_PARAMS[key];
     if (known) return { key, ...known };
     const v = cfg[key];
@@ -584,6 +590,11 @@ export default function StudioWorkflowEditor({
   const steps = useMemo(() => (w.steps ?? []) as StepDef[], [w.steps]);
   const condition = (w.condition ?? null) as {
     chart_id?: string;
+    /** server-resolved business names (2026-09-16) — the KPI's report title
+     *  and the analysed entity, so the If row speaks the model's words */
+    chart_title?: string;
+    entity_name?: string;
+    entity_description?: string;
     measure?: string;
     aggregator?: string;
     operator?: string;
@@ -905,6 +916,17 @@ export default function StudioWorkflowEditor({
                 <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">If</dt>
                 <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">
                   {w.phrase?.condition ?? (condition ? `${condition.measure ?? ''} ${condition.operator ?? ''} ${condition.threshold ?? '—'}` : 'always')}
+                  {/* the model tie-back in BUSINESS words — served resolutions */}
+                  {condition?.chart_title && (
+                    <span className="ml-1.5 text-xs text-slate-500 dark:text-slate-400">
+                      reads « {condition.chart_title} » from the report
+                    </span>
+                  )}
+                  {!condition?.chart_title && condition?.entity_name && (
+                    <span className="ml-1.5 text-xs text-slate-500 dark:text-slate-400" title={condition.entity_description}>
+                      watches « {condition.entity_name} »
+                    </span>
+                  )}
                 </dd>
                 {condition && ep.condition && (
                   <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
@@ -1252,6 +1274,16 @@ export default function StudioWorkflowEditor({
                           {s0.block_type && (
                             <span className="rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                               {s0.block_type.replace(/_/g, ' ')}
+                            </span>
+                          )}
+                          {/* the server-resolved business name of what this
+                              step touches — words, with the fqn as evidence */}
+                          {typeof cfg.business_name === 'string' && cfg.business_name && (
+                            <span
+                              className="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400"
+                              title={typeof cfg.fqn === 'string' ? cfg.fqn : undefined}
+                            >
+                              « {cfg.business_name} »
                             </span>
                           )}
                           {meta?.status && meta.status !== 'available' && (

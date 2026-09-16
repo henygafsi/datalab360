@@ -163,6 +163,24 @@ export default function StudioModelTab({
           lead; KPIs, ROI and versions become the ring AROUND it below —
           collapsed summaries with notification badges, never a wall the
           reader must scroll past to reach the model itself. */}
+      {/* the model's OWN lead sentence — served with its provenance
+          (user > AI narrative > derived from the shape), never composed
+          client-side; a 'derived' sentence says so, it is not AI prose */}
+      {summary?.model_description?.text && (
+        <p className="text-[13px] text-slate-700 dark:text-slate-200">
+          {summary.model_description.text}{' '}
+          <span
+            className="rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+            title={summary.model_description.method ?? summary.model_description.generated_at ?? undefined}
+          >
+            {summary.model_description.source === 'user'
+              ? 'your words'
+              : summary.model_description.source === 'ai'
+                ? 'AI'
+                : 'derived from the model'}
+          </span>
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700" role="tablist" aria-label="Model view">
           {(

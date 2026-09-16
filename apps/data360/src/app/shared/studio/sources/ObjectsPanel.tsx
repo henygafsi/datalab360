@@ -977,6 +977,16 @@ export default function ObjectsPanel({
                         <p className="truncate font-mono text-xs text-slate-400 dark:text-slate-500" title={s.fqn ?? s.ref}>
                           {(s.fqn ?? s.ref).split('.').slice(-2).join('.')}
                         </p>
+                        {/* the object's MEANING on the row itself — served
+                            (scan wins over the entity description) */}
+                        {(s.business_meaning || s.description) && (
+                          <p
+                            className="max-w-[340px] truncate text-xs text-slate-500 dark:text-slate-400"
+                            title={s.business_meaning ?? s.description ?? undefined}
+                          >
+                            {s.business_meaning ?? s.description}
+                          </p>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-2 py-2 text-slate-600 dark:text-slate-300">
                         {neutralLabel(originWords(s))}
