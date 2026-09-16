@@ -27,6 +27,7 @@ import StudioReadyKpis from '@/app/shared/studio/StudioReadyKpis';
 import StudioSourceCard from '@/app/shared/studio/StudioSourceCard';
 import StudioAccessPanel from '@/app/shared/studio/StudioAccessPanel';
 import StudioViewKpis from '@/app/shared/studio/StudioViewKpis';
+import StudioSourceSystems from '@/app/shared/studio/sources/StudioSourceSystems';
 import StudioQualitySummary from '@/app/shared/studio/StudioQualitySummary';
 import StudioAppCostBadge from '@/app/shared/studio/StudioAppCostBadge';
 import {
@@ -2398,7 +2399,9 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
               discovery semantics) */}
           {tab === 'sources' && draftId && (
             <div className="space-y-3">
-              <StudioViewKpis draftId={draftId} view="sources" />
+              {/* the SYSTEMS lead — logo + KPI highlights (user directive);
+                  the object-by-object detail is one fold below */}
+              <StudioSourceSystems draftId={draftId} />
               <ObjectsPanel
                 fixedAppId={draftId}
                 onAddSource={() => router.push(routes.studioSource)}

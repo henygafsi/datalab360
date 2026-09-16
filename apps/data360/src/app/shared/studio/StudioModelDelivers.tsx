@@ -26,6 +26,8 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
+  ChevronDown,
+  ChevronRight,
   Coins,
   Info,
   RefreshCw,
@@ -98,6 +100,9 @@ export default function StudioModelDelivers({
   const unused = rows.filter((r) => r.powers === 0);
   const totalWidgets = used.reduce((a, r) => a + r.powers, 0);
 
+  /** folded by default — the header line is the notification; the MODEL keeps
+   *  the page's centre (user directive) */
+  const [open, setOpen] = useState(false);
   /* cost, read on demand — honest about why a draft stays at 0 credits */
   const [cost, setCost] = useState<AppCost | null | 'loading'>('loading');
   useEffect(() => {
@@ -121,7 +126,19 @@ export default function StudioModelDelivers({
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex flex-wrap items-center gap-2">
+      {/* the header IS the summary — a notification line, always visible; the
+          detail unfolds on demand so the MODEL keeps the page's centre */}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full flex-wrap items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+      >
+        {open ? (
+          <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-slate-400" />
+        ) : (
+          <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-slate-400" />
+        )}
         <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
           <TrendingUp aria-hidden className="h-4 w-4 text-accent-500" />
           What this model delivers
@@ -135,12 +152,20 @@ export default function StudioModelDelivers({
         >
           {used.length} of {rows.length} objects power a report
         </span>
+        {/* the notification: unused objects, visible without unfolding */}
+        {unused.length > 0 && (
+          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+            {unused.length} unused
+          </span>
+        )}
         {totalWidgets > 0 && (
           <span className="text-xs text-slate-500 dark:text-slate-400">
             {totalWidgets} KPI/chart{totalWidgets > 1 ? 's' : ''} across your reports
           </span>
         )}
-      </div>
+      </button>
+      {!open ? null : (
+      <>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
         The value of a modelled fact or dimension is the questions it answers — the reports and KPIs it
         feeds. Editing one re-runs exactly the widgets below, so the impact of a change is what you see
@@ -240,6 +265,8 @@ export default function StudioModelDelivers({
           <Info aria-hidden className="h-3 w-3" /> credits, not $
         </span>
       </div>
+      </>
+      )}
     </section>
   );
 }

@@ -565,7 +565,16 @@ export default function StudioWorkflowEditor({
   } | null;
   const windowDef = (w.window ?? null) as { days?: number; limit?: number } | null;
 
-  const [section, setSection] = useState<Section>('definition');
+  /** the VISUAL FLOW leads (user directive) — the editor opens on Steps,
+   *  except when a decision is missing: then Definition, where that decision
+   *  is taken, is the honest landing. */
+  const [section, setSection] = useState<Section>(() =>
+    (w.prerequisites?.data?.missing?.length ?? 0) +
+      (w.prerequisites?.destination?.missing?.length ?? 0) >
+    0
+      ? 'definition'
+      : 'steps',
+  );
   /** the buffered change — path → op; ONE patch on Save */
   const [buffer, setBuffer] = useState<Record<string, ModelPatchOp>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -1158,7 +1167,7 @@ export default function StudioWorkflowEditor({
             <>
               {/* the visual pipeline stays as the compact overview — clicking a
                   block highlights its card in the rail below */}
-              <div className="h-44 rounded-lg border border-slate-200 dark:border-slate-800">
+              <div className="h-56 rounded-lg border border-slate-200 dark:border-slate-800">
                 <ReactFlow
                   nodes={flowNodes}
                   edges={flowEdges}

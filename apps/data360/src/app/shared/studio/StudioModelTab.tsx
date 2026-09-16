@@ -148,14 +148,10 @@ export default function StudioModelTab({
 
   return (
     <div className="space-y-2">
-      {/* the business-KPI strip — real served figures; a score not yet
-          evaluated shows "—", never an invented 0 or 100 */}
-      <StudioKpiHeader kpis={modelKpis(summary)} loading={summary === null} />
-
-      {/* what the model DELIVERS — the ROI (which reports/KPIs each object
-          feeds), the impact of a change, and the honest cost picture */}
-      <StudioModelDelivers draftId={draftId} summary={summary} report={report} targets={targets} />
-
+      {/* THE MODEL IS THE PAGE (user directive): the canvas and its actions
+          lead; KPIs, ROI and versions become the ring AROUND it below —
+          collapsed summaries with notification badges, never a wall the
+          reader must scroll past to reach the model itself. */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg border border-slate-200 p-0.5 dark:border-slate-700" role="tablist" aria-label="Model view">
           {(
@@ -195,18 +191,6 @@ export default function StudioModelTab({
           </span>
         )}
       </div>
-
-      {ready && hasTargets && (
-        <StudioModelCompletion
-          draftId={draftId}
-          view={ready}
-          report={report as never}
-          onChanged={() => {
-            void load();
-            onApplied();
-          }}
-        />
-      )}
 
       {effMode === 'target' && !hasTargets ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 text-center dark:border-slate-800 dark:bg-slate-900">
@@ -270,6 +254,22 @@ export default function StudioModelTab({
             : `${ready!.relationships!.length} relation(s) between these tables — open a table to read and edit them.`}
         </p>
       )}
+
+      {/* ── the ring AROUND the model — scores, versions & decisions, ROI:
+          summaries with notification badges, detail on demand ───────────── */}
+      <StudioKpiHeader kpis={modelKpis(summary)} loading={summary === null} />
+      {ready && hasTargets && (
+        <StudioModelCompletion
+          draftId={draftId}
+          view={ready}
+          report={report as never}
+          onChanged={() => {
+            void load();
+            onApplied();
+          }}
+        />
+      )}
+      <StudioModelDelivers draftId={draftId} summary={summary} report={report} targets={targets} />
     </div>
   );
 }
