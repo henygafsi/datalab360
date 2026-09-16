@@ -25,6 +25,23 @@ import {
   type QualityView,
 } from '@/app/services/studio/studio-api';
 
+// served check/verdict vocabulary said in business words — unknown values
+// pass through verbatim rather than being guessed at
+const RULE_WORDS: Record<string, string> = {
+  not_null: 'never empty',
+  unique: 'no duplicates',
+  referential_integrity: 'matches its reference',
+  accepted_values: 'value in the allowed list',
+  freshness: 'fresh enough',
+  row_count: 'expected volume',
+};
+const VERDICT_WORDS: Record<string, string> = {
+  enforced_by_job: 'enforced by the load',
+  pass: 'pass',
+  fail: 'FAIL',
+  not_evaluated: 'not evaluated yet',
+};
+
 function errText(e: unknown): string {
   const detail = (e as { response?: { data?: { detail?: { message?: string } | string }; status?: number } })
     ?.response?.data?.detail;
@@ -185,6 +202,9 @@ export default function StudioQualityPanel({
   const [dlqResolved, setDlqResolved] = useState<DlqItem[] | null>(null);
   const [showResolved, setShowResolved] = useState(false);
   const [openOriginal, setOpenOriginal] = useState<string | null>(null);
+  // per-table expand-beneath: the served checks[] + indicators{} were typed
+  // but never rendered — the detail is already in memory, showing it is free
+  const [openTargets, setOpenTargets] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dateForm, setDateForm] = useState<{ targetId: string; column: string; formats: string; confirmed: boolean } | null>(null);
@@ -356,6 +376,9 @@ export default function StudioQualityPanel({
               const acc = t.population?.rows_accepted != null ? Number(t.population.rows_accepted) : null;
               const rej = t.population?.rows_rejected != null ? Number(t.population.rows_rejected) : null;
               const degraded = t.state === 'degraded';
+              const tKey = String(t.target_id ?? t.target ?? '');
+              const tOpen = openTargets[tKey] ?? false;
+              const nChecks = t.checks?.length ?? 0;
               return (
                 <li key={t.target_id ?? t.target} className={`rounded-lg border p-2 ${degraded ? 'border-amber-300/70 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-950/20' : 'border-slate-100 dark:border-slate-800'}`}>
                   <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -380,6 +403,19 @@ export default function StudioQualityPanel({
                       )}
                       {t.population?.target_rows != null && ` · ${fmt(t.population.target_rows)} in target`}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setOpenTargets((o) => ({ ...o, [tKey]: !tOpen }))}
+                      aria-expanded={tOpen}
+                      className="inline-flex items-center gap-0.5 rounded text-xs text-slate-500 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400 dark:hover:text-accent-400"
+                    >
+                      {tOpen ? (
+                        <ChevronDown aria-hidden className="h-3 w-3" />
+                      ) : (
+                        <ChevronRight aria-hidden className="h-3 w-3" />
+                      )}
+                      {nChecks} check{nChecks === 1 ? '' : 's'}
+                    </button>
                     {t.producer_job_id && onFixInJob && (
                       <button
                         type="button"
@@ -416,6 +452,97 @@ export default function StudioQualityPanel({
                     <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
                       volumes not measured — nothing to draw
                     </p>
+                  )}
+                  {tOpen && (
+                    // expand-beneath: the table's OWN measures and rules —
+                    // served figures only, "not measured" said as such
+                    <div className="mt-2 space-y-1.5 border-t border-slate-100 pt-2 text-xs dark:border-slate-800">
+                      {t.indicators && (
+                        <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-slate-500 dark:text-slate-400">
+                          <span>
+                            conformity:{' '}
+                            <span className="font-medium text-slate-700 dark:text-slate-200">
+                              {t.indicators.measured_conformity?.numerator != null &&
+                              t.indicators.measured_conformity?.denominator != null
+                                ? `${fmt(t.indicators.measured_conformity.numerator)} / ${fmt(t.indicators.measured_conformity.denominator)} accepted`
+                                : t.indicators.measured_conformity?.value != null
+                                  ? String(t.indicators.measured_conformity.value)
+                                  : 'not measured'}
+                            </span>
+                          </span>
+                          <span>
+                            in quarantine:{' '}
+                            <span className="font-medium text-slate-700 dark:text-slate-200">
+                              {t.indicators.open_rejects?.value != null
+                                ? fmt(Number(t.indicators.open_rejects.value))
+                                : 'not measured'}
+                            </span>
+                          </span>
+                          <span>
+                            fresh at:{' '}
+                            <span className="font-medium text-slate-700 dark:text-slate-200">
+                              {t.indicators.freshness?.value != null
+                                ? String(t.indicators.freshness.value)
+                                : 'not measured'}
+                            </span>
+                          </span>
+                        </p>
+                      )}
+                      {nChecks === 0 ? (
+                        <p className="text-slate-400 dark:text-slate-500">
+                          no rule declared on this table yet — nothing guards its rows
+                        </p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {(t.checks ?? []).map((c, i) => {
+                            const rule = String(c.rule ?? c.id ?? `check ${i + 1}`);
+                            const verdict = String(c.verdict ?? '');
+                            return (
+                              <li key={String(c.id ?? i)} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                <span className="font-medium text-slate-700 dark:text-slate-200">
+                                  {RULE_WORDS[rule] ?? rule}
+                                </span>
+                                {c.column != null && (
+                                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                    {String(c.column)}
+                                  </span>
+                                )}
+                                <span
+                                  className={
+                                    verdict === 'fail'
+                                      ? 'text-rose-600 dark:text-rose-400'
+                                      : verdict === 'not_evaluated' || verdict === ''
+                                        ? 'text-slate-400 dark:text-slate-500'
+                                        : 'text-emerald-700 dark:text-emerald-400'
+                                  }
+                                >
+                                  {VERDICT_WORDS[verdict] ?? (verdict || 'declared')}
+                                </span>
+                                {c.behavior === 'quarantine' && (
+                                  <span className="text-slate-400 dark:text-slate-500">
+                                    violations go to quarantine
+                                  </span>
+                                )}
+                                {typeof c.predicate === 'string' && c.predicate && (
+                                  <code className="rounded bg-slate-50 px-1 py-px font-mono text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                    {c.predicate}
+                                  </code>
+                                )}
+                                {typeof c.responsible_job_id === 'string' && c.responsible_job_id && onFixInJob && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onFixInJob(String(c.responsible_job_id))}
+                                    className="rounded text-accent-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+                                  >
+                                    Edit the rule in {String(c.responsible_job_id)}
+                                  </button>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
                   )}
                 </li>
               );

@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, HelpCircle, Pencil, RefreshCw, Search } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Clock, Hash, HelpCircle, KeyRound, Pencil, RefreshCw, Search, Tags, ToggleLeft } from 'lucide-react';
 import {
   detachSource,
   getDraftSources,
@@ -58,6 +58,18 @@ const UND_GROUPS = [
   { key: 'stale', label: 'Understanding stale', hint: 'the attachment changed since the analysis', Icon: AlertTriangle, tone: 'text-amber-600 dark:text-amber-400' },
   { key: 'known', label: 'Understood', hint: 'analysed and current', Icon: CheckCircle2, tone: 'text-emerald-600 dark:text-emerald-400' },
 ] as const;
+
+/* the object sheet's columns, sectioned by the SERVED role — the functional
+ * reading of a table (what identifies, what measures, what slices) instead
+ * of a flat technical list. Unknown roles pass through verbatim; a column
+ * the analysis did not classify says so rather than being guessed. */
+const ROLE_SECTIONS: Array<{ key: string; label: string; hint?: string; Icon: typeof Hash }> = [
+  { key: 'identifier', label: 'Identifiers', hint: 'what a row IS — the keys', Icon: KeyRound },
+  { key: 'measure', label: 'Measures', hint: 'the numbers the business tracks', Icon: Hash },
+  { key: 'time', label: 'Time', hint: 'when things happen', Icon: Clock },
+  { key: 'dimension', label: 'Dimensions', hint: 'how the business slices', Icon: Tags },
+  { key: 'flag', label: 'Flags', hint: 'yes / no markers', Icon: ToggleLeft },
+];
 
 function volumeWords(v?: AttachedSourceItem['volume']): string {
   if (!v || v.state === 'unknown' || v.rows == null) return '—';
@@ -321,29 +333,56 @@ function ObjectSheet({
                 <tr>
                   <th className="px-2 py-1 font-medium">Column</th>
                   <th className="px-2 py-1 font-medium">Type</th>
-                  <th className="px-2 py-1 font-medium">Role</th>
                   <th className="px-2 py-1 font-medium">Anomalies</th>
                   <th className="px-2 py-1 font-medium">Lands in</th>
                   <th className="px-2 py-1 font-medium" aria-label="Column actions" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {colItems.map((col) => (
+                {(() => {
+                  const roleOf = (c: (typeof colItems)[number]) => c.role ?? 'unclassified';
+                  const extraRoles = [...new Set(colItems.map(roleOf))].filter(
+                    (r) => r !== 'unclassified' && !ROLE_SECTIONS.some((s) => s.key === r),
+                  );
+                  const sections = [
+                    ...ROLE_SECTIONS,
+                    ...extraRoles.map((r) => ({ key: r, label: r, hint: undefined, Icon: HelpCircle })),
+                    { key: 'unclassified', label: 'Not classified yet', hint: 'the analysis did not assign a role', Icon: HelpCircle },
+                  ];
+                  return sections.flatMap((s) => {
+                    const rs = colItems.filter((c) => roleOf(c) === s.key);
+                    if (rs.length === 0) return [];
+                    const mapped = rs.filter((c) => c.mapping?.column).length;
+                    return [
+                      <tr key={`role-${s.key}`} className="bg-slate-50/70 dark:bg-slate-800/40">
+                        <td colSpan={5} className="px-2 py-1">
+                          <span className="flex flex-wrap items-center gap-1.5 text-xs">
+                            <s.Icon aria-hidden className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
+                            <span className="font-medium text-slate-700 dark:text-slate-200">{s.label}</span>
+                            {s.hint && <span className="text-slate-400 dark:text-slate-500">{s.hint}</span>}
+                            <span className="ml-auto tabular-nums text-slate-400 dark:text-slate-500">
+                              {rs.length}
+                              {mapped > 0 && ` · ${mapped} mapped`}
+                            </span>
+                          </span>
+                        </td>
+                      </tr>,
+                      ...rs.map((col) => (
                   <tr key={col.name}>
                     <td className="whitespace-nowrap px-2 py-1.5 font-mono text-xs text-slate-700 dark:text-slate-200">
                       {col.name}
-                      {col.key && Object.keys(col.key).length > 0 && (
+                      {/* the served key object exists on EVERY column with
+                          role:"none" — only a real key role earns the chip
+                          (a badge on all 16 columns marks nothing) */}
+                      {typeof col.key?.role === 'string' && col.key.role !== 'none' && (
                         <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                          key
+                          {col.key.role.replace(/_/g, ' ')}
                         </span>
                       )}
                     </td>
                     <td className="whitespace-nowrap px-2 py-1.5 text-slate-500 dark:text-slate-400">
                       {col.type ?? '—'}
                       {col.nullable ? ' · nullable' : ''}
-                    </td>
-                    <td className="whitespace-nowrap px-2 py-1.5 text-slate-500 dark:text-slate-400">
-                      {col.role ?? '—'}
                     </td>
                     <td className="whitespace-nowrap px-2 py-1.5">
                       {(col.anomalies ?? []).length > 0 ? (
@@ -392,7 +431,10 @@ function ObjectSheet({
                       </span>
                     </td>
                   </tr>
-                ))}
+                      )),
+                    ];
+                  });
+                })()}
               </tbody>
             </table>
             {colItems.length === 0 && (
