@@ -2198,6 +2198,9 @@ export interface WorkflowItem {
   job_id?: string;
   condition?: Record<string, unknown>;
   steps?: Array<Record<string, unknown>>;
+  /** How many steps carry served `advice` (per-step intelligence derived at
+   *  read time from persisted facts — previews, test runs, contracts). */
+  advice_count?: number;
   graph?: { nodes?: unknown[]; edges?: unknown[] };
   edit_paths?: Record<string, unknown>;
   window?: Record<string, unknown>;

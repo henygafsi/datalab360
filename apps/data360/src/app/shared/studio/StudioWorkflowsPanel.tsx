@@ -249,6 +249,14 @@ export default function StudioWorkflowsPanel({
                             job
                           </span>
                         )}
+                        {(w.advice_count ?? 0) > 0 && (
+                          <span
+                            className="ml-1.5 rounded-full bg-sky-50 px-1.5 py-px text-xs tabular-nums text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+                            title="Open the editor — each concerned step carries its note, with the run or fact it is based on"
+                          >
+                            {w.advice_count} suggestion{w.advice_count === 1 ? '' : 's'}
+                          </span>
+                        )}
                       </td>
                       <td className="max-w-[360px] px-2 py-2">
                         <p className="truncate text-slate-600 dark:text-slate-300" title={`${w.phrase?.event ?? ''}${w.phrase?.condition ? ` when ${w.phrase.condition}` : ''} → ${w.phrase?.action ?? ''} → ${w.phrase?.destination ?? ''}`}>

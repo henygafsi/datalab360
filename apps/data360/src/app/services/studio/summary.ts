@@ -40,9 +40,30 @@ export interface ModelSummary {
   method?: string | Record<string, string> | null;
 }
 
+/** Per-system KPI card (2026-09-16): one entry per connection id, plus one
+ *  per system kind DECLARED by a source contract (truth:'confirmed', note,
+ *  no health). Absent keys = not measured — render "—", never 0. */
+export interface SystemDetail {
+  id?: string;
+  kind?: string;
+  objects?: number;
+  analysed?: number;
+  rows_scanned?: number;
+  health?: {
+    state?: 'ok' | 'warn' | 'fail' | 'not_evaluated' | string;
+    counts?: Record<string, number>;
+    method?: string;
+  };
+  domains?: string[];
+  freshness_at?: string;
+  truth?: 'observed' | 'confirmed' | string;
+  note?: string;
+}
+
 export interface SourcesSummary {
   connected_systems?: number | null;
   systems?: unknown[];
+  systems_detail?: SystemDetail[];
   functional_domains_detected?: number | null;
   domains?: unknown[];
   rows_scanned?: number | null;

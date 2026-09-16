@@ -233,6 +233,29 @@ type StepDef = {
   capability?: string;
   label?: string;
   config?: Record<string, unknown>;
+  /** Served per-step intelligence (2026-09-16): derived at read time from
+   *  PERSISTED facts only (previews, test runs, contracts, schema checks) —
+   *  absent when there is nothing real to say. `basis` names the fact. */
+  advice?: {
+    kind?: 'improvement' | 'roi' | 'risk' | string;
+    text?: string;
+    basis?: string;
+    truth?: string;
+    estimated_credits?: number;
+  };
+};
+
+/* the step-advice notification — kind said as a business word + tone,
+ * the basis kept visible as evidence (never advice out of thin air) */
+const ADVICE_CLS: Record<string, string> = {
+  improvement: 'bg-sky-50 text-sky-800 dark:bg-sky-950/30 dark:text-sky-200',
+  roi: 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200',
+  risk: 'bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200',
+};
+const ADVICE_WORDS: Record<string, string> = {
+  improvement: 'suggestion',
+  roi: 'benefit',
+  risk: 'risk',
 };
 
 /* ── typed per-step params — the config presented BY STEP, not behind a
@@ -1251,6 +1274,29 @@ export default function StudioWorkflowEditor({
                             </button>
                           )}
                         </div>
+
+                        {s0.advice?.text && (
+                          <p
+                            className={`mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-lg px-2 py-1 text-xs ${ADVICE_CLS[s0.advice.kind ?? ''] ?? ADVICE_CLS.improvement}`}
+                          >
+                            <span className="font-medium uppercase tracking-wide">
+                              {ADVICE_WORDS[s0.advice.kind ?? ''] ?? s0.advice.kind ?? 'note'}
+                            </span>
+                            <span className="min-w-0">{s0.advice.text}</span>
+                            {s0.advice.estimated_credits != null && (
+                              <span className="tabular-nums">
+                                ≈ {s0.advice.estimated_credits} credit(s)
+                              </span>
+                            )}
+                            {(s0.advice.basis || s0.advice.truth) && (
+                              <span className="w-full text-[11px] opacity-70">
+                                {s0.advice.basis && <>basis: {s0.advice.basis}</>}
+                                {s0.advice.basis && s0.advice.truth && ' · '}
+                                {s0.advice.truth}
+                              </span>
+                            )}
+                          </p>
+                        )}
 
                         {/* params, BY STEP — typed controls, nothing hidden */}
                         {fields.length > 0 && (
