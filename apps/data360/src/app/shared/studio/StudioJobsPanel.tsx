@@ -13,7 +13,7 @@
  * Automations view edits).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, MoreHorizontal, Play, RefreshCw, Search } from 'lucide-react';
 import {
   getTargetsView,
@@ -128,6 +128,7 @@ export default function StudioJobsPanel({
   onOpenActivation,
   entityMeaning,
   onOpenTarget,
+  listHeader,
 }: {
   draftId: string;
   /** Loads/replays change target data — the parent refreshes its report. */
@@ -143,6 +144,9 @@ export default function StudioJobsPanel({
   entityMeaning?: Map<string, string> | null;
   /** the jobs→model door — opens the model with the fed table selected. */
   onOpenTarget?: (targetId: string) => void;
+  /** rendered ONLY above the pilot list — when a process editor is open it
+   *  IS the page (no-scroll directive): the KPI cards step aside. */
+  listHeader?: ReactNode;
 }) {
   const [view, setView] = useState<TargetsView | 'loading' | 'error' | null>(null);
   const [openJobId, setOpenJobId] = useState<string | null>(null);
@@ -284,6 +288,8 @@ export default function StudioJobsPanel({
   }
 
   return (
+    <>
+    {listHeader}
     <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center gap-2">
         {/* automations moved to the Automation group — one nav, one surface */}
@@ -624,5 +630,6 @@ export default function StudioJobsPanel({
         </p>
       )}
     </section>
+    </>
   );
 }

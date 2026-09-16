@@ -2740,8 +2740,10 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           {/* ── JOBS — the pilot list; loads & automations behind one filter ── */}
           {tab === 'jobs' && draftId && (
             <div className="space-y-3">
-              <StudioViewKpis draftId={draftId} view="jobs" />
+              {/* the KPI strip lives INSIDE the panel's list branch — when a
+                  process editor is open it IS the page (no scroll to reach it) */}
               <StudioJobsPanel
+                listHeader={<StudioViewKpis draftId={draftId} view="jobs" />}
                 draftId={draftId}
                 focusJobId={jobsFocus}
                 onChanged={() => draftId && void load(draftId)}

@@ -26,6 +26,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import {
+  getTargetsView,
   patchModel,
   runJob,
   testJob,
@@ -137,6 +138,22 @@ function isDirty(b: Buffer, j: StudioJob): boolean {
   );
 }
 
+/** Deterministic classification of a run failure into business words —
+ *  the raw error stays as evidence. The 600 s case is the real one seen
+ *  live: the statement outgrew the warehouse's statement timeout. */
+function runFailureWords(err?: string | null): string {
+  const e = String(err ?? '');
+  const m = e.match(/timeout of (\d+) second/i);
+  if (m || /statement or warehouse timeout/i.test(e)) {
+    return (
+      `The warehouse canceled this load at its ${m?.[1] ?? '600'}-second statement limit — ` +
+      'the data volume outgrew the time budget. Narrow the incremental window so each run ' +
+      'loads less, or raise the statement timeout for this load.'
+    );
+  }
+  return e || 'the run failed without a served error message';
+}
+
 function RunRow({ run }: { run: JobRun }) {
   const [open, setOpen] = useState(false);
   const c = run.results?.[0] ?? {};
@@ -176,7 +193,8 @@ function RunRow({ run }: { run: JobRun }) {
               className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400 dark:hover:text-slate-200"
             >
               {open ? <ChevronDown aria-hidden className="h-3.5 w-3.5" /> : <ChevronRight aria-hidden className="h-3.5 w-3.5" />}
-              details
+              {/* a failed run's door says what is behind it */}
+              {run.error ? 'why it failed' : 'details'}
             </button>
           ) : null}
         </td>
@@ -185,9 +203,13 @@ function RunRow({ run }: { run: JobRun }) {
         <tr>
           <td colSpan={6} className="px-2 pb-2">
             {run.error && (
-              <p role="alert" className="mb-1.5 rounded-lg bg-red-50 px-2 py-1.5 text-[13px] text-red-700 dark:bg-red-900/20 dark:text-red-300">
-                {asText(run.error)}
-              </p>
+              <div role="alert" className="mb-1.5 rounded-lg bg-red-50 px-2 py-1.5 dark:bg-red-900/20">
+                {/* business diagnosis first, the raw error as evidence */}
+                <p className="text-[13px] text-red-700 dark:text-red-300">{runFailureWords(asText(run.error))}</p>
+                <p className="mt-0.5 truncate font-mono text-[11px] text-red-600/70 dark:text-red-300/60" title={asText(run.error)}>
+                  {asText(run.error)}
+                </p>
+              </div>
             )}
             {(run.proofs?.length ?? 0) > 0 && (
               <div className="overflow-x-auto rounded-lg border border-slate-100 dark:border-slate-800">
@@ -326,17 +348,67 @@ export default function StudioJobEditor({
     }
   }, [dirty, busy, buf, job, jobIndex, draftId, view.updated_at, onChanged]);
 
+  const [runElapsed, setRunElapsed] = useState<number | null>(null);
   const runTest = useCallback(async () => {
     if (busy) return;
     setBusy('run');
     setError(null);
+    const t0 = Date.now();
+    setRunElapsed(0);
+    const tick = window.setInterval(() => setRunElapsed(Math.round((Date.now() - t0) / 1000)), 1000);
     try {
-      await runJob(draftId, job.job_id);
+      const r = await runJob(draftId, job.job_id);
       setSection('runs');
       onChanged();
+      if (r?.status === 'failed') setError(runFailureWords(r.error));
     } catch (e) {
-      setError(errText(e));
+      const msg = errText(e);
+      // The HTTP call can die (proxy/client timeout) while the statement
+      // KEEPS RUNNING on the warehouse — up to its 600 s limit. A dead
+      // spinner then a network error reads as « the fix does not work ».
+      // Instead: poll the persisted runs until OUR run resolves, then say
+      // the real outcome.
+      if (/timeout|network|abort|ECONNABORTED|Network Error/i.test(msg)) {
+        const deadline = Date.now() + 720_000;
+        let resolved: JobRun | null = null;
+        try {
+          while (Date.now() < deadline) {
+            await new Promise((res) => setTimeout(res, 10_000));
+            setRunElapsed(Math.round((Date.now() - t0) / 1000));
+            const v = await getTargetsView(draftId).catch(() => null);
+            const jj = v?.jobs?.find((x) => x.job_id === job.job_id);
+            const latest = jj ? latestRun(jj) : undefined;
+            if (
+              latest?.started_at &&
+              Date.parse(latest.started_at) >= t0 - 120_000 &&
+              latest.status &&
+              latest.status !== 'running'
+            ) {
+              resolved = latest;
+              break;
+            }
+          }
+        } catch {
+          /* keep the msg fallback below */
+        }
+        if (resolved) {
+          setSection('runs');
+          onChanged();
+          if (resolved.status !== 'success' && resolved.status !== 'succeeded' && resolved.status !== 'ok') {
+            setError(runFailureWords(resolved.error));
+          }
+        } else {
+          setError(
+            'The run is still executing on the warehouse (statements are canceled at 600 s) — open Runs in a minute for the outcome.',
+          );
+          onChanged();
+        }
+      } else {
+        setError(msg);
+      }
     } finally {
+      window.clearInterval(tick);
+      setRunElapsed(null);
       setBusy(null);
     }
   }, [busy, draftId, job.job_id, onChanged]);
@@ -416,7 +488,9 @@ export default function StudioJobEditor({
               ) : (
                 <Play aria-hidden className="h-3.5 w-3.5" />
               )}
-              {busy === 'run' ? 'Running…' : 'Run test (sandbox)'}
+              {busy === 'run'
+                ? `Running…${runElapsed != null && runElapsed >= 5 ? ` ${runElapsed}s` : ''}`
+                : 'Run test (sandbox)'}
             </button>
           </span>
         </div>
@@ -750,6 +824,24 @@ export default function StudioJobEditor({
               <p className="text-[13px] text-slate-600 dark:text-slate-300">
                 If the process itself fails: <span className="font-medium">{job.on_failure.replace(/_/g, ' ')}</span>.
               </p>
+            )}
+
+            {/* a FAILED last run means these rules never evaluated a row —
+                leading with « no rejected rows » would read as clean */}
+            {lastRun && lastRun.status !== 'success' && lastRun.status !== 'succeeded' && lastRun.status !== 'ok' && (
+              <div className="rounded-lg border border-amber-300/70 bg-amber-50/50 px-3 py-2 dark:border-amber-500/30 dark:bg-amber-950/20" role="alert">
+                <p className="text-[13px] font-medium text-amber-800 dark:text-amber-200">
+                  The last run failed — these rules never got to evaluate rows.
+                </p>
+                <p className="mt-0.5 text-[13px] text-amber-800/90 dark:text-amber-200/80">
+                  {runFailureWords(lastRun.error)}
+                </p>
+                {lastRun.error && (
+                  <p className="mt-0.5 truncate font-mono text-[11px] text-amber-700/70 dark:text-amber-300/60" title={lastRun.error}>
+                    {lastRun.error}
+                  </p>
+                )}
+              </div>
             )}
 
             <div className="rounded-lg border border-slate-100 px-3 py-2 dark:border-slate-800">
