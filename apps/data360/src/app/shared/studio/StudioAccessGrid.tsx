@@ -904,6 +904,38 @@ function PiiPanel({
           'A name match is a proposal to confirm, not a fact; opaque columns are never guessed. Masking is one control — confirming here does not make the application GDPR-compliant on its own.'}
       </p>
 
+      {/* WHICH detectors actually ran — name-only must never read as full
+          coverage; the deeper bases (content, samples, the warehouse's own
+          classifier) are priced options, said as such */}
+      {pii?.bases_used && (
+        <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-400 dark:text-slate-500">
+          <span className="font-medium text-slate-500 dark:text-slate-400">Detection coverage:</span>
+          <span>
+            {[
+              pii.bases_used.name && 'column names',
+              pii.bases_used.scan && 'content scan',
+              pii.bases_used.sample && 'value samples',
+              (pii.bases_used as Record<string, unknown>).native === true &&
+                'the warehouse’s built-in classifier',
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'none yet'}
+          </span>
+          {!(pii.bases_used.scan || pii.bases_used.sample) && (
+            <span>
+              — deeper detection is a priced option on{' '}
+              <a
+                href="/studio/source"
+                className="rounded text-accent-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+              >
+                the Sources page
+              </a>
+              .
+            </span>
+          )}
+        </p>
+      )}
+
       {piiErr && (
         <p role="alert" className="mt-2 text-[13px] text-red-600 dark:text-red-400">
           {piiErr}

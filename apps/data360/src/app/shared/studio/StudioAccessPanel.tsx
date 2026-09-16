@@ -251,7 +251,16 @@ function AccessOutcome({ outcome }: { outcome: AccessApplyResult }) {
             >
               <span className="font-medium">{r.object ?? r.kind ?? 'operation'}</span>
               {r.subject?.name ? ` → ${r.subject.name}` : ''}:{' '}
-              {neutralizeVendor(r.reason) || r.error_code || 'not granted'}
+              {(() => {
+                // deterministic diagnosis of the real failure seen live: a
+                // row rule attached on a column the table does not have
+                const raw = String(r.reason ?? '');
+                const m = raw.match(/invalid identifier '([A-Z0-9_"]+)'/i);
+                if (m) {
+                  return `the rule column ${m[1].replace(/"/g, '')} does not exist on this table — pick a column every targeted table actually has, or exclude this table from the rule`;
+                }
+                return neutralizeVendor(r.reason) || r.error_code || 'not granted';
+              })()}
               {r.failed_sql && (
                 <span
                   className="mt-0.5 block truncate font-mono text-[11px] opacity-80"

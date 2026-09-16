@@ -99,10 +99,17 @@ export default function StudioGiveAccess({
   useEffect(() => loadServed(), [loadServed]);
 
   const shown = useMemo(() => {
-    const list = principals ?? [];
+    // the application's Access page grants DATA to ROLES — never to a
+    // person directly (user directive): individual users are managed in
+    // Administration; here only roles/groups can receive access
+    const list = (principals ?? []).filter((p) => p.kind === 'role');
     const needle = q.trim().toLowerCase();
     return (needle ? list.filter((p) => p.name.toLowerCase().includes(needle)) : list).slice(0, 30);
   }, [principals, q]);
+  const usersHidden = useMemo(
+    () => (principals ?? []).filter((p) => p.kind === 'user').length,
+    [principals],
+  );
 
   /** what a principal ALREADY holds — read, never assumed */
   const heldBy = useMemo(() => {
@@ -218,7 +225,7 @@ export default function StudioGiveAccess({
         {/* ── ① WHO ─────────────────────────────────────────────────────── */}
         <section className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
           <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            <UserPlus aria-hidden className="h-3.5 w-3.5" /> ① Who gets access
+            <UserPlus aria-hidden className="h-3.5 w-3.5" /> ① Which roles get access
           </p>
           {principals == null ? (
             <div className="mt-2 h-24 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" aria-hidden />
@@ -234,10 +241,23 @@ export default function StudioGiveAccess({
                 <input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search a person or a group"
+                  placeholder="Search a role or a group"
                   className="h-8 w-full rounded-lg border border-slate-200 bg-white pl-7 pr-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                 />
               </label>
+              {usersHidden > 0 && (
+                <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                  data is granted to roles, never to a person — the {usersHidden} account user(s)
+                  are assigned to roles (and created){' '}
+                  <a
+                    href="/administration"
+                    className="rounded text-accent-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+                  >
+                    in Administration
+                  </a>
+                  .
+                </p>
+              )}
               <ul className="mt-2 max-h-56 space-y-0.5 overflow-auto pr-0.5">
                 {shown.map((p) => {
                   const on = picked.includes(p.name);
