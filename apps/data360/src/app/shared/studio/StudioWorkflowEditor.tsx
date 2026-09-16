@@ -567,6 +567,7 @@ export default function StudioWorkflowEditor({
   onClose,
   onChanged,
   onOpenActivation,
+  onOpenAccess,
 }: {
   draftId: string;
   workflow: WorkflowItem;
@@ -574,6 +575,8 @@ export default function StudioWorkflowEditor({
   onClose: () => void;
   onChanged: () => void;
   onOpenActivation?: () => void;
+  /** an audience names a WHO — this opens the Access tab that defines it */
+  onOpenAccess?: () => void;
 }) {
   const w = workflow;
   const aid = w.automation_id;
@@ -1370,6 +1373,17 @@ export default function StudioWorkflowEditor({
                                     }
                                     className={`h-7 w-full rounded border border-slate-200 bg-white px-1.5 text-xs text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 ${f.mono ? 'font-mono' : ''}`}
                                   />
+                                  {/* the act→access door: an audience is a WHO —
+                                      the Access tab answers who that actually is */}
+                                  {f.key === 'audience' && onOpenAccess && (
+                                    <button
+                                      type="button"
+                                      onClick={onOpenAccess}
+                                      className="mt-0.5 rounded text-[11px] text-accent-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+                                    >
+                                      who is this? open Access
+                                    </button>
+                                  )}
                                 </label>
                               );
                             })}

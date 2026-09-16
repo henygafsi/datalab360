@@ -68,6 +68,8 @@ export default function StudioModelTab({
   onAskAi,
   onOpenJob,
   onOpenAccess,
+  onOpenInsights,
+  focusEntity,
 }: {
   draftId: string;
   model: ModelPayload;
@@ -77,10 +79,19 @@ export default function StudioModelTab({
   onAskAi?: (instruction: string) => void;
   onOpenJob?: (jobId: string) => void;
   onOpenAccess?: () => void;
+  /** the model→ask door — opens the Reporting view */
+  onOpenInsights?: () => void;
+  /** a hand-off from another tab (a job's Target cell) — pre-select this
+   *  node ('t:<target_id>') so the inspector opens on it */
+  focusEntity?: string | null;
 }) {
   const [view, setView] = useState<TargetsView | 'loading' | 'error' | null>(null);
   const [mode, setMode] = useState<'target' | 'mapping' | null>(null);
   const [selection, setSelection] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (focusEntity) setSelection(focusEntity);
+  }, [focusEntity]);
   const [busy, setBusy] = useState(false);
   const [summary, setSummary] = useState<ModelSummary | null>(null);
 
@@ -270,7 +281,13 @@ export default function StudioModelTab({
           }}
         />
       )}
-      <StudioModelDelivers draftId={draftId} summary={summary} report={report} targets={targets} />
+      <StudioModelDelivers
+        draftId={draftId}
+        summary={summary}
+        report={report}
+        targets={targets}
+        onOpenInsights={onOpenInsights}
+      />
     </div>
   );
 }

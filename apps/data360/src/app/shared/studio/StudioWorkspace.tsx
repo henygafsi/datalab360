@@ -622,6 +622,8 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
   const [reportShared, setReportShared] = useState(false);
   /* a quality anomaly hands its fix to the responsible job */
   const [jobsFocus, setJobsFocus] = useState<string | null>(null);
+  // a job's Target cell opens the model with that node selected ('t:<id>')
+  const [modelFocus, setModelFocus] = useState<string | null>(null);
   /* the model canvas selection — opens the editable table detail */
   const [composer, setComposer] = useState<{
     open: boolean;
@@ -1692,7 +1694,11 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
 
           {/* ── AUTOMATION · workflows + the detection registry ────────── */}
           {tab === 'workflows' && draftId && (
-            <StudioWorkflowsPanel draftId={draftId} onOpenActivation={openActivation} />
+            <StudioWorkflowsPanel
+              draftId={draftId}
+              onOpenActivation={openActivation}
+              onOpenAccess={() => setTab('governance')}
+            />
           )}
           {tab === 'detection' && draftId && <StudioDetectionsPanel draftId={draftId} />}
 
@@ -1726,6 +1732,16 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                     >
                       <Share2 aria-hidden className="h-3.5 w-3.5" />
                       {reportShared ? 'Link copied' : 'Share'}
+                    </button>
+                    {/* sharing is an ACCESS question — the link only opens for
+                        people the Access tab lets in; say it and door it */}
+                    <button
+                      type="button"
+                      onClick={() => setTab('governance')}
+                      title="A shared link opens only for people with access — review who that is"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-300"
+                    >
+                      Who can open this
                     </button>
                     {report.detail &&
                       (() => {
@@ -2497,6 +2513,8 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                   setTab('jobs');
                 }}
                 onOpenAccess={() => setTab('governance')}
+                onOpenInsights={() => setTab('reporting')}
+                focusEntity={modelFocus}
               />
               <QuietAction
                 label="Open the full model (freshness, lineage, per-table detail)"
@@ -2736,6 +2754,10 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                       .map((t) => [t.entity_id, t.description as string]),
                   )
                 }
+                onOpenTarget={(targetId) => {
+                  setModelFocus(`t:${targetId}`);
+                  setTab('model');
+                }}
               />
             </div>
           )}

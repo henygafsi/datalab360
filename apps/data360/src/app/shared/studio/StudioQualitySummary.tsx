@@ -11,7 +11,9 @@
  * stays "—" until a full quality run has scored it. Nothing here is invented.
  */
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { routes } from '@/config/routes';
 import {
   CheckSquare,
   Copy,
@@ -70,10 +72,32 @@ function ScoreCard({
   Icon?: LucideIcon;
 }) {
   const score = metric?.score;
+  // a weak score is a DOOR, not a dead end — it jumps to the act section
+  // (checks, anomalies, fix-in-job) that explains and repairs it
+  const actionable = score != null && score < 85;
   return (
     <div
       title={metric?.method ? `${label} — ${metric.method}` : label}
-      className="min-w-0 rounded-xl border border-slate-200 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-900"
+      role={actionable ? 'button' : undefined}
+      tabIndex={actionable ? 0 : undefined}
+      onClick={
+        actionable
+          ? () => document.getElementById('dq-act')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          : undefined
+      }
+      onKeyDown={
+        actionable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ')
+                document.getElementById('dq-act')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          : undefined
+      }
+      className={`min-w-0 rounded-xl border border-slate-200 bg-white p-2.5 dark:border-slate-800 dark:bg-slate-900 ${
+        actionable
+          ? 'cursor-pointer hover:border-accent-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:border-accent-700'
+          : ''
+      }`}
     >
       <div className="flex items-center gap-1.5">
         {badge != null && (
@@ -98,8 +122,26 @@ function ScoreCard({
         )}
       </div>
       {sub && <div className="truncate text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
+      {/* the measured evidence behind the score — served checks/counts,
+          nothing when the backend said nothing */}
+      {metric?.checks != null && (
+        <div className="truncate text-[11px] tabular-nums text-slate-400 dark:text-slate-500">
+          {metric.checks} check{metric.checks === 1 ? '' : 's'}
+          {metric.counts &&
+            Object.entries(metric.counts)
+              .filter(([, v]) => (v ?? 0) > 0)
+              .slice(0, 2)
+              .map(([k, v]) => ` · ${v} ${k.replace(/_/g, ' ')}`)
+              .join('')}
+        </div>
+      )}
       {score == null && (
         <div className="truncate text-[11px] text-slate-400 dark:text-slate-500">not evaluated yet</div>
+      )}
+      {actionable && (
+        <div className="truncate text-[11px] text-accent-600 dark:text-accent-400">
+          see what holds it back ↓
+        </div>
       )}
     </div>
   );
@@ -158,9 +200,24 @@ export default function StudioQualitySummary({ draftId }: { draftId: string }) {
             {impact.count} KPI{impact.count === 1 ? '' : 's'} at risk
           </span>{' '}
           from these quality gaps
-          {(impact.kpis_at_risk ?? []).length > 0
-            ? ` — ${(impact.kpis_at_risk ?? []).slice(0, 3).map((k) => k.title ?? k.chart_id).filter(Boolean).join(', ')}`
-            : ''}
+          {(impact.kpis_at_risk ?? []).length > 0 && (
+            <>
+              {' '}
+              —{' '}
+              {(impact.kpis_at_risk ?? []).slice(0, 3).map((k, i) => (
+                <span key={k.chart_id ?? i}>
+                  {i > 0 && ', '}
+                  {/* DQ→ask door: the at-risk KPI opens in Reporting */}
+                  <Link
+                    href={`${routes.studioApp(draftId)}?view=reporting`}
+                    className="rounded text-accent-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+                  >
+                    {k.title ?? k.chart_id}
+                  </Link>
+                </span>
+              ))}
+            </>
+          )}
           .
         </p>
       )}

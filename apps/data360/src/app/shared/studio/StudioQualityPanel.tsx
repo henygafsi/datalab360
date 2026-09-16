@@ -345,7 +345,8 @@ export default function StudioQualityPanel({
         </ul>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      {/* id: the summary's weak-score cards scroll here — DQ's act station */}
+      <section id="dq-act" className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             Model quality — sources, targets and their relations

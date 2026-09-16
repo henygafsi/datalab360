@@ -14,8 +14,10 @@
  * its own card, with none the strip says so instead of pretending.
  */
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Boxes, Gauge, Layers, ScanLine, Timer } from 'lucide-react';
+import { routes } from '@/config/routes';
 import {
   getStudioSummary,
   type SourcesSummary,
@@ -166,6 +168,16 @@ export default function StudioSourceSystems({ draftId }: { draftId: string }) {
                 </span>
                 {declared && d.note && (
                   <span className="mt-1 block text-xs text-slate-400 dark:text-slate-500">{d.note}</span>
+                )}
+                {/* the store→model door: understood objects exist to FEED the
+                    model — one click forward on the spine */}
+                {!declared && d.analysed != null && d.analysed > 0 && (
+                  <Link
+                    href={`${routes.studioApp(draftId)}?view=model`}
+                    className="mt-1 inline-block rounded text-xs text-accent-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+                  >
+                    see what they feed in the model →
+                  </Link>
                 )}
               </span>
             </section>

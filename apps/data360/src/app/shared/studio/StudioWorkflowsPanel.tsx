@@ -63,10 +63,13 @@ function familyOf(w: WorkflowItem): string {
 export default function StudioWorkflowsPanel({
   draftId,
   onOpenActivation,
+  onOpenAccess,
 }: {
   draftId: string;
   /** every « needs activation » word links to the ONE activation panel */
   onOpenActivation?: () => void;
+  /** the act→access door, threaded into the editor's audience field */
+  onOpenAccess?: () => void;
 }) {
   const [items, setItems] = useState<WorkflowItem[] | 'loading' | 'error'>('loading');
   /** the served roll-up (proposed/activable/delivered/stopped) — the KPI strip */
@@ -206,6 +209,7 @@ export default function StudioWorkflowsPanel({
         onClose={() => setOpenId(null)}
         onChanged={() => void load()}
         onOpenActivation={onOpenActivation}
+        onOpenAccess={onOpenAccess}
       />
     );
   }

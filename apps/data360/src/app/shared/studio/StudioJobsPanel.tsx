@@ -127,6 +127,7 @@ export default function StudioJobsPanel({
   onOpenQuality,
   onOpenActivation,
   entityMeaning,
+  onOpenTarget,
 }: {
   draftId: string;
   /** Loads/replays change target data — the parent refreshes its report. */
@@ -140,6 +141,8 @@ export default function StudioJobsPanel({
   /** entity_id → the AI's plain-words meaning of the model piece a job
    *  builds toward — a job says WHAT it loads, not only the table name. */
   entityMeaning?: Map<string, string> | null;
+  /** the jobs→model door — opens the model with the fed table selected. */
+  onOpenTarget?: (targetId: string) => void;
 }) {
   const [view, setView] = useState<TargetsView | 'loading' | 'error' | null>(null);
   const [openJobId, setOpenJobId] = useState<string | null>(null);
@@ -407,11 +410,25 @@ export default function StudioJobsPanel({
                     <td className="max-w-[300px] px-2 py-2">
                       {feeds.length > 0 ? (
                         <>
-                          <span
-                            className="font-mono text-xs text-slate-600 dark:text-slate-300"
-                            title={feeds.map((t) => t.target_fqn ?? t.name).join(', ')}
-                          >
-                            {feeds.map((t) => t.name).join(', ')}
+                          {/* the jobs→model door — the fed table opens ON the model */}
+                          <span className="font-mono text-xs text-slate-600 dark:text-slate-300">
+                            {feeds.map((t, fi) => (
+                              <span key={t.target_id ?? t.name}>
+                                {fi > 0 && ', '}
+                                {t.target_id && onOpenTarget ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenTarget(t.target_id!)}
+                                    title={`Open ${t.target_fqn ?? t.name} in the model`}
+                                    className="rounded hover:text-accent-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:text-accent-400"
+                                  >
+                                    {t.name}
+                                  </button>
+                                ) : (
+                                  <span title={t.target_fqn ?? t.name}>{t.name}</span>
+                                )}
+                              </span>
+                            ))}
                           </span>
                           {(() => {
                             // the model's own words for what this job builds

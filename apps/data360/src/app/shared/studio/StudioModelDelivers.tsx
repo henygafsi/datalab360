@@ -54,12 +54,15 @@ export default function StudioModelDelivers({
   summary,
   report,
   targets,
+  onOpenInsights,
 }: {
   draftId: string;
   summary: ModelSummary | null;
   report?: StudioReportSpec | null;
   /** target objects, to resolve a target_id to its business name */
   targets: Array<{ target_id?: string; name?: string }>;
+  /** the model→ask door — opens the Reporting view */
+  onOpenInsights?: () => void;
 }) {
   /* widget id → its human title, from the report spec (never show a raw id) */
   const titleById = useMemo(() => {
@@ -227,6 +230,18 @@ export default function StudioModelDelivers({
           <p className="mt-1 text-[11px] text-amber-700/90 dark:text-amber-300/80">
             Wire one into a report to make it earn its keep, or reconsider building it — an unused object
             still costs to load and maintain.
+            {onOpenInsights && (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  onClick={onOpenInsights}
+                  className="rounded font-medium text-amber-800 underline decoration-dotted hover:text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-amber-200 dark:hover:text-amber-100"
+                >
+                  Open reporting
+                </button>
+              </>
+            )}
           </p>
         </div>
       )}
