@@ -80,18 +80,37 @@ const config: Omit<Config, "content"> = {
         },
 
         // Accent colors for modern UI
+        // accent = the DataLab360 brand electric blue (#0000FC in the logo),
+        // built into a readable scale: tints toward white for surfaces, the
+        // brand blue at 600 for fills, navy shades for depth.
         accent: {
-          50: "rgb(245 243 255)",
-          100: "rgb(237 233 254)",
-          200: "rgb(221 214 254)",
-          300: "rgb(196 181 253)",
-          400: "rgb(167 139 250)",
-          500: "rgb(139 92 246)",
-          600: "rgb(124 58 237)",
-          700: "rgb(109 40 217)",
-          800: "rgb(91 33 182)",
-          900: "rgb(76 29 149)",
-          950: "rgb(46 16 101)",
+          50: "rgb(238 240 255)",
+          100: "rgb(221 225 255)",
+          200: "rgb(190 197 255)",
+          300: "rgb(148 159 255)",
+          400: "rgb(91 107 255)",
+          500: "rgb(41 51 245)",
+          600: "rgb(0 0 252)",
+          700: "rgb(0 0 214)",
+          800: "rgb(6 16 168)",
+          900: "rgb(12 24 122)",
+          950: "rgb(9 15 74)",
+        },
+
+        // brand = the DataLab360 terracotta (#D25624 — the "360" swoosh):
+        // the secondary highlight / warm CTA, complementary to the blue.
+        brand: {
+          50: "rgb(253 242 236)",
+          100: "rgb(250 226 213)",
+          200: "rgb(244 196 168)",
+          300: "rgb(237 160 120)",
+          400: "rgb(224 116 74)",
+          500: "rgb(210 86 36)",
+          600: "rgb(186 71 27)",
+          700: "rgb(155 56 22)",
+          800: "rgb(124 46 22)",
+          900: "rgb(102 40 22)",
+          950: "rgb(55 19 9)",
         },
 
         // Status colors
