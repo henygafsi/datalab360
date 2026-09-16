@@ -42,7 +42,7 @@ import {
 } from '@/app/services/governance/policies';
 import { getUsers } from '@/app/services/governance/fetch_users';
 import { getRoles, getD360Roles } from '@/app/services/governance/fetch_roles';
-import { getPermissions } from '@/app/services/governance/fetch_grants';
+import { getPermissionsView, type GrantsMatrixView } from '@/app/services/governance/fetch_grants';
 import {
   getComplianceScore,
   getAccessReviewSummary,
@@ -108,7 +108,7 @@ const SRC = {
   users: { key: 'users', load: () => getUsers() },
   roles: { key: 'roles', load: () => getRoles() },
   d360: { key: 'd360', load: () => getD360Roles() },
-  grants: { key: 'grants', load: () => getPermissions() },
+  grants: { key: 'grants', load: () => getPermissionsView() },
   compliance: { key: 'compliance', load: () => getComplianceScore() },
   accessReview: { key: 'accessReview', load: () => getAccessReviewSummary() },
 } satisfies Record<string, Source>;
@@ -168,7 +168,28 @@ const SCOPES: Record<GovernanceKpiScope, { sources: Source[]; tiles: Tile[] }> =
   grants: {
     sources: [SRC.grants, SRC.roles, SRC.d360, SRC.users],
     tiles: [
-      { key: 'grants', label: 'Module Grants', hint: 'Role→module access rows', Icon: KeyRound, tone: 'violet', source: 'grants', select: len },
+      {
+        key: 'grants',
+        label: 'Module Grants',
+        hint: 'Role→module access rows',
+        Icon: KeyRound,
+        tone: 'violet',
+        source: 'grants',
+        // cache-first backend: while the grant snapshot is preparing the rows
+        // are null — "—", never a fabricated 0 for a 3-minute warm-up
+        select: (d) => {
+          const v = d as GrantsMatrixView | undefined;
+          return v && v.state !== 'preparing' && v.rows ? v.rows.length : null;
+        },
+        describe: (d) => {
+          const v = d as GrantsMatrixView | undefined;
+          if (v?.state === 'preparing')
+            return 'Grant snapshot warming — the per-role pass runs in background (once per 6 h); figures arrive shortly.';
+          if (v?.partial && v.skippedRoles.length > 0)
+            return `${v.skippedRoles.length} role(s) not resolved yet — the count covers the rest.`;
+          return null;
+        },
+      },
       { key: 'roles', label: 'Roles', hint: 'Warehouse roles', Icon: ShieldCheck, tone: 'emerald', source: 'roles', select: len },
       { key: 'd360', label: 'D360 Roles', hint: 'Granular page-level roles', Icon: Cog, tone: 'orange', source: 'd360', select: len },
       { key: 'users', label: 'Users', hint: 'Provisioned users', Icon: Users, tone: 'blue', source: 'users', select: len },
@@ -220,11 +241,26 @@ export default function GovernanceKpiStrip({
     });
     setState(next);
     setLoading(false);
+    // The grant snapshot builds in background once per 6 h (~3 min) — while
+    // it says "preparing", re-read after its own retry_after_s so the tile
+    // fills in without a manual reload (bounded: stops when ready/absent).
+    const g = next.grants?.data as GrantsMatrixView | undefined;
+    return g?.state === 'preparing' ? Math.max(5, g.retryAfterS ?? 5) : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope]);
 
   useEffect(() => {
-    void load();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+    const run = async () => {
+      const retryS = await load();
+      if (!cancelled && retryS != null) timer = setTimeout(() => void run(), retryS * 1000);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [load]);
 
   const degraded = useMemo(
