@@ -13,7 +13,21 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Search, Sparkles, Undo2 } from 'lucide-react';
+import {
+  BarChart3,
+  Bell,
+  ChevronDown,
+  ChevronRight,
+  Database,
+  type LucideIcon,
+  RefreshCw,
+  Search,
+  Send,
+  Sparkles,
+  Undo2,
+  Workflow as WorkflowIcon,
+  Zap,
+} from 'lucide-react';
 import {
   getWorkflows,
   removeWorkflow,
@@ -31,6 +45,21 @@ const STATE_CLS: Record<string, string> = {
   stopped: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
 };
 
+/* ── FUNCTIONAL families — the list reads as what the workflows DO for the
+ *  business, grouped by the served `kind`; ten load-schedules stop drowning
+ *  the three alerts. Family order is meaning, not the backend order. ── */
+const FAMILIES: Array<{ id: string; label: string; hint: string; Icon: LucideIcon; test: (kind: string) => boolean }> = [
+  { id: 'alerts', label: 'Alerts', hint: 'watch a condition, tell someone', Icon: Bell, test: (k) => k.startsWith('alert') },
+  { id: 'reports', label: 'Periodic reports', hint: 'recurring summaries, delivered', Icon: BarChart3, test: (k) => k.includes('report') },
+  { id: 'delivery', label: 'External hand-offs', hint: 'tickets, exports and webhooks to other systems', Icon: Send, test: (k) => /ticket|export|webhook/.test(k) },
+  { id: 'schedules', label: 'Load schedules', hint: 'keep the data loaded on time', Icon: Database, test: (k) => /schedule/.test(k) },
+];
+const OTHER_FAMILY = { id: 'other', label: 'Other automations', hint: '', Icon: WorkflowIcon };
+function familyOf(w: WorkflowItem): string {
+  const k = String(w.kind ?? '').toLowerCase();
+  return FAMILIES.find((f) => f.test(k))?.id ?? OTHER_FAMILY.id;
+}
+
 export default function StudioWorkflowsPanel({
   draftId,
   onOpenActivation,
@@ -40,6 +69,11 @@ export default function StudioWorkflowsPanel({
   onOpenActivation?: () => void;
 }) {
   const [items, setItems] = useState<WorkflowItem[] | 'loading' | 'error'>('loading');
+  /** the served roll-up (proposed/activable/delivered/stopped) — the KPI strip */
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  /** per-family open state — a family the user toggled wins over the default
+   *  (small families open, a wall like ten load-schedules starts folded) */
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [choices, setChoices] = useState<string[]>(['manual', 'hourly', 'daily', 'weekly', 'monthly']);
   const [openId, setOpenId] = useState<string | null>(null);
   const [q, setQ] = useState('');
@@ -54,6 +88,7 @@ export default function StudioWorkflowsPanel({
     try {
       const r = await getWorkflows(draftId);
       setItems(r.items);
+      setCounts(r.counts ?? null);
       if (r.trigger_choices?.length) setChoices(r.trigger_choices);
     } catch {
       setItems('error');
@@ -68,6 +103,7 @@ export default function StudioWorkflowsPanel({
     try {
       const r = await getWorkflows(draftId, true);
       setItems(r.items);
+      setCounts(r.counts ?? null);
       if (r.trigger_choices?.length) setChoices(r.trigger_choices);
     } catch {
       setError('Could not propose more workflows right now.');
@@ -174,6 +210,160 @@ export default function StudioWorkflowsPanel({
     );
   }
 
+  /* one family's rows — the SAME pilot table, scoped to a functional group */
+  const renderTable = (ws: WorkflowItem[]) => (
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-full">
+              <thead className="text-left text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                <tr>
+                  <th className="px-2 py-1.5 font-medium">Workflow</th>
+                  <th className="px-2 py-1.5 font-medium">Does</th>
+                  <th className="px-2 py-1.5 font-medium">State</th>
+                  <th className="px-2 py-1.5 font-medium">Last run</th>
+                  <th className="px-2 py-1.5 font-medium">Trigger</th>
+                  <th className="px-2 py-1.5 font-medium" aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {ws.map((w) => {
+                  const aid = w.automation_id;
+                  const missing =
+                    (w.prerequisites?.data?.missing?.length ?? 0) +
+                    (w.prerequisites?.destination?.missing?.length ?? 0);
+                  const last = w.runs_summary?.last;
+                  const scheduleActive = Boolean((w.schedule as { active?: boolean } | undefined)?.active);
+                  return (
+                    <tr key={aid} className="text-[13px]">
+                      <td className="px-2 py-2">
+                        <button
+                          type="button"
+                          data-workflow-id={aid}
+                          onClick={() => setOpenId(aid)}
+                          title="Open the workflow editor"
+                          className="rounded font-medium text-slate-900 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-100 dark:hover:text-accent-400"
+                        >
+                          {w.name ?? aid}
+                        </button>
+                        {w.job_id && (
+                          <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="One definition — its trigger IS the job's trigger">
+                            job
+                          </span>
+                        )}
+                      </td>
+                      <td className="max-w-[360px] px-2 py-2">
+                        <p className="truncate text-slate-600 dark:text-slate-300" title={`${w.phrase?.event ?? ''}${w.phrase?.condition ? ` when ${w.phrase.condition}` : ''} → ${w.phrase?.action ?? ''} → ${w.phrase?.destination ?? ''}`}>
+                          {w.phrase?.event ?? '—'}
+                          {w.phrase?.condition ? ` when ${w.phrase.condition}` : ''} → {w.phrase?.action ?? '—'}
+                        </p>
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATE_CLS[w.state ?? 'proposed'] ?? STATE_CLS.proposed}`}>
+                          {w.state ?? 'proposed'}
+                        </span>
+                        {missing > 0 && (
+                          <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-px text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" title={w.activable?.reason}>
+                            {missing} decision(s) to take
+                          </span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-slate-600 dark:text-slate-300">
+                        {(w.runs_summary?.count ?? 0) === 0 ? (
+                          <span className="text-slate-400 dark:text-slate-500">never ran</span>
+                        ) : (
+                          <>
+                            {last?.status ?? '—'}
+                            {last?.at && (
+                              <span className="text-slate-400 dark:text-slate-500">
+                                {' '}· {new Date(last.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-slate-600 dark:text-slate-300">
+                        {w.trigger?.cron_choice ?? 'manual'}
+                        {scheduleActive ? (
+                          <span className="ml-1.5 rounded-full bg-emerald-50 px-1.5 py-px text-xs text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">running</span>
+                        ) : w.trigger?.cron_choice && w.trigger.cron_choice !== 'manual' ? (
+                          onOpenActivation ? (
+                            <button
+                              type="button"
+                              onClick={onOpenActivation}
+                              className="ml-1.5 text-xs text-slate-400 underline decoration-dotted hover:text-accent-700 dark:text-slate-500 dark:hover:text-accent-400"
+                            >
+                              awaiting activation
+                            </button>
+                          ) : (
+                            <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">awaiting activation</span>
+                          )
+                        ) : null}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-2 text-right">
+                        <span className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setOpenId(aid)}
+                            className="rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
+                          >
+                            {isSuggestion(w) ? 'Review' : 'Edit'}
+                          </button>
+                          {canDismiss(w) && (
+                            <button
+                              type="button"
+                              disabled={busy === `rm:${aid}`}
+                              onClick={() => {
+                                if (removeArmed !== aid) {
+                                  setRemoveArmed(aid);
+                                  return;
+                                }
+                                dismiss(aid, String(w.name ?? aid));
+                              }}
+                              title="Dismiss this suggestion — it won’t be proposed again (you can undo)"
+                              className={`rounded-lg px-2 py-1 text-xs disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                                removeArmed === aid
+                                  ? 'bg-amber-50 font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                                  : 'text-slate-500 hover:text-amber-700 dark:text-slate-400 dark:hover:text-amber-400'
+                              }`}
+                            >
+                              {removeArmed === aid ? 'Dismiss it?' : 'Dismiss'}
+                            </button>
+                          )}
+                          {w.state === 'stopped' && (
+                            <button
+                              type="button"
+                              disabled={busy === `rm:${aid}`}
+                              onClick={() => {
+                                if (removeArmed !== aid) {
+                                  setRemoveArmed(aid);
+                                  return;
+                                }
+                                setRemoveArmed(null);
+                                setBusy(`rm:${aid}`);
+                                setError(null);
+                                void removeWorkflow(draftId, aid)
+                                  .then(() => load())
+                                  .catch((e) => setError(e instanceof Error ? e.message : 'Remove failed.'))
+                                  .finally(() => setBusy(null));
+                              }}
+                              className={`rounded-lg px-2 py-1 text-xs disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                                removeArmed === aid
+                                  ? 'bg-red-50 font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                                  : 'text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400'
+                              }`}
+                            >
+                              {removeArmed === aid ? 'Remove for good?' : 'Remove'}
+                            </button>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+  );
+
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex flex-wrap items-center gap-2">
@@ -265,155 +455,65 @@ export default function StudioWorkflowsPanel({
           </button>
         </div>
       ) : (
-        <div className="mt-3 overflow-x-auto">
-          <table className="min-w-full">
-            <thead className="text-left text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500">
-              <tr>
-                <th className="px-2 py-1.5 font-medium">Workflow</th>
-                <th className="px-2 py-1.5 font-medium">Does</th>
-                <th className="px-2 py-1.5 font-medium">State</th>
-                <th className="px-2 py-1.5 font-medium">Last run</th>
-                <th className="px-2 py-1.5 font-medium">Trigger</th>
-                <th className="px-2 py-1.5 font-medium" aria-label="Actions" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {rows.map((w) => {
-                const aid = w.automation_id;
-                const missing =
-                  (w.prerequisites?.data?.missing?.length ?? 0) +
-                  (w.prerequisites?.destination?.missing?.length ?? 0);
-                const last = w.runs_summary?.last;
-                const scheduleActive = Boolean((w.schedule as { active?: boolean } | undefined)?.active);
-                return (
-                  <tr key={aid} className="text-[13px]">
-                    <td className="px-2 py-2">
-                      <button
-                        type="button"
-                        data-workflow-id={aid}
-                        onClick={() => setOpenId(aid)}
-                        title="Open the workflow editor"
-                        className="rounded font-medium text-slate-900 hover:text-accent-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-100 dark:hover:text-accent-400"
-                      >
-                        {w.name ?? aid}
-                      </button>
-                      {w.job_id && (
-                        <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-px text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="One definition — its trigger IS the job's trigger">
-                          job
-                        </span>
-                      )}
-                    </td>
-                    <td className="max-w-[360px] px-2 py-2">
-                      <p className="truncate text-slate-600 dark:text-slate-300" title={`${w.phrase?.event ?? ''}${w.phrase?.condition ? ` when ${w.phrase.condition}` : ''} → ${w.phrase?.action ?? ''} → ${w.phrase?.destination ?? ''}`}>
-                        {w.phrase?.event ?? '—'}
-                        {w.phrase?.condition ? ` when ${w.phrase.condition}` : ''} → {w.phrase?.action ?? '—'}
-                      </p>
-                    </td>
-                    <td className="whitespace-nowrap px-2 py-2">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATE_CLS[w.state ?? 'proposed'] ?? STATE_CLS.proposed}`}>
-                        {w.state ?? 'proposed'}
-                      </span>
-                      {missing > 0 && (
-                        <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-px text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" title={w.activable?.reason}>
-                          {missing} decision(s) to take
-                        </span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-2 py-2 text-slate-600 dark:text-slate-300">
-                      {(w.runs_summary?.count ?? 0) === 0 ? (
-                        <span className="text-slate-400 dark:text-slate-500">never ran</span>
-                      ) : (
-                        <>
-                          {last?.status ?? '—'}
-                          {last?.at && (
-                            <span className="text-slate-400 dark:text-slate-500">
-                              {' '}· {new Date(last.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-2 py-2 text-slate-600 dark:text-slate-300">
-                      {w.trigger?.cron_choice ?? 'manual'}
-                      {scheduleActive ? (
-                        <span className="ml-1.5 rounded-full bg-emerald-50 px-1.5 py-px text-xs text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">running</span>
-                      ) : w.trigger?.cron_choice && w.trigger.cron_choice !== 'manual' ? (
-                        onOpenActivation ? (
-                          <button
-                            type="button"
-                            onClick={onOpenActivation}
-                            className="ml-1.5 text-xs text-slate-400 underline decoration-dotted hover:text-accent-700 dark:text-slate-500 dark:hover:text-accent-400"
-                          >
-                            awaiting activation
-                          </button>
-                        ) : (
-                          <span className="ml-1.5 text-xs text-slate-400 dark:text-slate-500">awaiting activation</span>
-                        )
-                      ) : null}
-                    </td>
-                    <td className="whitespace-nowrap px-2 py-2 text-right">
-                      <span className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setOpenId(aid)}
-                          className="rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-700 hover:border-slate-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:text-slate-200"
-                        >
-                          {isSuggestion(w) ? 'Review' : 'Edit'}
-                        </button>
-                        {canDismiss(w) && (
-                          <button
-                            type="button"
-                            disabled={busy === `rm:${aid}`}
-                            onClick={() => {
-                              if (removeArmed !== aid) {
-                                setRemoveArmed(aid);
-                                return;
-                              }
-                              dismiss(aid, String(w.name ?? aid));
-                            }}
-                            title="Dismiss this suggestion — it won’t be proposed again (you can undo)"
-                            className={`rounded-lg px-2 py-1 text-xs disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-                              removeArmed === aid
-                                ? 'bg-amber-50 font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                                : 'text-slate-500 hover:text-amber-700 dark:text-slate-400 dark:hover:text-amber-400'
-                            }`}
-                          >
-                            {removeArmed === aid ? 'Dismiss it?' : 'Dismiss'}
-                          </button>
-                        )}
-                        {w.state === 'stopped' && (
-                          <button
-                            type="button"
-                            disabled={busy === `rm:${aid}`}
-                            onClick={() => {
-                              if (removeArmed !== aid) {
-                                setRemoveArmed(aid);
-                                return;
-                              }
-                              setRemoveArmed(null);
-                              setBusy(`rm:${aid}`);
-                              setError(null);
-                              void removeWorkflow(draftId, aid)
-                                .then(() => load())
-                                .catch((e) => setError(e instanceof Error ? e.message : 'Remove failed.'))
-                                .finally(() => setBusy(null));
-                            }}
-                            className={`rounded-lg px-2 py-1 text-xs disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
-                              removeArmed === aid
-                                ? 'bg-red-50 font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                                : 'text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400'
-                            }`}
-                          >
-                            {removeArmed === aid ? 'Remove for good?' : 'Remove'}
-                          </button>
-                        )}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="mt-3 space-y-2">
+          {/* the KPI summary — served counts, never invented */}
+          <div className="flex flex-wrap items-center gap-1.5" aria-label="Workflow summary">
+            {([
+              ['proposed', Sparkles, 'proposed by the AI — review to keep'],
+              ['activable', Zap, 'ready to activate'],
+              ['delivered', Send, 'have delivered'],
+              ['stopped', RefreshCw, 'stopped'],
+            ] as Array<[string, LucideIcon, string]>).map(([k, Icon, hint]) => (
+              <span
+                key={k}
+                title={hint}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:border-slate-700 dark:text-slate-300"
+              >
+                <Icon aria-hidden className="h-3 w-3 text-slate-400 dark:text-slate-500" />
+                {counts?.[k] ?? '—'} {k}
+              </span>
+            ))}
+          </div>
+
+          {/* FUNCTIONAL families — grouped by what they DO; a wall (ten load
+              schedules) starts folded, small families open; search opens all */}
+          {[...FAMILIES, OTHER_FAMILY].map((f) => {
+            const ws = rows.filter((w) => familyOf(w) === f.id);
+            if (ws.length === 0) return null;
+            const attention = ws.filter((w) => w.activable?.ok === false || w.state === 'stopped').length;
+            const isOpen = q.trim() ? true : (openGroups[f.id] ?? ws.length <= 5);
+            const Icon = f.Icon;
+            return (
+              <section key={f.id} className="rounded-lg border border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  aria-expanded={isOpen}
+                  onClick={() => setOpenGroups((g) => ({ ...g, [f.id]: !isOpen }))}
+                  className="flex w-full items-center gap-2 p-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                >
+                  {isOpen ? (
+                    <ChevronDown aria-hidden className="h-4 w-4 shrink-0 text-slate-400" />
+                  ) : (
+                    <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-slate-400" />
+                  )}
+                  <Icon aria-hidden className="h-4 w-4 shrink-0 text-accent-500" />
+                  <span className="text-[13px] font-medium text-slate-800 dark:text-slate-100">{f.label}</span>
+                  {f.hint && (
+                    <span className="hidden text-xs text-slate-400 dark:text-slate-500 sm:inline">{f.hint}</span>
+                  )}
+                  {attention > 0 && (
+                    <span className="rounded-full bg-amber-50 px-1.5 py-px text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                      {attention} to decide
+                    </span>
+                  )}
+                  <span className="ml-auto rounded-full bg-slate-100 px-2 py-px text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {ws.length}
+                  </span>
+                </button>
+                {isOpen && <div className="border-t border-slate-100 dark:border-slate-800">{renderTable(ws)}</div>}
+              </section>
+            );
+          })}
           {rows.length === 0 && q && (
             <p className="mt-2 text-[13px] text-slate-500 dark:text-slate-400">No workflow matches « {q} ».</p>
           )}
