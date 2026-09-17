@@ -1667,6 +1667,11 @@ export const API = {
     /** GET — the last persisted classification {findings[], counts, …}
      *  (never re-runs detection). */
     pii: (draftId: string) => `/studio/drafts/${enc(draftId)}/pii`,
+    /** GET — account policies + standards + attached{} + classification (free read). */
+    protectionCatalog: (draftId: string) => `/studio/drafts/${enc(draftId)}/protection/catalog`,
+    /** POST {columns, policy:{standard|existing|new}, unmasked_roles?, confirm?} —
+     *  dry-run by default (exact SQL + undo), confirm:true executes (ACCOUNTADMIN). */
+    protectionApply: (draftId: string) => `/studio/drafts/${enc(draftId)}/protection/apply`,
     /** POST {use_sample?, fqns?} — classify columns (name by default; sample
      *  adds bounded content evidence). Never on mount. */
     piiDetect: (draftId: string) => `/studio/drafts/${enc(draftId)}/pii/detect`,

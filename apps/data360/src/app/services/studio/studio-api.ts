@@ -1975,6 +1975,44 @@ export async function getPii(draftId: string): Promise<PiiReport> {
   return data ?? {};
 }
 
+/** One account masking/row-access policy as the protection catalog serves it.
+ *  `looks_like` is a NAME/COMMENT heuristic — the catalog says so itself
+ *  (« not a proof ») and the UI must keep that honesty. */
+export interface ProtectionPolicy {
+  name?: string;
+  fqn?: string;
+  policy_fqn?: string;
+  kind?: string;
+  looks_like?: { standard_id?: string | null; category?: string | null; method?: string } | null;
+  [k: string]: unknown;
+}
+
+export interface ProtectionStandard {
+  standard_id?: string;
+  kind?: string;
+  label?: string;
+  category?: string;
+  [k: string]: unknown;
+}
+
+/** GET /studio/drafts/{id}/protection/catalog — existing account policies,
+ *  the ready-made standards, what is attached where on this footprint, and
+ *  the persisted classification. A free read. */
+export interface ProtectionCatalog {
+  policies?: { items?: ProtectionPolicy[]; [k: string]: unknown };
+  standards?: ProtectionStandard[];
+  attached?: Record<string, unknown>;
+  classification?: { counts?: Record<string, number>; [k: string]: unknown };
+  [k: string]: unknown;
+}
+
+export async function getProtectionCatalog(draftId: string): Promise<ProtectionCatalog> {
+  const { data } = await apiClient.get<ProtectionCatalog>(API.studio.protectionCatalog(draftId), {
+    timeout: 120_000,
+  });
+  return data ?? {};
+}
+
 /** POST detect — classify columns by NAME by default (each a proposal);
  *  use_sample:true adds bounded content evidence (a credit-costing read).
  *  Never called on mount. */
