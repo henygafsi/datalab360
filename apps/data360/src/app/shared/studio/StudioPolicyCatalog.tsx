@@ -17,12 +17,26 @@
 import { useEffect, useState } from 'react';
 import { BookLock, RefreshCw } from 'lucide-react';
 import {
+  getDraft,
   getProtectionCatalog,
   type ProtectionCatalog,
 } from '@/app/services/studio/studio-api';
+import StudioProtectFlow from '@/app/shared/studio/StudioProtectFlow';
+
+/** A maskable column from the persisted classification (row-restriction
+ *  proposals stay the plan's business, not listed here). */
+interface MaskableCol {
+  key: string;
+  table: string;
+  column: string;
+  category?: string;
+  standard: string;
+  standardLabel?: string;
+}
 
 export default function StudioPolicyCatalog({ draftId }: { draftId: string }) {
   const [cat, setCat] = useState<ProtectionCatalog | 'loading' | 'error'>('loading');
+  const [maskable, setMaskable] = useState<MaskableCol[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -30,6 +44,41 @@ export default function StudioPolicyCatalog({ draftId }: { draftId: string }) {
     getProtectionCatalog(draftId)
       .then((c) => alive && setCat(c))
       .catch(() => alive && setCat('error'));
+    // the catalog serves classification COUNTS only — the per-column detail
+    // (category + proposed standard) is on the draft's understanding
+    getDraft(draftId)
+      .then((draft) => {
+        if (!alive) return;
+        const cols = (
+          draft?.understanding as
+            | { classification?: { columns?: Record<string, unknown> } }
+            | undefined
+        )?.classification?.columns;
+        if (!cols) return;
+        const out: MaskableCol[] = [];
+        for (const [key, raw] of Object.entries(cols)) {
+          for (const e of Array.isArray(raw) ? raw : [raw]) {
+            if (typeof e !== 'object' || e == null) continue;
+            const ent = e as {
+              column?: string;
+              category?: string;
+              proposed_protection?: { standard_id?: string; label?: string; kind?: string };
+            };
+            if (ent.proposed_protection?.kind === 'row_access') continue;
+            if (!ent.proposed_protection?.standard_id || !ent.column) continue;
+            out.push({
+              key,
+              table: key.split('.').slice(0, 3).join('.'),
+              column: ent.column,
+              category: ent.category,
+              standard: ent.proposed_protection.standard_id,
+              standardLabel: ent.proposed_protection.label,
+            });
+          }
+        }
+        setMaskable(out);
+      })
+      .catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -97,6 +146,35 @@ export default function StudioPolicyCatalog({ draftId }: { draftId: string }) {
                 .filter(Boolean)
                 .join(' · ')}
             </p>
+          )}
+          {maskable.length > 0 && (
+            <div className="mt-2.5 border-t border-slate-100 pt-2 dark:border-slate-800">
+              <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                Columns the understanding flagged — protect directly, or stage them column by
+                column in the PII layer below.
+              </p>
+              <ul className="mt-1.5 space-y-1.5">
+                {maskable.map((c) => (
+                  <li key={c.key} className="flex flex-wrap items-center gap-x-2 text-[13px]">
+                    <span className="font-mono text-xs">
+                      {c.table.split('.').slice(-1)[0]}.{c.column}
+                    </span>
+                    {c.category && (
+                      <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                        looks like {c.category}
+                      </span>
+                    )}
+                    <StudioProtectFlow
+                      draftId={draftId}
+                      fqn={c.table}
+                      column={c.column}
+                      standard={c.standard}
+                      standardLabel={c.standardLabel}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </>
       )}
