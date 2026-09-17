@@ -34,8 +34,10 @@ import {
   type StudioReportSpec,
   type StudioTarget,
   type TargetsView,
+  getDraft,
 } from '@/app/services/studio/studio-api';
 import { grainKeysOf, columnRole } from '@/app/shared/studio/StudioModelCanvas';
+import StudioProtectFlow from '@/app/shared/studio/StudioProtectFlow';
 import StudioSourceCard from '@/app/shared/studio/StudioSourceCard';
 import {
   CONFIDENCE_CLS,
@@ -133,6 +135,16 @@ export default function StudioModelInspector({
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /* the persisted classification (a free GET) — sensitive columns of THIS
+     table, each with its proposed standard, so protection is applied where
+     the column is seen. Never re-detects. */
+  const [clsCols, setClsCols] = useState<Array<{
+    key: string;
+    column: string;
+    category?: string;
+    standard?: string;
+    standardLabel?: string;
+  }> | null>(null);
   const [openCol, setOpenCol] = useState<string | null>(null);
   const [rel, setRel] = useState<{ to: string; fromCol: string; toCol: string; card: string }>({
     to: '',
@@ -217,6 +229,61 @@ export default function StudioModelInspector({
   const grainKeys = grainKeysOf(grain as ModelTable['grain']);
   const name = target?.name ?? srcTable?.name ?? rawId;
   const fqn = target?.target_fqn ?? srcTable?.fqn;
+
+  /* AGENTIC: the persisted classification is read once per draft (free GET of
+     an existing run) and filtered to THIS table's own or source columns —
+     protection is offered where the data is looked at. */
+  useEffect(() => {
+    let alive = true;
+    setClsCols(null);
+    // the catalog serves only classification COUNTS — the per-column detail
+    // (category + proposed standard) lives on the draft's understanding
+    getDraft(draftId)
+      .then((draft) => {
+        if (!alive) return;
+        const cols = (
+          (draft?.understanding as { classification?: { columns?: Record<string, unknown> } } | undefined)
+            ?.classification ?? (draft?.classification as { columns?: Record<string, unknown> } | undefined)
+        )?.columns;
+        if (!cols) return setClsCols([]);
+        const mine = new Set<string>();
+        if (fqn) mine.add(fqn.toUpperCase());
+        for (const tc of target?.columns ?? []) {
+          if (tc.source?.fqn) mine.add(tc.source.fqn.toUpperCase());
+        }
+        const out: Array<{ key: string; column: string; category?: string; standard?: string; standardLabel?: string }> = [];
+        for (const [key, raw] of Object.entries(cols)) {
+          const list = Array.isArray(raw) ? raw : [raw];
+          for (const e of list) {
+            if (typeof e !== 'object' || e == null) continue;
+            const ent = e as {
+              column?: string;
+              category?: string;
+              proposed_protection?: { standard_id?: string; label?: string; kind?: string };
+            };
+            const tablePart = key.toUpperCase().split('.').slice(0, 3).join('.');
+            if (!mine.has(tablePart)) continue;
+            // only masking/hashing standards apply column-wise here; row
+            // restriction stays the Access plan's business
+            if (ent.proposed_protection?.kind === 'row_access') continue;
+            if (!ent.proposed_protection?.standard_id || !ent.column) continue;
+            out.push({
+              key,
+              column: ent.column,
+              category: ent.category,
+              standard: ent.proposed_protection.standard_id,
+              standardLabel: ent.proposed_protection.label,
+            });
+          }
+        }
+        setClsCols(out);
+      })
+      .catch(() => alive && setClsCols([]));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, fqn]);
   const report = model.report ?? null;
 
   const others = tables.filter((x) => x.entity_id !== rawId);
@@ -1333,6 +1400,40 @@ export default function StudioModelInspector({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* sensitive columns of THIS table — the AI's classification, with the
+        * protection applied in place: dry-run SQL → confirm → undo */}
+      {clsCols != null && clsCols.length > 0 && (
+        <div className="mt-2.5 rounded-lg border border-amber-200/70 bg-amber-50/40 p-2.5 dark:border-amber-900/40 dark:bg-amber-950/20">
+          <p className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300">
+            <ShieldCheck aria-hidden className="h-3 w-3" /> Sensitive data — protect in place
+          </p>
+          <ul className="mt-1.5 space-y-1.5">
+            {clsCols.map((c) => (
+              <li key={c.key} className="flex flex-wrap items-center gap-x-2 text-[13px]">
+                <span className="font-mono text-xs">{c.column}</span>
+                {c.category && (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                    looks like {c.category}
+                  </span>
+                )}
+                <StudioProtectFlow
+                  draftId={draftId}
+                  fqn={c.key.split('.').slice(0, 3).join('.')}
+                  column={c.column}
+                  standard={c.standard!}
+                  standardLabel={c.standardLabel}
+                  onChanged={onApplied}
+                />
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-amber-700/80 dark:text-amber-300/70">
+            A name match is a proposal, not a fact — the dry run shows the exact statements before
+            anything is applied, and every apply keeps its undo.
+          </p>
         </div>
       )}
 

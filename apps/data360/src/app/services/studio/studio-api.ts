@@ -2013,6 +2013,85 @@ export async function getProtectionCatalog(draftId: string): Promise<ProtectionC
   return data ?? {};
 }
 
+/** One planned/executed protection mutation, with the exact SQL and its undo. */
+export interface ProtectionMutation {
+  mutation_id?: string;
+  kind?: string;
+  sql?: string[] | string;
+  undo_sql?: string[] | string;
+  status?: string;
+  error?: { error_code?: string; message?: string; failed_sql?: string } | null;
+  [k: string]: unknown;
+}
+
+/** POST protection/apply — dry-run by default (exact SQL + preflight, nothing
+ *  executed); confirm:true executes under the CALLER's warehouse session.
+ *  preflight warns when the primary role lacks CREATE on a schema — a warning,
+ *  not a hard block. */
+export interface ProtectionApplyResult {
+  status?: string; // dry_run | applied | partially_applied | failed
+  run_id?: string;
+  note?: string;
+  mutations?: ProtectionMutation[];
+  apply?: { run_id?: string; status?: string; results?: Array<Record<string, unknown>> };
+  preflight?: {
+    create_privilege?: Record<
+      string,
+      {
+        create_masking_policy?: boolean | null;
+        primary_role?: string;
+        reason?: string | null;
+        fix_sql?: string | null;
+      }
+    >;
+    blocked_schemas?: string[];
+    warning?: string | null;
+  };
+  [k: string]: unknown;
+}
+
+export async function applyProtection(
+  draftId: string,
+  body: {
+    columns: Array<{ fqn: string; column: string }>;
+    policy: { standard?: string; existing?: string; new?: Record<string, unknown> };
+    /** where CREATE lands (ATTACH stays on the table). The governed home —
+     *  one grant for the whole account instead of one per ingest schema. */
+    policy_schema?: string;
+    unmasked_roles?: string[];
+    confirm?: boolean;
+  },
+): Promise<ProtectionApplyResult> {
+  // the preflight's warehouse reads take 20-30s+ — the client-side proxy cuts
+  // at ~30s, so this POST goes DIRECT like understand does
+  return (await studioPostDirect<ProtectionApplyResult>(
+    API.studio.protectionApply(draftId),
+    body,
+    300_000,
+  )) ?? {};
+}
+
+/** Undo an applied run — dry-run by default, mirror of apply. A run already
+ *  undone answers status "nothing_undone" with every row skipped. */
+export async function undoAccessRun(
+  draftId: string,
+  runId: string,
+  confirm = false,
+): Promise<{
+  status?: string;
+  summary?: { requested?: number; undone?: number; failed?: number; skipped?: number };
+  results?: Array<Record<string, unknown>>;
+  [k: string]: unknown;
+}> {
+  return (
+    (await studioPostDirect<{
+      status?: string;
+      summary?: { requested?: number; undone?: number; failed?: number; skipped?: number };
+      results?: Array<Record<string, unknown>>;
+    }>(API.studio.accessUndo(draftId), { run_id: runId, confirm }, 300_000)) ?? {}
+  );
+}
+
 /** POST detect — classify columns by NAME by default (each a proposal);
  *  use_sample:true adds bounded content evidence (a credit-costing read).
  *  Never called on mount. */
