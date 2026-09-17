@@ -131,6 +131,26 @@ const DynamicChart = React.memo(function DynamicChart({ config }: DynamicChartPr
   const labelFill = isDark ? '#D1D5DB' : '#374151';
 
   const commonMargin = { top: 10, right: 10, bottom: 30, left: 10 };
+  /** big values compact ("350M"), so the y-axis never clips to ".00000000" */
+  const compactNum = (v: unknown): string => {
+    const n = typeof v === 'number' ? v : Number(v);
+    if (!Number.isFinite(n)) return String(v ?? '');
+    const a = Math.abs(n);
+    if (a >= 1e9) return `${(n / 1e9).toFixed(a >= 1e10 ? 0 : 1)}B`;
+    if (a >= 1e6) return `${(n / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M`;
+    if (a >= 1e4) return `${(n / 1e3).toFixed(0)}k`;
+    return n.toLocaleString();
+  };
+  /** raw enum identifiers become words ("CLICK_AND_COLLECT" → "Click and
+   *  collect"); dates and mixed-case values pass through untouched */
+  const humanTick = (v: unknown): string => {
+    const s = String(v ?? '');
+    if (!/^[A-Z][A-Z0-9_]*$/.test(s) || !s.includes('_')) {
+      return /^[A-Z]{3,}$/.test(s) ? s.charAt(0) + s.slice(1).toLowerCase() : s;
+    }
+    const words = s.toLowerCase().split('_').join(' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  };
   const commonXAxis = {
     dataKey: effectiveXKey,
     tick: { fontSize: 10, fill: tickFill },
@@ -140,11 +160,14 @@ const DynamicChart = React.memo(function DynamicChart({ config }: DynamicChartPr
     textAnchor: 'end' as const,
     interval: 'preserveStartEnd' as const,
     height: 50,
+    tickFormatter: humanTick,
   };
   const commonYAxis = {
     tick: { fontSize: 11, fill: tickFill },
     tickLine: false,
     axisLine: { stroke: axisStroke },
+    width: 48,
+    tickFormatter: compactNum,
   };
   // ── Pie / Donut ──
   if (chartType === 'pie' || chartType === 'donut') {

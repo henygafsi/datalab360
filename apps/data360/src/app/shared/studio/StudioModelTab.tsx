@@ -247,7 +247,7 @@ export default function StudioModelTab({
               }}
               className={`rounded-md px-3 py-1 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
                 effMode === m.id
-                  ? 'bg-accent-600 font-medium text-white'
+                  ? 'bg-white font-medium text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100'
                   : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100'
               }`}
             >

@@ -307,7 +307,7 @@ export default function StudioWorkflowsPanel({
                         </span>
                         {missing > 0 && (
                           <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-px text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" title={w.activable?.reason}>
-                            {missing} decision(s) to take
+                            {missing} {missing === 1 ? 'decision' : 'decisions'} to take
                           </span>
                         )}
                       </td>

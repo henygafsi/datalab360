@@ -441,7 +441,7 @@ export default function StudioModelCanvas({
   targetRelationships,
   rowsByTarget,
   mode = 'sources',
-  height = 480,
+  height = 680,
   onSelectTable,
   selectedEntity,
   usedByReports,

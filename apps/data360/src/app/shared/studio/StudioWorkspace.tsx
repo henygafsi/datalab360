@@ -127,6 +127,10 @@ import { useTrackEvent } from '@/hooks/useTrackEvent';
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—';
   if (typeof v === 'number') {
+    const a = Math.abs(v);
+    // a 10-digit run reads as debug output — compact, exact in the tooltip
+    if (a >= 1e9) return `${(v / 1e9).toFixed(2)} B`;
+    if (a >= 1e6) return `${(v / 1e6).toFixed(a >= 1e8 ? 0 : 1)} M`;
     return Number.isInteger(v)
       ? v.toLocaleString()
       : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -1943,7 +1947,13 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                               return (
                                 <p
                                   className="text-base font-semibold tabular-nums text-slate-900 dark:text-slate-100"
-                                  title={h.ok ? undefined : 'the result carries no numeric measure cell — check the widget definition'}
+                                  title={
+                                    h.ok
+                                      ? typeof h.value === 'number' && Math.abs(h.value) >= 1e6
+                                        ? h.value.toLocaleString()
+                                        : undefined
+                                      : 'the result carries no numeric measure cell — check the widget definition'
+                                  }
                                 >
                                   {h.ok ? fmtVal(h.value) : '—'}
                                 </p>
@@ -1962,9 +1972,15 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                             </p>
                           )}
                           {k.measures?.[0]?.column && (
-                            <p className="mt-0.5 truncate font-mono text-[10px] text-slate-300 dark:text-slate-600">
-                              {k.measures[0].aggregator}({k.measures[0].column})
-                              {k.dataset?.table ? ` · ${k.dataset.table}` : ''}
+                            <p
+                              className="mt-0.5 truncate text-[10px] text-slate-300 dark:text-slate-600"
+                              title={`${k.measures[0].aggregator}(${k.measures[0].column})${k.dataset?.table ? ` · ${k.dataset.table}` : ''}`}
+                            >
+                              {String(k.measures[0].aggregator ?? '').toLowerCase()} of{' '}
+                              {String(k.measures[0].column ?? '').toLowerCase().split('_').join(' ')}
+                              {k.dataset?.table
+                                ? ` · ${String(k.dataset.table).toLowerCase().split('_').join(' ')}`
+                                : ''}
                             </p>
                           )}
                         </div>

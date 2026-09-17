@@ -116,7 +116,7 @@ function ScoreCard({
           <span className="mb-1 inline-block h-1.5 w-16 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800" aria-hidden>
             <span
               className={`block h-full rounded-full ${score >= 85 ? 'bg-emerald-400 dark:bg-emerald-500' : score >= 60 ? 'bg-amber-400 dark:bg-amber-500' : 'bg-rose-400 dark:bg-rose-500'}`}
-              style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+              style={{ width: `${score === 0 ? 3 : Math.max(0, Math.min(100, score))}%` }}
             />
           </span>
         )}
@@ -140,7 +140,7 @@ function ScoreCard({
       )}
       {actionable && (
         <div className="truncate text-[11px] text-accent-600 dark:text-accent-400">
-          see what holds it back ↓
+          why ↓
         </div>
       )}
     </div>

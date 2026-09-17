@@ -191,7 +191,7 @@ export default function StudioAppsHome() {
                     </span>
                   ) : (
                     <span className="flex items-start justify-between gap-1.5">
-                      <p className="min-w-0 truncate text-sm font-medium text-slate-900 group-hover:text-accent-700 dark:text-slate-100 dark:group-hover:text-accent-400">
+                      <p className="min-w-0 text-sm font-medium text-slate-900 line-clamp-2 group-hover:text-accent-700 dark:text-slate-100 dark:group-hover:text-accent-400">
                         {name}
                       </p>
                       <button

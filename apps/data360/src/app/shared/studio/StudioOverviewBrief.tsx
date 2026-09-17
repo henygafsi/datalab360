@@ -539,8 +539,10 @@ export default function StudioOverviewBrief({
                 title={ok ? `${k}: answered by the context` : `${k}: not answered yet`}
                 className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-xs uppercase tracking-wide ${
                   ok
-                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-                    : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                    ? /* answered = COVERAGE, not health — green here read as a
+                         false all-clear right above rows saying « not evaluated » */
+                      'bg-slate-100 font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200'
+                    : 'bg-slate-50 text-slate-400 dark:bg-slate-800/60 dark:text-slate-500'
                 }`}
               >
                 {ok ? (

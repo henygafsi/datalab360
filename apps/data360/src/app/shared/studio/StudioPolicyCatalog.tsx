@@ -102,7 +102,7 @@ export default function StudioPolicyCatalog({ draftId }: { draftId: string }) {
         <>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             {attachedCount > 0
-              ? `${attachedCount} column(s) of this application carry a policy today.`
+              ? `${attachedCount} ${attachedCount === 1 ? 'column carries' : 'columns carry'} a policy today.`
               : 'No policy is attached on this application’s tables yet.'}{' '}
             Row rules and masking are edited column by column below; a ready-made standard or an
             existing account policy is applied when the change runs.
@@ -124,9 +124,12 @@ export default function StudioPolicyCatalog({ draftId }: { draftId: string }) {
                   >
                     <span className="font-mono">{name}</span>
                     {ll?.category && (
-                      <span className="rounded bg-slate-100 px-1 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                        reads as {ll.category}
-                      </span>
+                      <span
+                        aria-hidden
+                        className="h-1.5 w-1.5 rounded-full bg-amber-400"
+                        // the reading stays in the tooltip — 18 « reads as X »
+                        // captions turned the catalog into a tag cloud
+                      />
                     )}
                   </li>
                 );

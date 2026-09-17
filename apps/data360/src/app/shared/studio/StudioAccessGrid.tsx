@@ -361,10 +361,10 @@ export default function StudioAccessGrid({
               aria-selected={on}
               onClick={() => setLayer(l.id)}
               title={l.hint}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+              className={`inline-flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
                 on
-                  ? 'bg-accent-600 font-medium text-white'
-                  : 'border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
+                  ? 'border-accent-600 font-medium text-accent-700 dark:border-accent-400 dark:text-accent-300'
+                  : 'border-transparent text-slate-600 hover:border-slate-300 dark:text-slate-300 dark:hover:border-slate-600'
               }`}
             >
               <Icon aria-hidden className="h-3.5 w-3.5" />

@@ -279,7 +279,7 @@ export default function StudioGovernanceMap({
               onClick={() => setSubTab(t.id)}
               className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
                 on
-                  ? 'bg-accent-600 font-medium text-white'
+                  ? 'bg-white font-medium text-slate-900 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:text-slate-100 dark:ring-slate-700'
                   : 'border border-slate-200 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
               }`}
             >

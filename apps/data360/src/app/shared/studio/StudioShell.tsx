@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ArrowUpRight } from 'lucide-react';
+import BrandLogo from '@/app/shared/BrandLogo';
 import StudioCostChip from '@/app/shared/studio/StudioCostChip';
 import { isAdminRole } from '@/config/constants';
 import { routes } from '@/config/routes';
@@ -38,10 +39,15 @@ export default function StudioShell({ children }: { children: React.ReactNode })
       <header className="sticky top-0 z-30 flex min-h-12 shrink-0 flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-slate-200 bg-white/95 px-4 py-1.5 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
         <Link
           href={routes.studio}
-          className="shrink-0 text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100"
+          className="flex shrink-0 items-end gap-1.5"
+          aria-label="DataLab360 Studio — home"
         >
-          DATA<span className="text-accent-600">360</span>{' '}
-          <span className="font-normal text-slate-400 dark:text-slate-500">Studio</span>
+          {/* the REAL mark, not a text approximation — tall enough that the
+              « 360 » over the swoosh stays legible */}
+          <BrandLogo className="h-8 w-auto" />
+          <span className="pb-px text-[11px] font-medium uppercase tracking-[0.14em] text-slate-400 dark:text-slate-500">
+            Studio
+          </span>
         </Link>
 
         <nav className="flex items-center gap-1" aria-label="Studio">
@@ -52,7 +58,7 @@ export default function StudioShell({ children }: { children: React.ReactNode })
               aria-current={isActive(n.href, n.exactish) ? 'page' : undefined}
               className={`rounded-full px-3 py-1 text-xs transition-colors ${
                 isActive(n.href, n.exactish)
-                  ? 'bg-accent-600 text-white'
+                  ? 'bg-accent-50 font-medium text-accent-700 dark:bg-accent-950/40 dark:text-accent-300'
                   : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
               }`}
             >
@@ -65,7 +71,7 @@ export default function StudioShell({ children }: { children: React.ReactNode })
               aria-current={pathname.startsWith(routes.studioAdmin) ? 'page' : undefined}
               className={`rounded-full px-3 py-1 text-xs transition-colors ${
                 pathname.startsWith(routes.studioAdmin)
-                  ? 'bg-accent-600 text-white'
+                  ? 'bg-accent-50 font-medium text-accent-700 dark:bg-accent-950/40 dark:text-accent-300'
                   : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
               }`}
             >

@@ -36,7 +36,9 @@ const NUM_TONE: Record<NonNullable<Kpi['tone']>, string> = {
 };
 
 const TILE_TONE: Record<NonNullable<Kpi['tone']>, string> = {
-  default: 'bg-accent-500/10 text-accent-600 dark:bg-accent-400/10 dark:text-accent-300',
+  // neutral by default — six identical blue squares say nothing; the brand
+  // blue is reserved for tiles that MEAN something (tone 'accent')
+  default: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
   good: 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300',
   warn: 'bg-amber-500/10 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300',
   bad: 'bg-rose-500/10 text-rose-600 dark:bg-rose-400/10 dark:text-rose-300',
