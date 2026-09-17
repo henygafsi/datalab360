@@ -573,8 +573,9 @@ export default function StudioAccessPanel({
           and a policy column with the values each role may see. */}
       {!canChange && (
         <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-          You can read this application's access, but changing it needs the admin or approve role
-          on this application (or a platform administrator) — those are granted in{' '}
+          You can read this application's access, but changing it needs the application's
+          creator, an admin or approve role on it, or a platform administrator — and the final
+          apply always needs a platform administrator. Those roles are granted in{' '}
           <a href="/studio/admin" className="font-medium text-accent-700 hover:underline dark:text-accent-400">
             Administration
           </a>
