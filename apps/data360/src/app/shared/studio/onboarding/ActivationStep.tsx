@@ -184,6 +184,9 @@ function DqCheckCard({
         )}
       </div>
       {check.message && <p className="mt-0.5 text-slate-500 dark:text-slate-400">{check.message}</p>}
+      {check.options_hint && (
+        <p className="mt-0.5 text-slate-400 dark:text-slate-500">{check.options_hint}</p>
+      )}
 
       {check.handled ? (
         <div className="mt-1 flex flex-wrap items-center gap-2 text-slate-500 dark:text-slate-400">

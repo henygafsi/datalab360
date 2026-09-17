@@ -3436,6 +3436,10 @@ export interface DqCheck {
   };
   verdict?: 'pass' | 'fail' | 'warn' | string;
   evidence?: Record<string, unknown>;
+  /** the human options line the gate serves on failing checks — e.g.
+   *  « One click: route the offending rows to the DLQ. Or fix the data at
+   *  source, or waive (ACCOUNTADMIN) ». Rendered verbatim when present. */
+  options_hint?: string | null;
   blocking?: boolean;
   message?: string;
 }

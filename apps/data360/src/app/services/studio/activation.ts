@@ -52,6 +52,8 @@ export interface DqCheckResolution {
 
 /** One DQ check with its per-rule resolution options (contract dq.v1). */
 export interface DqGateCheck {
+  /** the gate's human options line on failing checks — rendered verbatim. */
+  options_hint?: string | null;
   id: string;
   rule?: string;
   object?: string;
