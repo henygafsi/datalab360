@@ -1684,6 +1684,12 @@ export interface AccessView {
     is_accountadmin?: boolean;
     objects?: AccessObjectRead[];
     can_change_access?: boolean;
+    /** why the caller may change access: platform_admin | governor_role |
+     *  app_creator | no */
+    can_change_access_reason?: string;
+    /** ACCOUNTADMIN-tier only — planning/seeing is not applying (four-eyes) */
+    can_apply_access?: boolean;
+    access_policy_note?: string;
     note?: string;
   };
   plan?: Record<string, unknown> | null;

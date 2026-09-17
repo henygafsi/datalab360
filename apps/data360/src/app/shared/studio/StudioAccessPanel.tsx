@@ -468,6 +468,9 @@ export default function StudioAccessPanel({
    * it. The backend serves the verdict; absent stays fail-open (honest: the
    * apply itself re-checks server-side). */
   const canChange = view.me?.can_change_access !== false;
+  /* seeing and preparing is NOT applying — the warehouse GRANTs need an
+   * ACCOUNTADMIN-tier session, so the apply button follows its own flag */
+  const canApply = view.me?.can_apply_access !== false;
   const canPrepare = canChange && (mappedCount > 0 || hasRowRules || hasMasks);
 
   const plan = () => {
