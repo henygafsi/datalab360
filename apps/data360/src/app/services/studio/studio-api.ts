@@ -3453,7 +3453,9 @@ export interface DqGateResult {
 }
 
 export async function runDqGate(draftId: string): Promise<DqGateResult> {
-  return studioMutate<DqGateResult>('POST', API.studio.dqGate(), { draft_id: draftId }, 120_000);
+  // 75 checks over big tables run 16s+ — the client proxy cuts at ~30s, so
+  // this POST goes DIRECT like understand/protection do
+  return (await studioPostDirect<DqGateResult>(API.studio.dqGate(), { draft_id: draftId }, 300_000))!;
 }
 
 /** AI-proposed automations — throws with error_code REPORT_REQUIRED until

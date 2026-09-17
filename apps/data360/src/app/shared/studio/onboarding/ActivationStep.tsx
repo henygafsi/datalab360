@@ -724,7 +724,13 @@ export default function ActivationStep({
           <ul className="mt-0.5 space-y-0.5">
             {blockers.map((b) => (
               <li key={b} className="text-xs text-red-600 dark:text-red-400">
-                {b}
+                {/* a bare code is a dead end — say what the blocker MEANS and
+                    what unblocks it, at the point where the user is stuck */}
+                {b === 'dq gate blocked'
+                  ? dqUnhandled.length > 0
+                    ? `The data-quality gate found ${dqUnhandled.length} defect${dqUnhandled.length === 1 ? '' : 's'} the application does not handle yet — resolve ${dqUnhandled.length === 1 ? 'it' : 'each one'} under Checks above (most offer « route the violating rows to the DLQ » in one click), then the gate re-evaluates and this unblocks.`
+                    : 'The data-quality gate is blocked. Open Checks above — each failing check carries its one-click resolution; once every defect is handled or fixed, activation unblocks.'
+                  : b}
               </li>
             ))}
           </ul>

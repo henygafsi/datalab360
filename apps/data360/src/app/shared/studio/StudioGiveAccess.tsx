@@ -168,6 +168,7 @@ export default function StudioGiveAccess({
     setBusy('grant');
     try {
       let ok = 0;
+      const refusals: string[] = [];
       for (const name of picked) {
         const p = (principals ?? []).find((x) => x.name === name);
         const r = await createAssignment(draftId, {
@@ -177,13 +178,17 @@ export default function StudioGiveAccess({
           confirm: true,
         });
         if (r.ok) ok += 1;
-        else setError(r.refusal.message ?? 'The assignment was refused.');
+        else refusals.push(`${name}: ${r.refusal.message ?? 'refused'}`);
       }
+      if (refusals.length) setError(refusals.join(' · '));
       setNote(
         `${ok} of ${picked.length} assignment(s) recorded on « ${basket.profile.name ?? basket.profile.profile_id} » — compile & apply the profile to make them real.`,
       );
       emitAccessChanged(draftId);
       loadServed();
+    } catch (e) {
+      // a transport failure must never be silent — the user just clicked GIVE ACCESS
+      setError(e instanceof Error ? e.message : 'The assignment could not be sent — nothing was recorded.');
     } finally {
       setBusy(null);
     }
@@ -206,6 +211,8 @@ export default function StudioGiveAccess({
         emitAccessChanged(draftId);
         loadServed();
       }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'The revoke could not be sent — the grant is unchanged.');
     } finally {
       setBusy(null);
     }
