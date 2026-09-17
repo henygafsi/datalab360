@@ -434,6 +434,7 @@ export default function ActivationStep({
       : [...(dq?.blockers_detail ?? []), ...(dq?.handled ?? [])];
   const dqUnhandled = dqAllChecks.filter((c) => !c.handled && c.verdict === 'fail');
   const dqHandled = (dq?.handled?.length ?? 0) > 0 ? dq!.handled! : dqAllChecks.filter((c) => c.handled);
+  const dqFlags = dq?.flags ?? [];
   const dqStructured =
     dqAllChecks.length > 0 ||
     (dq?.blockers_detail?.length ?? 0) > 0 ||
@@ -539,6 +540,30 @@ export default function ActivationStep({
                   <ul className="mt-1 space-y-1.5">
                     {dqHandled.map((c) => (
                       <DqCheckCard key={c.id} draftId={draftId} check={c} onChanged={() => { void load(); onChanged?.(); }} />
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {dqFlags.length > 0 && (
+                /* non-blocking observations — greyed guidance, never a gate */
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400 dark:hover:text-slate-200">
+                    {dqFlags.length} observation{dqFlags.length === 1 ? '' : 's'} — worth a look, never blocking
+                  </summary>
+                  <ul className="mt-1 space-y-1">
+                    {dqFlags.map((c) => (
+                      <li
+                        key={c.id}
+                        className="rounded-lg border border-slate-100 bg-slate-50/60 p-2 text-slate-500 dark:border-slate-800 dark:bg-slate-800/40 dark:text-slate-400"
+                      >
+                        <span className="font-mono text-[11px]">{c.id}</span>
+                        {c.message && <span className="ml-1.5">{c.message}</span>}
+                        {c.options_hint && (
+                          <span className="mt-0.5 block text-[11px] text-slate-400 dark:text-slate-500">
+                            {c.options_hint}
+                          </span>
+                        )}
+                      </li>
                     ))}
                   </ul>
                 </details>

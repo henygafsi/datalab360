@@ -463,7 +463,12 @@ export default function StudioAccessPanel({
   );
   const hasMasks = maskedCols.length > 0;
   const mappedCount = Object.values(mapping).filter(Boolean).length;
-  const canPrepare = mappedCount > 0 || hasRowRules || hasMasks;
+  /* the user's rule: only an admin / governor / the app's creator (given the
+   * right in Administration) CHANGES access — everyone with the app may READ
+   * it. The backend serves the verdict; absent stays fail-open (honest: the
+   * apply itself re-checks server-side). */
+  const canChange = view.me?.can_change_access !== false;
+  const canPrepare = canChange && (mappedCount > 0 || hasRowRules || hasMasks);
 
   const plan = () => {
     /* The whole map goes in one plan: every principal that was associated,
@@ -566,6 +571,16 @@ export default function StudioAccessPanel({
       {/* Governance is a MAP, not a journey: everything on screen, and the
           only act is to associate someone who exists with a Data360 role,
           and a policy column with the values each role may see. */}
+      {!canChange && (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+          You can read this application's access, but changing it needs the admin or approve role
+          on this application (or a platform administrator) — those are granted in{' '}
+          <a href="/studio/admin" className="font-medium text-accent-700 hover:underline dark:text-accent-400">
+            Administration
+          </a>
+          .
+        </p>
+      )}
       <StudioGovernanceMap
         draftId={draftId}
         prefill={prefill}
@@ -646,6 +661,15 @@ export default function StudioAccessPanel({
           TARGET (extracted from the SQL) — thirty bare « grant select » rows
           read as duplicates when only the kind shows; and the SQL renders
           UNDER its own line, never as a second parallel list */}
+      {mutations.length > 0 && allSupportedIds.length === 0 && (
+        /* the user staged grants, prepared — and NOTHING can run. Say it in
+           words, never as a bare « 0 operation » with a cryptic line. */
+        <p role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          The prepared change contains only product-role mappings the backend does not yet apply
+          from this panel — no warehouse operation would run, and nothing happens silently. This
+          gap is reported; granting to warehouse roles will become a real, appliable operation.
+        </p>
+      )}
       {mutations.length > 0 && (
         <>
           <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">

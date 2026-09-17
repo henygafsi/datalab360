@@ -82,6 +82,9 @@ export interface ActivationDqGate {
   blockers?: Array<string | { message?: string; [k: string]: unknown }>;
   /** the structured blocking checks (each with its resolution actions). */
   blockers_detail?: DqGateCheck[];
+  /** non-blocking observations (e.g. a relation on a non-unique parent):
+   *  greyed guidance, never a gate. Same struct as every projection. */
+  flags?: DqGateCheck[];
   /** every check (blocking + non-blocking + handled). */
   checks?: DqGateCheck[];
   /** the checks already handled (dedup/rule applied, or waived). */

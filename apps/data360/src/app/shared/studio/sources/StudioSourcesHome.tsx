@@ -22,13 +22,14 @@ import { Plus } from 'lucide-react';
 import { invalidateSourcesCaches } from '@/app/services/studio/studio-api';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
 import ConnectionsPanel from '@/app/shared/studio/sources/ConnectionsPanel';
+import StudioLakeMap from '@/app/shared/studio/sources/StudioLakeMap';
 import ObjectsPanel from '@/app/shared/studio/sources/ObjectsPanel';
 import StudioScanOptionsPanel from '@/app/shared/studio/sources/StudioScanOptionsPanel';
 import StudioSourceOnboarding from '@/app/shared/studio/StudioSourceOnboarding';
 import { routes } from '@/config/routes';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 
-type View = 'connections' | 'objects';
+type View = 'connections' | 'objects' | 'lake';
 
 function writeUrl(view: View, sel: { connection?: string | null; object?: string | null }) {
   const p = new URLSearchParams(window.location.search);
@@ -44,7 +45,9 @@ export default function StudioSourcesHome() {
   const sp = useSearchParams();
   const { trackTabSwitch } = useTrackEvent();
 
-  const [view, setView] = useState<View>(sp.get('view') === 'objects' ? 'objects' : 'connections');
+  const [view, setView] = useState<View>(
+    sp.get('view') === 'objects' ? 'objects' : sp.get('view') === 'lake' ? 'lake' : 'connections',
+  );
   const [adding, setAdding] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   // deep links are read once; afterwards the panels own their selection
@@ -128,6 +131,7 @@ export default function StudioSourcesHome() {
           [
             { id: 'connections', label: 'Connections' },
             { id: 'objects', label: 'Objects in use' },
+            { id: 'lake', label: 'Lake map' },
           ] as const
         ).map((v) => (
           <button
@@ -164,7 +168,9 @@ export default function StudioSourcesHome() {
       </div>
 
       <div id="sources-panel" role="tabpanel" aria-labelledby={`sources-tab-${view}`}>
-        {view === 'connections' ? (
+        {view === 'lake' ? (
+          <StudioLakeMap />
+        ) : view === 'connections' ? (
         <ConnectionsPanel
           initialSelection={initialConnection.current}
           onSelectionChange={onConnectionSel}
