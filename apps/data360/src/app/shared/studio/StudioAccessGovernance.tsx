@@ -866,54 +866,52 @@ export default function StudioAccessGovernance({
         </aside>
       </div>
 
-      {/* ══ the change bar — always in reach ════════════════════════ */}
-      <div className="sticky bottom-0 z-10 rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-lg shadow-slate-900/5 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
-        <div className="flex flex-wrap items-center gap-2">
+      {/* ══ the change strip — an EVENT SUMMARY, not a wall of actions.
+              What is staged, what happened last, and one way in. The
+              operations themselves live behind it, applied as a whole:
+              managing the roles IS the change, there is nothing more to
+              select afterwards. ═══════════════════════════════════════ */}
+      <div className="sticky bottom-0 z-10 rounded-2xl border border-slate-200/80 bg-white/95 px-3.5 py-2.5 shadow-lg shadow-slate-900/5 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <span className="flex items-center gap-1.5 text-[13px] font-medium text-slate-700 dark:text-slate-200">
-            <Sparkles aria-hidden className="h-3.5 w-3.5 text-brand-500" />
-            Pending changes
-            <span className="rounded-full bg-brand-50 px-1.5 text-[11px] font-semibold text-brand-700 dark:bg-brand-950/50 dark:text-brand-300">
-              {stagedCount}
-            </span>
+            <Sparkles aria-hidden className={`h-3.5 w-3.5 ${stagedCount > 0 ? 'text-brand-500' : 'text-slate-300'}`} />
+            {stagedCount > 0 ? `${stagedCount} staged` : 'Nothing staged'}
           </span>
-          <span className="text-[12px] text-slate-500 dark:text-slate-400">
+          <span className="min-w-0 flex-1 truncate text-[12.5px] text-slate-500 dark:text-slate-400">
             {stagedCount > 0
-              ? `${mapped} grant(s), ${ruleCols.length} row rule(s), ${masking.columns.length} masked column(s) staged — nothing runs before you apply.`
-              : 'Nothing staged yet — pick a role and what it may do, or protect a column.'}
+              ? [
+                  mapped ? `${mapped} role grant${mapped > 1 ? 's' : ''}` : null,
+                  ruleCols.length ? `${ruleCols.length} row rule${ruleCols.length > 1 ? 's' : ''}` : null,
+                  masking.columns.length ? `${masking.columns.length} masked column${masking.columns.length > 1 ? 's' : ''}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') + ' — nothing runs until an administrator applies it.'
+              : 'Pick a role and what it may do, or protect a column — the change follows from what you set.'}
           </span>
-          <span className="ml-auto flex items-center gap-2">
-            {onPrepare && (
-              <button
-                type="button"
-                disabled={busy != null || canPrepare === false}
-                onClick={() => {
-                  onPrepare();
-                  setReviewOpen(true);
-                }}
-                title={canPrepare === false ? 'Stage a grant, a row rule or a mask first' : undefined}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"
-              >
-                {busy === 'plan' ? (
-                  <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
-                )}
-                Prepare the change
-              </button>
+          <button
+            type="button"
+            disabled={busy != null && busy !== 'plan'}
+            aria-expanded={reviewOpen}
+            onClick={() => {
+              const open = !reviewOpen;
+              setReviewOpen(open);
+              // managing the roles IS the change: opening the review prepares
+              // it, so there is no second « prepare » step to remember
+              if (open && canPrepare !== false && onPrepare) onPrepare();
+            }}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"
+          >
+            {busy === 'plan' ? (
+              <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
             )}
-            <button
-              type="button"
-              onClick={() => setReviewOpen((o) => !o)}
-              aria-expanded={reviewOpen}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-[13px] text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300"
-            >
-              Review &amp; apply
-              <ChevronRight
-                aria-hidden
-                className={`h-3.5 w-3.5 transition-transform ${reviewOpen ? 'rotate-90' : ''}`}
-              />
-            </button>
-          </span>
+            {reviewOpen ? 'Hide the change' : 'Review & apply'}
+            <ChevronRight
+              aria-hidden
+              className={`h-3.5 w-3.5 transition-transform ${reviewOpen ? 'rotate-90' : ''}`}
+            />
+          </button>
         </div>
         {reviewOpen && <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">{footer}</div>}
       </div>

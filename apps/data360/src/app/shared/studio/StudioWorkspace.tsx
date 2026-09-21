@@ -2916,8 +2916,6 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                   WHAT data, with WHICH rights, then review & apply. The
                   proof wall and the role engine live INSIDE it, folded. */}
               <StudioAccessPanel draftId={draftId} prefill={accessPrefill} />
-              {/* profiles refine WHAT DATA someone sees — the second move */}
-              <StudioAccessProfilesPanel draftId={draftId} />
               <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
                 <button
                   type="button"

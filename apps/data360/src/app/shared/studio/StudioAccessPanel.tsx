@@ -340,6 +340,8 @@ export default function StudioAccessPanel({
   /** your-own-reads proof wall — EVIDENCE, folded under the flow (the page
    *  is for giving access, not for contemplating one's own table list) */
   const [meOpen, setMeOpen] = useState(false);
+  /** the operation tree is opt-in — the change applies as a whole */
+  const [opsOpen, setOpsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [applyResult, setApplyResult] = useState<string | null>(null);
@@ -639,21 +641,6 @@ export default function StudioAccessPanel({
           an administrator still has to tick and run it.
         </p>
       )}
-      <button
-        type="button"
-        disabled={busy != null || !canPrepare}
-        onClick={() => plan()}
-        title={
-          !canPrepare
-            ? 'Map someone to a Data360 role, paint a row rule, or mask a column first'
-            : 'Prepare the change — nothing runs yet'
-        }
-        className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
-      >
-        {busy === 'plan' && <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />}
-        Prepare the change
-      </button>
-
       {roles?.access_role && (
         <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
           Data permissions live once on{' '}
@@ -687,10 +674,19 @@ export default function StudioAccessPanel({
             . Nothing runs before an explicit dry run or apply below.
           </p>
 
-          {/* decision categories — collapsed to a summary; expand to see and
-              narrow the individual operations (who gets in / what they read /
-              row rules / column masking), not a wall of SQL-verb rows */}
-          <div className="mt-1.5 space-y-1.5">
+          {/* the change applies AS A WHOLE — managing the roles above is the
+              selection. The per-operation detail is opt-in, for whoever wants
+              to narrow or read the SQL before signing it off. */}
+          <button
+            type="button"
+            aria-expanded={opsOpen}
+            onClick={() => setOpsOpen((o) => !o)}
+            className="mt-1.5 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400 dark:hover:text-slate-200"
+          >
+            <ChevronRight aria-hidden className={`h-3.5 w-3.5 transition-transform ${opsOpen ? 'rotate-90' : ''}`} />
+            {opsOpen ? 'Hide the operations' : `Show the ${allSupportedIds.length} operation${allSupportedIds.length > 1 ? 's' : ''} and their SQL`}
+          </button>
+          <div className={`mt-1.5 space-y-1.5 ${opsOpen ? '' : 'hidden'}`}>
             {cats.map((c) => {
               const open = openCats.has(c.id);
               const catIds = c.groups
