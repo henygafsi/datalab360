@@ -2909,8 +2909,9 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           {/* ── GOVERNANCE ────────────────────────────────────────── */}
           {tab === 'governance' && draftId && (
             <>
-              {/* the access business-KPI strip (real served figures) */}
-              <StudioViewKpis draftId={draftId} view="access" />
+              {/* the KPI strip lives INSIDE the governance surface now — one
+                  header, not two stacked walls (and the old one served 0s
+                  where the new one reads the real counts) */}
               {/* the page's ONE job leads: give access — WHO gets it, on
                   WHAT data, with WHICH rights, then review & apply. The
                   proof wall and the role engine live INSIDE it, folded. */}

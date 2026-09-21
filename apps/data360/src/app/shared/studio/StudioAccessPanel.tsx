@@ -48,6 +48,7 @@ import {
   type RlsSuggestion,
 } from '@/app/services/studio/studio-api';
 import { emitAccessChanged } from '@/app/services/studio/studio-bus';
+import StudioAccessGovernance from '@/app/shared/studio/StudioAccessGovernance';
 import StudioGovernanceMap, {
   type PolicyMapping,
   type Principal,
@@ -585,7 +586,7 @@ export default function StudioAccessPanel({
           .
         </p>
       )}
-      <StudioGovernanceMap
+      <StudioAccessGovernance
         draftId={draftId}
         prefill={prefill}
         view={view}
