@@ -2619,6 +2619,17 @@ export interface ComposeTurn {
   [k: string]: unknown;
 }
 
+/** Remove an automation — it is a proposal or a stopped one, never a running
+ *  production schedule (the backend refuses those). */
+export async function deleteWorkflow(draftId: string, automationId: string): Promise<unknown> {
+  return studioMutate(
+    'DELETE',
+    `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(automationId)}`,
+    undefined,
+    120_000,
+  );
+}
+
 export async function composeWorkflow(
   draftId: string,
   body: { message: string; thread_id?: string; draft_workflow?: Record<string, unknown> | null },

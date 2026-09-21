@@ -35,7 +35,7 @@ import {
   Workflow as WorkflowIcon,
   Zap,
 } from 'lucide-react';
-import { getWorkflows, type WorkflowItem } from '@/app/services/studio/studio-api';
+import { deleteWorkflow, getWorkflows, type WorkflowItem } from '@/app/services/studio/studio-api';
 import { getActivation } from '@/app/services/studio/activation';
 import StudioWorkflowCompose from '@/app/shared/studio/StudioWorkflowCompose';
 import StudioWorkflowEditor from '@/app/shared/studio/StudioWorkflowEditor';
@@ -171,6 +171,26 @@ export default function StudioAutomationCockpit({
   const [q, setQ] = useState('');
   const [proposing, setProposing] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  /** removing asks once — an automation is someone's work */
+  const [removeArmed, setRemoveArmed] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
+  const remove = async (aid: string) => {
+    setRemoving(aid);
+    setRemoveError(null);
+    try {
+      await deleteWorkflow(draftId, aid);
+      setRemoveArmed(null);
+      if (selected === aid) setSelected(null);
+      await load();
+    } catch (e) {
+      const detail = (e as { response?: { data?: { detail?: { message?: string } } } })?.response?.data?.detail;
+      setRemoveError(detail?.message ?? (e instanceof Error ? e.message : 'It could not be removed.'));
+    } finally {
+      setRemoving(null);
+    }
+  };
   /** what putting these automations live would cost — served, never derived */
   const [est, setEst] = useState<{
     lines?: Array<{ label?: string; credits?: number; gate?: string; why?: string }>;
@@ -557,7 +577,40 @@ export default function StudioAutomationCockpit({
                       {decisionsOf(sel)} decision{decisionsOf(sel) > 1 ? 's' : ''} to take
                     </span>
                   )}
+                  {removeArmed === sel.automation_id ? (
+                    <span className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={removing != null}
+                        onClick={() => void remove(sel.automation_id)}
+                        className="rounded-lg bg-rose-600 px-2.5 py-1 text-[11.5px] font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+                      >
+                        {removing ? 'Removing…' : 'Remove it'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRemoveArmed(null)}
+                        className="rounded-lg border border-slate-200 px-2 py-1 text-[11.5px] text-slate-600 dark:border-slate-700 dark:text-slate-300"
+                      >
+                        Keep
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setRemoveArmed(sel.automation_id)}
+                      title="Remove this automation — it is a proposal or a stopped one; a running schedule is refused"
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-[11.5px] text-slate-500 hover:border-rose-300 hover:text-rose-600 dark:border-slate-700 dark:text-slate-400"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
+                {removeError && (
+                  <p role="alert" className="mt-1.5 rounded-lg bg-rose-50 px-2 py-1 text-[12px] text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                    {removeError}
+                  </p>
+                )}
                 <ul className="mt-2.5 flex flex-col gap-2 lg:flex-row lg:items-stretch">
                   <FlowCard
                     n="1"
