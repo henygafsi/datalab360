@@ -1245,9 +1245,11 @@ export default function StudioWorkflowEditor({
             </p>
           ) : (
             <>
-              {/* the visual pipeline stays as the compact overview — clicking a
-                  block highlights its card in the rail below */}
-              <div className="h-56 rounded-lg border border-slate-200 dark:border-slate-800">
+              {/* THE BUILDER: the pipeline on the left, and the step you click
+                  opens in the inspector on the right — one screen, no scroll
+                  through every step's form. */}
+              <div className="grid grid-cols-1 gap-2.5 xl:grid-cols-[minmax(0,1fr)_380px]">
+              <div className="h-[340px] rounded-xl border border-slate-200 bg-slate-50/40 dark:border-slate-800 dark:bg-slate-900/40">
                 <ReactFlow
                   nodes={flowNodes}
                   edges={flowEdges}
@@ -1265,11 +1267,22 @@ export default function StudioWorkflowEditor({
                 </ReactFlow>
               </div>
 
+              {/* ── THE INSPECTOR — only the step you selected, edited here ── */}
+              <div className="min-w-0 space-y-2 xl:max-h-[340px] xl:overflow-y-auto xl:pr-1">
+                <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Step {(selStep ?? 0) + 1} of {steps.length} · editing
+                  <span className="ml-auto font-normal normal-case text-slate-400 dark:text-slate-500">
+                    click a block to edit it
+                  </span>
+                </p>
+
               {/* ── the STEP RAIL — every step is a card with its params
                   visible and editable IN PLACE (no hunting behind a click);
                   arrays and typed fields render as what they are ────────── */}
               <ol className="space-y-0">
                 {steps.map((s0, i) => {
+                  // the rail IS the inspector now: one step at a time
+                  if (i !== (selStep ?? 0)) return null;
                   const path = ep.steps?.[i];
                   const stagedStep = staged(path, s0);
                   const cfg = (stagedStep?.config ?? {}) as Record<string, unknown>;
@@ -1367,7 +1380,7 @@ export default function StudioWorkflowEditor({
 
                         {/* params, BY STEP — typed controls, nothing hidden */}
                         {fields.length > 0 && (
-                          <div className="mt-2 grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+                          <div className="mt-2 grid grid-cols-1 gap-x-3 gap-y-2">
                             {fields.map((f) => {
                               const raw = cfg[f.key];
                               const editable = Boolean(path) && f.kind !== 'readonly';
@@ -1551,6 +1564,8 @@ export default function StudioWorkflowEditor({
                   );
                 })}
               </ol>
+              </div>
+              </div>
             </>
           )}
 
@@ -1589,7 +1604,7 @@ export default function StudioWorkflowEditor({
                               value={blockCfg[f.name] ?? String(f.default ?? '')}
                               placeholder={f.description}
                               onChange={(e) => setBlockCfg((c) => ({ ...c, [f.name]: e.target.value }))}
-                              className="h-7 w-44 rounded border border-slate-200 bg-white px-1.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                              className="h-7 w-full rounded border border-slate-200 bg-white px-1.5 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
                             />
                           </label>
                         ))}
