@@ -398,11 +398,10 @@ function MissingDecision({
   );
 }
 
-const SECTIONS = ['definition', 'steps', 'runs'] as const;
+const SECTIONS = ['steps', 'runs'] as const;
 type Section = (typeof SECTIONS)[number];
 const SECTION_LABEL: Record<Section, string> = {
-  definition: 'Definition',
-  steps: 'Steps',
+  steps: 'Build',
   runs: 'Runs & history',
 };
 
@@ -470,7 +469,7 @@ function BlockCategory({
       </button>
       {isOpen && (
         <div className="border-t border-slate-100 p-2 dark:border-slate-800">
-          <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-1">
             {shown.map((b) => (
               <li key={b.block_type}>
                 <button
@@ -610,13 +609,9 @@ export default function StudioWorkflowEditor({
   /** the VISUAL FLOW leads (user directive) — the editor opens on Steps,
    *  except when a decision is missing: then Definition, where that decision
    *  is taken, is the honest landing. */
-  const [section, setSection] = useState<Section>(() =>
-    (w.prerequisites?.data?.missing?.length ?? 0) +
-      (w.prerequisites?.destination?.missing?.length ?? 0) >
-    0
-      ? 'definition'
-      : 'steps',
-  );
+  /** one surface: the flow. The trigger and its decisions are the first
+   *  node of that flow, so there is no second tab to remember. */
+  const [section, setSection] = useState<Section>('steps');
   /** the buffered change — path → op; ONE patch on Save */
   const [buffer, setBuffer] = useState<Record<string, ModelPatchOp>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -626,7 +621,9 @@ export default function StudioWorkflowEditor({
   const [testRun, setTestRun] = useState<WorkflowTestRun | null>(null);
   const [history, setHistory] = useState<{ runs: WorkflowRunsPage; versions: WorkflowVersions } | null>(null);
   /** the canvas selection — click a block, configure it beside */
-  const [selStep, setSelStep] = useState<number | null>(null);
+  /** -1 is the TRIGGER node — the builder opens there, because that is where
+   *  the pending decisions and the « describe the change » box live. */
+  const [selStep, setSelStep] = useState<number | null>(-1);
   /** e-mail delivery is folded unless already configured — opening it is what
    *  reads the capability (never on mount) */
   const [emailOpen, setEmailOpen] = useState<boolean>(Boolean(w.email?.configured));
@@ -740,6 +737,16 @@ export default function StudioWorkflowEditor({
     }
   }, [catalog]);
 
+  /* the block bar is part of the builder now, so the catalogue loads with it
+     (a free read of the block definitions — nothing is executed) */
+  useEffect(() => {
+    if (section !== 'steps' || catalog != null) return;
+    setCatalog('loading');
+    void getBlocksCatalog()
+      .then((r) => setCatalog(r.blocks))
+      .catch(() => setCatalog([]));
+  }, [section, catalog]);
+
   const loadHistory = useCallback(async () => {
     try {
       const [runs, versions] = await Promise.all([
@@ -786,8 +793,22 @@ export default function StudioWorkflowEditor({
      otherwise; edges follow the sequence */
   const graphMeta = (w.graph?.nodes ?? []) as Array<Record<string, unknown>>;
   const flowNodes: Node[] = useMemo(
-    () =>
-      steps.map((s, i) => {
+    () => [
+      /* the trigger IS a node: clicking it opens when/if/then in the
+         inspector, so the definition never needs its own tab */
+      {
+        id: '-1',
+        type: 'studioStep',
+        position: { x: 0, y: 0 },
+        data: {
+          n: 0,
+          label: `When · ${w.trigger?.type ?? w.trigger?.cron_choice ?? 'trigger'}`,
+          blockType: 'trigger',
+          capability: 'trigger',
+          selected: selStep === -1,
+        },
+      } as Node,
+      ...steps.map((s, i) => {
         const gn = graphMeta[i] as { position?: { x?: number; y?: number } } | undefined;
         const step = s as StepDef;
         return {
@@ -796,7 +817,7 @@ export default function StudioWorkflowEditor({
           position:
             gn?.position?.x != null && gn?.position?.y != null
               ? { x: gn.position.x, y: gn.position.y }
-              : { x: i * 240, y: (i % 2) * 90 },
+              : { x: (i + 1) * 230, y: 0 },
           data: {
             n: i + 1,
             label: String(step.label ?? step.block_type ?? 'step'),
@@ -806,16 +827,23 @@ export default function StudioWorkflowEditor({
           },
         };
       }),
+    ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [steps, selStep],
+    [steps, selStep, w.trigger],
   );
   const flowEdges: Edge[] = useMemo(
     () =>
-      steps.slice(1).map((_, i) => ({
-        id: `e${i}`,
-        source: String(i),
-        target: String(i + 1),
-      })),
+      [
+        ...(steps.length > 0
+          ? [{ id: 'e-trigger', source: '-1', target: '0', animated: false } as Edge]
+          : []),
+      ].concat(
+        steps.slice(1).map((_, i) => ({
+          id: `e${i}`,
+          source: String(i),
+          target: String(i + 1),
+        })),
+      ),
     [steps],
   );
 
@@ -890,349 +918,6 @@ export default function StudioWorkflowEditor({
         ))}
       </div>
 
-      {/* ── DEFINITION — the phrase, each segment editable in place ────── */}
-      {section === 'definition' && (
-        <div className="mt-3 space-y-3">
-          <div className="rounded-lg border border-slate-200 p-3 text-[13px] dark:border-slate-800">
-            <dl className="space-y-2">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">When</dt>
-                <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">{w.phrase?.event ?? '—'}</dd>
-                <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                  trigger
-                  <select
-                    value={staged(ep.trigger ?? w.trigger_path, {
-                      cron_choice: w.trigger?.cron_choice ?? null,
-                    })?.cron_choice ?? 'manual'}
-                    disabled={!(ep.trigger ?? w.trigger_path)}
-                    aria-label="Workflow trigger"
-                    onChange={(e) =>
-                      stage(
-                        ep.trigger ?? w.trigger_path,
-                        { cron_choice: e.target.value === 'manual' ? null : e.target.value },
-                        'trigger',
-                      )
-                    }
-                    className="h-7 rounded border border-slate-200 bg-white px-1 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                  >
-                    {triggerChoices.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </span>
-              </div>
-              <div className="flex flex-wrap items-baseline gap-2">
-                <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">If</dt>
-                <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">
-                  {w.phrase?.condition ?? (condition ? `${condition.measure ?? ''} ${condition.operator ?? ''} ${condition.threshold ?? '—'}` : 'always')}
-                  {/* the model tie-back in BUSINESS words — served resolutions */}
-                  {condition?.chart_title && (
-                    <span className="ml-1.5 text-xs text-slate-500 dark:text-slate-400">
-                      reads « {condition.chart_title} » from the report
-                    </span>
-                  )}
-                  {!condition?.chart_title && condition?.entity_name && (
-                    <span className="ml-1.5 text-xs text-slate-500 dark:text-slate-400" title={condition.entity_description}>
-                      watches « {condition.entity_name} »
-                    </span>
-                  )}
-                </dd>
-                {condition && ep.condition && (
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                    <select
-                      value={staged(ep.condition, condition)?.operator ?? condition.operator ?? '<'}
-                      aria-label="Condition operator"
-                      onChange={(e) =>
-                        stage(ep.condition, { ...staged(ep.condition, condition), operator: e.target.value }, 'operator')
-                      }
-                      className="h-7 rounded border border-slate-200 bg-white px-1 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                    >
-                      {['<', '<=', '>', '>=', '==', '!='].map((o) => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      value={String(staged(ep.condition, condition)?.threshold ?? '')}
-                      placeholder="threshold"
-                      aria-label="Condition threshold"
-                      onChange={(e) =>
-                        stage(
-                          ep.condition,
-                          { ...staged(ep.condition, condition), threshold: e.target.value === '' ? null : Number(e.target.value) },
-                          'threshold',
-                        )
-                      }
-                      className="h-7 w-24 rounded border border-slate-200 bg-white px-1.5 text-xs tabular-nums dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                    />
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-baseline gap-2">
-                <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Then</dt>
-                <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">
-                  {w.phrase?.action ?? '—'} → {w.phrase?.destination ?? '—'}
-                  {w.phrase?.expected_result && (
-                    <span className="text-slate-400 dark:text-slate-500"> — {w.phrase.expected_result}</span>
-                  )}
-                </dd>
-                {windowDef && ep.window && (
-                  <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                    window
-                    <input
-                      type="number"
-                      min={1}
-                      value={String(staged(ep.window, windowDef)?.days ?? '')}
-                      aria-label="Window in days"
-                      onChange={(e) =>
-                        stage(ep.window, { ...staged(ep.window, windowDef), days: Number(e.target.value) || 1 }, 'window')
-                      }
-                      className="h-7 w-16 rounded border border-slate-200 bg-white px-1.5 text-xs tabular-nums dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                    />
-                    day(s)
-                  </span>
-                )}
-              </div>
-            </dl>
-            {(() => {
-              const missing = [
-                ...(w.prerequisites?.data?.missing ?? []),
-                ...(w.prerequisites?.destination?.missing ?? []),
-              ];
-              if (missing.length === 0) return null;
-              return (
-                <ul className="mt-2 space-y-1 border-t border-slate-100 pt-2 dark:border-slate-800">
-                  {missing.map((m, i) => (
-                    <li key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                      <span className="text-amber-700 dark:text-amber-400">{m.what}</span>
-                      <span className="text-slate-400 dark:text-slate-500">{m.why}</span>
-                      <MissingDecision draftId={draftId} m={m} onDone={onChanged} />
-                    </li>
-                  ))}
-                </ul>
-              );
-            })()}
-            {w.schedule && (
-              <p className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                Schedule: {(w.schedule as { active?: boolean }).active ? 'running' : 'not active'}
-                {(w.schedule as { note?: string }).note ? ` — ${(w.schedule as { note?: string }).note}` : ''}
-                {onOpenActivation && !(w.schedule as { active?: boolean }).active && (
-                  <>
-                    {' '}
-                    <button type="button" onClick={onOpenActivation} className="text-accent-700 hover:underline dark:text-accent-400">
-                      open the activation panel
-                    </button>
-                  </>
-                )}
-              </p>
-            )}
-
-            {/* Deliver by e-mail — FOLDED by default: a reader who doesn't
-                want e-mail isn't shown a setup card under every workflow, and
-                the capability is read only when they open it (the same
-                never-on-mount discipline as the filter values). A workflow
-                that already has e-mail configured opens expanded. */}
-            <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
-              {emailOpen ? (
-                <StudioEmailAlertPanel
-                  draftId={draftId}
-                  automationId={aid}
-                  initialEmail={w.email}
-                  onConfigured={onChanged}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setEmailOpen(true)}
-                  className="inline-flex items-center gap-1.5 text-[13px] text-accent-700 hover:underline dark:text-accent-400"
-                >
-                  <Mail aria-hidden className="h-4 w-4" />
-                  {w.email?.configured ? 'E-mail delivery — configured · edit' : 'Deliver by e-mail…'}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* the NL lane — same definition, previewed ops, never silent */}
-          <div className="rounded-lg border border-accent-200 p-3 dark:border-accent-900/50">
-            <label className="flex items-center gap-2">
-              <Sparkles aria-hidden className="h-4 w-4 shrink-0 text-accent-500" />
-              <input
-                value={aiText}
-                onChange={(e) => setAiText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && void runAi()}
-                placeholder="Describe the change — e.g. « alert when stock cover drops under 5 days, weekly »"
-                aria-label="Describe the workflow change"
-                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-              />
-              <button
-                type="button"
-                disabled={aiState.kind === 'running' || !aiText.trim()}
-                onClick={() => void runAi()}
-                className="shrink-0 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
-              >
-                {aiState.kind === 'running' ? 'Thinking…' : 'Propose'}
-              </button>
-            </label>
-            {aiState.kind === 'preview' && (
-              <div className="mt-2 text-[13px]" role="status">
-                <p className="text-slate-700 dark:text-slate-200">
-                  {aiState.summary ?? 'The AI proposes these allowlisted changes:'}
-                </p>
-                {/* lead with the business change, not the JSON pointer; the raw
-                    ops stay one click away for anyone who wants them */}
-                <ul className="mt-1 space-y-0.5">
-                  {aiState.ops.map((op, i) => (
-                    <li key={i} className="text-xs text-slate-600 dark:text-slate-300">
-                      {humanOp(op as { op?: string; path?: string })}
-                    </li>
-                  ))}
-                </ul>
-                {aiState.ops.length > 0 && (
-                  <details className="mt-1">
-                    <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-500 dark:hover:text-slate-300">
-                      What changes, technically
-                    </summary>
-                    <ul className="mt-1 space-y-0.5">
-                      {aiState.ops.map((op, i) => (
-                        <li key={i} className="font-mono text-xs text-slate-500 dark:text-slate-400">
-                          {(op as { op?: string }).op} {(op as { path?: string }).path}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-                <div className="mt-1.5 flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={busy != null}
-                    onClick={() => void applyAi()}
-                    className="rounded-lg bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50"
-                  >
-                    Apply
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAiState({ kind: 'idle' })}
-                    className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400"
-                  >
-                    Discard
-                  </button>
-                </div>
-              </div>
-            )}
-            {aiState.kind === 'questions' && (
-              <div className="mt-2 text-[13px]" role="status">
-                <p className="text-slate-700 dark:text-slate-200">The AI needs your word first:</p>
-                <ul className="mt-1 list-disc space-y-0.5 pl-5 text-slate-600 dark:text-slate-300">
-                  {aiState.questions.slice(0, 4).map((q) => (
-                    <li key={q}>{q}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-
-          {/* simulate + test on the row of truth */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={busy != null}
-              onClick={() =>
-                void act('preview', async () => setPreview(await previewWorkflow(draftId, aid)))
-              }
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-600 hover:border-slate-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
-            >
-              {busy === 'preview' && <RefreshCw aria-hidden className="h-3 w-3 animate-spin" />}
-              Simulate on history
-            </button>
-            <button
-              type="button"
-              disabled={busy != null || w.activable?.ok === false}
-              title={w.activable?.ok === false ? (w.activable?.reason ?? 'blocked by a decision') : 'Sandbox delivery with proofs'}
-              onClick={() =>
-                void act('test', async () => {
-                  setTestRun(await testRunWorkflowSafe(draftId, aid));
-                  onChanged();
-                })
-              }
-              className="inline-flex items-center gap-1 rounded-lg bg-accent-600 px-2.5 py-1 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"
-            >
-              {busy === 'test' ? <RefreshCw aria-hidden className="h-3 w-3 animate-spin" /> : <Play aria-hidden className="h-3 w-3" />}
-              Test-run (sandbox)
-            </button>
-            {/* a dead button explains NOTHING — when the test is gated, SAY
-                why right here and door to the decision that unblocks it */}
-            {w.activable?.ok === false && (
-              <span className="inline-flex flex-wrap items-center gap-1.5 rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" role="status">
-                {(() => {
-                  const nMissing =
-                    (w.prerequisites?.data?.missing?.length ?? 0) +
-                    (w.prerequisites?.destination?.missing?.length ?? 0);
-                  return nMissing > 0
-                    ? `testing is blocked by ${nMissing} decision${nMissing === 1 ? '' : 's'}`
-                    : (w.activable?.reason ?? 'testing is blocked');
-                })()}
-                {(w.prerequisites?.data?.missing?.length ?? 0) > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setSection('definition')}
-                    className="rounded font-medium underline decoration-dotted hover:text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:text-amber-100"
-                  >
-                    decide it on Definition
-                  </button>
-                )}
-              </span>
-            )}
-            {w.state !== 'stopped' && (
-              <button
-                type="button"
-                disabled={busy != null}
-                onClick={() =>
-                  void act('stop', async () => {
-                    await stopWorkflow(draftId, aid, 'stopped from the editor');
-                    onChanged();
-                  })
-                }
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-600 hover:border-slate-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
-              >
-                <Square aria-hidden className="h-3 w-3" />
-                Stop
-              </button>
-            )}
-          </div>
-          {preview && (
-            <p className="text-[13px] text-slate-600 dark:text-slate-300" role="status">
-              {preview.status === 'not_computable'
-                ? `Not computable yet — ${(preview.missing ?? []).map((m) => m.what).join('; ')}. No query ran.`
-                : `${preview.count ?? '—'} expected triggering(s)${preview.deduplicated ? ` · ${preview.deduplicated} deduplicated` : ''} · no side effects.`}
-            </p>
-          )}
-          {testRun && (
-            <p className="text-[13px] text-slate-600 dark:text-slate-300" role="status">
-              Delivered {testRun.results?.delivered_new ?? '—'} (before {testRun.results?.deliveries_before ?? '—'} → after {testRun.results?.deliveries_after ?? '—'}) ·{' '}
-              <span className="font-mono text-xs">{testRun.evidence?.deliveries_table}</span>
-              {testRun.evidence?.is_test_data ? ' · test data' : ''}
-            </p>
-          )}
-          {/* the deduced NEXT step at the success moment — a green test on an
-              inactive schedule would otherwise end in silence, and the chain
-              propose → review → test → activate stalls right where it worked */}
-          {testRun && onOpenActivation && !(w.schedule as { active?: boolean } | undefined)?.active && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              The test delivered — this workflow&rsquo;s schedule starts once the application is
-              activated.{' '}
-              <button
-                type="button"
-                onClick={onOpenActivation}
-                className="text-accent-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
-              >
-                Open the activation panel
-              </button>
-            </p>
-          )}
-        </div>
-      )}
 
       {/* ── STEPS — the interactive canvas, legacy-builder style: block
           components on a flow, click a node to configure it beside; the
@@ -1248,7 +933,26 @@ export default function StudioWorkflowEditor({
               {/* THE BUILDER: the pipeline on the left, and the step you click
                   opens in the inspector on the right — one screen, no scroll
                   through every step's form. */}
-              <div className="grid grid-cols-1 gap-2.5 xl:grid-cols-[minmax(0,1fr)_380px]">
+              <div className="grid grid-cols-1 gap-2.5 xl:grid-cols-[240px_minmax(0,1fr)_380px]">
+              {/* LEFT — the no-code blocks, always in reach */}
+              <div className="min-w-0 xl:max-h-[340px] xl:overflow-y-auto">
+                <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Blocks
+                </p>
+                {stepsBasePath && Array.isArray(catalog) ? (
+                  <BlockPalette
+                    catalog={catalog}
+                    onPick={(b) => {
+                      setPickedBlock(b);
+                      setPaletteOpen(true);
+                    }}
+                  />
+                ) : (
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                    {stepsBasePath ? 'Reading the block catalogue…' : 'This workflow does not accept new blocks.'}
+                  </p>
+                )}
+              </div>
               <div className="h-[340px] rounded-xl border border-slate-200 bg-slate-50/40 dark:border-slate-800 dark:bg-slate-900/40">
                 <ReactFlow
                   nodes={flowNodes}
@@ -1270,7 +974,7 @@ export default function StudioWorkflowEditor({
               {/* ── THE INSPECTOR — only the step you selected, edited here ── */}
               <div className="min-w-0 space-y-2 xl:max-h-[340px] xl:overflow-y-auto xl:pr-1">
                 <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Step {(selStep ?? 0) + 1} of {steps.length} · editing
+                  {(selStep ?? -1) === -1 ? 'Trigger · when it fires, and what it still needs' : `Step ${(selStep ?? 0) + 1} of ${steps.length} · editing`}
                   <span className="ml-auto font-normal normal-case text-slate-400 dark:text-slate-500">
                     click a block to edit it
                   </span>
@@ -1280,9 +984,353 @@ export default function StudioWorkflowEditor({
                   visible and editable IN PLACE (no hunting behind a click);
                   arrays and typed fields render as what they are ────────── */}
               <ol className="space-y-0">
+                {(selStep ?? -1) === -1 && (
+                  /* the TRIGGER node's panel — when / if / then, its
+                     decisions and its schedule, edited where you clicked */
+            <div className="mt-3 space-y-3">
+              <div className="rounded-lg border border-slate-200 p-3 text-[13px] dark:border-slate-800">
+                <dl className="space-y-2">
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">When</dt>
+                    <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">{w.phrase?.event ?? '—'}</dd>
+                    <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                      trigger
+                      <select
+                        value={staged(ep.trigger ?? w.trigger_path, {
+                          cron_choice: w.trigger?.cron_choice ?? null,
+                        })?.cron_choice ?? 'manual'}
+                        disabled={!(ep.trigger ?? w.trigger_path)}
+                        aria-label="Workflow trigger"
+                        onChange={(e) =>
+                          stage(
+                            ep.trigger ?? w.trigger_path,
+                            { cron_choice: e.target.value === 'manual' ? null : e.target.value },
+                            'trigger',
+                          )
+                        }
+                        className="h-7 rounded border border-slate-200 bg-white px-1 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                      >
+                        {triggerChoices.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">If</dt>
+                    <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">
+                      {w.phrase?.condition ?? (condition ? `${condition.measure ?? ''} ${condition.operator ?? ''} ${condition.threshold ?? '—'}` : 'always')}
+                      {/* the model tie-back in BUSINESS words — served resolutions */}
+                      {condition?.chart_title && (
+                        <span className="ml-1.5 text-xs text-slate-500 dark:text-slate-400">
+                          reads « {condition.chart_title} » from the report
+                        </span>
+                      )}
+                      {!condition?.chart_title && condition?.entity_name && (
+                        <span className="ml-1.5 text-xs text-slate-500 dark:text-slate-400" title={condition.entity_description}>
+                          watches « {condition.entity_name} »
+                        </span>
+                      )}
+                    </dd>
+                    {condition && ep.condition && (
+                      <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                        <select
+                          value={staged(ep.condition, condition)?.operator ?? condition.operator ?? '<'}
+                          aria-label="Condition operator"
+                          onChange={(e) =>
+                            stage(ep.condition, { ...staged(ep.condition, condition), operator: e.target.value }, 'operator')
+                          }
+                          className="h-7 rounded border border-slate-200 bg-white px-1 text-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                        >
+                          {['<', '<=', '>', '>=', '==', '!='].map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          value={String(staged(ep.condition, condition)?.threshold ?? '')}
+                          placeholder="threshold"
+                          aria-label="Condition threshold"
+                          onChange={(e) =>
+                            stage(
+                              ep.condition,
+                              { ...staged(ep.condition, condition), threshold: e.target.value === '' ? null : Number(e.target.value) },
+                              'threshold',
+                            )
+                          }
+                          className="h-7 w-24 rounded border border-slate-200 bg-white px-1.5 text-xs tabular-nums dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                        />
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <dt className="w-16 shrink-0 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Then</dt>
+                    <dd className="min-w-0 flex-1 text-slate-700 dark:text-slate-200">
+                      {w.phrase?.action ?? '—'} → {w.phrase?.destination ?? '—'}
+                      {w.phrase?.expected_result && (
+                        <span className="text-slate-400 dark:text-slate-500"> — {w.phrase.expected_result}</span>
+                      )}
+                    </dd>
+                    {windowDef && ep.window && (
+                      <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                        window
+                        <input
+                          type="number"
+                          min={1}
+                          value={String(staged(ep.window, windowDef)?.days ?? '')}
+                          aria-label="Window in days"
+                          onChange={(e) =>
+                            stage(ep.window, { ...staged(ep.window, windowDef), days: Number(e.target.value) || 1 }, 'window')
+                          }
+                          className="h-7 w-16 rounded border border-slate-200 bg-white px-1.5 text-xs tabular-nums dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                        />
+                        day(s)
+                      </span>
+                    )}
+                  </div>
+                </dl>
+                {(() => {
+                  const missing = [
+                    ...(w.prerequisites?.data?.missing ?? []),
+                    ...(w.prerequisites?.destination?.missing ?? []),
+                  ];
+                  if (missing.length === 0) return null;
+                  return (
+                    <ul className="mt-2 space-y-1 border-t border-slate-100 pt-2 dark:border-slate-800">
+                      {missing.map((m, i) => (
+                        <li key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                          <span className="text-amber-700 dark:text-amber-400">{m.what}</span>
+                          <span className="text-slate-400 dark:text-slate-500">{m.why}</span>
+                          <MissingDecision draftId={draftId} m={m} onDone={onChanged} />
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
+                {w.schedule && (
+                  <p className="mt-2 border-t border-slate-100 pt-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                    Schedule: {(w.schedule as { active?: boolean }).active ? 'running' : 'not active'}
+                    {(w.schedule as { note?: string }).note ? ` — ${(w.schedule as { note?: string }).note}` : ''}
+                    {onOpenActivation && !(w.schedule as { active?: boolean }).active && (
+                      <>
+                        {' '}
+                        <button type="button" onClick={onOpenActivation} className="text-accent-700 hover:underline dark:text-accent-400">
+                          open the activation panel
+                        </button>
+                      </>
+                    )}
+                  </p>
+                )}
+
+                {/* Deliver by e-mail — FOLDED by default: a reader who doesn't
+                    want e-mail isn't shown a setup card under every workflow, and
+                    the capability is read only when they open it (the same
+                    never-on-mount discipline as the filter values). A workflow
+                    that already has e-mail configured opens expanded. */}
+                <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+                  {emailOpen ? (
+                    <StudioEmailAlertPanel
+                      draftId={draftId}
+                      automationId={aid}
+                      initialEmail={w.email}
+                      onConfigured={onChanged}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setEmailOpen(true)}
+                      className="inline-flex items-center gap-1.5 text-[13px] text-accent-700 hover:underline dark:text-accent-400"
+                    >
+                      <Mail aria-hidden className="h-4 w-4" />
+                      {w.email?.configured ? 'E-mail delivery — configured · edit' : 'Deliver by e-mail…'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* the NL lane — same definition, previewed ops, never silent */}
+              <div className="rounded-lg border border-accent-200 p-3 dark:border-accent-900/50">
+                <label className="flex items-center gap-2">
+                  <Sparkles aria-hidden className="h-4 w-4 shrink-0 text-accent-500" />
+                  <input
+                    value={aiText}
+                    onChange={(e) => setAiText(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && void runAi()}
+                    placeholder="Describe the change — e.g. « alert when stock cover drops under 5 days, weekly »"
+                    aria-label="Describe the workflow change"
+                    className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 text-[13px] text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  />
+                  <button
+                    type="button"
+                    disabled={aiState.kind === 'running' || !aiText.trim()}
+                    onClick={() => void runAi()}
+                    className="shrink-0 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+                  >
+                    {aiState.kind === 'running' ? 'Thinking…' : 'Propose'}
+                  </button>
+                </label>
+                {aiState.kind === 'preview' && (
+                  <div className="mt-2 text-[13px]" role="status">
+                    <p className="text-slate-700 dark:text-slate-200">
+                      {aiState.summary ?? 'The AI proposes these allowlisted changes:'}
+                    </p>
+                    {/* lead with the business change, not the JSON pointer; the raw
+                        ops stay one click away for anyone who wants them */}
+                    <ul className="mt-1 space-y-0.5">
+                      {aiState.ops.map((op, i) => (
+                        <li key={i} className="text-xs text-slate-600 dark:text-slate-300">
+                          {humanOp(op as { op?: string; path?: string })}
+                        </li>
+                      ))}
+                    </ul>
+                    {aiState.ops.length > 0 && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-500 dark:hover:text-slate-300">
+                          What changes, technically
+                        </summary>
+                        <ul className="mt-1 space-y-0.5">
+                          {aiState.ops.map((op, i) => (
+                            <li key={i} className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                              {(op as { op?: string }).op} {(op as { path?: string }).path}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={busy != null}
+                        onClick={() => void applyAi()}
+                        className="rounded-lg bg-accent-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-700 disabled:opacity-50"
+                      >
+                        Apply
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAiState({ kind: 'idle' })}
+                        className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400"
+                      >
+                        Discard
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {aiState.kind === 'questions' && (
+                  <div className="mt-2 text-[13px]" role="status">
+                    <p className="text-slate-700 dark:text-slate-200">The AI needs your word first:</p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-slate-600 dark:text-slate-300">
+                      {aiState.questions.slice(0, 4).map((q) => (
+                        <li key={q}>{q}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {/* simulate + test on the row of truth */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy != null}
+                  onClick={() =>
+                    void act('preview', async () => setPreview(await previewWorkflow(draftId, aid)))
+                  }
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-600 hover:border-slate-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                >
+                  {busy === 'preview' && <RefreshCw aria-hidden className="h-3 w-3 animate-spin" />}
+                  Simulate on history
+                </button>
+                <button
+                  type="button"
+                  disabled={busy != null || w.activable?.ok === false}
+                  title={w.activable?.ok === false ? (w.activable?.reason ?? 'blocked by a decision') : 'Sandbox delivery with proofs'}
+                  onClick={() =>
+                    void act('test', async () => {
+                      setTestRun(await testRunWorkflowSafe(draftId, aid));
+                      onChanged();
+                    })
+                  }
+                  className="inline-flex items-center gap-1 rounded-lg bg-accent-600 px-2.5 py-1 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"
+                >
+                  {busy === 'test' ? <RefreshCw aria-hidden className="h-3 w-3 animate-spin" /> : <Play aria-hidden className="h-3 w-3" />}
+                  Test-run (sandbox)
+                </button>
+                {/* a dead button explains NOTHING — when the test is gated, SAY
+                    why right here and door to the decision that unblocks it */}
+                {w.activable?.ok === false && (
+                  <span className="inline-flex flex-wrap items-center gap-1.5 rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" role="status">
+                    {(() => {
+                      const nMissing =
+                        (w.prerequisites?.data?.missing?.length ?? 0) +
+                        (w.prerequisites?.destination?.missing?.length ?? 0);
+                      return nMissing > 0
+                        ? `testing is blocked by ${nMissing} decision${nMissing === 1 ? '' : 's'}`
+                        : (w.activable?.reason ?? 'testing is blocked');
+                    })()}
+                    {(w.prerequisites?.data?.missing?.length ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelStep(-1)}
+                        className="rounded font-medium underline decoration-dotted hover:text-amber-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:hover:text-amber-100"
+                      >
+                        decide it on the trigger
+                      </button>
+                    )}
+                  </span>
+                )}
+                {w.state !== 'stopped' && (
+                  <button
+                    type="button"
+                    disabled={busy != null}
+                    onClick={() =>
+                      void act('stop', async () => {
+                        await stopWorkflow(draftId, aid, 'stopped from the editor');
+                        onChanged();
+                      })
+                    }
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[13px] text-slate-600 hover:border-slate-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                  >
+                    <Square aria-hidden className="h-3 w-3" />
+                    Stop
+                  </button>
+                )}
+              </div>
+              {preview && (
+                <p className="text-[13px] text-slate-600 dark:text-slate-300" role="status">
+                  {preview.status === 'not_computable'
+                    ? `Not computable yet — ${(preview.missing ?? []).map((m) => m.what).join('; ')}. No query ran.`
+                    : `${preview.count ?? '—'} expected triggering(s)${preview.deduplicated ? ` · ${preview.deduplicated} deduplicated` : ''} · no side effects.`}
+                </p>
+              )}
+              {testRun && (
+                <p className="text-[13px] text-slate-600 dark:text-slate-300" role="status">
+                  Delivered {testRun.results?.delivered_new ?? '—'} (before {testRun.results?.deliveries_before ?? '—'} → after {testRun.results?.deliveries_after ?? '—'}) ·{' '}
+                  <span className="font-mono text-xs">{testRun.evidence?.deliveries_table}</span>
+                  {testRun.evidence?.is_test_data ? ' · test data' : ''}
+                </p>
+              )}
+              {/* the deduced NEXT step at the success moment — a green test on an
+                  inactive schedule would otherwise end in silence, and the chain
+                  propose → review → test → activate stalls right where it worked */}
+              {testRun && onOpenActivation && !(w.schedule as { active?: boolean } | undefined)?.active && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  The test delivered — this workflow&rsquo;s schedule starts once the application is
+                  activated.{' '}
+                  <button
+                    type="button"
+                    onClick={onOpenActivation}
+                    className="text-accent-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-accent-400"
+                  >
+                    Open the activation panel
+                  </button>
+                </p>
+              )}
+            </div>
+                )}
                 {steps.map((s0, i) => {
                   // the rail IS the inspector now: one step at a time
-                  if (i !== (selStep ?? 0)) return null;
+                  if (i !== (selStep ?? -1)) return null;
                   const path = ep.steps?.[i];
                   const stagedStep = staged(path, s0);
                   const cfg = (stagedStep?.config ?? {}) as Record<string, unknown>;
