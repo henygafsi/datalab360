@@ -2610,6 +2610,8 @@ export async function removeWorkflowStep(
  *  reports what is still unresolved (missing). `ready` gates materialisation. */
 export interface ComposeTurn {
   thread_id?: string;
+  /** per-CONVERSATION meter: the first turn costs one, continuations are free */
+  quota?: { used?: number; limit?: number; remaining?: number; per?: string; note?: string };
   reply?: string;
   questions?: Array<{ field?: string; text?: string; choices?: string[] }>;
   missing?: Array<{ field?: string; why?: string; choices?: string[] }>;
@@ -2632,7 +2634,14 @@ export async function deleteWorkflow(draftId: string, automationId: string): Pro
 
 export async function composeWorkflow(
   draftId: string,
-  body: { message: string; thread_id?: string; draft_workflow?: Record<string, unknown> | null },
+  body: {
+    message: string;
+    thread_id?: string;
+    draft_workflow?: Record<string, unknown> | null;
+    /** the conversation so far — the backend keeps no server-side thread, so
+     *  the client carries the memory. Omitting it makes every turn amnesic. */
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  },
 ): Promise<ComposeTurn> {
   // the local model answers in ~30s — past the client proxy's cut, so direct
   return (await studioPostDirect<ComposeTurn>(

@@ -55,10 +55,16 @@ export default function StudioWorkflowCompose({
     setBusy('thinking');
     setError(null);
     try {
+      // the backend holds no thread: the conversation travels with the call
+      const history = turns.map((x) => ({
+        role: (x.who === 'you' ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: x.text,
+      }));
       const r = await composeWorkflow(draftId, {
         message: msg,
         thread_id: state?.thread_id,
         draft_workflow: state?.draft_workflow ?? null,
+        history,
       });
       setState(r);
       if (r.reply) setTurns((t) => [...t, { who: 'ai', text: r.reply! }]);
@@ -98,6 +104,14 @@ export default function StudioWorkflowCompose({
         The assistant knows this application's tables, columns and KPIs. It asks for what it needs
         instead of guessing — nothing is created until you say so.
       </p>
+      {state?.quota && (
+        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+          {typeof state.quota.remaining === 'number'
+            ? `${state.quota.remaining} conversation(s) left on this application`
+            : `${state.quota.used ?? '—'} / ${state.quota.limit ?? '—'} conversations used`}
+          {turns.length > 0 && ' · continuing this one is free'}
+        </p>
+      )}
 
       {/* the conversation */}
       {turns.length > 0 && (
