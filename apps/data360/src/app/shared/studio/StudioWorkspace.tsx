@@ -57,7 +57,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import StudioOverviewBrief from '@/app/shared/studio/StudioOverviewBrief';
-import StudioWorkflowsPanel from '@/app/shared/studio/StudioWorkflowsPanel';
+import StudioAutomationCockpit from '@/app/shared/studio/StudioAutomationCockpit';
 import StudioDetectionsPanel from '@/app/shared/studio/StudioDetectionsPanel';
 import StudioKnowledgeHeader from '@/app/shared/studio/StudioKnowledgeHeader';
 import StudioAccessProfilesPanel from '@/app/shared/studio/StudioAccessProfilesPanel';
@@ -1684,7 +1684,7 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
 
           {/* ── AUTOMATION · workflows + the detection registry ────────── */}
           {tab === 'workflows' && draftId && (
-            <StudioWorkflowsPanel
+            <StudioAutomationCockpit
               draftId={draftId}
               onOpenActivation={openActivation}
               onOpenAccess={() => setTab('governance')}

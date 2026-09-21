@@ -571,6 +571,7 @@ export default function StudioWorkflowEditor({
   workflow,
   triggerChoices,
   onClose,
+  embedded,
   onChanged,
   onOpenActivation,
   onOpenAccess,
@@ -579,6 +580,10 @@ export default function StudioWorkflowEditor({
   workflow: WorkflowItem;
   triggerChoices: string[];
   onClose: () => void;
+  /** rendered inside the automation cockpit, which already shows the name,
+   *  the state and the way out — so the editor drops that duplicated chrome
+   *  and keeps only what edits: the name field and Save. */
+  embedded?: boolean;
   onChanged: () => void;
   onOpenActivation?: () => void;
   /** an audience names a WHO — this opens the Access tab that defines it */
@@ -828,15 +833,17 @@ export default function StudioWorkflowEditor({
         ) : (
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{w.name ?? aid}</h3>
         )}
-        <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-          {w.state ?? 'proposed'}
-        </span>
+        {!embedded && (
+          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            {w.state ?? 'proposed'}
+          </span>
+        )}
         {w.job_id && (
           <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400" title="One definition — its trigger IS the job's trigger">
             job {w.job_id}
           </span>
         )}
-        {w.definition_version?.revision != null && (
+        {!embedded && w.definition_version?.revision != null && (
           <span className="text-xs text-slate-400 dark:text-slate-500">rev {w.definition_version.revision}</span>
         )}
         <span className="ml-auto flex items-center gap-2">
@@ -850,14 +857,16 @@ export default function StudioWorkflowEditor({
               {busy === 'save' ? 'Saving…' : `Save ${Object.keys(buffer).length} change(s)`}
             </button>
           )}
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Close the workflow editor"
-            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400 dark:hover:bg-slate-800"
-          >
-            <X aria-hidden className="h-4 w-4" />
-          </button>
+          {!embedded && (
+            <button
+              type="button"
+              onClick={close}
+              aria-label="Close the workflow editor"
+              className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:text-slate-400 dark:hover:bg-slate-800"
+            >
+              <X aria-hidden className="h-4 w-4" />
+            </button>
+          )}
         </span>
       </div>
 
