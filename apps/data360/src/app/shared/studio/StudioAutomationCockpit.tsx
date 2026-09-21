@@ -296,6 +296,30 @@ export default function StudioAutomationCockpit({
   return (
     <div className="space-y-3">
       {/* ══ the state of automation, in five served figures ══════════ */}
+      {/* the page says what it is, and how to start one — unmissable */}
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-accent-50/60 px-4 py-3 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:to-accent-950/30">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[17px] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+            Automations
+          </h2>
+          <p className="mt-0.5 text-[12.5px] text-slate-600 dark:text-slate-300">
+            What this application does on its own — watch a condition, deliver a report, keep the
+            data loaded. Describe one and the assistant builds it with you.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setCreateOpen(true);
+            setSelected(null);
+          }}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-accent-600 px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm shadow-accent-600/25 hover:bg-accent-700"
+        >
+          <Plus aria-hidden className="h-4 w-4" />
+          Create an automation
+        </button>
+      </div>
+
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
         {KPIS.map((k) => (
           <div
@@ -332,9 +356,11 @@ export default function StudioAutomationCockpit({
             </p>
             <button
               type="button"
-              onClick={() => setCreateOpen((o) => !o)}
-              aria-expanded={createOpen}
-              className="inline-flex items-center gap-1 rounded-lg bg-accent-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-accent-700"
+              onClick={() => {
+                setCreateOpen(true);
+                setSelected(null);
+              }}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:border-accent-300 hover:text-accent-700 dark:border-slate-700 dark:text-slate-300"
             >
               <Plus aria-hidden className="h-3 w-3" />
               New
@@ -350,44 +376,6 @@ export default function StudioAutomationCockpit({
               className="w-full rounded-lg border border-slate-200 bg-white py-1 pl-7 pr-2 text-xs dark:border-slate-700 dark:bg-slate-900"
             />
           </div>
-
-          {createOpen && (
-            <div className="mt-2 rounded-xl border border-accent-200 bg-accent-50/60 p-2.5 dark:border-accent-800 dark:bg-accent-950/30">
-              <p className="text-[12px] font-medium text-slate-800 dark:text-slate-100">
-                Create automations for this application
-              </p>
-              <StudioWorkflowCompose
-                draftId={draftId}
-                onCreated={(aid) => {
-                  void load().then(() => {
-                    if (aid) setSelected(aid);
-                    setCreateOpen(false);
-                  });
-                }}
-              />
-              <p className="mt-2 border-t border-accent-200/70 pt-2 text-[11.5px] leading-snug text-slate-600 dark:border-accent-800 dark:text-slate-300">
-                Or let it read the whole application — its model, objective, decisions and jobs —
-                and propose the automations that follow.
-              </p>
-              <button
-                type="button"
-                disabled={proposing}
-                onClick={() => void proposeMore()}
-                className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent-600 px-2.5 py-1.5 text-[12px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"
-              >
-                {proposing ? (
-                  <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Sparkles aria-hidden className="h-3.5 w-3.5" />
-                )}
-                {proposing ? 'Reading the application…' : 'Propose automations'}
-              </button>
-              <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                To shape one precisely, open it and use « describe the change » — the AI edits that
-                automation from your words.
-              </p>
-            </div>
-          )}
 
           <div className="mt-2 max-h-[520px] space-y-3 overflow-y-auto pr-0.5">
             {groups.map((g) => {
@@ -467,9 +455,87 @@ export default function StudioAutomationCockpit({
 
         {/* ══ RIGHT — the selected automation, as a sentence then a form ══ */}
         <section className="min-w-0 space-y-3">
-          {!sel ? (
+          {createOpen ? (
+            /* ══ ONBOARDING — the two honest ways to make one ═══════════ */
+            <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex flex-wrap items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                    Create an automation
+                  </h3>
+                  <p className="mt-0.5 text-[12.5px] text-slate-600 dark:text-slate-300">
+                    Nothing runs while you build. An automation only starts once the application is
+                    activated, and an administrator authorises the credits.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(false)}
+                  className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-[12px] text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:text-slate-300"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {/* ① describe it — the assistant asks for what it needs */}
+                <div>
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-accent-600 text-[10px] text-white">
+                      1
+                    </span>
+                    Describe what should happen
+                  </p>
+                  <StudioWorkflowCompose
+                    draftId={draftId}
+                    onCreated={(aid) => {
+                      void load().then(() => {
+                        if (aid) setSelected(aid);
+                        setCreateOpen(false);
+                      });
+                    }}
+                  />
+                </div>
+
+                {/* ② let it read the application */}
+                <div>
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-400 text-[10px] text-white">
+                      2
+                    </span>
+                    Or let it read the whole application
+                  </p>
+                  <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-800/30">
+                    <p className="text-[12px] leading-snug text-slate-600 dark:text-slate-300">
+                      The assistant reads the model, the objective, the decisions already taken and
+                      the jobs, and proposes the automations that follow from them — alerts on the
+                      data it knows, the periodic report, the load schedules. Each arrives
+                      « proposed » for you to review and test.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={proposing}
+                      onClick={() => void proposeMore()}
+                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent-600 px-3 py-2 text-[12.5px] font-medium text-accent-700 hover:bg-accent-50 disabled:opacity-50 dark:text-accent-300 dark:hover:bg-accent-950/40"
+                    >
+                      {proposing ? (
+                        <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles aria-hidden className="h-3.5 w-3.5" />
+                      )}
+                      {proposing ? 'Reading the application…' : 'Propose automations'}
+                    </button>
+                    <p className="mt-2 text-[11.5px] text-slate-500 dark:text-slate-400">
+                      Once one exists, open it: the flow is editable block by block, testable in a
+                      sandbox for free, and its runs are kept in its history.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : !sel ? (
             <p className="rounded-2xl border border-slate-200/80 bg-white py-12 text-center text-[13px] text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-              Pick an automation on the left to read what it does.
+              Pick an automation on the left, or create one.
             </p>
           ) : (
             <>
