@@ -40,12 +40,28 @@ export default function StudioWorkflowCompose({
   const [state, setState] = useState<ComposeTurn | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /** a served choice is either a plain value or an object carrying its id and
+   *  a human title — show the title, answer with the id */
+  const choiceOf = (c: unknown): { label: string; value: string } => {
+    if (c && typeof c === 'object') {
+      const o = c as Record<string, unknown>;
+      const value = String(o.chart_id ?? o.id ?? o.value ?? o.name ?? '');
+      return { label: String(o.title ?? o.label ?? value), value };
+    }
+    return { label: String(c), value: String(c) };
+  };
+
   const draft = (state?.draft_workflow ?? null) as Record<string, unknown> | null;
+  const draftHasShape = Boolean(
+    draft && ((draft.phrase as Record<string, string> | undefined)?.event || (draft.steps as unknown[])?.length),
+  );
   const phrase = (draft?.phrase ?? {}) as Record<string, string>;
   const steps = (draft?.steps ?? []) as Array<Record<string, unknown>>;
   const questions = state?.questions ?? [];
   const missing = state?.missing ?? [];
-  const ready = Boolean(state?.ready);
+  /* the validated truth is `missing`: when the backend has nothing left
+     unresolved, the draft materialises — the assistant may still be chatting. */
+  const ready = Boolean(state?.ready) || Boolean(draftHasShape && (state?.missing?.length ?? 0) === 0);
 
   const say = async (message: string) => {
     const msg = message.trim();
@@ -139,17 +155,20 @@ export default function StudioWorkflowCompose({
               <p className="text-[11.5px] font-medium text-slate-700 dark:text-slate-200">{q.text}</p>
               {(q.choices?.length ?? 0) > 0 && (
                 <div className="mt-1 flex flex-wrap gap-1">
-                  {q.choices!.slice(0, 8).map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      disabled={busy != null}
-                      onClick={() => void say(c)}
-                      className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:border-accent-300 hover:text-accent-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
-                    >
-                      {c}
-                    </button>
-                  ))}
+                  {q.choices!.slice(0, 8).map((c, ci) => {
+                    const { label, value } = choiceOf(c);
+                    return (
+                      <button
+                        key={`${value}-${ci}`}
+                        type="button"
+                        disabled={busy != null}
+                        onClick={() => void say(`${q.field ?? ''} is ${value}`.trim())}
+                        className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:border-accent-300 hover:text-accent-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -166,6 +185,24 @@ export default function StudioWorkflowCompose({
               className="rounded-lg bg-amber-50 px-2 py-1 text-[11px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
             >
               {m.why ?? m.field}
+              {(m.choices?.length ?? 0) > 0 && (
+                <span className="mt-1 flex flex-wrap gap-1">
+                  {m.choices!.slice(0, 8).map((c, ci) => {
+                    const { label, value } = choiceOf(c);
+                    return (
+                      <button
+                        key={`${value}-${ci}`}
+                        type="button"
+                        disabled={busy != null}
+                        onClick={() => void say(`${m.field ?? ''} is ${value}`.trim())}
+                        className="rounded-full bg-white px-2 py-0.5 text-[11px] text-amber-800 hover:text-accent-700 disabled:opacity-50 dark:bg-slate-900 dark:text-amber-200"
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </span>
+              )}
             </li>
           ))}
         </ul>
@@ -248,7 +285,7 @@ export default function StudioWorkflowCompose({
           ) : (
             <Check aria-hidden className="h-3.5 w-3.5" />
           )}
-          Create this automation
+          {state?.ready ? 'Create this automation' : 'Create it — nothing is unresolved'}
         </button>
       )}
     </div>
