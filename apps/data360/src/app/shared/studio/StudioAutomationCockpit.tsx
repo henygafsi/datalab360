@@ -31,10 +31,12 @@ import {
   Search,
   Send,
   Sparkles,
+  Plus,
   Workflow as WorkflowIcon,
   Zap,
 } from 'lucide-react';
 import { getWorkflows, type WorkflowItem } from '@/app/services/studio/studio-api';
+import { getActivation } from '@/app/services/studio/activation';
 import StudioWorkflowEditor from '@/app/shared/studio/StudioWorkflowEditor';
 
 type LucideIcon = typeof Bell;
@@ -167,6 +169,12 @@ export default function StudioAutomationCockpit({
   const [selected, setSelected] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [proposing, setProposing] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  /** what putting these automations live would cost — served, never derived */
+  const [est, setEst] = useState<{
+    lines?: Array<{ label?: string; credits?: number; gate?: string; why?: string }>;
+    funding?: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -182,6 +190,24 @@ export default function StudioAutomationCockpit({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /* the production cost is part of the page: a schedule only runs once the
+     application is activated, and that spends credits */
+  useEffect(() => {
+    let alive = true;
+    void getActivation(draftId)
+      .then((a) => {
+        if (!alive) return;
+        const e = (a as { estimate?: { lines?: Array<{ label?: string; credits?: number; gate?: string; why?: string }> } })
+          .estimate;
+        const f = (a as { funding?: { status?: string } }).funding?.status;
+        setEst({ lines: e?.lines, funding: f });
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [draftId]);
 
   const proposeMore = async () => {
     setProposing(true);
@@ -305,16 +331,12 @@ export default function StudioAutomationCockpit({
             </p>
             <button
               type="button"
-              disabled={proposing}
-              onClick={() => void proposeMore()}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:border-slate-300 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+              onClick={() => setCreateOpen((o) => !o)}
+              aria-expanded={createOpen}
+              className="inline-flex items-center gap-1 rounded-lg bg-accent-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-accent-700"
             >
-              {proposing ? (
-                <RefreshCw aria-hidden className="h-3 w-3 animate-spin" />
-              ) : (
-                <Sparkles aria-hidden className="h-3 w-3" />
-              )}
-              Propose more
+              <Plus aria-hidden className="h-3 w-3" />
+              New
             </button>
           </div>
           <div className="relative mt-2">
@@ -327,6 +349,37 @@ export default function StudioAutomationCockpit({
               className="w-full rounded-lg border border-slate-200 bg-white py-1 pl-7 pr-2 text-xs dark:border-slate-700 dark:bg-slate-900"
             />
           </div>
+
+          {createOpen && (
+            <div className="mt-2 rounded-xl border border-accent-200 bg-accent-50/60 p-2.5 dark:border-accent-800 dark:bg-accent-950/30">
+              <p className="text-[12px] font-medium text-slate-800 dark:text-slate-100">
+                Create automations for this application
+              </p>
+              <p className="mt-0.5 text-[11.5px] leading-snug text-slate-600 dark:text-slate-300">
+                The AI reads this application — its model, its objective, the decisions already
+                taken and its jobs — and proposes the automations that follow from it. Each one
+                arrives « proposed »: you review it, test it in the sandbox, and nothing runs until
+                the application is activated.
+              </p>
+              <button
+                type="button"
+                disabled={proposing}
+                onClick={() => void proposeMore()}
+                className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent-600 px-2.5 py-1.5 text-[12px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"
+              >
+                {proposing ? (
+                  <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles aria-hidden className="h-3.5 w-3.5" />
+                )}
+                {proposing ? 'Reading the application…' : 'Propose automations'}
+              </button>
+              <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                To shape one precisely, open it and use « describe the change » — the AI edits that
+                automation from your words.
+              </p>
+            </div>
+          )}
 
           <div className="mt-2 max-h-[520px] space-y-3 overflow-y-auto pr-0.5">
             {groups.map((g) => {
@@ -508,6 +561,37 @@ export default function StudioAutomationCockpit({
           )}
         </section>
       </div>
+
+      {/* ══ putting them live — what it costs, and who may authorise it ══ */}
+      {(est?.lines?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-slate-200/80 bg-white px-3.5 py-2.5 text-[12.5px] shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <span className="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-200">
+            <Zap aria-hidden className="h-3.5 w-3.5 text-brand-500" />
+            Putting these live
+          </span>
+          <span className="text-slate-500 dark:text-slate-400">
+            {est!.lines!.reduce((sum, l) => sum + (l.credits ?? 0), 0)} credit(s) —{' '}
+            {est!
+              .lines!.map((l) => `${l.label ?? 'step'} ${l.credits ?? 0}`)
+              .join(' · ')}
+          </span>
+          {est?.funding === 'authorisation_by_accountadmin' && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              an administrator authorises the spend
+            </span>
+          )}
+          {onOpenActivation && (
+            <button
+              type="button"
+              onClick={onOpenActivation}
+              className="ml-auto inline-flex items-center gap-1 text-accent-700 hover:underline dark:text-accent-400"
+            >
+              Review &amp; activate
+              <ChevronRight aria-hidden className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

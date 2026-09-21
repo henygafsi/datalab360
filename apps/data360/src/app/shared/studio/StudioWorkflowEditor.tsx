@@ -472,14 +472,53 @@ function BlockCategory({
           <ul className="grid grid-cols-1 gap-1">
             {shown.map((b) => (
               <li key={b.block_type}>
-                <button
-                  type="button"
-                  onClick={() => onPick(b)}
-                  title={b.description || b.label || b.block_type}
-                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-1 text-left text-xs hover:border-accent-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 dark:border-slate-700 dark:hover:border-slate-600"
-                >
-                  <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">{b.label ?? b.block_type}</span>
-                </button>
+                {(() => {
+                  const st = b.availability?.status ?? 'unknown';
+                  const addable = (b.editable_in?.workflows?.length ?? 0) > 0;
+                  const dot =
+                    st === 'available'
+                      ? 'bg-emerald-500'
+                      : st === 'to_configure'
+                        ? 'bg-amber-500'
+                        : st === 'partial'
+                          ? 'bg-sky-500'
+                          : 'bg-slate-300 dark:bg-slate-600';
+                  const why =
+                    st === 'not_integrated'
+                      ? 'not integrated in this backend'
+                      : st === 'to_configure'
+                        ? 'needs configuration before it can run'
+                        : st === 'partial'
+                          ? 'partially supported'
+                          : addable
+                            ? 'ready to add as a step'
+                            : 'available, but not offered as a workflow step here';
+                  return (
+                    <button
+                      type="button"
+                      disabled={!addable}
+                      onClick={() => onPick(b)}
+                      title={`${b.description || b.label || b.block_type} — ${why}${
+                        b.availability?.evidence ? ` (${b.availability.evidence})` : ''
+                      }`}
+                      className={`flex w-full items-center gap-2 rounded-lg border px-2 py-1 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
+                        addable
+                          ? 'border-slate-200 hover:border-accent-300 dark:border-slate-700 dark:hover:border-slate-600'
+                          : 'cursor-not-allowed border-slate-100 opacity-60 dark:border-slate-800'
+                      }`}
+                    >
+                      <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                      <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">
+                        {b.label ?? b.block_type}
+                      </span>
+                      {!addable && (
+                        <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">
+                          {st === 'not_integrated' ? 'not integrated' : st === 'to_configure' ? 'to configure' : 'n/a here'}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })()}
               </li>
             ))}
           </ul>
@@ -512,13 +551,10 @@ function BlockCategory({
 
 function BlockPalette({ catalog, onPick }: { catalog: CatalogBlock[]; onPick: (b: CatalogBlock) => void }) {
   const [query, setQuery] = useState('');
-  const usable = useMemo(
-    () =>
-      catalog.filter(
-        (b) => (b.editable_in?.workflows?.length ?? 0) > 0 || b.availability?.status === 'available',
-      ),
-    [catalog],
-  );
+  /* every block shows — hiding the ones that need configuring made the
+     catalogue look half-empty and left the user guessing. Each carries its
+     served status instead, and only the truly unusable ones are inert. */
+  const usable = catalog;
   const byFamily = useMemo(() => {
     const map = new Map<string, CatalogBlock[]>();
     for (const b of usable) {
@@ -783,10 +819,25 @@ export default function StudioWorkflowEditor({
   const staged = <T,>(path: string | undefined, current: T): T =>
     path && buffer[path] ? ((buffer[path] as { value?: unknown }).value as T) : current;
 
+  /* the STEPS ARRAY path — the only path an « add a step » may write to.
+   * The backend currently exposes each step's `config` sub-object and nothing
+   * else, so this resolves to null and every add affordance disables itself
+   * with the reason. It must never fall back to a config path: writing an
+   * array there would overwrite that step's parameters. */
   const stepsBasePath = useMemo(() => {
-    const p = ep.steps?.[0];
-    return p ? p.replace(/\/\d+$/, '') : null;
+    /* adding is possible only if the backend actually declares the steps
+       ARRAY as editable. Today it serves each step's `config` instead, so
+       this stays null and the add affordances disable themselves — deriving
+       the array path anyway would just produce a patch the validator
+       refuses (EDIT_PATH_NOT_ALLOWED), or worse overwrite a step's config. */
+    const arrayPath = (ep.steps ?? []).find((x) => /\/steps$/.test(x));
+    return arrayPath ?? null;
   }, [ep.steps]);
+  /** why adding is unavailable, said once and shown where the user tries */
+  const addStepsNote =
+    stepsBasePath == null
+      ? 'Adding a step is not available on this workflow yet — the definition exposes each step’s parameters, not the list of steps.'
+      : null;
 
   /* the canvas — the SAME definition as block components (legacy-builder
      style): backend positions when the graph carries them, a simple flow
@@ -939,7 +990,12 @@ export default function StudioWorkflowEditor({
                 <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
                   Blocks
                 </p>
-                {stepsBasePath && Array.isArray(catalog) ? (
+                {addStepsNote && (
+                  <p className="mb-1.5 rounded-lg bg-amber-50 px-2 py-1 text-[11px] leading-snug text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                    {addStepsNote}
+                  </p>
+                )}
+                {Array.isArray(catalog) ? (
                   <BlockPalette
                     catalog={catalog}
                     onPick={(b) => {
@@ -948,9 +1004,7 @@ export default function StudioWorkflowEditor({
                     }}
                   />
                 ) : (
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                    {stepsBasePath ? 'Reading the block catalogue…' : 'This workflow does not accept new blocks.'}
-                  </p>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">Reading the block catalogue…</p>
                 )}
               </div>
               <div className="h-[340px] rounded-xl border border-slate-200 bg-slate-50/40 dark:border-slate-800 dark:bg-slate-900/40">
