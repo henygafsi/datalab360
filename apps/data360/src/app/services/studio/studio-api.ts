@@ -2569,6 +2569,80 @@ export interface WorkflowTestRun {
   proofs?: Array<Record<string, unknown>>;
 }
 
+/** A block as the catalogue now serves it: whether it can become a workflow
+ *  step, and the REASON when it cannot — never inferred FE-side. */
+export interface WorkflowStepAdd {
+  block_type: string;
+  config?: Record<string, unknown>;
+  after_step_id?: string | null;
+  position?: number | null;
+}
+
+/** POST …/workflows/{id}/steps — validates the block and its config, inserts,
+ *  and returns the re-served workflow so the canvas redraws from the graph. */
+export async function addWorkflowStep(
+  draftId: string,
+  automationId: string,
+  body: WorkflowStepAdd,
+): Promise<Record<string, unknown>> {
+  return (await studioPostDirect<Record<string, unknown>>(
+    `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(automationId)}/steps`,
+    body,
+    120_000,
+  ))!;
+}
+
+export async function removeWorkflowStep(
+  draftId: string,
+  automationId: string,
+  stepId: string,
+): Promise<Record<string, unknown>> {
+  return studioMutate<Record<string, unknown>>(
+    'DELETE',
+    `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(automationId)}/steps/${encodeURIComponent(stepId)}`,
+    undefined,
+    120_000,
+  );
+}
+
+/** One turn of the build-by-talking conversation. The model ASKS (questions)
+ *  rather than inventing; the backend re-validates every column it returns and
+ *  reports what is still unresolved (missing). `ready` gates materialisation. */
+export interface ComposeTurn {
+  thread_id?: string;
+  reply?: string;
+  questions?: Array<{ field?: string; text?: string; choices?: string[] }>;
+  missing?: Array<{ field?: string; why?: string; choices?: string[] }>;
+  draft_workflow?: Record<string, unknown> | null;
+  ready?: boolean;
+  ai?: { status?: string; model?: string; provider?: string };
+  [k: string]: unknown;
+}
+
+export async function composeWorkflow(
+  draftId: string,
+  body: { message: string; thread_id?: string; draft_workflow?: Record<string, unknown> | null },
+): Promise<ComposeTurn> {
+  // the local model answers in ~30s — past the client proxy's cut, so direct
+  return (await studioPostDirect<ComposeTurn>(
+    `/studio/drafts/${encodeURIComponent(draftId)}/workflows/compose`,
+    body,
+    300_000,
+  ))!;
+}
+
+/** Materialise a ready draft into a real automation. */
+export async function createWorkflowFromDraft(
+  draftId: string,
+  draftWorkflow: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return (await studioPostDirect<Record<string, unknown>>(
+    `/studio/drafts/${encodeURIComponent(draftId)}/workflows`,
+    { draft_workflow: draftWorkflow },
+    180_000,
+  ))!;
+}
+
 export async function getWorkflows(
   draftId: string,
   propose = false,

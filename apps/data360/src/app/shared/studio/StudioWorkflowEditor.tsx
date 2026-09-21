@@ -49,6 +49,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  addWorkflowStep,
   editModel,
   getBlocksCatalog,
   getWorkflowRuns,
@@ -474,7 +475,15 @@ function BlockCategory({
               <li key={b.block_type}>
                 {(() => {
                   const st = b.availability?.status ?? 'unknown';
-                  const addable = (b.editable_in?.workflows?.length ?? 0) > 0;
+                  /* the catalogue now says whether a block can be a step, and
+                     why not — served, never inferred */
+                  const bb = b as CatalogBlock & {
+                    addable_to_workflows?: boolean;
+                    reason?: string;
+                    required_config?: string[];
+                  };
+                  const addable =
+                    bb.addable_to_workflows ?? (b.editable_in?.workflows?.length ?? 0) > 0;
                   const dot =
                     st === 'available'
                       ? 'bg-emerald-500'
@@ -484,15 +493,10 @@ function BlockCategory({
                           ? 'bg-sky-500'
                           : 'bg-slate-300 dark:bg-slate-600';
                   const why =
-                    st === 'not_integrated'
-                      ? 'not integrated in this backend'
-                      : st === 'to_configure'
-                        ? 'needs configuration before it can run'
-                        : st === 'partial'
-                          ? 'partially supported'
-                          : addable
-                            ? 'ready to add as a step'
-                            : 'available, but not offered as a workflow step here';
+                    bb.reason ??
+                    (addable
+                      ? `ready to add${(bb.required_config?.length ?? 0) > 0 ? ` — needs ${bb.required_config!.join(', ')}` : ''}`
+                      : 'not offered as a workflow step here');
                   return (
                     <button
                       type="button"
@@ -511,10 +515,12 @@ function BlockCategory({
                       <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">
                         {b.label ?? b.block_type}
                       </span>
-                      {!addable && (
+                      {!addable ? (
                         <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">
-                          {st === 'not_integrated' ? 'not integrated' : st === 'to_configure' ? 'to configure' : 'n/a here'}
+                          {st === 'not_integrated' ? 'not integrated' : st === 'to_configure' ? 'to configure' : 'n/a'}
                         </span>
+                      ) : (
+                        <span className="shrink-0 text-[10px] text-accent-600 dark:text-accent-400">add</span>
                       )}
                     </button>
                   );
@@ -763,6 +769,34 @@ export default function StudioWorkflowEditor({
     }
   }, [aiState, aiText, aid, busy, draftId, onChanged]);
 
+  /** add a catalogue block as a step — the backend validates the block and
+   *  its config, inserts it, and re-serves the workflow so the canvas and the
+   *  inspector redraw from the graph it returns. */
+  const addBlockStep = useCallback(
+    async (b: CatalogBlock, config: Record<string, unknown>) => {
+      setBusy('save');
+      setError(null);
+      try {
+        await addWorkflowStep(draftId, aid, { block_type: b.block_type, config });
+        setPickedBlock(null);
+        setBlockCfg({});
+        setPaletteOpen(false);
+        onChanged();
+      } catch (e) {
+        const detail = (e as { response?: { data?: { detail?: { message?: string } } } })?.response?.data
+          ?.detail;
+        setError(
+          detail?.message ??
+            (e instanceof Error ? e.message : `« ${b.label ?? b.block_type} » could not be added.`),
+        );
+      } finally {
+        setBusy(null);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [draftId, aid, onChanged],
+  );
+
   const openPalette = useCallback(() => {
     setPaletteOpen(true);
     if (catalog == null) {
@@ -833,11 +867,9 @@ export default function StudioWorkflowEditor({
     const arrayPath = (ep.steps ?? []).find((x) => /\/steps$/.test(x));
     return arrayPath ?? null;
   }, [ep.steps]);
-  /** why adding is unavailable, said once and shown where the user tries */
-  const addStepsNote =
-    stepsBasePath == null
-      ? 'Adding a step is not available on this workflow yet — the definition exposes each step’s parameters, not the list of steps.'
-      : null;
+  /** adding now goes through POST …/workflows/{id}/steps, which validates the
+   *  block and its config server-side — it no longer depends on a patch path. */
+  const addStepsNote: string | null = null;
 
   /* the canvas — the SAME definition as block components (legacy-builder
      style): backend positions when the graph carries them, a simple flow
@@ -999,8 +1031,15 @@ export default function StudioWorkflowEditor({
                   <BlockPalette
                     catalog={catalog}
                     onPick={(b) => {
-                      setPickedBlock(b);
-                      setPaletteOpen(true);
+                      const req =
+                        (b as CatalogBlock & { required_config?: string[] }).required_config ?? [];
+                      if (req.length > 0) {
+                        // it needs parameters: open the little form, do not guess
+                        setPickedBlock(b);
+                        setPaletteOpen(true);
+                        return;
+                      }
+                      void addBlockStep(b, {});
                     }}
                   />
                 ) : (

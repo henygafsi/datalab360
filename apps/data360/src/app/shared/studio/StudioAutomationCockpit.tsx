@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { getWorkflows, type WorkflowItem } from '@/app/services/studio/studio-api';
 import { getActivation } from '@/app/services/studio/activation';
+import StudioWorkflowCompose from '@/app/shared/studio/StudioWorkflowCompose';
 import StudioWorkflowEditor from '@/app/shared/studio/StudioWorkflowEditor';
 
 type LucideIcon = typeof Bell;
@@ -355,11 +356,18 @@ export default function StudioAutomationCockpit({
               <p className="text-[12px] font-medium text-slate-800 dark:text-slate-100">
                 Create automations for this application
               </p>
-              <p className="mt-0.5 text-[11.5px] leading-snug text-slate-600 dark:text-slate-300">
-                The AI reads this application — its model, its objective, the decisions already
-                taken and its jobs — and proposes the automations that follow from it. Each one
-                arrives « proposed »: you review it, test it in the sandbox, and nothing runs until
-                the application is activated.
+              <StudioWorkflowCompose
+                draftId={draftId}
+                onCreated={(aid) => {
+                  void load().then(() => {
+                    if (aid) setSelected(aid);
+                    setCreateOpen(false);
+                  });
+                }}
+              />
+              <p className="mt-2 border-t border-accent-200/70 pt-2 text-[11.5px] leading-snug text-slate-600 dark:border-accent-800 dark:text-slate-300">
+                Or let it read the whole application — its model, objective, decisions and jobs —
+                and propose the automations that follow.
               </p>
               <button
                 type="button"
