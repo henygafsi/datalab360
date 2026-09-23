@@ -5,7 +5,7 @@ import { env } from '@/env.mjs';
 import { pagesOptions } from './pages-options';
 import { login, LoginData, LoginResponse } from '@/app/services/auth/login';
 
-// Snowflake token typically expires in 1 hour, but we'll use a conservative 55 minutes
+// the access token is short-lived; we refresh conservatively at 55 minutes
 const SNOWFLAKE_TOKEN_LIFETIME_MS = 1144 * 60 * 1000;
 
 export const authOptions: NextAuthOptions = {
@@ -15,7 +15,7 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: 'jwt',
-    // Session max age should match or be less than Snowflake token lifetime
+    // the session must not outlive the access token it carries
     // We use 8 hours as a reasonable session length with token refresh handling
     maxAge: 8 * 60 * 60, // 8 hours
   },
@@ -123,7 +123,11 @@ export const authOptions: NextAuthOptions = {
         };
 
         try {
-          // Call the FastAPI backend for Snowflake authentication
+          // The backend verifies the credentials against the application's own
+          // user directory (a bcrypt verifier, never a password) and returns the
+          // session token. The warehouse is reached only by the service account,
+          // which assumes the caller's role — the user never holds a warehouse
+          // session of their own.
           const response: LoginResponse = await login(loginData);
 
           // Validate response has required fields
