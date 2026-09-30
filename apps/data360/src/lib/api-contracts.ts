@@ -118,9 +118,13 @@ export const API = {
     // --- Stage files (preview / download / grants) ---
     /** GET /connect/stages/{stage}/grants */
     stageGrants: (stage: string) => `/connect/stages/${enc(stage)}/grants`,
-    /** GET /connect/stages/{stage}/files/{file_path}/preview */
-    previewStageFile: (stage: string, filePath: string) =>
-      `/connect/stages/${enc(stage)}/files/${enc(filePath)}/preview`,
+    /** GET /connect/stages/{stage}/files/{file_path}/preview — first rows of a staged
+     *  file, before anything is created. `limit` maxes at 1000 (backend-enforced). */
+    previewStageFile: (
+      stage: string,
+      filePath: string,
+      params?: { limit?: number; offset?: number; format?: 'json' | 'csv' }
+    ) => `/connect/stages/${enc(stage)}/files/${enc(filePath)}/preview${qs(params)}`,
     /** GET /connect/stages/{stage}/files/{file_path}/download */
     downloadStageFile: (stage: string, filePath: string) =>
       `/connect/stages/${enc(stage)}/files/${enc(filePath)}/download`,

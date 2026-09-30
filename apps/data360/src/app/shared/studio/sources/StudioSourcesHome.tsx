@@ -25,6 +25,7 @@ import ConnectionsPanel from '@/app/shared/studio/sources/ConnectionsPanel';
 import StudioLakeMap from '@/app/shared/studio/sources/StudioLakeMap';
 import ObjectsPanel from '@/app/shared/studio/sources/ObjectsPanel';
 import StudioScanOptionsPanel from '@/app/shared/studio/sources/StudioScanOptionsPanel';
+import ReferenceTableUpload from '@/app/shared/studio/sources/ReferenceTableUpload';
 import StudioSourceOnboarding from '@/app/shared/studio/StudioSourceOnboarding';
 import { routes } from '@/config/routes';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
@@ -189,6 +190,23 @@ export default function StudioSourcesHome() {
             setRefreshToken((n) => n + 1);
           }}
         />
+        )}
+
+        {/* Reference data usually starts as a spreadsheet. Without a way to
+            bring one IN, the user had to leave the product to get it into the
+            warehouse — so the objects view offers it next to the tables it
+            will sit beside. Creating one invalidates the source caches so the
+            new table shows up in the list straight away. */}
+        {view === 'objects' && (
+          <div className="mt-3">
+            <ReferenceTableUpload
+              defaultDatabase="DATA360_LITE"
+              onCreated={() => {
+                invalidateSourcesCaches();
+                setRefreshToken((n) => n + 1);
+              }}
+            />
+          </div>
         )}
 
         {/* every way of scanning the estate, PRICED — the cost is the
