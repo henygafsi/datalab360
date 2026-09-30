@@ -105,3 +105,10 @@ e2e/*artifacts*/
 e2e/ao-shots*/
 e2e/night-audit-artifacts/
 /_*.mjs
+
+# Playwright run artifacts — e2e/results.zip reached 191 MB and was rejected by
+# GitHub (100 MB hard limit) on every push, which read as an SSH/permissions
+# problem for two sessions. Test output is regenerated, never reviewed in a diff,
+# and must not enter history again.
+e2e/results.zip
+e2e/**/*.zip
