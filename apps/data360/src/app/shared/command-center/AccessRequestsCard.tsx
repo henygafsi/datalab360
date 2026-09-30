@@ -25,6 +25,7 @@ import {
   approveRequest,
   denyRequest,
   type AccessRequest,
+  type AccessRequestsListResponse,
 } from '@/app/services/access-requests';
 
 const ADMIN_ROLES = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'];
@@ -66,9 +67,18 @@ export default function AccessRequestsCard() {
     setStatus('ok');
     try {
       // KPI: admin = inbox count (pending queue); non-admin = my submissions count
-      const kpiFetch = isAdmin ? getInbox() : getMyRequests();
       // Table: admin = /all (last 10); non-admin = /mine (last 10)
-      const tableFetch = isAdmin ? getAllRequests() : getMyRequests();
+      // Non-admin KPI and table both read /mine — fetch it ONCE and share the promise.
+      let kpiFetch: Promise<AccessRequestsListResponse>;
+      let tableFetch: Promise<AccessRequestsListResponse>;
+      if (isAdmin) {
+        kpiFetch = getInbox();
+        tableFetch = getAllRequests();
+      } else {
+        const mine = getMyRequests();
+        kpiFetch = mine;
+        tableFetch = mine;
+      }
 
       const [kpiRes, tableRes] = await Promise.all([kpiFetch, tableFetch]);
       setKpiCount(kpiRes.count ?? (kpiRes.requests?.length ?? null));

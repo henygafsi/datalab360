@@ -11,6 +11,7 @@
 
 import apiClient from '@/lib/api-client';
 import { dedupGet, invalidateDedup } from '@/app/services/request-dedup';
+import { resolveWhenReady } from '@/app/shared/command-center/lib/meta';
 import type {
   // Dashboard
   DashboardOverviewResponse,
@@ -550,8 +551,11 @@ export async function getAccountLoginHistory(accountName: string, days = 7): Pro
  * Query metrics (requires premium views).
  */
 export async function getQueries(days = 7): Promise<QueriesResponse> {
-  const { data } = await cachedGet<QueriesResponse>(`${BASE_URL}/queries?days=${days}`);
-  return data;
+  // B2: served in "prepare" mode — bounded wait so self-fetching cards
+  // (QueryVolumeCard) get data instead of a transient envelope.
+  return resolveWhenReady(
+    async () => (await cachedGet<QueriesResponse>(`${BASE_URL}/queries?days=${days}`)).data,
+  );
 }
 
 /**
@@ -582,11 +586,34 @@ export async function getDataTransfer(days = 30): Promise<DataTransferResponse> 
 // =============================================================================
 
 /**
+ * Remaining balance is ACCOUNTADMIN-gated backend-side: a 403 governance
+ * denial is an EXPECTED state for other roles, not a failure — callers get a
+ * typed `{ restricted: true }` and render "Reserved for ACCOUNTADMIN" instead
+ * of an error banner. Any other error still throws.
+ */
+export type BalanceRestricted = { restricted: true; reason?: string };
+
+export function isBalanceRestricted(
+  b: BalanceResponse | BalanceRestricted | null | undefined,
+): b is BalanceRestricted {
+  return !!b && (b as BalanceRestricted).restricted === true;
+}
+
+/**
  * Remaining credit balance.
  */
-export async function getBalance(): Promise<BalanceResponse> {
-  const { data } = await cachedGet<BalanceResponse>(`${BASE_URL}/organization/remaining-balance`);
-  return data;
+export async function getBalance(): Promise<BalanceResponse | BalanceRestricted> {
+  try {
+    const { data } = await cachedGet<BalanceResponse>(`${BASE_URL}/organization/remaining-balance`);
+    return data;
+  } catch (e) {
+    // apiClient maps every 403 to AuthorizationError (governance_denied payloads
+    // included) — for this endpoint that means "reserved for ACCOUNTADMIN".
+    if (e instanceof Error && e.name === 'AuthorizationError') {
+      return { restricted: true, reason: e.message };
+    }
+    throw e;
+  }
 }
 
 /**
@@ -713,15 +740,29 @@ export interface CreateResourceMonitorResponse {
 /**
  * Create a resource monitor.
  * POST /org-accounts/resource-monitors { name, credit_quota, frequency, suspend_at_pct }.
- *
- * NOTE: there is NO backend DELETE endpoint for resource monitors yet, so the
- * UI exposes create only — no drop control is rendered.
  */
 export async function createResourceMonitor(
   request: CreateResourceMonitorRequest,
 ): Promise<CreateResourceMonitorResponse> {
   const { data } = await apiClient.post<CreateResourceMonitorResponse>(
     `${BASE_URL}/resource-monitors`, request, { timeout: 180_000 }
+  );
+  invalidateOrgAccountsCache();
+  return data;
+}
+
+/**
+ * Drop a resource monitor (DROP RESOURCE MONITOR — orgadmin-gated server-side,
+ * audited, 404 when absent). Removing a monitor removes a SPEND GUARD: the UI
+ * must confirm explicitly before calling this.
+ * DELETE /org-accounts/resource-monitors/{name} (crud_router.py:809).
+ */
+export async function deleteResourceMonitor(
+  name: string,
+): Promise<{ success: boolean; name: string; message?: string }> {
+  const { data } = await apiClient.delete<{ success: boolean; name: string; message?: string }>(
+    `${BASE_URL}/resource-monitors/${encodeURIComponent(name)}`,
+    { timeout: 180_000 },
   );
   invalidateOrgAccountsCache();
   return data;

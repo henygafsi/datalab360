@@ -20,6 +20,29 @@ export const routes = {
     /** Sources | Products | All cataloging sub-page (?tab= synced; no mindmap). */
     catalog: '/explore-design/catalog',
   },
+  /**
+   * Data360 Lite Studio — selection-based onboarding from the domain-pack
+   * catalog ("What do you want to understand or automate?"). Standard
+   * authenticated route, no admin gate.
+   */
+  studio: '/studio',
+  /** Studio sub-pages — own page.tsx each (per-tab-routes rule, no Suspense panels). */
+  studioSettings: '/studio/settings',
+  studioGov: '/studio/gov',
+  /** Minimalist source onboarding (connector grid → pick data → source KPIs
+   *  without raw access → understand & quality). */
+  studioSource: '/studio/source',
+  /** Full-screen model view (?draft= picks the application). */
+  studioModel: '/studio/model',
+  /** Legacy workspace URL — redirects to /studio/apps/[id]. */
+  studioWorkspace: '/studio/workspace',
+  /** Guided application creation (industry → focus → journey). */
+  studioNew: '/studio/new',
+  /** THE application workspace — reports by default, ?view=model|data|
+   *  workflows|access|knowledge switches the surface. */
+  studioApp: (id: string) => `/studio/apps/${encodeURIComponent(id)}`,
+  /** Consolidated Studio administration (applications + registry + cost). */
+  studioAdmin: '/studio/admin',
   workflow:{
     ViewWorkflow: '/workflow'
   },

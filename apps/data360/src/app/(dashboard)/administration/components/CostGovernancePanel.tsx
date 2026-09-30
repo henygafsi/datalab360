@@ -66,6 +66,7 @@ import ResourceMonitorCreateRail from '@/app/shared/org-accounts/ResourceMonitor
 import {
   getCredits,
   getBalance,
+  isBalanceRestricted,
   getTopConsumers,
   getAnomalies,
   getCreditForecast,
@@ -240,6 +241,8 @@ export default function CostGovernancePanel() {
   const [totalCredits, setTotalCredits] = useState<number | null>(null);
   const [balanceRemaining, setBalanceRemaining] = useState<number | null>(null);
   const [balanceCurrency, setBalanceCurrency] = useState<string>('');
+  // 403 governance_denied on remaining-balance → an expected role gate, not an error.
+  const [balanceRestricted, setBalanceRestricted] = useState(false);
   const [topConsumer, setTopConsumer] = useState<string | null>(null);
   const [creditsLoading, setCreditsLoading] = useState(true);
   const [creditsError, setCreditsError] = useState<string | null>(null);
@@ -300,12 +303,19 @@ export default function CostGovernancePanel() {
         setAccounts(Array.isArray(credits.accounts) ? credits.accounts : []);
         setTotalCredits(typeof credits.total_credits === 'number' ? credits.total_credits : null);
         if (balance) {
-          setBalanceRemaining(
-            typeof balance.free_credits_remaining === 'number'
-              ? balance.free_credits_remaining
-              : null,
-          );
-          setBalanceCurrency(balance.currency || '');
+          if (isBalanceRestricted(balance)) {
+            setBalanceRestricted(true);
+            setBalanceRemaining(null);
+            setBalanceCurrency('');
+          } else {
+            setBalanceRestricted(false);
+            setBalanceRemaining(
+              typeof balance.free_credits_remaining === 'number'
+                ? balance.free_credits_remaining
+                : null,
+            );
+            setBalanceCurrency(balance.currency || '');
+          }
         }
         const t = top?.top_consumers?.[0];
         setTopConsumer(t ? t.account_name : null);
@@ -563,7 +573,7 @@ export default function CostGovernancePanel() {
                 ? `${formatCredits(balanceRemaining)}${balanceCurrency ? ` ${balanceCurrency}` : ''}`
                 : '—'
             }
-            sub="Contract capacity headroom"
+            sub={balanceRestricted ? 'Reserved for ACCOUNTADMIN' : 'Contract capacity headroom'}
             loading={creditsLoading}
           />
           <KpiCard

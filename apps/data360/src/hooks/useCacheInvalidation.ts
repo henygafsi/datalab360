@@ -408,6 +408,15 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
           // Already handled by resetHeartbeatTimer below
           break;
       }
+      // Relay the raw payload for consumers beyond cache keys (e.g. the
+      // studio's automation_simulation progress events ride this stream as
+      // affected_entities.event). Window-scoped so the singleton stays the
+      // only SSE connection.
+      try {
+        window.dispatchEvent(new CustomEvent('d360-sse', { detail: parsed }));
+      } catch {
+        /* never let a listener break the stream */
+      }
       // Any event (data or heartbeat) keeps the connection alive.
       void sawComment; // satisfy lint about unused
       resetHeartbeatTimer();

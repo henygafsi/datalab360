@@ -265,6 +265,9 @@ function SSEIndicator({ isConnected, error }: { isConnected: boolean; error: str
   }
 
   const tone: 'green' | 'red' = isConnected ? 'green' : 'red';
+  // healthy is the normal state — permanent animated chrome for it is noise;
+  // the pill only appears when something is actually wrong
+  if (tone === 'green') return null;
   const palette = {
     green: {
       pill: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800',

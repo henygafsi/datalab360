@@ -1,0 +1,23 @@
+import { chromium } from '@playwright/test';
+const [ACCOUNT, USER, PASS] = [process.env.D360_ACCOUNT, process.env.D360_USER, process.env.D360_PASS];
+const APP = process.env.APP || 'proj_5799ad5ee397';
+const b = await chromium.launch();
+const ctx = await b.newContext({ viewport: { width: 1500, height: 950 } });
+const p = await ctx.newPage();
+p.on('pageerror', e => console.log('PAGEERROR:', e.message, '\n  stack:', String(e.stack).split('\n').slice(0,6).join('\n  ')));
+p.on('console', m => { if (m.type() === 'error') console.log('CONSOLE:', m.text().slice(0, 300)); });
+p.on('requestfailed', r => console.log('REQFAIL:', r.url().slice(0,140), r.failure()?.errorText));
+p.on('response', async r => { if (r.status() >= 400 && /_next|api-proxy/.test(r.url())) console.log('HTTP', r.status(), r.url().slice(0,140)); });
+await p.goto('http://localhost:3000/signin', { waitUntil: 'domcontentloaded' });
+await p.locator('input[name="account_name"], input#account_name').first().fill(ACCOUNT);
+await p.locator('input[name="username"], input#username').first().fill(USER);
+await p.locator('input[type="password"]').first().fill(PASS);
+await p.locator('button[type="submit"]').first().click();
+for (let i = 0; i < 90; i++) { const s = await p.request.get('http://localhost:3000/api/auth/session').then(r=>r.json()).catch(()=>null); if (s?.user?.access_token) break; await p.waitForTimeout(1000); }
+console.log('--- logged in, opening sources view ---');
+await p.goto(`http://localhost:3000/studio/apps/${APP}?view=sources`, { waitUntil: 'domcontentloaded' });
+await p.waitForTimeout(9000);
+const txt = await p.evaluate(() => document.body?.innerText?.length ?? -1);
+console.log('body innerText length:', txt);
+console.log('html head:', (await p.content()).slice(0, 300).replace(/\n/g, ' '));
+await b.close();

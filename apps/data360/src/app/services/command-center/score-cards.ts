@@ -20,6 +20,7 @@
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { dedupGet } from '@/app/services/request-dedup';
+import { resolveWhenReady } from '@/app/shared/command-center/lib/meta';
 
 const PREFIX = '/command-center';
 
@@ -210,11 +211,15 @@ async function fetchKpiDimension(
   dimension: KpiDimension,
   days?: number,
 ): Promise<KpiDimensionResponse> {
-  const { data } = await apiClient.get<KpiDimensionResponse>(
-    `${PREFIX}/kpis/${dimension}`,
-    { params: days != null ? { days } : undefined },
-  );
-  return data;
+  // B2 "prepare" mode on /kpis/{dim}: bounded wait so the Quality tab (a
+  // self-fetching component) receives data, not a transient envelope.
+  return resolveWhenReady(async () => {
+    const { data } = await apiClient.get<KpiDimensionResponse>(
+      `${PREFIX}/kpis/${dimension}`,
+      { params: days != null ? { days } : undefined },
+    );
+    return data;
+  });
 }
 
 async function fetchRecommendations(

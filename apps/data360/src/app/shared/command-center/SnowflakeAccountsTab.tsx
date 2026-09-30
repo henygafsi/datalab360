@@ -53,6 +53,7 @@ import {
   getSummary,
   getTableStorage,
   getRoleHierarchy,
+  isPreparing,
 } from '@/app/services/command-center';
 import type { SummaryResponse } from '@/app/services/command-center/types';
 import { InsightActionButton } from '@/app/shared/insights';
@@ -894,7 +895,7 @@ function HomeAccountFallback({ orgAdmin }: { orgAdmin: boolean | null }) {
     ])
       .then(([s, st, rh]) => {
         if (!active) return;
-        setSummary(s);
+        setSummary(isPreparing(s) ? null : s);
         setStorage((st?.data ?? []) as Row[]);
         setRoles((rh?.data ?? []) as Row[]);
       })

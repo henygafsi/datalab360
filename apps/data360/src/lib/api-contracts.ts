@@ -118,9 +118,13 @@ export const API = {
     // --- Stage files (preview / download / grants) ---
     /** GET /connect/stages/{stage}/grants */
     stageGrants: (stage: string) => `/connect/stages/${enc(stage)}/grants`,
-    /** GET /connect/stages/{stage}/files/{file_path}/preview */
-    previewStageFile: (stage: string, filePath: string) =>
-      `/connect/stages/${enc(stage)}/files/${enc(filePath)}/preview`,
+    /** GET /connect/stages/{stage}/files/{file_path}/preview — first rows of a staged
+     *  file, before anything is created. `limit` maxes at 1000 (backend-enforced). */
+    previewStageFile: (
+      stage: string,
+      filePath: string,
+      params?: { limit?: number; offset?: number; format?: 'json' | 'csv' }
+    ) => `/connect/stages/${enc(stage)}/files/${enc(filePath)}/preview${qs(params)}`,
     /** GET /connect/stages/{stage}/files/{file_path}/download */
     downloadStageFile: (stage: string, filePath: string) =>
       `/connect/stages/${enc(stage)}/files/${enc(filePath)}/download`,
@@ -887,8 +891,10 @@ export const API = {
     warehouseAutoSuspend: (name: string)                => `/org-accounts/warehouses/${enc(name)}/auto-suspend`,
     /** POST /org-accounts/warehouses/{name}/suspend — ALTER WAREHOUSE SUSPEND. */
     warehouseSuspend:     (name: string)                => `/org-accounts/warehouses/${enc(name)}/suspend`,
-    /** GET/POST /org-accounts/resource-monitors — list / create a resource monitor (no DELETE route). */
+    /** GET/POST /org-accounts/resource-monitors — list / create a resource monitor. */
     resourceMonitors:     ()                            => '/org-accounts/resource-monitors',
+    /** DELETE /org-accounts/resource-monitors/{name} — DROP RESOURCE MONITOR (crud_router.py:809; contract desync fixed 2026-09-06). */
+    resourceMonitorDelete: (name: string)               => `/org-accounts/resource-monitors/${enc(name)}`,
   },
 
   /** Admin — backend: /admin/* (platform-level admin endpoints, admin-role only). */
@@ -1257,6 +1263,597 @@ export const API = {
   },
 
   /**
+   * Studio — Data360 Lite app-builder catalogs.
+   * Backend: /api/platform/catalogs/* (platform catalog routes, live on :8078).
+   */
+  studio: {
+    /** GET /api/platform/catalogs/domain-packs?domain_id= — domain-pack catalog:
+     *  packs (entities+grain, metric templates, sample prompts, sources) +
+     *  gates.free_sample (what is free before credits). Contract rules:
+     *  metric_templates[].requires_decision=true ⇒ ASK the user, never infer;
+     *  sample_datasets[].status='missing' ⇒ do not offer that sample. */
+    domainPacks: (domainId?: string) =>
+      `/api/platform/catalogs/domain-packs${qs({ domain_id: domainId })}`,
+    /** GET /studio/domain-packs — same packs PLUS the industry taxonomy
+     *  (taxonomy.industries[].categories[] with domain_ids + hierarchy).
+     *  Merged into the catalog by getDomainPacks until the platform
+     *  catalogs route serves taxonomy itself. */
+    domainPacksTaxonomy: () => '/studio/domain-packs',
+    /** GET /studio/model/{draft_id}?include_ops=true — full editable model:
+     *  tables (fields, ingestion, lineage), relationships, definitions,
+     *  report{kpis,charts}, graph (React-Flow-ready), editable_paths. */
+    model: (draftId: string, includeOps = true) =>
+      `/studio/model/${encodeURIComponent(draftId)}${includeOps ? '?include_ops=true' : ''}`,
+    /** POST — manual structured edit {ops[{op,path,value}], apply, summary?}:
+     *  apply:false previews (applied/dependencies/validation/can_apply),
+     *  apply:true writes a new draft version (report_id kept). 422
+     *  EDIT_PATH_NOT_ALLOWED / EDIT_INVALID ⇒ nothing applied. */
+    modelPatch: (draftId: string) => `/studio/model/${encodeURIComponent(draftId)}/patch`,
+    /** GET — one table's ingestion + lineage, lazily (role cache 15 min);
+     *  404 TABLE_NOT_IN_MODEL when the fqn is not part of the model. */
+    modelTableOps: (draftId: string, fqn: string) =>
+      `/studio/model/${encodeURIComponent(draftId)}/tables/${encodeURIComponent(fqn)}/ops`,
+    /** POST — NL edit {instruction, model?, apply:false} → AI-built patch,
+     *  same preview envelope; status previewed|applied|clarification_needed
+     *  |ai_unavailable (manual editing stays possible). */
+    modelEdit: (draftId: string) => `/studio/model/${encodeURIComponent(draftId)}/edit`,
+    /** POST /studio/access/plan {draft_id, who[{type,name}], actions?,
+     *  objects?, restrictions?} — structured access proposal (never executes). */
+    accessPlan: () => '/studio/access/plan',
+    /** GET /studio/activation/{draft_id} — credit-activation status of one
+     *  draft (requested/decided by whom, when). */
+    activation: (draftId: string) => `/studio/activation/${encodeURIComponent(draftId)}`,
+    /** GET — append-only AI-intervention journal (auto-fed by understand,
+     *  report/generate, model patch/edit, access/plan, …): kind, prompt+pack
+     *  versions, model/provider/mode, run_id, validation, decision, cost. */
+    registryInterventions: (p?: { draftId?: string; kind?: string; limit?: number }) =>
+      `/studio/registry/interventions${qs({ draft_id: p?.draftId, kind: p?.kind, limit: p?.limit })}`,
+    /** GET — evolving enrichment directory (field_role | relationship |
+     *  definition | metric_template | glossary_term | display_hint | dq_rule
+     *  | etl_block_hint | prompt_hint), status proposed|confirmed|rejected.
+     *  Confirmed items are re-injected into prompts as KNOWN CONTEXT. */
+    registryEnrichments: (p?: {
+      draftId?: string;
+      kind?: string;
+      status?: string;
+      scopeKey?: string;
+    }) =>
+      `/studio/registry/enrichments${qs({
+        draft_id: p?.draftId, kind: p?.kind, status: p?.status, scope_key: p?.scopeKey,
+      })}`,
+    /** POST {status, value?} — the USER's decision on one enrichment;
+     *  confirmed ⇒ also pushed to the business glossary. */
+    enrichmentDecision: (id: string) =>
+      `/studio/registry/enrichments/${encodeURIComponent(id)}/decision`,
+    /** POST {draft_id?, understanding?, freshness_max_age_hours?} — the DQ
+     *  gate: rule checks (row_count, not_null keys, …) with verdicts,
+     *  evidence, blockers and an overall gate. */
+    dqGate: () => '/studio/validate-model-sample',
+    /** POST {draft_id?, report?, understanding?, need?} — AI-proposed
+     *  automations for one application; 422 REPORT_REQUIRED before the
+     *  report exists. */
+    automationPropose: () => '/studio/automation/propose',
+    /** GET — the caller's free-preview envelope: ai_calls_per_hour/draft,
+     *  objects_per_draft {used, limit}, credits_charged. */
+    previewUsage: () => '/studio/preview-policy/usage',
+    /** POST {draft_id?, specs[≤40], global_filters, dry_run} — every tile of
+     *  a report in ONE call: results[] per tile (errors isolated), count/ok/
+     *  failed/duration_ms; dry_run ⇒ estimate{partitions, bytes} per tile
+     *  (source EXPLAIN, state 'unavailable' when unknown — never money). */
+    reportRunBatch: () => '/studio/report/run-batch',
+    /** GET /studio/drafts/{id}?include=summary → counts + context +
+     *  activation + cost + usage (no heavy bodies); include=report → the
+     *  FULL chart specs without understanding/automation. */
+    draftWithInclude: (draftId: string, include: 'summary' | 'report') =>
+      `/studio/drafts/${encodeURIComponent(draftId)}?include=${include}`,
+    /** DELETE /studio/drafts/{id} — one draft. Bulk purge:
+     *  DELETE /studio/drafts?title_prefix=&exclude=&dry_run= (dry_run
+     *  defaults TRUE; exclude protects fixtures). */
+    draftDelete: (draftId: string) => `/studio/drafts/${encodeURIComponent(draftId)}`,
+    draftsPurge: (p: { titlePrefix: string; exclude?: string; dryRun: boolean }) =>
+      `/studio/drafts${qs({ title_prefix: p.titlePrefix, exclude: p.exclude, dry_run: String(p.dryRun) })}`,
+    /** GET — one application's AI cost rollup: interventions, ai_calls,
+     *  duration_ms, credits_charged, by_kind, models, usage. */
+    registryCost: (draftId: string) => `/studio/registry/cost${qs({ draft_id: draftId })}`,
+    /** POST {need, domain_id?, candidates[{fqn}]} — need-aware relevance
+     *  ranking (high|medium|low|unrelated + reasons + preselect) so
+     *  discovery never preselects a table just because it is accessible. */
+    sourcesSuggest: () => '/studio/sources/suggest',
+    /** GET — cross-view drift report: issues[{severity, code, chart_id?,
+     *  message}] (blocking: UNKNOWN_COLUMN, DATASET_NOT_IN_MODEL,
+     *  DECISION_UNRESOLVED_BUT_AVAILABLE; warnings: FILTER_NOT_APPLICABLE,
+     *  REPORT_STALE, NO_SOURCES). */
+    consistency: (draftId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/consistency`,
+    /* ── C-2: workflows per application (ONE definition with jobs) ──── */
+    /** GET — auto-derives when empty; ?propose=true re-derives merging.
+     *  items[] carry phrase{event,condition,action,destination,expected_
+     *  result}, prerequisites{data,destination} with missing[] (decision
+     *  hand-offs), honest activable{ok,reason}, trigger + trigger_path
+     *  (patching a linked item's trigger is REWRITTEN to its job — one
+     *  definition), steps[] canonical + graph derived on read. */
+    workflows: (draftId: string, propose = false) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows${propose ? '?propose=true' : ''}`,
+    workflow: (draftId: string, aid: string, verify = false) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}${verify ? '?verify=true' : ''}`,
+    /** POST {window_days ≤365, limit} — bounded-history preview: expected
+     *  triggerings + dedup, side_effects all false; not_computable +
+     *  missing[] and ZERO queries when a decision is unresolved. */
+    workflowPreview: (draftId: string, aid: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}/preview`,
+    /** POST {window_days, limit, notify} — sandbox delivery with proofs:
+     *  WF_DELIVERIES MERGE (same window replays deliver 0), one in-app
+     *  notification to the CALLER only; 409 when prerequisites missing. */
+    workflowTestRun: (draftId: string, aid: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}/test-run`,
+    /** POST {reason?} — stop + verification{no_snowflake_task (real SHOW
+     *  TASKS), schedule_inactive, linked_job_trigger_manual, state}. */
+    workflowStop: (draftId: string, aid: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}/stop`,
+    /** DELETE — dismisses a never-run, non-job-linked PROPOSAL
+     *  ({status:"dismissed"}, goes to automation.removed[], never re-derived
+     *  silently); anything that ran or a job-linked schedule → 409 STOP_FIRST.
+     *  Returns post_removal verification. */
+    workflowRemove: (draftId: string, aid: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}`,
+    /** POST — restore a dismissed proposal → {status:"restored", item}
+     *  (or "not_derivable" if the model no longer produces it; 404
+     *  WORKFLOW_NOT_REMOVED if it was never removed). */
+    workflowRestore: (draftId: string, aid: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}/restore`,
+
+    /** GET — the e-mail alerting capability: engine, enrollment (integration
+     *  status + ACCOUNTADMIN enroll_sql), templates (professional | custom),
+     *  limits and governance. Metadata only, nothing is created. */
+    capabilitiesEmail: () => '/studio/capabilities/email',
+    /** POST {confirm, name?, allowed_recipients?, grant_to_role?} — enrol the
+     *  account's EMAIL integration UNDER THE CALLER'S OWN SESSION (admin-role
+     *  gated; 403 APPROVAL_REQUIRED{who} otherwise). confirm:false = dry-run
+     *  (returns the DDL); confirm:true runs CREATE … IF NOT EXISTS (idempotent
+     *  → already_enrolled). Never routed through a service identity. */
+    capabilitiesEmailEnroll: () => '/studio/capabilities/email/enroll',
+    /** PUT {integration, recipients[1..10], subject?, template, custom_html?,
+     *  include{rows_limit 0..50}} — validates + stores; sends NOTHING. 422
+     *  EMAIL_CONFIG_INVALID{errors[]} or {status, config, warnings, preview,
+     *  sql, sent:false}. */
+    workflowEmail: (draftId: string, aid: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}/email`,
+    /** POST {confirm} — confirm:false dry-run; confirm:true sends ONE
+     *  [TEST] message to the configured recipients. 409 EMAIL_NOT_CONFIGURED
+     *  before a save. */
+    workflowEmailTest: (draftId: string, aid: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/workflows/${encodeURIComponent(aid)}/email/test`,
+
+    /** POST {} — the app's GENERATED governance names (app_key, hidden
+     *  access role, ≤5 functional roles) + per-column RLS candidates with
+     *  observed values; read-only suggestion, nothing executes. */
+    rlsSuggest: (draftId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/access/rls/suggest`,
+
+    /* ── Tranche A: target model, jobs, runs, DLQ, quality ──────────── */
+    /** GET — target_schema + targets[] (states proposed…published,
+     *  columns with source|expression + rule, mapping, producer job) +
+     *  jobs[] (generated SQL, rules, trigger, runs with per-step proofs). */
+    modelTargets: (draftId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/model/targets`,
+    /** POST {} — deterministic target proposal (facts/dimensions from the
+     *  understanding + report usage); free. */
+    targetsPropose: (draftId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/targets/propose`,
+    /** POST {only_valid} — guarded SELECT preview on the sources + EXPLAIN. */
+    targetPreview: (draftId: string, targetId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/targets/${encodeURIComponent(targetId)}/preview`,
+    /** POST {target_id, column, formats[], confirmed_by_source_contract}
+     *  — 422 SOURCE_CONTRACT_REQUIRED without the explicit confirmation:
+     *  an ambiguous date needs a SOURCE definition, never an AI guess. */
+    targetDateContract: (draftId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/targets/date-contract`,
+    /** POST {} — one MERGE job per target (idempotent by key, DLQ wired). */
+    jobsPropose: (draftId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/jobs/propose`,
+    /** POST {scope:"sandbox"} — the REAL load: CREATE IF NOT EXISTS +
+     *  MERGE valid rows + quarantine rejects; run carries results[],
+     *  query_ids[] and per-step proofs[]. 207 on failure, error verbatim. */
+    jobRun: (draftId: string, jobId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/jobs/${encodeURIComponent(jobId)}/run`,
+    /** POST {record_keys[]|rule_id|status} — targeted replay of ONLY the
+     *  affected records (tranche B). */
+    jobReplay: (draftId: string, jobId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/jobs/${encodeURIComponent(jobId)}/replay`,
+    /** GET — the persistent quarantine: original VARIANT, rule, cause,
+     *  attempts, open|resolved (resolved kept for audit). */
+    dlq: (draftId: string, status?: string, groupBy?: string) => {
+      const q = [
+        status ? `status=${encodeURIComponent(status)}` : '',
+        groupBy ? `group_by=${encodeURIComponent(groupBy)}` : '',
+      ]
+        .filter(Boolean)
+        .join('&');
+      return `/studio/drafts/${encodeURIComponent(draftId)}/dlq${q ? `?${q}` : ''}`;
+    },
+    /** GET — one run with its live progress (chunks_done/total, pct, eta_s)
+     *  while the async loader executes; error_detail.blocked_by classifies
+     *  a failure (e.g. statement_timeout). */
+    jobRunStatus: (draftId: string, jobId: string, runId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/jobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(runId)}`,
+    /** GET — the PRICED scan options (2026-09-16): scope, warehouse, llm
+     *  pricing, the account credit budget, and options[] each carrying
+     *  estimated_credits + estimate_method + requires_confirmation +
+     *  launch{route, body}. A metadata read — launching an option is the
+     *  spend, always an explicit click. */
+    scanOptions: (databases: string[]) =>
+      `/studio/scan/options?databases=${encodeURIComponent(databases.join(','))}`,
+    /** GET — whole-model quality: source/target/cross_table checks,
+     *  indicators with numerator/denominator (never averaged %), anomalies
+     *  with actionable fix{kind, job_id, available}. refresh=true runs
+     *  bounded COUNTs on target+DLQ and persists the result. */
+    quality: (draftId: string, refresh = false) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/quality?refresh=${refresh}`,
+    /** GET — the read-only « data & jobs » truth of one application:
+     *  sources[{fqn, state configured|running|loaded|verified, state_reason,
+     *  freshness{watermark_field, days_since}, processing{ingestion_type,
+     *  cadence, last_run, status}, quality{checks, verdicts},
+     *  event_contract{strategy, watermark, dedup_key[], status}}],
+     *  destinations[], jobs[], existing_pipelines[], recommendation
+     *  {ingestion_needed, note} (nothing invented to look complete),
+     *  perimeter{mode, sample_rows, activation_status}, states_legend. */
+    draftData: (draftId: string, includeOps = true) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/data${includeOps ? '?include_ops=true' : ''}`,
+    /** POST {note?, force?} — snapshot the contract as the ACTIVE version;
+     *  409 PUBLISH_BLOCKED{consistency} on blocking drift. */
+    publish: (draftId: string) => `/studio/drafts/${encodeURIComponent(draftId)}/publish`,
+    /** GET — published versions of one application. */
+    versions: (draftId: string) => `/studio/drafts/${encodeURIComponent(draftId)}/versions`,
+    /** POST {decision_id, status confirmed|rejected|deferred|proposed,
+     *  value {choice}|{open_values[]}|{text}, note?} → {decision,
+     *  report_stale}. A prefilled proposal is NEVER auto-confirmed;
+     *  deferred stays unresolved and blocks only its dependents. */
+    draftDecision: (draftId: string) =>
+      `/studio/drafts/${encodeURIComponent(draftId)}/decisions`,
+
+    /* ── Sources: connections, bounded discovery, rich cards ──────────
+     * Contracted 2026-09-08 (paths previously hardcoded in studio-api.ts —
+     * identical strings, no behavioral change). */
+    /** GET /studio/sources?include_catalog= — reusable sources the caller
+     *  is entitled to (permission-filtered, never credentials). */
+    sources: (includeCatalog = false) =>
+      `/studio/sources${includeCatalog ? '?include_catalog=true' : ''}`,
+    /** GET /studio/sources/catalog — connector catalog whose integration
+     *  status is derived from the actually-mounted routes (honest). */
+    sourcesCatalog: () => '/studio/sources/catalog',
+    /** GET /studio/sources/{database}/objects?schema=&limit= — bounded
+     *  discovery of ONE authorised database → {objects[], truncated, note}. */
+    sourcesObjects: (database: string, opts?: { schema?: string; limit?: number }) =>
+      `/studio/sources/${enc(database)}/objects${qs({ schema: opts?.schema, limit: opts?.limit })}`,
+    /** GET /studio/sources/{database}/declared-keys?schemas= — declared
+     *  PK/FK per schema (SHOW only: metadata, no warehouse needed). */
+    sourcesDeclaredKeys: (database: string, schemas: string) =>
+      `/studio/sources/${enc(database)}/declared-keys${qs({ schemas })}`,
+    /** GET /studio/sources/card?fqn= — rich card of ONE connected source
+     *  WITHOUT a draft (account-scope words, health, storage cost with its
+     *  assumptions, ingestion, load history — no relations/scan blocks:
+     *  those need an application's understanding). */
+    sourcesCardGlobal: (fqn: string, opts?: { includeOps?: boolean; includeHistory?: boolean }) =>
+      `/studio/sources/card${qs({
+        fqn,
+        include_ops: opts?.includeOps ? 'true' : undefined,
+        include_history: opts?.includeHistory ? 'true' : undefined,
+      })}`,
+    /** GET /studio/drafts/{id}/sources/card?entity_id=|fqn=&include_ops&
+     *  include_history — the same card WITH the application's understanding
+     *  (relations, sample DQ, KPI candidates). */
+    sourcesCard: (
+      draftId: string,
+      opts: { entityId?: string; fqn?: string; includeOps?: boolean; includeHistory?: boolean },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/sources/card${qs({
+        entity_id: opts.entityId,
+        fqn: opts.fqn,
+        include_ops: opts.includeOps ? 'true' : undefined,
+        include_history: opts.includeHistory ? 'true' : undefined,
+      })}`,
+    /** PUT /studio/sources/metadata {fqn, draft_id?, description?,
+     *  business_terms?, notes?, columns?} — MERGE: only sent fields are
+     *  written, "" clears one; the company's words are never overwritten. */
+    sourcesMetadata: () => '/studio/sources/metadata',
+    /** POST /studio/datalake/scan — budgeted multi-database scan. */
+    datalakeScan: () => '/studio/datalake/scan',
+    /* Content-based discovery (2026-09-09, 423/423): the TRUTH of
+     * discovery — semantics inferred from sampled VALUES (names can lie
+     * or be encrypted: `opaque_encrypted` is first-class), PKs proven by
+     * uniqueness, FKs by sampled join coverage, per-column sample DQ and
+     * a fact/dimension sketch. 202 + durable progress; AI reads MASKED
+     * profiles only. */
+    /** POST {databases[≤10], draft_id?, need?, max_tables, sample_rows,
+     *  budget_s, use_ai} → 202 {scan_id, progress, poll}. */
+    scanContent: () => '/studio/sources/scan-content',
+    /** GET ?columns= — status queued|running|done|partial|failed +
+     *  result.tables[] ranked by CONTENT relevance (all truth:inferred). */
+    scanContentStatus: (scanId: string, columns = false) =>
+      `/studio/sources/scan-content/${enc(scanId)}${columns ? '?columns=true' : ''}`,
+    /** POST — stop a running scan; what was read is kept. */
+    scanContentCancel: (scanId: string) => `/studio/sources/scan-content/${enc(scanId)}/cancel`,
+    /** GET | PUT /studio/glossary?draft_id= — the business glossary
+     *  {terms[{term, meaning, synonyms?}]}; an empty meaning removes the
+     *  term; application scope wins over account scope. */
+    glossary: (draftId?: string) => `/studio/glossary${qs({ draft_id: draftId })}`,
+
+    /* REST connector builder (persisted, reusable; secrets write-only). */
+    /** GET — presets + auth/pagination types + bounds. */
+    restPresets: () => '/studio/connectors/rest/presets',
+    /** POST {config, secrets, endpoint_id?, rows?} — bounded preview,
+     *  writes nothing; a 422 refusal is a product answer. */
+    restPreview: () => '/studio/connectors/rest/preview',
+    /** GET (list saved connectors — definitions + secrets set|missing,
+     *  never values) · POST (persist one). */
+    restConnectors: () => '/studio/connectors/rest',
+    /** GET | PUT one saved connector — an empty secret on PUT means
+     *  "unchanged", never "clear". */
+    restConnector: (id: string) => `/studio/connectors/rest/${enc(id)}`,
+    /** POST {endpoint_ids?, max_rows?} — full bounded ingest. */
+    restIngest: (id: string) => `/studio/connectors/rest/${enc(id)}/ingest`,
+
+    /** GET | PUT /studio/preview-policy — the account's free-preview
+     *  envelope (ACCOUNTADMIN raises limits, with who/when/why recorded). */
+    previewPolicy: () => '/studio/preview-policy',
+
+    /* ── Access profiles (« objet profil », 2026-09-08, 414/414) —
+     * canonical draft-scoped access: ONE role {APP}_P_{PROFILE} per
+     * profile granted to {APP}_ACCESS, policies merged per (object,
+     * column), mutations shaped like the layered plan and applied through
+     * the SAME gate/history (undo by run_id). Roles say what people DO,
+     * profiles say what data they SEE. ── */
+    /** GET (list + roles + operators + grant_types + compiled) · POST
+     *  (create — validated against sources AND known columns; 422
+     *  PROFILE_INVALID names each field). */
+    accessProfiles: (draftId: string) => `/studio/drafts/${enc(draftId)}/access/profiles`,
+    /** GET | PUT {expected_version,…} (409 PROFILE_VERSION_MISMATCH; an
+     *  applied profile edited turns stale) | DELETE (409 PROFILE_IN_USE /
+     *  CONFIRM_REQUIRED — the Snowflake policies survive: undo the run). */
+    accessProfile: (draftId: string, profileId: string) =>
+      `/studio/drafts/${enc(draftId)}/access/profiles/${enc(profileId)}`,
+    /** POST — the target−current diff with the EXACT SQL and its undo. */
+    accessProfilesCompile: (draftId: string) =>
+      `/studio/drafts/${enc(draftId)}/access/profiles/compile`,
+    /** POST {mutation_ids?, confirm} — dry-run by default; confirm is
+     *  ACCOUNTADMIN-gated (403 APPROVAL_REQUIRED rendered verbatim). */
+    accessProfilesApply: (draftId: string) =>
+      `/studio/drafts/${enc(draftId)}/access/profiles/apply`,
+    /** GET ?q&limit&cursor&live — the TRUTH per principal, states read
+     *  from SHOW GRANTS OF ROLE (applied_outside / revoked_outside said). */
+    accessAssignments: (
+      draftId: string,
+      p?: { q?: string; limit?: number; cursor?: string; live?: boolean },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/access/assignments${qs({
+        q: p?.q,
+        limit: p?.limit,
+        cursor: p?.cursor,
+        live: p?.live ? 'true' : undefined,
+      })}`,
+    /** DELETE ?assignment_id=&confirm= — dry-run returns revoke_sql. */
+    accessAssignmentDelete: (
+      draftId: string,
+      p: { assignmentId: string; confirm?: boolean },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/access/assignments${qs({
+        assignment_id: p.assignmentId,
+        confirm: p.confirm ? 'true' : undefined,
+      })}`,
+    /** POST {run_id} — undo an applied access run (same shared history). */
+    accessUndo: (draftId: string) => `/studio/drafts/${enc(draftId)}/access/undo`,
+    /** GET — bounded observed values of ONE column (typeahead; sample_read
+     *  envelope consumed; NEVER called on mount). */
+    sourceValues: (
+      draftId: string,
+      p: { fqn: string; column: string; q?: string; limit?: number; cursor?: string; validate?: string },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/sources/values${qs({
+        fqn: p.fqn,
+        column: p.column,
+        q: p.q,
+        limit: p.limit,
+        cursor: p.cursor,
+        validate: p.validate,
+      })}`,
+
+    /** GET — rehydrate a STORED understanding run (free, no analysis):
+     *  {run_id, draft_id, understanding{entities, relationships, decisions,
+     *  coverage…}, sources[], need, credits_charged:0}. 404
+     *  UNDERSTANDING_RUN_NOT_FOUND when deleted or superseded (the current
+     *  run_id lives on the draft). */
+    understandRun: (runId: string) => `/studio/understand/${enc(runId)}`,
+
+    /* ── PII / GDPR classification (studio.pii.v1) — detect → confirm →
+     * mask → compliant. Name basis = a proposal (truth "proposed"), content
+     * (scan/sample) = evidence; opaque/encrypted columns are never guessed.
+     * Nothing is masked until a profile is confirmed AND applied. ── */
+    /** GET — the last persisted classification {findings[], counts, …}
+     *  (never re-runs detection). */
+    pii: (draftId: string) => `/studio/drafts/${enc(draftId)}/pii`,
+    /** GET — account policies + standards + attached{} + classification (free read). */
+    protectionCatalog: (draftId: string) => `/studio/drafts/${enc(draftId)}/protection/catalog`,
+    /** POST {columns, policy:{standard|existing|new}, unmasked_roles?, confirm?} —
+     *  dry-run by default (exact SQL + undo), confirm:true executes (ACCOUNTADMIN). */
+    protectionApply: (draftId: string) => `/studio/drafts/${enc(draftId)}/protection/apply`,
+    /** POST {use_sample?, fqns?} — classify columns (name by default; sample
+     *  adds bounded content evidence). Never on mount. */
+    piiDetect: (draftId: string) => `/studio/drafts/${enc(draftId)}/pii/detect`,
+    /** POST {fqn, column, decision:"confirm"|"reject", category?, note?}. */
+    piiDecide: (draftId: string) => `/studio/drafts/${enc(draftId)}/pii/decide`,
+    /** POST {profile_id?, profile_name?} — writes CONFIRMED columns into a
+     *  profile (mask→columns_masked, hash→columns_encrypted). 409
+     *  PII_NOTHING_CONFIRMED when none confirmed. */
+    piiApply: (draftId: string) => `/studio/drafts/${enc(draftId)}/pii/apply`,
+
+    /* ── the ApplicationContext (convergence 2026-09-08, 420/420):
+     * ONE versioned context read per application — 7 questions, truth on
+     * every artifact, server lifecycle, the Intelligence Brief, the
+     * detection registry and continuous knowledge. PROJECT_STATE stays the
+     * only store; these are its common read. ── */
+    /** GET ?view=full|overview|llm&module=&with_knowledge= — why/data/
+     *  trust/model/insight/action/control + versions{} + overview{...,
+     *  attention[], next_best_action, questions{}}; llm = the filtered
+     *  module view (≤8k chars, no SQL/rows/secrets). */
+    draftContext: (
+      draftId: string,
+      p?: { view?: 'full' | 'overview' | 'llm'; module?: string; withKnowledge?: boolean },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/context${qs({
+        view: p?.view,
+        module: p?.module,
+        with_knowledge: p?.withKnowledge ? 'true' : undefined,
+      })}`,
+    /** GET ?since= — {events, changed[], invalidated[], attached[],
+     *  detached[], latest, versions, lifecycle}. */
+    contextChanges: (draftId: string, since?: string) =>
+      `/studio/drafts/${enc(draftId)}/context/changes${qs({ since })}`,
+    /** GET — the detection registry: detectors[{signal, explain, evidence,
+     *  severity, affected, recommended_action, activation_state, truth}]. */
+    detections: (draftId: string) => `/studio/drafts/${enc(draftId)}/detections`,
+    /** POST ?confirm= — dry-run by default; only bounded reads execute
+     *  here, anything costly answers manual{do}. */
+    detectionAct: (draftId: string, detectorId: string, confirm = false) =>
+      `/studio/drafts/${enc(draftId)}/detections/${enc(detectorId)}/act${confirm ? '?confirm=true' : ''}`,
+    /** GET — continuous knowledge: counts{confirmed, proposed, rejected,
+     *  stale}, items, updated_from{...}, account_wide apart. */
+    knowledge: (draftId: string) => `/studio/drafts/${enc(draftId)}/knowledge`,
+    /** POST ?force= — explicit re-derivation (also runs in the background
+     *  after relevant writes). */
+    knowledgeSync: (draftId: string, force = false) =>
+      `/studio/drafts/${enc(draftId)}/knowledge/sync${force ? '?force=true' : ''}`,
+
+    /** GET /studio/blocks/catalog?family= — the ETL block catalogue
+     *  (config_schema[], availability, editable_in{jobs[], workflows[]})
+     *  backed by the platform's real blocks. */
+    blocksCatalog: (family?: string) => `/studio/blocks/catalog${qs({ family })}`,
+    /** GET one block's full definition. */
+    blocksCatalogItem: (blockType: string) => `/studio/blocks/catalog/${enc(blockType)}`,
+
+    /* ── Connections as first-class objects + versioned attachments ────
+     * Backend tranche SOURCES 2026-09-08 (19 routes, schema_version
+     * studio.connections.v1 / studio.source_objects.v1). One registry —
+     * legacy /connect and REST-builder rows appear in the same list with
+     * managed_by; there is no second connection manager. */
+    connections: {
+      /** GET — form schemas per type; only native adapters are `usable`
+       *  (snowflake_session, postgresql, mysql, oracle, databricks,
+       *  iceberg, rest_api); others carry capabilities.missing + note. */
+      types: () => '/studio/connections/types',
+      /** GET ?q&type&environment&sort&offset&limit&with_usage — the
+       *  Connections view; sf:session always first. */
+      list: (p?: {
+        q?: string;
+        type?: string;
+        environment?: string;
+        sort?: string;
+        offset?: number;
+        limit?: number;
+        withUsage?: boolean;
+      }) =>
+        `/studio/connections${qs({
+          q: p?.q,
+          type: p?.type,
+          environment: p?.environment,
+          sort: p?.sort,
+          offset: p?.offset,
+          limit: p?.limit,
+          with_usage: p?.withUsage ? 'true' : undefined,
+        })}`,
+      /** POST {type, name, environment, params, secrets} — nothing is
+       *  tested at creation; 422 CONNECTION_INVALID names each field. */
+      create: () => '/studio/connections',
+      /** GET — the sheet: dependencies (≤30 named + hidden counted, never
+       *  guessed), history, configured vs verified capabilities, form. */
+      detail: (id: string) => `/studio/connections/${enc(id)}`,
+      /** PUT — NON-sensitive edits only ({expected_version, name,
+       *  environment, description}); 409 CONNECTION_VERSION_MISMATCH,
+       *  422 SENSITIVE_CHANGE_NEEDS_DRAFT for params/secrets. */
+      update: (id: string) => `/studio/connections/${enc(id)}`,
+      /** DELETE ?confirm=true — 409 CONNECTION_IN_USE{dependencies,
+       *  options} / DEPENDENCIES_UNKNOWN / CONFIRM_REQUIRED. */
+      remove: (id: string, confirm = false) =>
+        `/studio/connections/${enc(id)}${confirm ? '?confirm=true' : ''}`,
+      /** PUT {expected_version, params, secrets, clear_secrets} — the
+       *  sensitive DRAFT: the active config is untouched; an empty/absent
+       *  secret means UNCHANGED; clearing is explicit. DELETE discards. */
+      draft: (id: string) => `/studio/connections/${enc(id)}/draft`,
+      /** POST {target: active|draft, objects[≤5], budget_s} — the bounded
+       *  explicit diagnostic with DISTINCT checks (network, auth,
+       *  execution_context, metadata_discovery, read_selected_objects,
+       *  write always not_tested); proof persisted, stale on version bump. */
+      test: (id: string) => `/studio/connections/${enc(id)}/test`,
+      /** GET — before apply: dependencies, active runs, pooled sessions,
+       *  rollback honesty. */
+      impact: (id: string) => `/studio/connections/${enc(id)}/impact`,
+      /** POST {expected_version, confirm:true} — 409 NO_DRAFT /
+       *  CONFIRM_REQUIRED{impact} / DRAFT_NOT_TESTED / ACTIVE_RUNS; then
+       *  auto-verification of the applied config. */
+      apply: (id: string) => `/studio/connections/${enc(id)}/apply`,
+      /** GET ?schema&q&limit&cursor&selected= — paginated discovery under
+       *  the CONNECTION's identity; `selected` refs come back flagged on
+       *  every page. */
+      objects: (
+        id: string,
+        p?: { schema?: string; q?: string; limit?: number; cursor?: string; selected?: string },
+      ) =>
+        `/studio/connections/${enc(id)}/objects${qs({
+          schema: p?.schema,
+          q: p?.q,
+          limit: p?.limit,
+          cursor: p?.cursor,
+          selected: p?.selected,
+        })}`,
+      /** POST {ref, rows, draft_id} — bounded preview consuming the
+       *  free envelope; scope says method, bounds and freshness. */
+      preview: (id: string) => `/studio/connections/${enc(id)}/preview`,
+    },
+    /** GET /studio/drafts/{id}/sources?q&sort&offset&limit — the Objects-
+     *  in-use view (persisted state only, NO scan). */
+    draftSources: (
+      draftId: string,
+      p?: { q?: string; sort?: string; offset?: number; limit?: number },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/sources${qs({
+        q: p?.q,
+        sort: p?.sort,
+        offset: p?.offset,
+        limit: p?.limit,
+      })}`,
+    /** POST {objects[{ref|fqn, connection_id, business_name, kind}],
+     *  expected_version} — versioned attach; publishes NOTHING (model:
+     *  false, jobs:false); existing understanding kept + stale_for. */
+    draftSourcesAttach: (draftId: string) => `/studio/drafts/${enc(draftId)}/sources/attach`,
+    /** GET — the object & columns sheet (header with copyable path,
+     *  synthesis, columns with mapping+anomalies+actions, preview
+     *  on_demand, usage with lineage_known honesty). */
+    draftSourceObject: (draftId: string, ref: string) =>
+      `/studio/drafts/${enc(draftId)}/sources/${enc(ref)}/object`,
+    /** PATCH — business_name freely; a BINDING change needs an explicit
+     *  new object + confirm (previous kept in previous_bindings, impacts
+     *  listed; never re-associated by similar name). */
+    draftSource: (draftId: string, ref: string) =>
+      `/studio/drafts/${enc(draftId)}/sources/${enc(ref)}`,
+    /** DELETE ?confirm&resolution&expected_version — detach ≠ delete;
+     *  409 SOURCE_IN_USE{dependencies, options[replace|suspend_jobs|
+     *  keep_broken]}; affected jobs become suspended/broken_source. */
+    draftSourceDetach: (
+      draftId: string,
+      ref: string,
+      p?: { confirm?: boolean; resolution?: string; expectedVersion?: number },
+    ) =>
+      `/studio/drafts/${enc(draftId)}/sources/${enc(ref)}${qs({
+        confirm: p?.confirm ? 'true' : undefined,
+        resolution: p?.resolution,
+        expected_version: p?.expectedVersion,
+      })}`,
+    /** POST — bounded read of current columns vs analysed: added/removed/
+     *  type_changed/rename_candidates (to_confirm) + impacts. */
+    draftSourceSchemaCheck: (draftId: string, ref: string) =>
+      `/studio/drafts/${enc(draftId)}/sources/${enc(ref)}/schema-check`,
+  },
+
+  /**
    * Access Requests — backend: /access-requests/* (modules/access_requests/router.py).
    * Badge-based data-access request flow: any authenticated user may submit;
    * owners and admins approve/deny via the inbox.
@@ -1314,6 +1911,59 @@ export const API = {
      */
     platformHealth: (opts?: { hours?: number; user?: string; module?: string; limit?: number }) =>
       `/administration/platform-health${qs({ hours: opts?.hours, user: opts?.user, module: opts?.module, limit: opts?.limit })}`,
+  },
+
+  /**
+   * Admin control page — the ONE accountadmin control surface (/administration).
+   * Backend: /admin/endpoints/*, /admin/traces*, /admin/endpoint-usage,
+   * /admin/usage-by, /admin/tests/last-campaign, /admin/server-metrics,
+   * /cache/kpis|breakdown|keys, /ready. Heavy reads answer a `preparing`
+   * envelope on first hit; degraded dependencies answer a structured 503
+   * `DEPENDENCY_UNAVAILABLE`. Consumers go through
+   * `app/services/administration/control.ts` — never call these directly
+   * from components.
+   */
+  adminControl: {
+    /** GET /admin/endpoints/inventory — generated endpoint inventory (paginated + filterable). */
+    endpointsInventory: (opts?: {
+      q?: string; module?: string; status?: string; exec_class?: string;
+      method?: string; page?: number; page_size?: number;
+    }) =>
+      `/admin/endpoints/inventory${qs({
+        q: opts?.q, module: opts?.module, status: opts?.status,
+        exec_class: opts?.exec_class, method: opts?.method,
+        page: opts?.page, page_size: opts?.page_size,
+      })}`,
+    /** POST /admin/endpoints/inventory/regenerate — rebuild the artefact (accountadmin only). */
+    endpointsInventoryRegenerate: () => '/admin/endpoints/inventory/regenerate',
+    /** GET /admin/traces/{request_id} — full trace for one X-Request-ID (404 TRACE_NOT_FOUND = not sampled). */
+    traces: (rid: string) => `/admin/traces/${enc(rid)}`,
+    /** GET /admin/traces?path=&username=&status_min=&since_minutes=&limit= — recent traces (limit ≤ 500). */
+    tracesRecent: (opts?: {
+      path?: string; username?: string; status_min?: number;
+      since_minutes?: number; limit?: number;
+    }) =>
+      `/admin/traces${qs({
+        path: opts?.path, username: opts?.username, status_min: opts?.status_min,
+        since_minutes: opts?.since_minutes, limit: opts?.limit,
+      })}`,
+    /** GET /cache/kpis — hit/miss rate + per-class key counts (count null = unavailable, render '—'). */
+    cacheKpis: () => '/cache/kpis',
+    /** GET /cache/breakdown — per-class key counts + TTL spread. */
+    cacheBreakdown: () => '/cache/breakdown',
+    /** GET /cache/keys — key listing with { status }. */
+    cacheKeys: () => '/cache/keys',
+    /** GET /admin/endpoint-usage?limit=&days= — most-called endpoints from the request log (defaults: 50 / 7 days). */
+    endpointUsage: (limit?: number, days?: number) =>
+      `/admin/endpoint-usage${qs({ limit, days })}`,
+    /** GET /admin/usage-by?dimension=module|user|role&days= — usage rollup by dimension (probed live: defaults module / 7). */
+    usageBy: (params: Record<string, string | number>) => `/admin/usage-by${qs(params)}`,
+    /** GET /admin/tests/last-campaign — last test-matrix artefact (unavailable envelope until one exists). */
+    testsLastCampaign: () => '/admin/tests/last-campaign',
+    /** GET /ready — readiness + dependency checks (redis, snowflake). */
+    ready: () => '/ready',
+    /** GET /admin/server-metrics — PER-WORKER runtime metrics (scope.kind='per-worker', never global). */
+    serverMetrics: () => '/admin/server-metrics',
   },
 
   /**

@@ -111,33 +111,45 @@ export default function CostPreview({
   const method = projection.method || null;
   const basis = projection.basis || null;
   const periodDays = data.days ?? days;
+  // A projection is only decision-grade when its band is tight — a wide
+  // low↔high spread (short history, volatile trend) must say so explicitly
+  // rather than present one confident-looking number (mission §5: a forecast
+  // is shown only if valid AND explained).
+  const bandRatio =
+    projection.low != null && projection.high != null && Number(projection.low) > 0
+      ? Number(projection.high) / Number(projection.low)
+      : null;
+  const lowConfidence = bandRatio != null && bandRatio > 4;
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800/40">
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-1 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-amber-500" />
           <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
-            {periodDays}d Cost Projection
+            Cost projection ({periodDays}d) — {data.object_id}
           </h4>
           {method && (
             <MetricHelp
-              title={`Method: ${method}`}
+              title="How this estimate is computed"
               definition={
                 basis
-                  ? `Projection basis: ${basis}.`
-                  : 'Forward credit projection from recent consumption.'
+                  ? `${basis}. Internal method: ${method}.`
+                  : `Forward credit projection from recent consumption (method: ${method}).`
               }
               source={baseline.source || undefined}
             />
           )}
         </div>
-        {method && (
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-            {method}
-          </span>
-        )}
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+          trend-based estimate
+        </span>
       </div>
+      {basis && (
+        <p className="mb-3 text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+          {basis}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div>
@@ -174,6 +186,12 @@ export default function CostPreview({
         </div>
       </div>
 
+      {lowConfidence && (
+        <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
+          Wide confidence band — treat this as an early estimate, not a budget
+          figure.
+        </p>
+      )}
       {data.warning && (
         <p className="mt-3 text-xs text-amber-600 dark:text-amber-400">
           {data.warning}

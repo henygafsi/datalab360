@@ -24,9 +24,14 @@ import { getApiErrorMessage } from '@/lib/api-client';
 import {
   getOverviewKpis,
   getWarehousePerformance,
+  isPreparing,
   type OverviewKpiPayload,
   type OverviewRange,
 } from '@/app/services/command-center';
+import {
+  extractAvailability,
+  availabilitySummary,
+} from '@/app/services/command-center/availability';
 import type {
   CostBreakdownResponse,
   ModuleHealthResponse,
@@ -154,7 +159,13 @@ export function useCommandCenterCockpit({
       runFetch(
         'perf',
         setPerfState,
-        () => getWarehousePerformance({ days }),
+        async () => {
+          const r = await getWarehousePerformance({ days });
+          // B2: a 'preparing' envelope is not strip data — degrade to '—'
+          // (silent error path); the next window change re-reads the cache.
+          if (isPreparing(r)) throw new Error('preparing');
+          return r;
+        },
         'warehouse performance',
         true,
       ),
@@ -241,85 +252,89 @@ export function useCommandCenterCockpit({
   //    undefined). Every tile deep-links to the SECTION whose audit tables
   //    explain the figure — the old cockpit-axis popup is gone. ──
 
-  const totalUsers = num(summary?.platform?.total_users);
-  const activeUsers7d = num(summary?.platform?.active_users_7d);
-  const credits =
-    num(costData?.total_credits) ??
-    (days === 30 ? num(summary?.cost?.credits_30d) : null);
-  const p95 = num(perfState.data?.query_performance?.p95_execution_ms);
-  const perfTotal7d = num(perfState.data?.query_performance?.total_queries_7d);
-  // Real ratio only — no rate when the denominator is unknown or zero.
-  const queryFailPct =
-    perfTotal7d != null && perfTotal7d > 0 && perfFailed != null
-      ? (perfFailed / perfTotal7d) * 100
-      : null;
-  const storageTb = num(summary?.cost?.storage_tb);
-  const activeProjects = num(summary?.platform?.total_projects);
   // Honest open-alerts: the synthetic unprovisioned payload carries fake 0s.
   const openAlertsHonest =
     overviewState.data?._provisioned !== false ? openAlerts : null;
 
+  // 2026-08-24 KPI-ownership refactor: the Account strip carries ONLY the
+  // health composites this tab OWNS (mission §3 — Account = health roll-up,
+  // never a mini-dashboard of FinOps/Usage/Security detail). The old raw
+  // tiles (Active users, Credits, Query fail %, Failed logins, Storage,
+  // Active projects) live in their canonical tabs; each health tile still
+  // deep-links to the tab that explains it.
+  const provisioned = overviewState.data?._provisioned !== false;
+  const workspaceHealth = provisioned
+    ? num(overviewState.data?.workspace_health_pct)
+    : null;
+  const warehouseHealth = provisioned
+    ? num(overviewState.data?.snowflake_health_pct)
+    : null;
+  const optimizationScore = provisioned
+    ? num(overviewState.data?.optimization_score_pct)
+    : null;
+  const pctDot = (v: number | null): AxisSeverity =>
+    v == null ? 'idle' : v < 50 ? 'blocker' : v < 80 ? 'warn' : 'ok';
+
+  // B1 availability block rides the same overview-kpis payload — the coverage
+  // tile costs zero extra requests. worst→dot: ready ok · preparing pending ·
+  // blocked warn · unknown idle (never green unless everything is ready).
+  const avBlock = extractAvailability(overviewState.data);
+  const avSummary = availabilitySummary(avBlock);
+  const domainsDot: AxisSeverity =
+    avBlock == null
+      ? 'idle'
+      : avSummary.worst === 'ready'
+        ? 'ok'
+        : avSummary.worst === 'preparing'
+          ? 'pending'
+          : avSummary.worst === 'blocked'
+            ? 'warn'
+            : 'idle';
+
   const kpiItems: KpiItem[] = [
     {
-      label: 'Active users',
-      value: activeUsers7d != null ? fmtNum(activeUsers7d) : undefined,
-      dot: activeUsers7d != null ? 'ok' : 'idle',
-      sub: totalUsers != null ? `of ${fmtNum(totalUsers)} total (7d)` : '7d',
+      label: 'Domains ready',
+      value: avBlock ? `${avSummary.ready}/${avSummary.total}` : undefined,
+      dot: domainsDot,
+      sub: avBlock
+        ? avSummary.blocked > 0
+          ? `${avSummary.blocked} need setup`
+          : avSummary.preparing > 0
+            ? `${avSummary.preparing} preparing`
+            : 'all ready'
+        : undefined,
+      title: 'Data readiness by domain — details in the readiness matrix below',
+    },
+    {
+      label: 'Workspace health',
+      value: workspaceHealth != null ? `${fmtNum(workspaceHealth)}%` : undefined,
+      dot: pctDot(workspaceHealth),
+      sub: 'Data360 platform composite',
       onClick: () => onNavigateTab('platform-activity'),
-      title: 'Active platform users (7d) — open Platform Activity (audit table)',
+      title:
+        'Data360 workspace health composite — open Platform Activity for the evidence',
     },
     {
-      label: `Credits (${days}d)`,
-      value: credits != null ? fmtNum(credits, 1) : undefined,
-      dot: costSeverity,
-      sub: 'credits',
-      delta:
-        costTrend != null
-          ? {
-              text: `${costTrend > 0 ? '+' : ''}${costTrend.toFixed(1)}%`,
-              tone: costTrend > 0 ? 'warn' : 'up',
-            }
-          : undefined,
-      onClick: () => onNavigateTab('finops'),
-      title: 'Credit spend — open FinOps (cost drivers + audit tables)',
-    },
-    {
-      label: 'Query fail %',
-      value: queryFailPct != null ? `${queryFailPct.toFixed(1)}%` : undefined,
-      dot: perfSeverity,
-      sub: p95 != null ? `p95 ${fmtMs(p95)} (7d)` : '7d',
+      label: 'Warehouse health',
+      value: warehouseHealth != null ? `${fmtNum(warehouseHealth)}%` : undefined,
+      dot: pctDot(warehouseHealth),
+      sub: 'warehouse & query composite',
       onClick: () => onNavigateTab('usage-performance'),
-      title: 'Failed / total queries (7d) — open Usage & Performance (slowest/failed queries)',
+      title: 'Warehouse & query health composite — open Usage & Performance',
     },
     {
-      label: 'Failed logins',
-      value: failedLogins != null ? fmtNum(failedLogins) : undefined,
-      dot: govSeverity,
-      sub: '7d',
-      onClick: () => onNavigateTab('security'),
-      title: 'Failed logins (7d) — open Security & Governance (audit table)',
-    },
-    {
-      label: 'Storage',
-      // Sub-TB accounts render in GB — `0 TB` for a 6 GB account reads as a
-      // fake zero, which the strip's honesty contract forbids.
+      label: 'Optimization',
       value:
-        storageTb != null
-          ? storageTb >= 1
-            ? `${fmtNum(storageTb, storageTb < 10 ? 2 : 1)} TB`
-            : `${fmtNum(storageTb * 1024, storageTb * 1024 < 10 ? 2 : 0)} GB`
+        optimizationScore != null ? `${fmtNum(optimizationScore)}%` : undefined,
+      dot: pctDot(optimizationScore),
+      sub: 'sizing · monitors posture',
+      delta:
+        costTrend != null && costTrend > 25
+          ? { text: `spend +${costTrend.toFixed(0)}%`, tone: 'warn' }
           : undefined,
-      dot: storageTb != null ? 'ok' : 'idle',
-      sub: 'incl. time-travel & fail-safe',
       onClick: () => onNavigateTab('finops'),
-      title: 'Total storage — open FinOps (storage split axis)',
-    },
-    {
-      label: 'Active projects',
-      value: activeProjects != null ? fmtNum(activeProjects) : undefined,
-      dot: activeProjects != null ? 'ok' : 'idle',
-      onClick: () => onNavigateTab('projects'),
-      title: 'Data360 projects — open the Projects tab',
+      title:
+        'Resource-efficiency posture (warehouse sizing, resource monitors) — open FinOps',
     },
     {
       label: 'Modules healthy',
@@ -330,20 +345,25 @@ export function useCommandCenterCockpit({
         ? `${moduleCounts.healthy}/${moduleCounts.total}`
         : undefined,
       dot: qualitySeverity,
+      // "all healthy" ONLY when every module counts as healthy — 6/7 with one
+      // inactive module must say so, never "all healthy" (live-caught lie).
       sub: moduleCounts
         ? moduleCounts.critical > 0
           ? `${moduleCounts.critical} critical`
           : moduleCounts.degraded > 0
             ? `${moduleCounts.degraded} degraded`
-            : 'all healthy'
+            : moduleCounts.healthy < moduleCounts.total
+              ? `${moduleCounts.total - moduleCounts.healthy} inactive`
+              : 'all healthy'
         : undefined,
-      onClick: () => onNavigateTab('modules'),
-      title: 'Module health — open the module health audit',
+      onClick: () => onNavigateTab('platform-activity'),
+      title: 'Module health — open Platform Activity (modules adoption)',
     },
     {
       label: 'Open alerts',
       value: openAlertsHonest != null ? fmtNum(openAlertsHonest) : undefined,
       dot: overviewSeverity,
+      sub: 'across all domains',
       onClick: () => onNavigateTab('security'),
       title: 'Open alerts — open Security & Governance',
     },

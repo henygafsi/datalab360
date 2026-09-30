@@ -21,6 +21,7 @@ import {
   getPipeUsage,
   getMvRefreshCosts,
   getTaskHistory,
+  isPreparing,
 } from '@/app/services/command-center';
 import type { CostBreakdownResponse } from '@/app/services/command-center/types';
 import AuditTable from './AuditTable';
@@ -177,7 +178,8 @@ export default function ServerlessFinOpsCards({ days = 30 }: { days?: number }) 
     let active = true;
     setCbLoading(true);
     getCostBreakdown(days)
-      .then((r) => active && setCb(r))
+      // B2: a 'preparing' envelope is not data yet — render the loading state.
+      .then((r) => active && setCb(isPreparing(r) ? null : r))
       .catch(() => active && setCb(null))
       .finally(() => active && setCbLoading(false));
     return () => {

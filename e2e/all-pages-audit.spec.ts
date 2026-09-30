@@ -52,12 +52,33 @@ const PAGES = [
 ];
 
 async function signIn(page: Page) {
-  await page.goto('/signin');
-  await page.locator('input[name="account_name"], input#account_name').first().fill(ACCOUNT).catch(() => {});
-  await page.locator('input[name="username"], input#username').first().fill(USER).catch(() => {});
-  await page.locator('input[type="password"]').first().fill(PASS);
-  await page.locator('button[type="submit"]').first().click();
-  await page.waitForURL((u) => !u.pathname.includes('/signin'), { timeout: 90_000 });
+  // Programmatic login through the NextAuth API in the SAME browser context —
+  // deterministic, immune to the dev-mode hydration/HMR races that made
+  // UI-driven login flaky (native form POST, fields wiped mid-fill). The
+  // signin UI itself gets its own dedicated test; it is not the gate for
+  // auditing 13 other pages.
+  // Relative URLs so cookies land on the SAME host the pages navigate to
+  // (an absolute 127.0.0.1 base set cookies the localhost pages never saw).
+  // Node resolving localhost to ::1 is handled by running the suite with
+  // NODE_OPTIONS=--dns-result-order=ipv4first.
+  const csrf = (await (await page.request.get('/api/auth/csrf')).json()) as { csrfToken: string };
+  const resp = await page.request.post('/api/auth/callback/credentials', {
+    form: {
+      csrfToken: csrf.csrfToken,
+      account_name: ACCOUNT,
+      username: USER,
+      password: PASS,
+      redirect: 'false',
+      json: 'true',
+    },
+  });
+  if (!resp.ok()) throw new Error(`signIn: credentials callback HTTP ${resp.status()}`);
+  const session = (await (await page.request.get('/api/auth/session')).json()) as {
+    user?: { username?: string };
+  };
+  if (!session?.user) {
+    throw new Error(`signIn failed: no session after credentials callback (backend rejected?)`);
+  }
 }
 
 /**
@@ -124,6 +145,11 @@ test('audit: all pages render, no error boundary, no stuck cache state', async (
     const stuckCache = await page.getByText(/analytics cache is initializing/i).isVisible().catch(() => false);
     const bodyText = await mainText(page);
 
+    // Session-loss blind spot: a bounce to /signin used to pass silently
+    // (the signin page has >120 chars of text). Auth loss IS a finding.
+    if (new URL(page.url()).pathname.includes('/signin')) {
+      findings.push(`${path}: AUTH LOST (bounced to signin)`);
+    }
     if (crashed) findings.push(`${path}: ERROR BOUNDARY`);
     if (stuckCache) findings.push(`${path}: STUCK "cache initializing" after retry`);
     if (bodyText.length < 120) findings.push(`${path}: EMPTY main region (after 180s content wait)`);

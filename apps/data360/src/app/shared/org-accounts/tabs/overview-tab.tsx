@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
+import { getApiErrorMessage } from '@/lib/api-client';
 import { Text, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Plus, Trash2 } from 'lucide-react';
 import {
   PiClockCounterClockwiseDuotone,
   PiGaugeDuotone,
@@ -26,6 +27,7 @@ import {
   getOrgEvents,
   getResourceMonitors,
   createResourceMonitor,
+  deleteResourceMonitor,
   getCrossAccountUsage,
   getQueries,
 } from '@/app/services/org-accounts/hooks';
@@ -148,10 +150,19 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
   const { role: rawRole, username: currentUsername } = useAuth();
   const userRole = normalizeRole(rawRole, currentUsername);
 
-  // ── Create resource monitor (non-blocking ActionRail) ───────────────────
-  // create is wired (POST /resource-monitors). There is NO backend DELETE, so
-  // no drop control is offered on the cards.
+  // ── Create / drop resource monitor ───────────────────────────────────────
+  // create: POST /resource-monitors. drop: DELETE /resource-monitors/{name}
+  // (contract desync fixed 2026-09-06 — the backend route existed at
+  // crud_router.py:809 while these comments claimed it didn't). Dropping a
+  // monitor removes a SPEND GUARD → explicit inline confirm, action-gated.
   const { allowed: canCreateRm, loading: rmPermLoading } = useCanPerform('org_accounts', 'create');
+  // AO-015: my-permissions now expands coarse read/write rows into the
+  // granular action registry (verified locally: org_accounts carries
+  // 'delete'), so the semantically-correct gate works. Falls back closed on
+  // pre-AO-015 deployments; backend re-gates DROP as orgadmin-only anyway.
+  const { allowed: canDeleteRm } = useCanPerform('org_accounts', 'delete');
+  const [rmToDrop, setRmToDrop] = useState<string | null>(null);
+  const [rmDropBusy, setRmDropBusy] = useState(false);
   const rmCreateDenied = !canCreateRm && !rmPermLoading;
   const [rmCreateOpen, setRmCreateOpen] = useState(false);
   const [rmBusy, setRmBusy] = useState(false);
@@ -165,6 +176,22 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
       .catch((e) => { console.error('Failed to refetch resource monitors:', e); })
       .finally(() => setResourceMonitorsLoading(false));
   }, []);
+
+  const confirmDropRm = useCallback(async () => {
+    if (!rmToDrop) return;
+    setRmDropBusy(true);
+    try {
+      await deleteResourceMonitor(rmToDrop);
+      toast.success(`Resource monitor '${rmToDrop}' dropped`);
+      setRmToDrop(null);
+      refetchResourceMonitors();
+    } catch (e) {
+      toast.error(getApiErrorMessage(e) || `Couldn't drop '${rmToDrop}'`);
+    } finally {
+      setRmDropBusy(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rmToDrop]);
 
   const resetRmForm = () => {
     setRmForm({ name: '', credit_quota: '', frequency: 'MONTHLY', suspend_at_pct: '100' });
@@ -655,8 +682,45 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
                         >
                           {mon.usage_pct != null ? `${safeToFixed(pct, 1)}%` : '—'}
                         </Badge>
+                        {canDeleteRm && mon.name && (
+                          <button
+                            type="button"
+                            title={`Drop resource monitor '${mon.name}'`}
+                            aria-label={`Drop resource monitor ${mon.name}`}
+                            onClick={() => setRmToDrop(mon.name)}
+                            className="rounded p-1 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
+                    {rmToDrop === mon.name && (
+                      <div className="mb-1.5 flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 dark:border-red-900/50 dark:bg-red-950/40">
+                        <Text className="text-xs text-red-700 dark:text-red-300">
+                          Drop &lsquo;{mon.name}&rsquo;? This removes a spend guard.
+                        </Text>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setRmToDrop(null)}
+                            disabled={rmDropBusy}
+                            className="rounded px-2 py-0.5 text-xs text-gray-600 hover:bg-white dark:text-gray-300 dark:hover:bg-gray-800"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void confirmDropRm()}
+                            disabled={rmDropBusy}
+                            className="inline-flex items-center gap-1 rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                          >
+                            {rmDropBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                            Drop
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div className={cn('h-2 rounded-full overflow-hidden', barBg)}>
                       <div
                         className={cn('h-full rounded-full transition-all', barColor)}

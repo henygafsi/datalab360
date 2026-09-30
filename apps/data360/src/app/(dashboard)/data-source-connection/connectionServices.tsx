@@ -50,6 +50,17 @@ function extractErrorMessage(error: unknown, fallback: string): string {
     if (error instanceof AxiosError && error.response?.data && typeof error.response.data === 'object') {
         const errorData = error.response.data as { detail?: unknown; message?: unknown };
         if (typeof errorData.detail === 'string') return errorData.detail;
+        // The backend's structured errors put the sentence INSIDE detail
+        // ({error_code, message, ...}). Reading only string details left the
+        // caller with axios' "Request failed with status code 500" while the
+        // server had said exactly what was wrong (e.g. which GRANT is
+        // missing) — the honest message existed and was dropped here.
+        if (errorData.detail && typeof errorData.detail === 'object') {
+            const d = errorData.detail as { message?: unknown; detail?: unknown; error_code?: unknown };
+            if (typeof d.message === 'string' && d.message) return d.message;
+            if (typeof d.detail === 'string' && d.detail) return d.detail;
+            if (typeof d.error_code === 'string' && d.error_code) return d.error_code;
+        }
         if (typeof errorData.message === 'string') return errorData.message;
     }
     if (error instanceof Error) return error.message;

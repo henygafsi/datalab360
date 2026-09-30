@@ -9,7 +9,8 @@ import { RefreshCw } from 'lucide-react';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
-  listPoliciesEnriched,
+  listPoliciesEnrichedView,
+  type EnrichedPoliciesView,
   formatPolicyError,
   getMaskingPolicyDetails,
   createMaskingPolicy,
@@ -22,6 +23,7 @@ import {
   type MaskingPolicyDetails,
   MaskingType,
 } from '@/app/services/governance/policies';
+import PolicySnapshotBar from './components/PolicySnapshotBar';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import PolicyCard from './components/PolicyCard';
 import { ObjectSelector } from './components/ObjectSelector';
@@ -92,11 +94,31 @@ export default function MaskingPoliciesContent({ prefill }: {
   const [applyElapsedMs, setApplyElapsedMs] = useState(0);
 
   // Cache-aware query: auto-fetches and auto-refreshes on SSE invalidation
-  const fetchPolicies = useCallback(() => listPoliciesEnriched('MASKING'), []);
+  const [snapView, setSnapView] = useState<EnrichedPoliciesView | null>(null);
+  const [warehouseRefreshing, setWarehouseRefreshing] = useState(false);
+  const fetchPolicies = useCallback(async () => {
+    const v = await listPoliciesEnrichedView('MASKING');
+    setSnapView(v);
+    return v.policies;
+  }, []);
   const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<EnrichedPolicy[]>(
     fetchPolicies,
     { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
   );
+
+  // The ONE spending action here: the user's explicit direct query against
+  // the warehouse (5-10 s measured). The plain read stays the free snapshot.
+  const refreshFromWarehouse = useCallback(async () => {
+    setWarehouseRefreshing(true);
+    try {
+      const v = await listPoliciesEnrichedView('MASKING', { refresh: true });
+      setSnapView(v);
+      refetch();
+    } finally {
+      setWarehouseRefreshing(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleViewDetails = async (policy: EnrichedPolicy) => {
     setSelectedPolicy(policy);
@@ -314,6 +336,12 @@ export default function MaskingPoliciesContent({ prefill }: {
           Create Policy
         </Button>
       </div>
+
+      <PolicySnapshotBar
+        view={snapView}
+        refreshing={warehouseRefreshing}
+        onRefresh={() => void refreshFromWarehouse()}
+      />
 
       {/* Policies List */}
       {loading ? (

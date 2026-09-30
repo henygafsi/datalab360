@@ -27,6 +27,7 @@ import {
   getContract,
   getRateSheet,
   getOrganizationCosts,
+  isBalanceRestricted,
 } from '@/app/services/org-accounts/hooks';
 import { formatCredits, formatDate, extractApiError } from '@/app/services/org-accounts/utils';
 import { safeNum, safeToFixed, safeLocale } from '@/lib/format-number';
@@ -119,6 +120,9 @@ function formatCurrency(amount: number | string | null | undefined, currency = '
 
 export default function BillingTab({ refreshKey }: BillingTabProps) {
   const [balance, setBalance] = useState<BalanceResponse | null>(null);
+  // 403 governance_denied on remaining-balance = the caller's role simply may
+  // not see it — an expected state rendered as such, never an error banner.
+  const [balanceRestricted, setBalanceRestricted] = useState(false);
   const [contracts, setContracts] = useState<ContractItem[]>([]);
   const [rates, setRates] = useState<RateSheetEntry[]>([]);
   const [costsRaw, setCostsRaw] = useState<any[]>([]);
@@ -142,7 +146,15 @@ export default function BillingTab({ refreshKey }: BillingTabProps) {
       guard(getRateSheet()),
       guard(getOrganizationCosts(days)),
     ]).then(([balanceData, contractData, rateData, costsData]) => {
-      if (balanceData) setBalance(balanceData);
+      if (balanceData) {
+        if (isBalanceRestricted(balanceData)) {
+          setBalanceRestricted(true);
+          setBalance(null);
+        } else {
+          setBalanceRestricted(false);
+          setBalance(balanceData);
+        }
+      }
       if (contractData) setContracts(Array.isArray(contractData.contracts) ? contractData.contracts : []);
       if (rateData) setRates(Array.isArray(rateData.rates) ? rateData.rates : []);
       if (costsData && Array.isArray(costsData.costs)) {
@@ -259,7 +271,10 @@ export default function BillingTab({ refreshKey }: BillingTabProps) {
         </div>
       )}
 
-      {!balance && (
+      {!balance && balanceRestricted && (
+        <EmptyState icon={PiCreditCardDuotone} label="Reserved for ACCOUNTADMIN" />
+      )}
+      {!balance && !balanceRestricted && (
         <EmptyState icon={PiCreditCardDuotone} label="No balance data available" />
       )}
 

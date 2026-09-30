@@ -45,6 +45,7 @@ import {
   getModuleHealth,
   getSummary,
   getActivityFeed,
+  isPreparing,
 } from '@/app/services/command-center';
 import type {
   ModuleHealthItem,
@@ -467,12 +468,16 @@ function ModulesTab() {
       setLoading(true);
       setError(null);
       try {
-        const [health, summaryRes, feed] = await Promise.all([
+        const [healthRes, summaryEnv, feed] = await Promise.all([
           getModuleHealth({ days }),
           getSummary(),
           getActivityFeed(200, { days }).catch(() => ({ events: [] })),
         ]);
         if (cancelled) return;
+        // B2: a cache miss answers { state:'preparing' } — treat as not-yet
+        // data (the SSE invalidation / drawer reopen re-reads it).
+        const health = isPreparing(healthRes) ? null : healthRes;
+        const summaryRes = isPreparing(summaryEnv) ? null : summaryEnv;
         setModuleCards(buildModuleCards(health));
         setSummary(summaryRes);
         setRawModules(Array.isArray(health?.modules) ? health.modules : []);

@@ -86,6 +86,13 @@ function _detectRedundantCall(method: string, url: string): void {
   _recentCalls.push(...recent, { key, ts: now });
 }
 
+// AO-018: per-request correlation id (browser → backend → USER_REQUESTS).
+function newRequestId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? `ui_${crypto.randomUUID()}`
+    : `ui_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
 // Request interceptor - Add authentication token and account context to all requests
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
@@ -93,6 +100,10 @@ apiClient.interceptors.request.use(
     const method = (config.method ?? 'get').toUpperCase();
     const fullUrl = config.baseURL ? `${config.baseURL}${url}` : url;
     _detectRedundantCall(method, fullUrl);
+
+    if (!config.headers['X-Request-ID']) {
+      config.headers['X-Request-ID'] = newRequestId();
+    }
 
     try {
       // Use cached session helper to avoid /api/auth/session storm on every request.
@@ -198,9 +209,15 @@ apiClient.interceptors.response.use(
         | undefined;
       // Structured governance payload may sit at top-level OR nested under `detail`.
       const d = (data?.detail && typeof data.detail === 'object') ? data.detail : data;
+      // The backend's qualified refusals put the sentence in `message`
+      // (with `hint` naming who can unblock). Reading only `detail` threw
+      // that away and every 403 collapsed into the same generic sentence —
+      // e.g. "CREATE STAGE granted on SCHEMA CP_DATA360.STAGING" became
+      // "You do not have permission to access this resource."
       const message = typeof data?.detail === 'string'
         ? data.detail
-        : (d?.detail ?? 'You do not have permission to access this resource.');
+        : (d?.message ?? d?.detail ?? 'You do not have permission to access this resource.') +
+          (typeof d?.hint === 'string' && d.hint ? ` ${d.hint}` : '');
       // A governance denial (GOVERNANCE_DENIED / MODULE_FORBIDDEN) carries what the
       // role lacks + the request endpoint → components route to the access-request
       // flow (RequestAccessBadge) instead of a dead "forbidden".
@@ -489,6 +506,14 @@ export async function createServerApiClient(headers?: Record<string, string>): P
     },
   });
 
+  // AO-018: per-request correlation id (browser → backend → USER_REQUESTS).
+  serverClient.interceptors.request.use((config) => {
+    if (!config.headers['X-Request-ID']) {
+      config.headers['X-Request-ID'] = newRequestId();
+    }
+    return config;
+  });
+
   // If headers not provided, get them from session
   if (!headers) {
     try {
@@ -525,6 +550,11 @@ export async function authFetch(
     (headers as Record<string, string>)['Authorization'] = `Bearer ${session.user.access_token}`;
     (headers as Record<string, string>)['X-Account-Name'] = session.user.account_name || '';
     (headers as Record<string, string>)['X-Username'] = session.user.username || '';
+  }
+
+  // AO-018: per-request correlation id (browser → backend → USER_REQUESTS).
+  if (!(headers as Record<string, string>)['X-Request-ID']) {
+    (headers as Record<string, string>)['X-Request-ID'] = newRequestId();
   }
 
   const fullUrl = url.startsWith('http') ? url : `${API_CONFIG.BASE_URL}${url}`;

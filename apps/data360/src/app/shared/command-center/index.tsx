@@ -68,8 +68,6 @@ import {
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
-  PieChart,
-  Pie,
   Cell,
   BarChart,
   Bar,
@@ -145,26 +143,24 @@ import { useCanPerform } from '@/hooks/useCanPerform';
 import { CACHE_KEYS, useCacheInvalidationSubscription as useCacheInvalidation } from '@/components/providers/CacheInvalidationProvider';
 import KpiStrip from '@/app/shared/cockpit/KpiStrip';
 import { useCommandCenterCockpit } from './CommandCenterCockpit';
-import SectionRail from './SectionRail';
+import SectionTabs from './SectionTabs';
+import ContextPanel from './ContextPanel';
 import AccessRequestsCard from './AccessRequestsCard';
 import { TabGrid, KpiZone, Board, Cell as GridCell, MoreDrawer } from './TabGridKit';
 import {
   getKpiDimensionDetail,
   ScoreCardsUnavailableError,
-  type KpiDimension,
   type KpiDimensionResponse,
 } from '@/app/services/command-center/score-cards';
 
-// Lazy-loaded new tabs
+// Lazy-loaded tabs and heavy drawers (reactflow-carrying components stay out
+// of the main chunk — they only render behind drawers/sub-tabs).
 const ModulesTab = lazy(() => import('./modules-tab'));
-const SnowflakeExplorerTab = lazy(() => import('./snowflake-explorer-tab'));
-const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
 const CcActionSurface = lazy(() => import('./CcActionSurface'));
-const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
-const SnowflakeAccountsAuditSection = lazy(() => import('./SnowflakeAccountsAuditSection'));
-const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
 const OrganizationCockpit = lazy(() => import('./OrganizationCockpit'));
 const DwhActionPlanTab = lazy(() => import('./dwh-action-plan-tab'));
+const SecurityMap = lazy(() => import('./SecurityMap'));
+const SnowflakeObjectsTab = lazy(() => import('./SnowflakeObjectsTab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
 import { useSession } from 'next-auth/react';
 import ServerlessFinOpsCards from './serverless-finops-cards';
@@ -173,18 +169,16 @@ import WarehouseEfficiencyCard from './WarehouseEfficiencyCard';
 import TopProblemsPanel from './TopProblemsPanel';
 import WhatChangedCard from './WhatChangedCard';
 import ActivityDigestCard from './ActivityDigestCard';
-import { MaturityLadderStrip, WarehouseCtaGroup, SecurityCtaGroup } from './GrowCtas';
-import ExecutiveOverview from './ExecutiveOverview';
+import { WarehouseCtaGroup, SecurityCtaGroup } from './GrowCtas';
 import AiAdvisor from './AiAdvisor';
 import SnowflakeInsightsAdvisor from './SnowflakeInsightsAdvisor';
-import SecurityMap from './SecurityMap';
-import GovernanceCockpit from './GovernanceCockpit';
 import GovernanceOnePager from './GovernanceOnePager';
-import ObjectStorageAudit from './ObjectStorageAudit';
-import SnowflakeObjectsTab from './SnowflakeObjectsTab';
-import AdnHeaderBadge from '@/app/shared/score-cards/AdnHeaderBadge';
 import CostPreview from './CostPreview';
 import { dash, fmtNum, EM_DASH } from '@/app/shared/ui/format';
+import { isPreparing, type PreparingEnvelope } from './lib/meta';
+import PreparingState from './lib/PreparingState';
+import DomainAvailabilityMatrix from './lib/DomainAvailabilityMatrix';
+import { useAvailability } from '@/app/services/command-center/availability';
 import { safeToFixed } from '@/lib/format-number';
 import type {
   SecurityOverviewResponse,
@@ -752,14 +746,54 @@ function KpiRowSkeleton({ count = 6 }: { count?: number }) {
   );
 }
 
-function TabErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+/**
+ * TabErrorState — a CALM "still computing / temporarily unavailable" panel,
+ * not an alarming red error. On large Snowflake accounts these cross-account
+ * ACCOUNT_USAGE scans legitimately exceed the API's cold-scan window; the
+ * result caches once it lands, so a retry usually resolves it. A genuine
+ * error (permission, invalid identifier) passes `tone="error"` for the red
+ * treatment. Replaces the stacking "Failed to load …" toasts (2026-08-24).
+ */
+function TabErrorState({
+  message,
+  onRetry,
+  tone = 'computing',
+}: {
+  message: string;
+  onRetry: () => void;
+  tone?: 'computing' | 'error';
+}) {
+  const err = tone === 'error';
   return (
-    <div className="m-4 flex flex-col items-center justify-center gap-3 rounded-xl border border-red-100 bg-red-50 p-8 text-center dark:border-red-900/50 dark:bg-red-950/40">
-      <AlertTriangle className="h-6 w-6 text-red-500" />
-      <p className="text-sm font-medium text-red-700 dark:text-red-300">{message}</p>
+    <div
+      className={cn(
+        'm-4 flex flex-col items-center justify-center gap-2 rounded-xl border p-8 text-center',
+        err
+          ? 'border-red-100 bg-red-50 dark:border-red-900/50 dark:bg-red-950/40'
+          : 'border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/40',
+      )}
+    >
+      {err ? (
+        <AlertTriangle className="h-6 w-6 text-red-500" />
+      ) : (
+        <RefreshCw className="h-6 w-6 text-amber-500" />
+      )}
+      <p className={cn('text-sm font-medium', err ? 'text-red-700 dark:text-red-300' : 'text-amber-800 dark:text-amber-200')}>
+        {err ? message : 'Still computing for this account'}
+      </p>
+      {!err && (
+        <p className="max-w-md text-xs text-amber-700 dark:text-amber-300">
+          {message}. This account&apos;s scan is taking longer than the live window; it caches once ready, so a retry usually resolves it.
+        </p>
+      )}
       <button
         onClick={onRetry}
-        className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50"
+        className={cn(
+          'mt-1 inline-flex items-center gap-1.5 rounded-md border bg-white px-3 py-1.5 text-xs font-medium',
+          err
+            ? 'border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50'
+            : 'border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50',
+        )}
       >
         <RefreshCw className="h-3.5 w-3.5" /> Retry
       </button>
@@ -1429,6 +1463,14 @@ function CommandCenterDashboardInner() {
   // (not in the initializer) so hydration is deterministic. Sets state
   // directly — bypasses setActiveTab's localStorage/URL/track side effects so
   // no spurious tab-switch is recorded.
+  //
+  // `restored` gates every data fetcher: effects from the mount flush still see
+  // activeTab='account', so without the gate a restored non-account tab first
+  // fired the whole Account fan (summary + module-health + activity-feed +
+  // cockpit) before switching — heavy wasted requests queueing ahead of the
+  // target tab's own reads. Do NOT move the storage read back into the useState
+  // initializer: that was the hydration-mismatch bug this effect fixed.
+  const [restored, setRestored] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URL(window.location.href).searchParams;
@@ -1436,7 +1478,21 @@ function CommandCenterDashboardInner() {
     const fromStorage = window.localStorage.getItem('data360.command-center.activeTab');
     const resolved = resolveTabId(fromUrl ?? fromStorage ?? 'account');
     if (resolved !== 'account') _setActiveTab(resolved);
+    setRestored(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Browser back/forward: the URL is our tab record (replaceState above), so
+  // popstate must re-read it — otherwise history navigation lands on a URL
+  // whose section is not the rendered one.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onPop = () => {
+      const params = new URL(window.location.href).searchParams;
+      const fromUrl = params.get('section') ?? params.get('tab');
+      if (fromUrl) _setActiveTab(resolveTabId(fromUrl));
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
   const [, startTabTransition] = useTransition();
   // Docked actions right-bar (the module's single centralized action surface).
@@ -1448,7 +1504,6 @@ function CommandCenterDashboardInner() {
     },
     [setActiveTab],
   );
-  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // True when the overview fetcher attempted all four backend calls and every
   // one came back null/error — used to surface a clear "backend offline" banner
@@ -1459,17 +1514,6 @@ function CommandCenterDashboardInner() {
   // The backend IS reachable — the data cache is provisioning — so we show an
   // honest "warming up" state instead of the misleading "Backend unreachable".
   const [cacheWarming, setCacheWarming] = useState(false);
-
-  // Safety net: the page-level skeleton blocks every tab until `isLoading`
-  // flips false. If the very first fetch hangs (e.g. the request is queued
-  // behind a session refresh that never resolves), we never escape the
-  // skeleton. Force-escape after 10s so the user at least sees tabs + an
-  // empty/error state with a Retry button.
-  useEffect(() => {
-    if (!isLoading) return;
-    const t = setTimeout(() => setIsLoading(false), 10_000);
-    return () => clearTimeout(t);
-  }, [isLoading]);
 
   // Client-side tab data cache — prevents re-fetching on every tab switch,
   // but DOES refetch when filters change (key includes filtersKey).
@@ -1533,6 +1577,9 @@ function CommandCenterDashboardInner() {
   // healthScore state removed: never fetched, never read — pure dead prop.
 
   // Global filters — default to Last 30d (no start_date/end_date so preset button highlights)
+  // Contextual AI panel (mission §5) — closed by default; the single AI entry
+  // point for this page (the global chat bubble is hidden on this route).
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [filters, setFilters] = useState<CommandCenterFilters>({
     days: 30,
   });
@@ -1547,7 +1594,7 @@ function CommandCenterDashboardInner() {
     // The strip only renders on the `account` tab (see the KpiStrip gate
     // below) — don't burn its 2 fetches (overview-kpis + warehouse-performance)
     // while any other tab is active (e.g. restored from localStorage).
-    enabled: activeTab === 'account',
+    enabled: restored && activeTab === 'account',
     summary,
     moduleHealth,
     costData,
@@ -1604,6 +1651,45 @@ function CommandCenterDashboardInner() {
     window.setTimeout(retry, 10000);
     return true;
   }, []);
+
+  // ── B2 "preparing" consumption ──────────────────────────────────────────
+  // A heavy read now answers a cache miss with HTTP 200
+  // { state:'preparing', cache_key, retry_after_seconds } and computes in the
+  // background. That envelope must NEVER be stored as tab data. Per lane we
+  // record it, render an explicit PreparingState, and re-read when the SSE
+  // cache_invalidation event carries the same cache_key — retry_after is only
+  // the fallback when SSE stays silent.
+  const [tabPreparing, setTabPreparing] = useState<Record<string, PreparingEnvelope | null>>({});
+  const preparingTimers = useRef<Record<string, number>>({});
+  const clearPreparing = useCallback((lane: string) => {
+    setTabPreparing((p) => (p[lane] ? { ...p, [lane]: null } : p));
+    const t = preparingTimers.current[lane];
+    if (t) {
+      window.clearTimeout(t);
+      delete preparingTimers.current[lane];
+    }
+  }, []);
+  const notePreparing = useCallback(
+    (lane: string, env: PreparingEnvelope, retry: () => void) => {
+      setTabPreparing((p) => ({ ...p, [lane]: env }));
+      const t = preparingTimers.current[lane];
+      if (t) window.clearTimeout(t);
+      preparingTimers.current[lane] = window.setTimeout(
+        () => {
+          delete preparingTimers.current[lane];
+          retry();
+        },
+        Math.min(Math.max(env.retry_after_seconds ?? 5, 2), 30) * 1000,
+      );
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      Object.values(preparingTimers.current).forEach((t) => window.clearTimeout(t));
+    },
+    [],
+  );
 
   // ── Fetchers ─────────────────────────────────────────────────────────────
 
@@ -1670,9 +1756,10 @@ function CommandCenterDashboardInner() {
         cachedMh &&
         cachedMh.daysKey === filters.days &&
         Date.now() - cachedMh.timestamp < CACHE_TTL_MS;
-      const moduleHealthTask: Promise<ModuleHealthResponse | null> = cachedMhFresh
-        ? Promise.resolve(cachedMh!.data)
-        : withTimeout(getModuleHealth({ days: filters.days }));
+      const moduleHealthTask: Promise<ModuleHealthResponse | PreparingEnvelope | null> =
+        cachedMhFresh
+          ? Promise.resolve(cachedMh!.data)
+          : withTimeout(getModuleHealth({ days: filters.days }));
 
       // Progressive resolution: each call resolves into its own state
       // independently so the UI reveals as fast as the fastest call.
@@ -1685,18 +1772,27 @@ function CommandCenterDashboardInner() {
         if (firstHit) return;
         firstHit = true;
         setTabLoading((p) => ({ ...p, account: false }));
-        setIsLoading(false);
         setLastUpdated(new Date());
         tabDataCache.current['account'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
       };
 
       const summaryP = withTimeout(getSummary(filterParams)).then((s) => {
-        if (s && !isApiError(s)) setSummary(s);
+        if (isPreparing(s)) {
+          // B2 miss: background compute started server-side — never store the
+          // envelope; re-read on SSE wake-up (retry_after as fallback).
+          notePreparing('summary', s, () => void fetchOverview());
+        } else if (s && !isApiError(s)) {
+          clearPreparing('summary');
+          setSummary(s);
+        }
         dropSpinner();
         return s;
       });
       const mhP = moduleHealthTask.then((mh) => {
-        if (mh && !isApiError(mh)) {
+        if (isPreparing(mh)) {
+          notePreparing('module-health', mh, () => void fetchOverview());
+        } else if (mh && !isApiError(mh)) {
+          clearPreparing('module-health');
           setModuleHealth(mh);
           moduleHealthRef.current = {
             data: mh,
@@ -1726,8 +1822,10 @@ function CommandCenterDashboardInner() {
       // call failed. Per-call .catch was already inside withTimeout, so this
       // Promise.all never rejects.
       const [s, mh, af] = await Promise.all([summaryP, mhP, afP]);
-      const gotSummary = !!(s && !isApiError(s));
-      const gotModuleHealth = !!(mh && !isApiError(mh));
+      // A 'preparing' envelope is a healthy backend answering fast — it must
+      // count as "got something", never as unreachable.
+      const gotSummary = !!(s && !isApiError(s)) || isPreparing(s);
+      const gotModuleHealth = !!(mh && !isApiError(mh)) || isPreparing(mh);
       const gotActivity = !!(af && !isApiError(af));
       const allFailed = !gotSummary && !gotModuleHealth && !gotActivity;
       // If everything failed because the cache is warming, that's NOT
@@ -1743,7 +1841,6 @@ function CommandCenterDashboardInner() {
       setError(msg);
       toast.error(msg);
       setTabLoading((p) => ({ ...p, account: false }));
-      setIsLoading(false);
     }
   }, [filters]);
 
@@ -1753,11 +1850,16 @@ function CommandCenterDashboardInner() {
     setTabError((p) => ({ ...p, projects: null }));
     try {
       const data = await getProjectsOverview(filters);
+      if (isPreparing(data)) {
+        notePreparing('projects', data, () => void fetchProjects());
+        return;
+      }
       if (isApiError(data)) {
         console.warn('[CommandCenter] projects-overview returned error:', data);
         setTabError((p) => ({ ...p, projects: 'Failed to load projects data' }));
         return;
       }
+      clearPreparing('projects');
       setProjectsData(data);
       setLastUpdated(new Date());
       tabDataCache.current['projects'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
@@ -1780,11 +1882,16 @@ function CommandCenterDashboardInner() {
     setTabError((p) => ({ ...p, security: null }));
     try {
       const data = await getSecurityOverview(filters.days, filters);
+      if (isPreparing(data)) {
+        notePreparing('security', data, () => void fetchSecurityAdv());
+        return;
+      }
       if (isApiError(data)) {
         console.warn('[CommandCenter] security-overview returned error:', data);
         setTabError((p) => ({ ...p, security: 'Failed to load security data' }));
         return;
       }
+      clearPreparing('security');
       setSecurityData(data);
       setLastUpdated(new Date());
       tabDataCache.current['security'] = {
@@ -1806,12 +1913,19 @@ function CommandCenterDashboardInner() {
 
   const fetchGovGrants = useCallback(async () => {
     setTabLoading((p) => ({ ...p, 'governance-grants': true }));
+    setTabError((p) => ({ ...p, 'governance-grants': null }));
     try {
       const data = await getGovernanceGrantsOverview(filters);
-      if (isApiError(data)) {
-        console.warn('[CommandCenter] governance-grants returned error:', data);
+      if (isPreparing(data)) {
+        notePreparing('governance-grants', data, () => void fetchGovGrants());
         return;
       }
+      if (isApiError(data)) {
+        console.warn('[CommandCenter] governance-grants returned error:', data);
+        setTabError((p) => ({ ...p, 'governance-grants': 'Governance & grants view is unavailable right now' }));
+        return;
+      }
+      clearPreparing('governance-grants');
       setGovGrantsData(data);
       setLastUpdated(new Date());
       tabDataCache.current['governance-grants'] = {
@@ -1819,8 +1933,9 @@ function CommandCenterDashboardInner() {
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
       };
-    } catch (err) {
-      toast.error('Failed to load governance & grants data');
+    } catch {
+      /* no toast (2026-08-24 rule: no stacking popups) — but keep an inline error surface */
+      setTabError((p) => ({ ...p, 'governance-grants': 'Governance & grants view is unavailable right now' }));
     } finally {
       setTabLoading((p) => ({ ...p, 'governance-grants': false }));
     }
@@ -1828,19 +1943,26 @@ function CommandCenterDashboardInner() {
 
   const fetchDataOps = useCallback(async () => {
     setTabLoading((p) => ({ ...p, 'data-ops': true }));
+    setTabError((p) => ({ ...p, 'data-ops': null }));
     try {
       const data = await getDataOperationsOverview(filters);
-      if (isApiError(data)) {
-        console.warn('[CommandCenter] data-ops returned error:', data);
+      if (isPreparing(data)) {
+        notePreparing('data-ops', data, () => void fetchDataOps());
         return;
       }
+      if (isApiError(data)) {
+        console.warn('[CommandCenter] data-ops returned error:', data);
+        setTabError((p) => ({ ...p, 'data-ops': 'Data operations view is unavailable right now' }));
+        return;
+      }
+      clearPreparing('data-ops');
       setDataOpsData(data);
       setLastUpdated(new Date());
       // Stamps the MERGED tab's cache key ('usage-performance') — this lane is
       // fetched together with fetchPerformance for the Usage & Performance tab.
       tabDataCache.current['usage-performance'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
-    } catch (err) {
-      toast.error('Failed to load data operations overview');
+    } catch {
+      setTabError((p) => ({ ...p, 'data-ops': 'Data operations view is unavailable right now' }));
     } finally {
       setTabLoading((p) => ({ ...p, 'data-ops': false }));
     }
@@ -1848,13 +1970,24 @@ function CommandCenterDashboardInner() {
 
   const fetchPerformance = useCallback(async () => {
     setTabLoading((p) => ({ ...p, performance: true }));
+    setTabError((p) => ({ ...p, 'usage-performance': null }));
     try {
-      const perfDays = filters.days > 30 ? 7 : filters.days;
+      // Cost guard: query-history scans above 30d are capped AT 30d (never
+      // silently collapsed to 7d — that made a 90d selection serve a 7d
+      // window while the data-ops lane of the same tab honored 90d). The UI
+      // labels the REAL window from the payload's period_days.
+      const perfDays = Math.min(filters.days, 30);
       const data = await getPerformanceOverview(perfDays, filters);
-      if (isApiError(data)) {
-        console.warn('[CommandCenter] performance returned error:', data);
+      if (isPreparing(data)) {
+        notePreparing('performance', data, () => void fetchPerformance());
         return;
       }
+      if (isApiError(data)) {
+        console.warn('[CommandCenter] performance returned error:', data);
+        setTabError((p) => ({ ...p, 'usage-performance': 'Query performance data is unavailable right now' }));
+        return;
+      }
+      clearPreparing('performance');
       setPerformanceData(data);
       setLastUpdated(new Date());
       // Stamps the MERGED tab's cache key — see fetchDataOps note.
@@ -1863,8 +1996,8 @@ function CommandCenterDashboardInner() {
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
       };
-    } catch (err) {
-      toast.error('Failed to load performance data');
+    } catch {
+      setTabError((p) => ({ ...p, 'usage-performance': 'Query performance data is unavailable right now' }));
     } finally {
       setTabLoading((p) => ({ ...p, performance: false }));
     }
@@ -1881,22 +2014,25 @@ function CommandCenterDashboardInner() {
           end_date: filters.end_date,
         }),
         // Cortex spend is a secondary overlay on the FinOps tab — if it fails
-        // the primary cost breakdown still renders. Surface the failure as a
-        // non-blocking toast (instead of silently swallowing) then degrade to
-        // null so the tab stays usable.
+        // the primary cost breakdown still renders. Degrade silently to null
+        // (no toast: it's an optional overlay; the AI-Spend KPI just hides).
         getCortexCosts(filters.days, filters).catch((e) => {
           console.warn('[CommandCenter] cortex-costs failed:', e);
-          toast.error(getApiErrorMessage(e) || 'Could not load AI cost overlay');
           return null;
         }),
       ]);
+      if (isPreparing(cost)) {
+        notePreparing('finops', cost, () => void fetchCost());
+        return;
+      }
       if (isApiError(cost)) {
         console.warn('[CommandCenter] cost-breakdown returned error:', cost);
         setTabError((p) => ({ ...p, finops: 'Failed to load cost data' }));
         return;
       }
+      clearPreparing('finops');
       const cortexCredits =
-        cortex && !isApiError(cortex)
+        cortex && !isApiError(cortex) && !isPreparing(cortex)
           ? Number(cortex.summary?.total_credits ?? 0)
           : 0;
       setCostData({
@@ -1920,17 +2056,24 @@ function CommandCenterDashboardInner() {
 
   const fetchCompute = useCallback(async () => {
     setTabLoading((p) => ({ ...p, compute: true }));
+    setTabError((p) => ({ ...p, compute: null }));
     try {
       const data = await getInfrastructure({ days: filters.days });
-      if (isApiError(data)) {
-        console.warn('[CommandCenter] infrastructure returned error:', data);
+      if (isPreparing(data)) {
+        notePreparing('compute', data, () => void fetchCompute());
         return;
       }
+      if (isApiError(data)) {
+        console.warn('[CommandCenter] infrastructure returned error:', data);
+        setTabError((p) => ({ ...p, compute: 'Infrastructure view is unavailable right now' }));
+        return;
+      }
+      clearPreparing('compute');
       setInfra(data);
       setLastUpdated(new Date());
       tabDataCache.current['compute'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
-    } catch (err) {
-      toast.error('Failed to load compute data');
+    } catch {
+      setTabError((p) => ({ ...p, compute: 'Infrastructure view is unavailable right now' }));
     } finally {
       setTabLoading((p) => ({ ...p, compute: false }));
     }
@@ -1938,6 +2081,7 @@ function CommandCenterDashboardInner() {
 
   const fetchPlatformActivity = useCallback(async () => {
     setTabLoading((p) => ({ ...p, 'platform-activity': true }));
+    setTabError((p) => ({ ...p, 'platform-activity': null }));
     try {
       const feedFiltersKey = `${filters.days}|${filters.module_name ?? ''}|${filters.username ?? ''}`;
       const cachedFeed = activityFeedRef.current;
@@ -1959,7 +2103,12 @@ function CommandCenterDashboardInner() {
         getPlatformActivityFiltered(filters),
         activityFeedTask,
       ]);
-      if (!isApiError(plat)) setPlatformData(plat);
+      if (isPreparing(plat)) {
+        notePreparing('platform-activity', plat, () => void fetchPlatformActivity());
+      } else if (!isApiError(plat)) {
+        clearPreparing('platform-activity');
+        setPlatformData(plat);
+      }
       if (af && !isApiError(af)) {
         setActivityFeed(af);
         activityFeedRef.current = {
@@ -1974,8 +2123,8 @@ function CommandCenterDashboardInner() {
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
       };
-    } catch (err) {
-      toast.error('Failed to load platform activity');
+    } catch {
+      setTabError((p) => ({ ...p, 'platform-activity': 'Activity data is unavailable right now' }));
     } finally {
       setTabLoading((p) => ({ ...p, 'platform-activity': false }));
     }
@@ -2005,6 +2154,10 @@ function CommandCenterDashboardInner() {
   // user would see stale data (the bug that broke filters until the fix).
   const filtersCacheKey = buildFiltersKey(filters);
   useEffect(() => {
+    // Wait for the persisted-tab restore: mount-flush effects still see
+    // activeTab='account', so fetching before `restored` fires the whole
+    // Account fan ahead of the tab the user actually lands on.
+    if (!restored) return;
     const cached = tabDataCache.current[activeTab];
     if (
       cached &&
@@ -2045,7 +2198,7 @@ function CommandCenterDashboardInner() {
       // inside their tab components.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, filters]);
+  }, [restored, activeTab, filters]);
 
   // Refresh is now driven solely by SSE cache-invalidation events (handled
   // elsewhere via useCacheInvalidation) and by the manual refresh button.
@@ -2124,6 +2277,38 @@ function CommandCenterDashboardInner() {
   // from here — see the deferred gap note.
   useCacheInvalidation({
     onInvalidate: (keys) => {
+      // B2 wake-up: a background computation finished — the event carries the
+      // exact cache_key we recorded from the 'preparing' envelope. Re-read
+      // just those lanes (their fetcher), immediately, and skip their
+      // retry_after fallback timers.
+      const PREPARING_RETRY: Record<string, () => void> = {
+        summary: () => void fetchOverview(),
+        'module-health': () => void fetchOverview(),
+        performance: () => void fetchPerformance(),
+        'data-ops': () => void fetchDataOps(),
+        security: () => void fetchSecurityAdv(),
+        'governance-grants': () => void fetchGovGrants(),
+        finops: () => void fetchCost(),
+        compute: () => void fetchCompute(),
+        'platform-activity': () => void fetchPlatformActivity(),
+        projects: () => void fetchProjects(),
+      };
+      // Two lanes can share one fetcher (summary + module-health → the
+      // account fan): dedupe by group so a single wake-up fires it once.
+      const LANE_GROUP: Record<string, string> = {
+        summary: 'account',
+        'module-health': 'account',
+      };
+      const wokenGroups = new Set<string>();
+      for (const [lane, env] of Object.entries(tabPreparing)) {
+        if (!env?.cache_key || !keys.includes(env.cache_key)) continue;
+        clearPreparing(lane);
+        const group = LANE_GROUP[lane] ?? lane;
+        if (wokenGroups.has(group)) continue;
+        wokenGroups.add(group);
+        delete tabDataCache.current[group];
+        PREPARING_RETRY[lane]?.();
+      }
       const TAB_KEYS: Record<string, string[]> = {
         account: [CACHE_KEYS.USER_ACTIVITY, CACHE_KEYS.DASHBOARD],
         projects: [CACHE_KEYS.PROJECTS],
@@ -2191,7 +2376,6 @@ function CommandCenterDashboardInner() {
   // it collapses to a horizontal strip on small screens.
 
   const activeTabDef = tabs.find((t) => t.id === activeTab) ?? tabs[0];
-  const ActiveIcon = activeTabDef.icon;
   const sectionRefresh: Record<string, (() => void) | undefined> = {
     account: fetchOverview,
     'usage-performance': () => {
@@ -2210,16 +2394,6 @@ function CommandCenterDashboardInner() {
     'platform-activity': fetchPlatformActivity,
   };
   const onSectionRefresh = sectionRefresh[activeTabDef.id];
-
-  // Rail axis chips → the SECTION whose audit tables own that dimension
-  // (the docked cockpit-axis overlay was deleted — metrics drill into real
-  // data, causes and actions live in the sections' audit tables).
-  const DIMENSION_TO_SECTION: Record<KpiDimension, string> = {
-    dq: 'data-quality',
-    gov: 'security',
-    cost: 'finops',
-    perf: 'usage-performance',
-  };
 
   // ONLY the active section's body is computed + rendered. All 9 sections'
   // content is preserved verbatim from the one-pager — just re-disposed
@@ -2240,6 +2414,8 @@ function CommandCenterDashboardInner() {
                 onRetry={fetchOverview}
                 globalDays={filters.days}
                 onNavigateTab={goToTab}
+                summaryPreparing={tabPreparing.summary}
+                moduleHealthPreparing={tabPreparing['module-health']}
               />
             </div>
             <div className="shrink-0">
@@ -2258,12 +2434,30 @@ function CommandCenterDashboardInner() {
            execution trend, active tasks, dynamic tables, failed tasks),
            re-disposed as ONE dashboard grid: merged KPI zone first, then
            the board cells. */
-        return (
+        // Whole-tab error only when BOTH lanes failed with nothing to show;
+        // a single failed lane degrades inline inside the tab.
+        return tabError['usage-performance'] &&
+          tabError['data-ops'] &&
+          !performanceData &&
+          !dataOpsData &&
+          !tabLoading.performance &&
+          !tabLoading['data-ops'] ? (
+          <TabErrorState
+            message={tabError['usage-performance']}
+            onRetry={() => {
+              fetchPerformance();
+              fetchDataOps();
+            }}
+          />
+        ) : (
           <UsagePerformanceTab
             perf={performanceData}
             perfLoading={tabLoading.performance}
             ops={dataOpsData}
             opsLoading={tabLoading['data-ops']}
+            days={filters.days}
+            perfPreparing={tabPreparing.performance}
+            opsPreparing={tabPreparing['data-ops']}
           />
         );
       case 'data-objects':
@@ -2277,6 +2471,16 @@ function CommandCenterDashboardInner() {
            + open DQ recommendations. */
         return <DataQualityTab days={filters.days} />;
       case 'finops':
+        if (tabPreparing.finops && !costData && !tabLoading.finops) {
+          return (
+            <div className="mx-4 mt-6">
+              <PreparingState
+                domainLabel="cost reporting"
+                startedAt={tabPreparing.finops.started_at ?? null}
+              />
+            </div>
+          );
+        }
         return tabError.finops && !tabLoading.finops ? (
           <TabErrorState message={tabError.finops} onRetry={fetchCost} />
         ) : (
@@ -2292,7 +2496,14 @@ function CommandCenterDashboardInner() {
       case 'platform-activity':
         /* Platform Activity + the Modules adoption dashboard folded in as an
            in-grid drawer (was its own 'modules' tab — content preserved). */
-        return (
+        return tabError['platform-activity'] &&
+          !platformData &&
+          !tabLoading['platform-activity'] ? (
+          <TabErrorState
+            message={tabError['platform-activity']}
+            onRetry={fetchPlatformActivity}
+          />
+        ) : (
           <div className="flex h-full min-h-0 flex-col gap-3">
             <div className="min-h-0 flex-1">
               <PlatformActivityTab
@@ -2331,7 +2542,7 @@ function CommandCenterDashboardInner() {
            privilege distribution, recent grant changes — GRANTS_TO_ROLES).
            No popups, no page scroll. */
         return (
-          <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
+          <div className="flex min-h-0 flex-col gap-3">
             {/* Governance ONE-PAGER (2026-07-13 refactor): compact executive
                 cockpit — header (score · health · freshness) · KPI strip ·
                 findings audit (server-paginated) + score breakdown + events ·
@@ -2346,12 +2557,13 @@ function CommandCenterDashboardInner() {
             </div>
             <LazyDetails
               className="shrink-0 rounded-xl border border-slate-200 dark:border-slate-700"
-              summary="Detailed panels (governance cockpit · security audit · grants · access · map)"
+              summary="Detailed panels (security audit · grants · access requests · map)"
               contentClassName="border-t border-slate-200 p-3 dark:border-slate-700"
             >
-                <div className="mb-3 min-h-0 xl:h-[640px] xl:overflow-y-auto">
-                  <GovernanceCockpit filters={filters} />
-                </div>
+                {/* (2026-09-06) GovernanceCockpit removed here: it rendered the
+                    SAME /governance/intelligence aggregate as the one-pager
+                    above — identical KPIs + findings table fetched twice per
+                    visit. The four drawers below carry the UNIQUE surfaces. */}
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                   <MoreDrawer label="Detailed security audit" className="col-span-2 md:col-span-1">
                     {tabError.security && !tabLoading['security'] ? (
@@ -2374,7 +2586,9 @@ function CommandCenterDashboardInner() {
                     <AccessRequestsCard />
                   </MoreDrawer>
                   <MoreDrawer label="Security map" className="md:col-span-1">
-                    <SecurityMap days={filters.days} />
+                    <Suspense fallback={<LoadingSection />}>
+                      <SecurityMap days={filters.days} />
+                    </Suspense>
                   </MoreDrawer>
                 </div>
             </LazyDetails>
@@ -2383,7 +2597,7 @@ function CommandCenterDashboardInner() {
       case 'actions':
         return (
           <Suspense fallback={<LoadingSection />}>
-            <div className="min-h-0 flex-1 overflow-y-auto p-1">
+            <div className="min-h-0 flex-1 p-1">
               <CcActionSurface />
             </div>
           </Suspense>
@@ -2397,27 +2611,19 @@ function CommandCenterDashboardInner() {
            now lives behind a collapsed disclosure so no evidence disappears. */
         return (
           <Suspense fallback={<LoadingSection />}>
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
               <OrganizationCockpit />
-              <LazyDetails
-                className="rounded-xl border border-slate-200 dark:border-slate-700"
-                summary="Detailed panels (org summary · accounts · connected-account audit)"
-                contentClassName="grid grid-cols-1 gap-3 border-t border-slate-200 p-3 dark:border-slate-700 xl:grid-cols-2"
-              >
-                  <div className="min-h-0 xl:overflow-y-auto"><OrgSummaryTab /></div>
-                  <div className="min-h-0 xl:overflow-y-auto">
-                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Org accounts</h3>
-                    <OrgAccountsTab onNavigateTab={goToTab} />
-                  </div>
-                  <div className="min-h-0 xl:overflow-y-auto">
-                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Connected Accounts</h3>
-                    <SnowflakeAccountsTab onNavigateTab={goToTab} />
-                  </div>
-                  <div className="min-h-0 xl:overflow-y-auto">
-                    <h3 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Accounts &amp; audit</h3>
-                    <SnowflakeAccountsAuditSection onNavigateTab={goToTab} />
-                  </div>
-              </LazyDetails>
+              {/* (2026-09-06 non-redundancy rule) The four legacy panels that
+                  lived behind a disclosure here (OrgSummaryTab, OrgAccountsTab,
+                  SnowflakeAccountsTab, SnowflakeAccountsAuditSection — ~17
+                  tables, 3 renderings of the same account list) were removed.
+                  Every question they answered has a canonical home:
+                  account portfolio → the cockpit table above (server-paged);
+                  org credit/storage → FinOps + the cockpit Cost lane;
+                  logins/access audit → Security & Governance;
+                  query audit → Usage & Performance;
+                  role hierarchy → Security (grants drawer);
+                  D360 activity by role/module → Platform Activity. */}
             </div>
           </Suspense>
         );
@@ -2428,92 +2634,112 @@ function CommandCenterDashboardInner() {
 
   return (
     <div className="@container flex h-full min-h-0 flex-col">
-      {/* ── Header (compact — everything below must fit one viewport) ── */}
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: 'easeOut' }}
-        className="mb-3 flex shrink-0 items-center justify-between"
-      >
-        {/* Real page header (user mockup #52): identity left, live Snowflake
-            context chips right — a header band, not content. */}
-        <div className="flex min-w-0 items-center gap-4">
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              Account Overview
-            </h1>
-            <p className="hidden truncate text-[11px] text-slate-500 dark:text-slate-400 md:block">
-              Consolidated Snowflake account audit — secured by your access
-            </p>
-          </div>
+      {/* ── Header (compact, no entrance motion — §4) ── */}
+      <div className="mb-3 flex shrink-0 items-center justify-between">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <h1 className="truncate text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            Account Overview
+          </h1>
           <div className="hidden items-center gap-1.5 lg:flex">
             {cxSession?.user?.account_name && (
-              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-                Account: {cxSession.user.account_name}
+              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                {cxSession.user.account_name}
               </span>
             )}
             {cxSession?.user?.role && (
-              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
-                Role: {cxSession.user.role}
+              <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                role {cxSession.user.role}
               </span>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        {/* Right side intentionally empty — period, freshness and the AI
+            entry point live in the analytical header row below. */}
+      </div>
+
+      {/* ── Horizontal section tabs (2026-08-24): full-width, highly visible,
+          replacing the old right-edge vertical rail that stole ~300px of
+          analytical width and read as a hidden second sidebar. ── */}
+      <SectionTabs
+        sections={tabs}
+        activeId={activeTabDef.id}
+        onSelect={goToTab}
+        days={filters.days}
+        onRefresh={onSectionRefresh ?? undefined}
+        refreshing={!!tabLoading[activeTabDef.id]}
+      />
+
+      {/* ── Analytical header row (mission §2): the ONE home for the global
+          time window, honest freshness, and the AI entry point. Every tab
+          inherits this window (filters.days) — no per-card date pickers. ── */}
+      <div className="mb-2 mt-2 flex shrink-0 flex-wrap items-center gap-2">
+        <div
+          role="group"
+          aria-label="Time window"
+          className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900"
+        >
+          {TIME_PRESETS.map((p) => {
+            const active = p.days === filters.days && !filters.start_date;
+            return (
+              <button
+                key={p.days}
+                type="button"
+                aria-pressed={active}
+                onClick={() => {
+                  const { start_date: _s, end_date: _e, ...rest } = filters;
+                  setFilters({ ...rest, days: p.days });
+                }}
+                className={cn(
+                  'rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  active
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
+                )}
+              >
+                {p.label.replace('Last ', '')}
+              </button>
+            );
+          })}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
           {lastUpdated && (
-            <span className="hidden text-[11px] text-slate-400 dark:text-slate-500 sm:block">
-              Updated {relativeTime(lastUpdated.toISOString())}
+            <span
+              className="hidden text-[11px] text-slate-400 dark:text-slate-500 sm:block"
+              title="When this browser last fetched data. Source freshness varies per panel — ACCOUNT_USAGE views can lag up to a few hours."
+            >
+              Fetched {relativeTime(lastUpdated.toISOString())}
             </span>
           )}
-          {/* Account-level Command Center has no single project to score, so the
-              per-project ADN badge self-hides (projectId=null → renders nothing).
-              The slot is kept for placement parity; no fabricated account ADN. */}
-          <div className="hidden lg:block">
-            <AdnHeaderBadge projectId={null} />
-          </div>
-          {/* The standalone "Actions" panel was removed (governance-refactor
-              spec §3): actions now live only in the dynamic contextual right
-              bar (AxisCockpit / GovernanceCockpit RightBar) — no duplicated
-              action surface. */}
-        </div>
-      </motion.div>
-
-      {/* ── Main row: viewport-fit frame + docked panels + SectionRail.
-          On small screens the rail collapses to a horizontal strip ABOVE
-          the frame (order-first / md:order-last). ── */}
-      <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 md:flex-row md:gap-4">
-        {/* ── Main column: ONLY the active section, in the frame ── */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* Frame header: active section identity + its refresh. */}
-          <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
-            <ActiveIcon className="h-4 w-4 text-slate-400" aria-hidden />
-            <h2
-              id={`cc-sec-h-${activeTabDef.id}`}
-              className="text-sm font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300"
-            >
-              {activeTabDef.label}
-            </h2>
-            {onSectionRefresh && (
-              <button
-                type="button"
-                onClick={onSectionRefresh}
-                title={`Refresh ${activeTabDef.label}`}
-                aria-label={`Refresh ${activeTabDef.label}`}
-                className="ml-auto rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-              >
-                <RefreshCw className={cn('h-3.5 w-3.5', tabLoading[activeTabDef.id] && 'animate-spin')} />
-              </button>
+          <button
+            type="button"
+            onClick={() => setAiPanelOpen((o) => !o)}
+            aria-expanded={aiPanelOpen}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+              aiPanelOpen
+                ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800',
             )}
-          </div>
+          >
+            <Sparkles className="h-3.5 w-3.5 text-violet-500" aria-hidden />
+            Ask AI
+          </button>
+        </div>
+      </div>
 
-          {/* Inner scroll — the ONLY scrolling surface for section content
-              (the page itself never scrolls). */}
+      {/* ── Content row: reporting surface (ONE clean scroll) + the contextual
+          AI panel (closed by default; docked on xl so it never covers the
+          charts). The shell — sidebar, header, tabs, analytical row — stays
+          fixed; only the reporting surface scrolls. ── */}
+      <div className="flex min-h-0 flex-1 gap-3">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* Inner scroll — the ONLY scrolling surface for section content. */}
           <div
             ref={panelScrollRef}
             id={`cc-panel-${activeTabDef.id}`}
             role="tabpanel"
             aria-labelledby={`cc-rail-tab-${activeTabDef.id}`}
-            className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+            className="relative flex min-h-0 flex-1 flex-col overflow-y-auto pr-1"
           >
             {/* ── Error Banner ──────────────────────────────────────────── */}
             {error && (
@@ -2585,130 +2811,28 @@ function CommandCenterDashboardInner() {
           </div>
         </div>
 
-        {/* Actions right-bar removed (spec §3) — contextual actions live in the
-            GovernanceCockpit right bar / section audit tables. */}
-
-        {/* ── SectionRail: overview by axis + the section navigation ── */}
-        <SectionRail
-          sections={tabs}
-          activeId={activeTabDef.id}
-          onSelect={goToTab}
-          days={filters.days}
-          onOpenDimension={(dim) => goToTab(DIMENSION_TO_SECTION[dim])}
-          // #69/#70: the page scrolls (growth contract) — the rail must
-          // FOLLOW or its column reads as a giant dead zone when scrolled.
-          className="order-first md:order-last md:sticky md:top-4 md:max-h-[calc(100dvh-2rem)] md:self-start md:overflow-y-auto"
-        />
-      </div>
-    </div>
-  );
-}
-// ── Tasks Quick Widget (used in Overview tab) ──
-
-function TasksQuickWidget() {
-  const [taskData, setTaskData] = useState<any>(null);
-  const [status, setStatus] = useState<'loading' | 'ok' | 'error'>('loading');
-  const [attempt, setAttempt] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    setStatus('loading');
-    apiClient
-      .get('/observability/lineage/with-tasks', { params: { days: 7 } })
-      .then((res) => {
-        if (cancelled) return;
-        setTaskData(res.data);
-        setStatus('ok');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setStatus('error');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [attempt]);
-
-  const active = taskData?.summary?.active_tasks ?? 0;
-  const suspended = taskData?.summary?.suspended_tasks ?? 0;
-  const succeeded = taskData?.task_stats?.succeeded ?? 0;
-  const failed = taskData?.task_stats?.failed ?? 0;
-  const total = active + suspended + succeeded + failed;
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
-          <Clock className="h-4 w-4 text-blue-500" /> Scheduled Tasks
-        </h3>
-        <a
-          href="/observability"
-          className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400"
+        {/* ── Contextual AI panel (mission §5): closed by default, opened by
+            Ask AI. Context (account · role · tab · window) travels with it;
+            the hosted advisors are the EXISTING explanation/evidence/action
+            surfaces (they degrade on their own — an AI outage never blocks
+            the reporting beside it). ── */}
+        <ContextPanel
+          open={aiPanelOpen}
+          onClose={() => setAiPanelOpen(false)}
+          context={{
+            account: cxSession?.user?.account_name,
+            role: cxSession?.user?.role,
+            tabLabel: activeTabDef.label,
+            days: filters.days,
+          }}
         >
-          View All &rarr;
-        </a>
+          <SnowflakeInsightsAdvisor />
+          <AiAdvisor days={filters.days} />
+        </ContextPanel>
       </div>
-      {status === 'loading' && (
-        <div className="grid grid-cols-4 gap-2 text-center">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="space-y-1">
-              <div className="mx-auto h-5 w-8 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
-              <div className="mx-auto h-3 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
-            </div>
-          ))}
-        </div>
-      )}
-      {status === 'error' && (
-        <div className="flex flex-col items-center justify-center gap-2 py-4 text-center">
-          <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
-            Couldn't load tasks
-          </p>
-          <p className="text-xs text-gray-500">
-            Observability endpoint didn't respond.
-          </p>
-          <button
-            onClick={() => setAttempt((a) => a + 1)}
-            className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
-          >
-            Retry
-          </button>
-        </div>
-      )}
-      {status === 'ok' && total > 0 && (
-        <div className="grid grid-cols-4 gap-2 text-center">
-          <div>
-            <p className="text-lg font-bold text-green-600">{active}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">Active</p>
-          </div>
-          <div>
-            <p className="text-lg font-bold text-amber-600">{suspended}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">Suspended</p>
-          </div>
-          <div>
-            <p className="text-lg font-bold text-blue-600">{succeeded}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">Succeeded</p>
-          </div>
-          <div>
-            <p className="text-lg font-bold text-red-600">{failed}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">Failed</p>
-          </div>
-        </div>
-      )}
-      {status === 'ok' && total === 0 && (
-        <div className="flex flex-col items-center justify-center py-4 text-center">
-          <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
-            No scheduled tasks
-          </div>
-          <p className="mt-1 text-xs text-gray-500">
-            Active and historical task runs appear here once a scheduled task is
-            created and executed.
-          </p>
-        </div>
-      )}
     </div>
   );
 }
-
 // ─── Bootstrap recovery banner ─────────────────────────────────────────────
 // Surfaces when the overview-kpis cache schema is missing (most common
 // failure mode after account creation) and lets the user re-run the bootstrap
@@ -3167,12 +3291,17 @@ const OverviewTab = memo(function OverviewTab({
   onRetry,
   globalDays,
   onNavigateTab,
+  summaryPreparing,
+  moduleHealthPreparing,
 }: {
   onRetry?: () => void;
   summary: SummaryResponse | null;
   moduleHealth: ModuleHealthResponse | null;
   activityFeed: ActivityFeedResponse | null;
   loading: boolean;
+  /** B2: the lane answered { state:'preparing' } — first computation running. */
+  summaryPreparing?: PreparingEnvelope | null;
+  moduleHealthPreparing?: PreparingEnvelope | null;
   /** Drill-down: switch the parent dashboard to another tab. */
   onNavigateTab?: (id: string) => void;
   /**
@@ -3220,23 +3349,60 @@ const OverviewTab = memo(function OverviewTab({
     'create',
   );
 
+  // B1 availability block — rides the same overview-kpis read (deduped), so
+  // the readiness matrix costs zero extra requests. SSE-refreshed.
+  const {
+    availability,
+    loading: availabilityLoading,
+    refetch: refetchAvailability,
+  } = useAvailability(daysToRange(globalDays ?? 30));
+
+  // Readiness matrix → where each domain's detail lives. Clicking a cell
+  // navigates to the tab that owns the domain (never opens an admin surface).
+  const DOMAIN_TAB: Record<string, string> = {
+    overview_kpis: 'account',
+    summary: 'account',
+    module_health: 'account',
+    recommendations: 'account',
+    kpis: 'data-quality',
+    cost_breakdown: 'finops',
+    cortex_costs: 'finops',
+    security_audit: 'security',
+    security_overview: 'security',
+    governance_grants: 'security',
+    explorer: 'data-objects',
+    performance_overview: 'usage-performance',
+    data_operations: 'usage-performance',
+    projects_overview: 'projects',
+    platform_activity: 'platform-activity',
+  };
+  const handleDomainClick = (key: string) => {
+    const tab = DOMAIN_TAB[key];
+    if (tab && tab !== 'account') onNavigateTab?.(tab);
+  };
+  // Admin-only per-domain install (unconfigured → "Set up"). The endpoint
+  // string comes from the availability contract as "POST /path".
+  const handleDomainInstall = async (key: string, installEndpoint: string) => {
+    const path = installEndpoint.replace(/^POST\s+/i, '').trim();
+    try {
+      await apiClient.post(path);
+      toast.success('Setup started — this domain fills in when the first snapshot is published.');
+      void refetchAvailability();
+    } catch {
+      toast.error('Setup could not be started.');
+    }
+  };
+
   // Compact the AI recommendations block so the Overview isn't a long scroll.
   // The three advisors (Snowflake insights · AI advisor · top problems) live
   // in a single collapsible, bounded-height panel — expanded by default but
   // capped at a scrollable summary rather than a full-page wall of lists.
-  // Collapsed by default (2026-08-24): open-on-mount shipped a ~500px stuck
-  // "analyzing…" skeleton above the fold while Cortex warmed (up to 60s).
-  // Opening it is one click and fetches on demand ({aiRecosOpen && …} below).
-  const [aiRecosOpen, setAiRecosOpen] = useState(false);
 
   // Details "2nd page" — the heavy detail cards (Recent activity · Storage ·
   // Module health · Tasks) converge behind ONE button-tab bar so page 1 stays a
   // compact cockpit (KPIs + hero + maturity + recos) and each detail opens on
   // demand instead of stacking into a long scroll. Mirrors the governance
   // one-pager's deep-dive button-tabs.
-  // 'activity' removed (2026-08-24): the feed's single home is Platform
-  // Activity — the Account copy was the same fetch rendered twice.
-  const [detailView, setDetailView] = useState<'storage' | 'health' | 'tasks' | 'composition'>('health');
 
   // Sync hero range picker to the global Time Range whenever the parent
   // changes it. Without this, the user clicks "7d" in the global filter
@@ -3256,6 +3422,18 @@ const OverviewTab = memo(function OverviewTab({
   // Backend may return a structured empty envelope with _fallback=true when
   // the metadata DB / ACCOUNT_USAGE views aren't reachable.
   const summaryFallback = (summary as { _fallback?: boolean } | null)?._fallback === true;
+  // B2: the whole account fan is still computing its first snapshot — an
+  // explicit preparing state, not an error and not a silent skeleton.
+  if (!summary && !kpis && !loading && (summaryPreparing || moduleHealthPreparing)) {
+    return (
+      <div className="mx-4 mt-6">
+        <PreparingState
+          domainLabel="the account overview"
+          startedAt={summaryPreparing?.started_at ?? moduleHealthPreparing?.started_at ?? null}
+        />
+      </div>
+    );
+  }
   // Hard-fail state: nothing landed at all (neither summary nor kpis) AND
   // we're no longer loading — surface a retry instead of empty cards.
   if (!summary && !kpis && !loading) {
@@ -3388,21 +3566,23 @@ const OverviewTab = memo(function OverviewTab({
           ACCOUNT_USAGE views aren't readable for this account. Show one
           clear notice instead of leaving the user puzzled at all-zero cards. */}
       {summaryFallback && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-          <span className="font-semibold">Limited data available.</span>{' '}
-          Some analytics views (e.g. <code>SNOWFLAKE.ACCOUNT_USAGE.*</code>,
-          <code> CP_DATA360.EVENT_STORE.*</code>) are not readable with the
-          current role. KPIs that depend on them show as zero.
+        <div
+          className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200"
+          title="The account-usage analytics views are not readable with the current role."
+        >
+          <span className="font-semibold">Limited data available.</span> Your
+          current role can't read some of this account's analytics sources —
+          the affected values show as — instead of numbers.
         </div>
       )}
       {/* Partial-failure banner: rendering from cached KPIs but the slower
           summary call didn't return. User can retry just that call without
           reloading the whole page. */}
-      {!summary && kpis && !loading && (
+      {!summary && kpis && !loading && !summaryPreparing && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
           <span>
-            <span className="font-semibold">Showing cached snapshot.</span> Live
-            summary (MFA, AI models, quality) didn't respond yet.
+            <span className="font-semibold">Showing cached snapshot.</span> The
+            cross-module summary (MFA, AI models, quality) didn't respond.
           </span>
           {onRetry && (
             <button
@@ -3412,6 +3592,17 @@ const OverviewTab = memo(function OverviewTab({
               Retry
             </button>
           )}
+        </div>
+      )}
+      {/* B2: the cross-module summary is computing its first snapshot — a calm
+          note, not an amber warning (the readiness matrix shows it too). */}
+      {!summary && kpis && !loading && summaryPreparing && (
+        <div className="mb-4">
+          <PreparingState
+            domainLabel="the cross-module summary"
+            startedAt={summaryPreparing.started_at ?? null}
+            compact
+          />
         </div>
       )}
       {/* Bootstrap recovery banner: the overview-kpis cache lives in a
@@ -3430,137 +3621,11 @@ const OverviewTab = memo(function OverviewTab({
         <ProvisionKpisBanner onProvisioned={() => void refreshKpis()} />
       )}
 
-      {/* ── Density mandate 2026-07: the ONE hero KPI band of the Account tab
-          is the 8-tile KpiStrip the shell renders above this tab (Active
-          users · Credits · Query fail % · Failed logins · Storage · Active
-          projects · Modules healthy · Open alerts — each with its drill-down).
-          Every other tile lives in the single "All metrics" drawer below,
-          grouped Health & Posture / Operations & Security — content
-          preserved, honest "—" kept. Exact duplicates of hero tiles
-          (Active Users · Credits · Active Projects · Failed Logins ·
-          Open Alerts) were REMOVED here, not duplicated. ── */}
-      <KpiZone>
-        <MoreDrawer label="All metrics" count={11}>
-          {/* ── Health & posture ─────────────────────────────────────── */}
-          <section>
-            <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Health &amp; posture
-            </h2>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-              <KpiCard
-                label="Workspace Health"
-                value={qualityScore != null ? `${qualityScore}%` : null}
-                icon={CheckCircle}
-                color="green"
-              />
-              <KpiCard
-                label="Warehouse Health"
-                value={
-                  provisioned && kpis?.snowflake_health_pct != null
-                    ? `${kpis.snowflake_health_pct}%`
-                    : null
-                }
-                icon={Gauge}
-                color="blue"
-              />
-              <KpiCard
-                label="Optimization Score"
-                value={
-                  provisioned && kpis?.optimization_score_pct != null
-                    ? `${kpis.optimization_score_pct}%`
-                    : null
-                }
-                icon={Zap}
-                color="amber"
-              />
-              <KpiCard
-                label="MFA / AI Models"
-                value={
-                  mfaCoverage != null || aiModels != null
-                    ? `${mfaCoverage != null ? `${mfaCoverage}%` : '—'} · ${aiModels != null ? aiModels : '—'}`
-                    : null
-                }
-                icon={Shield}
-                color="rose"
-              />
-              {/* Modules ACTIVE (enabled/total from the KPI cache) — distinct
-                  from the hero band's Modules HEALTHY (status counts). */}
-              <KpiCard
-                label="Modules Active"
-                value={
-                  provisioned && kpis?.modules_total != null
-                    ? `${kpis?.modules_active ?? 0}/${kpis.modules_total}`
-                    : null
-                }
-                icon={Layers}
-                color="indigo"
-                onActivate={() => onNavigateTab?.('modules')}
-              />
-            </div>
-          </section>
-
-          {/* ── Operations & security ────────────────────────────────── */}
-          <section>
-            <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Operations &amp; security
-            </h2>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-              <KpiCard
-                label="Connected Accounts"
-                value={provisioned ? kpis?.connected_accounts ?? null : null}
-                icon={Database}
-                color="cyan"
-                onActivate={() => onNavigateTab?.('organization')}
-              />
-              <KpiCard
-                label="Deploy Success (30d)"
-                value={
-                  provisioned && deploySuccessRate !== null
-                    ? `${deploySuccessRate}%`
-                    : '—'
-                }
-                icon={Rocket}
-                color="green"
-              />
-              <KpiCard
-                label="Task Failure (24h)"
-                value={
-                  provisioned && taskFailureRate !== null
-                    ? `${taskFailureRate}%`
-                    : '—'
-                }
-                icon={AlertTriangle}
-                color={
-                  provisioned && (taskFailureRate ?? 0) > 0 ? 'rose' : 'green'
-                }
-              />
-              <KpiCard
-                label="AI Spend"
-                value={provisioned ? cortexSpend.toLocaleString() : null}
-                icon={Sparkles}
-                color="violet"
-                onActivate={() => onNavigateTab?.('finops')}
-              />
-              <KpiCard
-                label="Adoption Rate"
-                value={
-                  hasPlatformSummary && adoptionRate !== null
-                    ? `${adoptionRate}%`
-                    : '—'
-                }
-                icon={Users}
-                color="blue"
-              />
-              <KpiCard
-                label="Security Policies"
-                value={hasSecuritySummary ? securityPolicies : '—'}
-                icon={ShieldCheck}
-                color="indigo"
-              />
-            </div>
-          </section>
-        </MoreDrawer>
-      </KpiZone>
+      {/* (2026-08-24 KPI ownership) The 11-tile 'All metrics' drawer was
+          removed: every tile was another tab's detail metric (AI Spend ->
+          FinOps, Task failure -> Usage, Deploy success -> Projects, Adoption
+          -> Activity, Policies/MFA -> Security…). The shell strip above now
+          carries the 5 health signals this tab OWNS. */}
 
       {/* Tab-level actionable CTAs — drill into cost, enforce MFA, enable
           modules. Each is gated on a real signal (no fake prompts). */}
@@ -3595,100 +3660,64 @@ const OverviewTab = memo(function OverviewTab({
           Internal scroll only — the page never scrolls. ── */}
       <Board>
         <GridCell>
-      {/* Hero strip — Snowflake account identity. The visual anchor of the
-          page: gradient background, larger account name, badges grouped on
-          the left, range picker + refresh on the right. */}
-      <div className="overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 via-white to-indigo-50/50 dark:border-blue-900/40 dark:from-blue-950/40 dark:via-gray-900 dark:to-indigo-950/30">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 dark:bg-blue-400/10">
-              <Database className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-base font-semibold leading-tight text-gray-900 dark:text-white">
-                  {kpis?.account_name ?? '—'}
-                </span>
-                {kpis?.edition && (
-                  <span className="rounded-md bg-blue-600/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-400/15 dark:text-blue-300">
-                    {kpis.edition}
-                  </span>
-                )}
-                {kpis?.region && (
-                  <span className="rounded-md bg-slate-200/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-700/50 dark:text-slate-300">
-                    {kpis.region}
-                  </span>
-                )}
-              </div>
-              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-600 dark:text-slate-400">
-                {kpis?.account_locator && (
-                  <span>{kpis.account_locator}</span>
-                )}
-                {kpis?.current_role && (
-                  <span>
-                    role <span className="font-medium text-slate-700 dark:text-slate-300">{kpis.current_role}</span>
-                  </span>
-                )}
-                <span>
-                  subscription <span className="font-medium text-slate-700 dark:text-slate-300">{subscriptionEndLabel}</span>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            {(cacheAgeLabel || kpisError) && (
-              <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                {cacheAgeLabel && <span>{cacheAgeLabel}</span>}
-                {kpisError && (
-                  <span
-                    className="font-medium text-amber-600 dark:text-amber-400"
-                    title={kpisError.message || 'overview-kpis cache unavailable'}
-                  >
-                    · live mode
-                  </span>
-                )}
-              </div>
-            )}
-            {/* Window indicator — read-only badge that mirrors the global
-                Time Range filter above. The redundant per-tab range picker
-                was removed because (a) it duplicated the global filter
-                without syncing, which made the page feel broken, and
-                (b) the only endpoint it controlled was overview-kpis,
-                whose backend cache is sometimes missing. Now there is
-                ONE source of truth: the Time Range bar at the top. */}
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              <Calendar className="h-3 w-3 text-slate-400" />
-              <span className="tabular-nums">{range}</span>
-              <span className="text-slate-400">window</span>
+      {/* Identity row — compact, no decorative banner (2026-09 restructure):
+          who this account is + how fresh the snapshot is. The "Refresh cache"
+          button was removed from the first level (cache upkeep is the
+          platform's job — admins keep per-domain refresh in the readiness
+          matrix below and in Administration). */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Database className="h-4 w-4 shrink-0 text-slate-400" />
+          <span className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+            {kpis?.account_name ?? '—'}
+          </span>
+          {kpis?.edition && (
+            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {kpis.edition}
             </span>
-            <motion.button
-              whileHover={!refreshing ? { scale: 1.03 } : undefined}
-              whileTap={!refreshing ? { scale: 0.97 } : undefined}
-              onClick={() => void refreshKpis()}
-              disabled={refreshing}
-              className="group flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 hover:shadow-md disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-700"
+          )}
+          {kpis?.region && (
+            <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {kpis.region}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-slate-500 dark:text-slate-400">
+          {kpis?.account_locator && <span>{kpis.account_locator}</span>}
+          {kpis?.current_role && (
+            <span>
+              role <span className="font-medium text-slate-700 dark:text-slate-300">{kpis.current_role}</span>
+            </span>
+          )}
+          {kpis?.subscription_end && (
+            <span>
+              subscription <span className="font-medium text-slate-700 dark:text-slate-300">{subscriptionEndLabel}</span>
+            </span>
+          )}
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+          {cacheAgeLabel && <span className="tabular-nums">{cacheAgeLabel}</span>}
+          {kpisError && (
+            <span
+              className="font-medium text-amber-600 dark:text-amber-400"
+              title={kpisError.message || 'Snapshot cache unavailable'}
             >
-              <RefreshCw
-                className={cn(
-                  'h-3.5 w-3.5 transition-transform duration-500',
-                  refreshing ? 'animate-spin' : 'group-hover:rotate-180',
-                )}
-              />
-              Refresh cache
-            </motion.button>
-          </div>
+              · live mode
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+            <Calendar className="h-3 w-3 text-slate-400" />
+            <span className="tabular-nums">{range}</span>
+            <span className="text-slate-400">window</span>
+          </span>
         </div>
       </div>
 
         </GridCell>
-        <GridCell>
-      {/* Grow strip — maturity ladder (FINAL-TAB-DISPLAY-SPEC · Tab 1 "Grow").
-          Position computed from REAL gating facts only; unavailable sources
-          render '?' with the reason, never a guess. */}
-      <MaturityLadderStrip summary={summary} summaryLoading={loading} />
-
-        </GridCell>
+        {/* (2026-09 restructure) Maturity ladder removed from the first level —
+            undemonstrated maturity badges don't answer "is this account ready
+            and what's blocking it". The gating facts it used live on in the
+            readiness matrix + blockers queue below. */}
         <GridCell>
       {/* Subscription-expiry banner — only when a real end date is within 30d. */}
       {subscriptionDaysLeft != null && subscriptionDaysLeft < 30 ? (
@@ -3710,134 +3739,54 @@ const OverviewTab = memo(function OverviewTab({
       ) : null}
 
         </GridCell>
-        <GridCell>
-      {/* ── Executive overview: real cross-tab Data360 × Snowflake summary
-             (live endpoints; replaces the cards gated on the dead KPI cache).
-             Collapsed into the "down-bar" one-pager idiom — its top cards
-             (active users · projects · credits · alerts · modules) restate the
-             hero KPI strip, so it opens on demand rather than adding scroll. ── */}
-      <MoreDrawer label="Executive cross-module summary">
-        <ExecutiveOverview days={globalDays ?? 30} onNavigateTab={onNavigateTab} />
-      </MoreDrawer>
 
-        </GridCell>
         <GridCell className="xl:col-span-6">
-      {/* ── What changed this week? — cost-spike anomalies (z-score) from the
-             last 7 days. Separate signal from the recommendations panels below;
-             degrades silently to null when the endpoint is role-gated. ── */}
-      <WhatChangedCard />
-
-        </GridCell>
-        <GridCell className="xl:col-span-6">
-      {/* ── AI recommendations: Snowflake-feature insights · ready module
-             actions · top cross-tab problems. Compacted into ONE collapsible,
-             bounded-height panel (scrollable summary) so the Overview stays
-             skimmable instead of a long stacked wall of lists. Data is real;
-             only the display is tightened. ── */}
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
-        <button
-          type="button"
-          onClick={() => setAiRecosOpen((o) => !o)}
-          aria-expanded={aiRecosOpen}
-          className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40"
-        >
-          <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            <Sparkles className="h-3.5 w-3.5" />
-            AI recommendations
-          </span>
-          {aiRecosOpen ? (
-            <ChevronUp className="h-4 w-4 text-slate-400" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-slate-400" />
-          )}
-        </button>
-        {aiRecosOpen && (
-          <div className="max-h-[28rem] space-y-4 overflow-y-auto border-t border-slate-100 px-4 py-4 dark:border-slate-800">
-            <SnowflakeInsightsAdvisor />
-            <AiAdvisor days={globalDays ?? 30} />
-            <TopProblemsPanel
-              days={globalDays ?? 30}
-              limit={4}
-              onNavigateTab={onNavigateTab}
-            />
-          </div>
-        )}
-      </section>
-
-        </GridCell>
-        <GridCell>
-      {/* ── Details "2nd page": ONE button-tab bar. Only the selected detail
-          renders below, so the cockpit above stays a compact one-pager instead
-          of a long scroll of stacked cards. ── */}
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 pb-2 dark:border-slate-700">
-        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Details</span>
-        {([
-          { id: 'storage', label: 'Storage' },
-          { id: 'health', label: 'Module health' },
-          { id: 'tasks', label: 'Tasks' },
-          { id: 'composition', label: 'Composition' },
-        ] as const).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setDetailView(t.id)}
-            aria-pressed={detailView === t.id}
-            className={cn(
-              'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-              detailView === t.id
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-        </GridCell>
-        {detailView === 'storage' && (
-        <GridCell className="xl:col-span-12">
-      {/* Storage breakdown (database/total vs stage vs failsafe) — from the
-          cached KPI payload; shows "—" until OVERVIEW_KPIS is provisioned. */}
-      <SectionCard title="Storage Breakdown">
-        {provisioned ? (
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-lg bg-blue-50 p-4 text-center dark:bg-blue-900/20">
-              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                {fmtBytes(storageTotalBytes)}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Total</p>
-            </div>
-            <div className="rounded-lg bg-violet-50 p-4 text-center dark:bg-violet-900/20">
-              <p className="text-xl font-bold text-violet-600 dark:text-violet-400">
-                {fmtBytes(stageBytes)}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Stage</p>
-            </div>
-            <div className="rounded-lg bg-amber-50 p-4 text-center dark:bg-amber-900/20">
-              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">
-                {fmtBytes(failsafeBytes)}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Failsafe
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="py-6 text-center text-sm text-gray-400">
-            Storage breakdown appears once the KPI cache is provisioned.
-          </p>
-        )}
+      {/* ── Data readiness by domain (B1 availability contract) — the central
+          answer to "is this account observable and ready". Each cell carries
+          its real state + freshness; unconfigured domains expose an
+          admin-gated Set up. ── */}
+      <SectionCard title="Data readiness">
+        <DomainAvailabilityMatrix
+          availability={availability}
+          loading={availabilityLoading && !availability}
+          isAdmin={canProvision}
+          onDomainClick={handleDomainClick}
+          onInstall={handleDomainInstall}
+        />
       </SectionCard>
-
         </GridCell>
-        )}
-        {detailView === 'health' && (
-        <GridCell className="xl:col-span-12">
-      {/* Module Health Grid */}
+        <GridCell className="xl:col-span-6">
+      {/* ── Top issues right now: the cross-domain problem queue — each row
+          carries its owner signal and CTA. (WhatChangedCard moved to FinOps:
+          cost anomalies have one home.) ── */}
+      <TopProblemsPanel
+        days={globalDays ?? 30}
+        limit={5}
+        onNavigateTab={onNavigateTab}
+      />
+        </GridCell>
+
+        {/* (2026-08-24) 'Storage' detail removed — exact duplicate of FinOps'
+            StorageSplitCard (Credits/Storage -> FinOps ownership). */}
+                <GridCell className="xl:col-span-12">
+      {/* Module health grid */}
+      {!moduleHealth && moduleHealthPreparing && (
+        <SectionCard title="Module health">
+          <PreparingState
+            domainLabel="module health"
+            startedAt={moduleHealthPreparing.started_at ?? null}
+            compact
+          />
+        </SectionCard>
+      )}
       {moduleHealth && Array.isArray(moduleHealth.modules) && moduleHealth.modules.length > 0 && (
-        <SectionCard title="Module Health">
+        <SectionCard title="Module health">
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-3 2xl:grid-cols-4">
-            {moduleHealth.modules.map((m) => {
+            {/* Ranked ascending by health — the weakest module reads first
+                (mission: ranking answers 'where should I look'). */}
+            {[...moduleHealth.modules]
+              .sort((a, b) => (typeof a.health_score === 'number' ? a.health_score : 101) - (typeof b.health_score === 'number' ? b.health_score : 101))
+              .map((m) => {
               // Backend uses status_reason (e.g. "4 stages, 0 streams, 0 tasks");
               // older builds returned key_metric. Pick whichever is populated.
               const subtitle =
@@ -3923,315 +3872,11 @@ const OverviewTab = memo(function OverviewTab({
       )}
 
         </GridCell>
-        )}
-        {/* The workspace/account composite (project-mix + module-usage charts)
-            is the 'Composition' detail tab — gated so it only shows under its
-            own button-tab instead of floating between the tab bar and the
-            active detail. Still an in-grid drawer (its content is oversized). */}
-        {detailView === 'composition' && (
-        <MoreDrawer label="Workspace & account composite" inline>
-      {/* ── Workspace Overview composite + Snowflake Account Overview rail ── */}
-      {(() => {
-        const projectsByType =
-          (kpis?.projects_by_type as Record<string, number> | null) ??
-          ((summary as unknown as { platform?: { projects_by_type?: Record<string, number> | null } })
-            ?.platform?.projects_by_type ?? null);
-        const modulesByType =
-          (kpis?.module_usage_7d as Record<string, number> | null) ??
-          ((summary as unknown as { platform?: { modules_by_type?: Record<string, number> | null } })
-            ?.platform?.modules_by_type ?? null);
-        const deployments30d =
-          kpis?.deployments_30d ??
-          ((summary as unknown as { platform?: { deployments_30d?: number } })
-            ?.platform?.deployments_30d ?? null);
-        // Real 24h workflow-run count from the cached KPI payload. (The old
-        // summary.platform.workflow_runs_30d read was phantom — not in any
-        // response type — so the value was always the 24h figure anyway.)
-        const workflowRuns24h = kpis?.workflow_runs_24h ?? null;
-
-        const toDonutData = (rec: Record<string, number> | null) => {
-          if (!rec) return [];
-          return Object.entries(rec).map(([name, value]) => ({
-            name,
-            value: Number(value) || 0,
-          }));
-        };
-        const projectsDonut = toDonutData(projectsByType);
-        const modulesDonut = toDonutData(modulesByType);
-        const DONUT_COLORS = [
-          '#3B82F6',
-          '#10B981',
-          '#F59E0B',
-          '#EF4444',
-          '#8B5CF6',
-          '#06B6D4',
-          '#EC4899',
-        ];
-
-        const DonutOrEmpty = ({
-          data,
-          label,
-        }: {
-          data: Array<{ name: string; value: number }>;
-          label: string;
-        }) => {
-          if (!data || data.length === 0) {
-            return (
-              <div className="flex h-24 items-center justify-center text-[11px] text-gray-400">
-                No data
-              </div>
-            );
-          }
-          return (
-            <div className="h-24">
-              <ResponsiveContainer width="100%" height={96}>
-                <PieChart>
-                  <Pie
-                    data={data}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={22}
-                    outerRadius={40}
-                    paddingAngle={2}
-                  >
-                    {data.map((_, i) => (
-                      <Cell
-                        key={`${label}-${i}`}
-                        fill={DONUT_COLORS[i % DONUT_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: '#1F2937',
-                      border: 'none',
-                      borderRadius: 6,
-                      fontSize: 11,
-                      color: '#F9FAFB',
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          );
-        };
-
-        const topModules: Array<{ name: string; count: number }> = (() => {
-          const fromSummary =
-            (summary as unknown as {
-              platform?: { top_modules?: Array<{ name: string; count: number }> | null };
-            })?.platform?.top_modules ?? null;
-          if (Array.isArray(fromSummary) && fromSummary.length > 0) {
-            return fromSummary.slice(0, 5).map((m) => ({
-              name: safeStr(m?.name),
-              count: Number(m?.count) || 0,
-            }));
-          }
-          if (
-            moduleHealth &&
-            Array.isArray(moduleHealth.modules) &&
-            moduleHealth.modules.length > 0
-          ) {
-            return moduleHealth.modules.slice(0, 5).map((m) => ({
-              name: safeStr(m.module),
-              count: Number(m.events_7d) || 0,
-            }));
-          }
-          return [];
-        })();
-
-        // Recommendations may arrive as either strings or structured objects
-        // ({ title, description, category, priority, impact }). Normalise to
-        // a plain string before rendering so React never receives a raw object
-        // as a child (this used to crash the Overview tab).
-        type RecoObject = {
-          title?: string;
-          description?: string;
-          category?: string;
-          priority?: string;
-          impact?: string;
-          message?: string;
-        };
-        const toRecoString = (r: unknown): string | null => {
-          if (typeof r === 'string') return r.trim() || null;
-          if (r && typeof r === 'object') {
-            const o = r as RecoObject;
-            const head = o.title || o.message || '';
-            const tail = o.description || '';
-            const combined = [head, tail].filter(Boolean).join(' — ');
-            return combined.trim() || null;
-          }
-          return null;
-        };
-        const recommendations: string[] = (() => {
-          const fromSummary =
-            (summary as unknown as { recommendations?: unknown[] | null })
-              ?.recommendations ?? null;
-          if (Array.isArray(fromSummary) && fromSummary.length > 0) {
-            const mapped = fromSummary.map(toRecoString).filter((s): s is string => !!s);
-            if (mapped.length > 0) return mapped.slice(0, 5);
-          }
-          // obsKpis fallback removed along with the dead getIntelligentKpis call.
-          return [];
-        })();
-
-        return (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            {/* Workspace Overview composite — spans 2 cols */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900 lg:col-span-2">
-              <div className="mb-4 flex items-center gap-2">
-                <Database className="h-4 w-4 text-blue-500" />
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Data360 Workspace Overview
-                </h3>
-              </div>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-                  <p className="mb-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Projects by Type
-                  </p>
-                  <DonutOrEmpty data={projectsDonut} label="projects" />
-                </div>
-                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-                  <p className="mb-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Modules Active
-                  </p>
-                  <DonutOrEmpty data={modulesDonut} label="modules" />
-                </div>
-                <div className="flex flex-col justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-                  <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Deployments (30d)
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                    {deployments30d ?? '—'}
-                  </p>
-                </div>
-                <div className="flex flex-col justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-                  <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Workflow Runs (24h)
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                    {workflowRuns24h ?? '—'}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Snowflake Account Overview — right rail */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Cloud className="h-4 w-4 text-blue-500" />
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                    Account Overview
-                  </h3>
-                </div>
-                <a
-                  href="/account-overview?tab=snowflake-accounts"
-                  className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:text-blue-400 dark:hover:bg-blue-900/20"
-                >
-                  View Connected Accounts
-                </a>
-              </div>
-              <dl className="grid grid-cols-1 gap-y-2 text-xs">
-                {[
-                  ['Account name', kpis?.account_name],
-                  ['Account locator', kpis?.account_locator],
-                  ['Region', kpis?.region],
-                  ['Edition', kpis?.edition],
-                  ['Current role', kpis?.current_role],
-                  ['Subscription end', kpis?.subscription_end],
-                ].map(([label, value]) => (
-                  <div
-                    key={String(label)}
-                    className="flex items-center justify-between gap-2 border-b border-gray-100 py-1 last:border-0 dark:border-gray-800"
-                  >
-                    <dt className="text-gray-500 dark:text-gray-400">
-                      {label}
-                    </dt>
-                    <dd className="truncate font-medium text-gray-800 dark:text-gray-200">
-                      {value ? String(value) : '—'}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-
-            {/* Top Apps */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
-              <div className="mb-3 flex items-center gap-2">
-                <Layers className="h-4 w-4 text-blue-500" />
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Top Apps
-                </h3>
-              </div>
-              {topModules.length === 0 ? (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  No module activity yet.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {topModules.map((m, i) => (
-                    <li
-                      key={`${m.name}-${i}`}
-                      className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800"
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        <Activity className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                        <span className="truncate text-xs text-gray-800 dark:text-gray-200">
-                          {m.name}
-                        </span>
-                      </div>
-                      <Badge size="sm" variant="flat" color="info">
-                        {m.count}
-                      </Badge>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* Top Recommendations */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900 lg:col-span-2">
-              <div className="mb-3 flex items-center gap-2">
-                <Zap className="h-4 w-4 text-amber-500" />
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                  Top Recommendations
-                </h3>
-              </div>
-              {recommendations.length === 0 ? (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  No active recommendations.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {recommendations.map((r, i) => (
-                    <li
-                      key={`reco-${i}`}
-                      className="flex items-start gap-2 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
-                    >
-                      <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-500" />
-                      <span className="text-xs text-gray-700 dark:text-gray-300">
-                        {r}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-        </MoreDrawer>
-        )}
-        {detailView === 'tasks' && (
-        <GridCell className="xl:col-span-12">
-      {/* Snowflake Tasks Quick View */}
-      <TasksQuickWidget />
-
-        </GridCell>
-        )}
+        {/* (2026-08-24) 'Composition' detail removed — decorative donuts; the
+            project mix is owned by Projects and module usage by Platform
+            Activity (one home per metric). */}
+        {/* (2026-08-24) 'Tasks' detail removed — task runs/failures are owned
+            by Usage & Performance's Data-operations lane (trend + active + failed). */}
         {/* (2026-08-24 ownership sweep) The 'Recent activity' detail was
             removed: it rendered the SAME activity-feed fetch that Platform
             Activity owns — one metric, one home; the rail's Platform
@@ -4455,7 +4100,7 @@ const ProjectsTab = memo(function ProjectsTab({
     pending_approval: '#F59E0B',
     approved: '#3B82F6',
     failed: '#EF4444',
-    rejected: '#9CA3AF',
+    rejected: '#64748B',
     cancelled: '#6B7280',
   };
 
@@ -4530,18 +4175,6 @@ const ProjectsTab = memo(function ProjectsTab({
           color="blue"
         />
         <KpiCard
-          label="Explore Design"
-          value={byType.explore_design ?? null}
-          icon={Database}
-          color="violet"
-        />
-        <KpiCard
-          label="Workflows"
-          value={byType.workflow ?? null}
-          icon={GitBranch}
-          color="amber"
-        />
-        <KpiCard
           label="Pending Approvals"
           value={summary.pending_approvals ?? null}
           icon={Clock}
@@ -4557,23 +4190,11 @@ const ProjectsTab = memo(function ProjectsTab({
           icon={CheckCircle}
           color="green"
         />
-      </div>
-
-      {/* Secondary KPI row — fields the backend already computes but the UI
-          never surfaced (failed deployments / total deployment volume /
-          unique members across projects). */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <KpiCard
           label="Failed Deployments"
           value={summary.failed_deployments ?? null}
           icon={XCircle}
           color="red"
-        />
-        <KpiCard
-          label="Deployment Volume"
-          value={summary.deployments_period ?? null}
-          icon={Upload}
-          color="cyan"
         />
         <KpiCard
           label="Unique Members"
@@ -4582,7 +4203,10 @@ const ProjectsTab = memo(function ProjectsTab({
           color="indigo"
         />
       </div>
-
+      {/* 2026-08-24 single-KPI-row mandate: "Explore Design"/"Workflows"
+          (the composition — carried by the Projects-by-Type ranking below)
+          and "Deployment Volume" (the deployments table's own row count)
+          were folded out; two stacked rows became one decisional row. */}
       </KpiZone>
 
       <Board>
@@ -4594,24 +4218,17 @@ const ProjectsTab = memo(function ProjectsTab({
           {typePieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={typePieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...typePieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {typePieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Projects" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -4629,17 +4246,16 @@ const ProjectsTab = memo(function ProjectsTab({
           {statusPieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={statusPieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...statusPieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={18}>
                     {statusPieData.map((_entry, i) => (
                       <Cell
                         key={i}
@@ -4649,10 +4265,9 @@ const ProjectsTab = memo(function ProjectsTab({
                         }
                       />
                     ))}
-                  </Pie>
-                  <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  
+                  </Bar>
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -4673,9 +4288,9 @@ const ProjectsTab = memo(function ProjectsTab({
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
-                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                  <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar
                     dataKey="success"
@@ -4717,24 +4332,17 @@ const ProjectsTab = memo(function ProjectsTab({
           {statusByProjectData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={statusByProjectData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...statusByProjectData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {statusByProjectData.map((_entry, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Projects" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -4754,16 +4362,16 @@ const ProjectsTab = memo(function ProjectsTab({
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
                   <YAxis
                     yAxisId="left"
-                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                    tick={{ fill: '#64748B', fontSize: 11 }}
                   />
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                    tick={{ fill: '#64748B', fontSize: 11 }}
                   />
                   <Tooltip content={<ChartTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -5424,9 +5032,9 @@ const CostTab = memo(function CostTab({
   const resourceMonitors: any[] = Array.isArray((data as any).resource_monitors)
     ? (data as any).resource_monitors
     : [];
-  const anomalies: any[] = Array.isArray((data as any).anomalies)
-    ? (data as any).anomalies
-    : [];
+  // (2026-09) phantom `(data as any).anomalies` read removed — the field was
+  // never served; the Budgets & anomalies lane now renders WhatChangedCard
+  // (real anomaly signal) instead.
 
   return (
     <TabGrid>
@@ -5459,41 +5067,6 @@ const CostTab = memo(function CostTab({
           }}
         />
         <KpiCard
-          label="Daily Avg"
-          value={dailyTrend.length > 0 ? dailyAvg.toLocaleString() : null}
-          icon={BarChart3}
-          color="violet"
-        />
-        {/* R4 (2026-08-24): absent metrics collapse instead of shipping "—"
-            cards — AI Spend / Capacity render only when the backend has a
-            value. */}
-        {cortexCredits > 0 && (
-          <KpiCard
-            label={`AI Spend (${periodDays}d)`}
-            value={Number(cortexCredits).toLocaleString()}
-            icon={Zap}
-            color="purple"
-          />
-        )}
-        {balance.capacity != null && Number(balance.capacity) > 0 && (
-          <KpiCard
-            label="Capacity"
-            value={balance.capacity}
-            icon={DollarSign}
-            color="green"
-          />
-        )}
-      </div>
-
-      {/* Iter 4 — additional KPI tiles (Credits Today / Active Warehouses / Estimated Savings) */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-        <KpiCard
-          label="Credits Today"
-          value={lastTrend.credits != null ? creditsToday.toLocaleString() : null}
-          icon={Zap}
-          color="amber"
-        />
-        <KpiCard
           label="Active Warehouses"
           value={activeWarehouses.toLocaleString()}
           icon={Server}
@@ -5504,6 +5077,8 @@ const CostTab = memo(function CostTab({
             source: 'data warehouse metering history',
           }}
         />
+        {/* Conditional decision tiles — render only when the backend has a
+            real value (never a "—" placeholder card). */}
         {optimization.estimated_savings != null && (
           <KpiCard
             label="Estimated Savings"
@@ -5512,11 +5087,21 @@ const CostTab = memo(function CostTab({
             color="green"
           />
         )}
+        {cortexCredits > 0 && (
+          <KpiCard
+            label={`AI Spend (${periodDays}d)`}
+            value={Number(cortexCredits).toLocaleString()}
+            icon={Zap}
+            color="purple"
+          />
+        )}
       </div>
-
-      {/* Compute & infrastructure KPIs (folded from the dead ComputeTab). */}
-      <ComputeTab data={infra} loading={infraLoading} zone="kpis" />
-
+      {/* 2026-08-24 single-KPI-row mandate: "Daily Avg" (derivable from the
+          trend line below), "Credits Today" (one-day slice of that trend),
+          "Capacity" (not a spend decision; contract detail lives in the
+          Budgets lane) and the ComputeTab pair (Top Consumer duplicates the
+          Top-Warehouses ranking, Replication DBs lives in the Infrastructure
+          lane) were removed — three stacked KPI rows became one. */}
       </KpiZone>
 
       {/* (2026-08-24) The cost-spike banner was removed: it restated the Δ%
@@ -5525,31 +5110,60 @@ const CostTab = memo(function CostTab({
           renderings, ~70px of band. */}
 
       <Board>
-        <GridCell>
-      {/* CTA group — warehouse lifecycle best-practice actions bound to the
-          /api/administration/warehouses live SHOW (FINAL-TAB-DISPLAY-SPEC ·
-          Tab 2 "CTAs"). Honest RBAC/deploy gating; failures surface inline. */}
-      <WarehouseCtaGroup />
-
+        {/* (2026-09 restructure §5 FinOps) Admin surfaces moved OUT of the
+            primary reporting: warehouse lifecycle actions → Budgets &
+            anomalies lane; the cost projection → Cost breakdown lane. The
+            first screen answers ONE question — how is consumption trending
+            and who drives it. */}
+        <GridCell className="xl:col-span-6">
+      {/* Daily Credit Trend — the main question: how is consumption trending. */}
+      <SectionCard title={`Daily Credit Trend (${periodDays}d)`}>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height={256}>
+            <AreaChart data={dailyTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} />
+              <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
+              <Tooltip content={<ChartTooltip />} />
+              <Area
+                type="monotone"
+                dataKey="credits"
+                stroke="#F59E0B"
+                fill="#F59E0B"
+                fillOpacity={0.2}
+                name="Credits"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </SectionCard>
         </GridCell>
         <GridCell className="xl:col-span-6">
-      {/* 30d cost projection for the top spending warehouse (cost-simulation).
-          Degrades quietly when the backend route isn't deployed yet. */}
-      {topWarehouses[0]?.name && (
-        <CostPreview
-          objectType="warehouse"
-          objectId={String(topWarehouses[0].name)}
-          days={periodDays}
-        />
-      )}
-
+      {/* Top cost drivers — the ranking that EXPLAINS the trend (mission §5:
+          tendance + contributeurs principaux côte à côte). */}
+      <SectionCard title={`Top cost drivers (${periodDays}d)`}>
+        {topWarehouses.length > 0 ? (
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height={256}>
+              <BarChart data={topWarehouses.slice(0, 8)} layout="vertical" margin={{ left: 4, right: 24 }}>
+                <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="credits" name="Credits" fill="#F59E0B" radius={[0, 4, 4, 0]} barSize={18} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <p className="py-8 text-center text-sm text-gray-400">
+            No per-warehouse consumption in this window.
+          </p>
+        )}
+      </SectionCard>
         </GridCell>
-        <GridCell className="xl:col-span-6">
-      {/* AI flow: discussion → proposed action → execute → capitalize as an event.
-          Rule-based (no LLM). Only renders on a material spend increase. One real
-          mutation (refresh the KPI cache) plus a business-flow-automation hand-off
-          to the workflow builder pre-loaded with a cost-report template. */}
+      {/* AI flow: rule-based next steps — renders ONLY on a material spend
+          increase, below the reporting pair. */}
       {(data?.credit_trend_pct ?? 0) > 20 && (
+        <GridCell className="xl:col-span-6">
         <AIActionFlow
           title="Recommended next steps"
           context={{
@@ -5583,33 +5197,8 @@ const CostTab = memo(function CostTab({
             },
           ] satisfies AISuggestion[]}
         />
+        </GridCell>
       )}
-
-        </GridCell>
-        <GridCell className="xl:col-span-6">
-      {/* Daily Credit Trend */}
-      <SectionCard title={`Daily Credit Trend (${periodDays}d)`}>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height={256}>
-            <AreaChart data={dailyTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-              <Tooltip content={<ChartTooltip />} />
-              <Area
-                type="monotone"
-                dataKey="credits"
-                stroke="#F59E0B"
-                fill="#F59E0B"
-                fillOpacity={0.2}
-                name="Credits"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </SectionCard>
-
-        </GridCell>
         <GridCell>
       {/* ── Details "2nd page": ONE bookmark-tab bar. Only the selected detail
           group renders below, so the tab is a no-scroll one-pager (KPIs + hero
@@ -5644,13 +5233,16 @@ const CostTab = memo(function CostTab({
       {/* P0 surfacing — FinOps/governance KPIs the backend already computes but
           the UI never showed (cost-by-warehouse/service, clustering, pipe,
           MV refresh, tasks, role hierarchy). Self-contained, fetches on mount. */}
-      <ServerlessFinOpsCards days={30} />
+      {/* Inherits the tab's real window — a hardcoded 30 contradicted the
+          "every tab inherits this window" header contract AND double-fetched
+          cost-breakdown under a second dedup key. */}
+      <ServerlessFinOpsCards days={periodDays} />
 
         </GridCell>
         <GridCell className="xl:col-span-6">
       {/* Storage-split axis — active vs time-travel/failsafe/stage with history
           + per-axis refresh (FINAL-TAB-DISPLAY-SPEC storage-split KPI). */}
-      <StorageSplitCard days={30} />
+      <StorageSplitCard days={periodDays} />
 
         </GridCell>
         <GridCell>
@@ -5667,9 +5259,9 @@ const CostTab = memo(function CostTab({
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                    tick={{ fill: '#64748B', fontSize: 11 }}
                   />
-                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                  <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Area
@@ -5758,54 +5350,42 @@ const CostTab = memo(function CostTab({
           {categoryPieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={categoryPieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...categoryPieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {categoryPieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Credits" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
-            <p className="py-8 text-center text-sm text-gray-400">All zero</p>
+            <p className="py-8 text-center text-sm text-gray-400">
+              No category consumption in this window.
+            </p>
           )}
         </SectionCard>
 
-        <SectionCard title="Top Warehouses">
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height={256}>
-              <BarChart data={topWarehouses.slice(0, 10)} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={120}
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
-                />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar
-                  dataKey="credits"
-                  fill="#F59E0B"
-                  name="Credits"
-                  radius={[0, 4, 4, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionCard>
+        {/* (2026-09) Top warehouses moved UP beside the daily trend — the
+            ranking explains the trend on the first screen. This slot now
+            hosts the 30d projection (a breakdown detail, not front-page). */}
+        {topWarehouses[0]?.name ? (
+          <CostPreview
+            objectType="warehouse"
+            objectId={String(topWarehouses[0].name)}
+            days={periodDays}
+          />
+        ) : (
+          <SectionCard title="Cost projection">
+            <p className="py-8 text-center text-sm text-gray-400">
+              No warehouse consumption to project in this window.
+            </p>
+          </SectionCard>
+        )}
       </div>
 
         </GridCell>
@@ -5816,24 +5396,17 @@ const CostTab = memo(function CostTab({
           {storagePieData.length > 0 ? (
             <div className="h-48">
               <ResponsiveContainer width="100%" height={192}>
-                <PieChart>
-                  <Pie
-                    data={storagePieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={40}
-                    outerRadius={70}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...storagePieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {storagePieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="TB" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -5959,31 +5532,18 @@ const CostTab = memo(function CostTab({
           )}
         </SectionCard>
 
-        <SectionCard title="Cost Anomalies">
-          {anomalies.length > 0 ? (
-            <SmartAuditTable
-              rows={
-                anomalies.map((a: any) => {
-                  const raw = a.deviation_pct ?? a.deviation;
-                  const dev = Number(raw);
-                  return {
-                    date: a.date ?? a.day ?? null,
-                    warehouse: a.warehouse ?? a.name ?? null,
-                    deviation: Number.isFinite(dev)
-                      ? `${dev > 0 ? '+' : ''}${dev}%`
-                      : null,
-                  };
-                }) as SmartRow[]
-              }
-              subtitle="WAREHOUSE_METERING"
-              pageSize={10}
-            />
-          ) : (
-            <p className="py-6 text-center text-sm text-gray-400">
-              No cost anomalies detected in the last {periodDays} days.
-            </p>
-          )}
-        </SectionCard>
+        {/* Real anomaly signal (z-score spikes from the anomalies endpoint) —
+            replaces the phantom `(data as any).anomalies` table, which read a
+            field the cost payload never carried and therefore always claimed
+            "no anomalies detected" (a fake negative). Moved here from the
+            Account tab: cost anomalies have one home. */}
+        <WhatChangedCard />
+      </div>
+      {/* Warehouse lifecycle actions — admin surface, moved OUT of the primary
+          reporting screen (mission §5: actions live behind the budgets lane,
+          never in front of the trend). */}
+      <div className="mt-4">
+        <WarehouseCtaGroup />
       </div>
         </GridCell>
         )}
@@ -6234,8 +5794,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
             <ResponsiveContainer width="100%" height={256}>
               <ComposedChart data={loginTrend}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
                   dataKey="success"
@@ -6331,27 +5891,22 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
           {clientTypes.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={clientTypes.map((c: any) => ({
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                <BarChart
+                  data={clientTypes
+                    .map((c: any) => ({
                       name: c.client_type || 'Unknown',
                       value: c.login_count,
-                    }))}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
-                  >
-                    {clientTypes.map((_: any, i: number) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    }))
+                    .sort((a: { value: number }, b: { value: number }) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                  layout="vertical"
+                  margin={{ left: 4, right: 24 }}
+                >
+                  <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Logins" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -6618,24 +6173,17 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
           {policyPieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={policyPieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...policyPieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {policyPieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Policies" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -6650,27 +6198,22 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
           {objectCoverage.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={objectCoverage.map((o: any) => ({
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                <BarChart
+                  data={objectCoverage
+                    .map((o: any) => ({
                       name: o.object_type,
                       value: o.grant_count,
-                    }))}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
-                  >
-                    {objectCoverage.map((_: any, i: number) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    }))
+                    .sort((a: { value: number }, b: { value: number }) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                  layout="vertical"
+                  margin={{ left: 4, right: 24 }}
+                >
+                  <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Grants" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -6688,12 +6231,12 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={roleGrantDist.slice(0, 15)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} />
                 <YAxis
                   type="category"
                   dataKey="role_name"
                   width={140}
-                  tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  tick={{ fill: '#64748B', fontSize: 10 }}
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
@@ -6714,12 +6257,12 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis
                   dataKey="privilege"
-                  tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  tick={{ fill: '#64748B', fontSize: 10 }}
                   angle={-45}
                   textAnchor="end"
                   height={80}
                 />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
                   dataKey="grant_count"
@@ -6985,16 +6528,14 @@ const DataOperationsTab = memo(function DataOperationsTab({
           icon={Database}
           color="green"
         />
-        <KpiCard
-          label="Data Volume"
-          value={
-            loadingSummary.total_bytes != null
-              ? `${(loadingSummary.total_bytes / 1073741824).toFixed(2)} GB`
-              : null
-          }
-          icon={Box}
-          color="violet"
-        />
+        {loadingSummary.total_bytes != null && loadingSummary.total_bytes > 0 && (
+          <KpiCard
+            label="Data Volume"
+            value={`${(loadingSummary.total_bytes / 1073741824).toFixed(2)} GB`}
+            icon={Box}
+            color="violet"
+          />
+        )}
         <KpiCard
           label="Load Success"
           value={
@@ -7034,16 +6575,16 @@ const DataOperationsTab = memo(function DataOperationsTab({
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
                 <YAxis
                   yAxisId="left"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
                 <YAxis
                   yAxisId="right"
                   orientation="right"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
@@ -7149,9 +6690,9 @@ const DataOperationsTab = memo(function DataOperationsTab({
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
                   dataKey="success"
@@ -7169,7 +6710,7 @@ const DataOperationsTab = memo(function DataOperationsTab({
                 />
                 <Bar
                   dataKey="skipped"
-                  fill="#9CA3AF"
+                  fill="#64748B"
                   name="Skipped"
                   stackId="a"
                   radius={[4, 4, 0, 0]}
@@ -7361,36 +6902,38 @@ const PerformanceTab = memo(function PerformanceTab({
 
   if (zone === 'kpis') {
     return (
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+      /* 2026-08-24 KPI trim: "Slow Queries" was the LENGTH of a server-capped
+         list (read as exactly 50 — misleading); "Query Types" count is
+         answered by the distribution chart beside it. */
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
         <KpiCard
-          label="Total Queries"
+          label={`Total Queries (${data.period_days ?? '…'}d)`}
           value={totalQueries.toLocaleString()}
           icon={BarChart3}
           color="blue"
         />
         <KpiCard
-          label="P50 Latency"
-          value={`${(avgP50 / 1000).toFixed(1)}s`}
-          icon={Gauge}
-          color="green"
-        />
-        <KpiCard
-          label="P95 Latency"
+          label={`P95 Latency (${data.period_days ?? '…'}d)`}
           value={`${(avgP95 / 1000).toFixed(1)}s`}
           icon={Gauge}
           color="amber"
+          help={{
+            title: 'P95 execution latency',
+            definition: '95% of queries in the window completed faster than this.',
+            source: 'QUERY_HISTORY percentiles',
+          }}
         />
         <KpiCard
-          label="Slow Queries"
-          value={slowQueries.length}
-          icon={AlertTriangle}
-          color="red"
-        />
-        <KpiCard
-          label="Query Types"
-          value={queryTypes.length}
-          icon={Cpu}
-          color="violet"
+          label={`P50 Latency (${data.period_days ?? '…'}d)`}
+          value={`${(avgP50 / 1000).toFixed(1)}s`}
+          icon={Gauge}
+          color="green"
+          help={{
+            title: 'P50 latency',
+            definition:
+              'Average of the DAILY p50 values over the window (not a true window-wide percentile).',
+            source: 'QUERY_HISTORY daily percentiles',
+          }}
         />
       </div>
     );
@@ -7406,14 +6949,14 @@ const PerformanceTab = memo(function PerformanceTab({
           <ResponsiveContainer width="100%" height={256}>
             <ComposedChart data={queryPerf}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+              <XAxis dataKey="date" tick={{ fill: '#64748B', fontSize: 11 }} />
               <YAxis
-                tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                tick={{ fill: '#64748B', fontSize: 11 }}
                 label={{
                   value: 'ms',
                   angle: -90,
                   position: 'insideLeft',
-                  fill: '#9CA3AF',
+                  fill: '#64748B',
                 }}
               />
               <Tooltip content={<ChartTooltip />} />
@@ -7455,12 +6998,12 @@ const PerformanceTab = memo(function PerformanceTab({
             <ResponsiveContainer width="100%" height={256}>
               <BarChart data={queryTypes.slice(0, 8)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} />
                 <YAxis
                   type="category"
                   dataKey="type"
                   width={100}
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
@@ -7475,50 +7018,16 @@ const PerformanceTab = memo(function PerformanceTab({
         </SectionCard>
       </GridCell>
 
-      <GridCell className="xl:col-span-6">
-        {/* Compilation vs Execution */}
-        <SectionCard title="Compile vs Execute Time">
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height={256}>
-              <AreaChart data={queryPerf}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
-                />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <Tooltip content={<ChartTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="avg_compile_ms"
-                  stroke="#8B5CF6"
-                  fill="#8B5CF6"
-                  fillOpacity={0.2}
-                  name="Compile"
-                  stackId="1"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="avg_exec_ms"
-                  stroke="#3B82F6"
-                  fill="#3B82F6"
-                  fillOpacity={0.2}
-                  name="Execute"
-                  stackId="1"
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionCard>
-      </GridCell>
+      {/* (2026-08-24) 'Compile vs Execute' AreaChart removed — avg compile/exec
+          are already the P50/P95 story told by the latency trend beside it;
+          two charts told the same tale (mission: fuse same-story charts). */}
 
       {/* Slow Queries Audit Table */}
       {slowQueries.length > 0 && (
         <GridCell>
         <AuditTable
           data={slowQueries}
-          title="Slowest Queries"
+          title={`Slowest queries — top ${slowQueries.length} in window`}
           columns={[
             {
               key: 'query_text',
@@ -7636,12 +7145,12 @@ const ComputeTab = memo(function ComputeTab({
             <ResponsiveContainer width="100%" height={288}>
               <BarChart data={sorted.slice(0, 12)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} />
                 <YAxis
                   type="category"
                   dataKey="warehouse_name"
                   width={130}
-                  tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  tick={{ fill: '#64748B', fontSize: 10 }}
                 />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
@@ -7783,11 +7292,17 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
   perfLoading,
   ops,
   opsLoading,
+  days,
+  perfPreparing,
+  opsPreparing,
 }: {
   perf: PerformanceOverviewResponse | null;
   perfLoading: boolean;
   ops: DataOperationsOverviewResponse | null;
   opsLoading: boolean;
+  days: number;
+  perfPreparing?: PreparingEnvelope | null;
+  opsPreparing?: PreparingEnvelope | null;
 }) {
   // Bookmark-tabs so the tab is a no-scroll one-pager: KPIs stay on top; the
   // three heavy board lanes (query performance · warehouse efficiency · data
@@ -7834,19 +7349,35 @@ const UsagePerformanceTab = memo(function UsagePerformanceTab({
         ))}
       </div>
         </GridCell>
-        {usageTab === 'performance' && (
-        <PerformanceTab data={perf} loading={perfLoading} zone="board" />
-        )}
+        {usageTab === 'performance' &&
+          (!perf && !perfLoading && perfPreparing ? (
+            <GridCell>
+              <PreparingState
+                domainLabel="query performance"
+                startedAt={perfPreparing.started_at ?? null}
+              />
+            </GridCell>
+          ) : (
+            <PerformanceTab data={perf} loading={perfLoading} zone="board" />
+          ))}
         {/* Compute-efficiency axis — surfaces the warehouse-efficiency endpoint
             (queue/spill/misconfig flags) that previously had NO UI consumer. */}
         {usageTab === 'efficiency' && (
         <GridCell>
-          <WarehouseEfficiencyCard days={30} />
+          <WarehouseEfficiencyCard days={Math.min(days, 30)} />
         </GridCell>
         )}
-        {usageTab === 'operations' && (
-        <DataOperationsTab data={ops} loading={opsLoading} zone="board" />
-        )}
+        {usageTab === 'operations' &&
+          (!ops && !opsLoading && opsPreparing ? (
+            <GridCell>
+              <PreparingState
+                domainLabel="data operations"
+                startedAt={opsPreparing.started_at ?? null}
+              />
+            </GridCell>
+          ) : (
+            <DataOperationsTab data={ops} loading={opsLoading} zone="board" />
+          ))}
       </Board>
     </TabGrid>
   );
@@ -7965,18 +7496,21 @@ const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
               source: 'Data360 projects (project_type=explore_design)',
             }}
           />
-          <KpiCard
-            label="Semantic Models"
-            value={semanticModels}
-            icon={Sparkles}
-            color="violet"
-            help={{
-              title: 'Semantic models',
-              definition:
-                'Cortex Analyst semantic models (YAML) available on this account.',
-              source: 'semantic-models stage listing',
-            }}
-          />
+          {/* R4: a modeling feature not in use is a setup state, not a 0-KPI. */}
+          {typeof semanticModels === 'number' && semanticModels > 0 && (
+            <KpiCard
+              label="Semantic Models"
+              value={semanticModels}
+              icon={Sparkles}
+              color="violet"
+              help={{
+                title: 'Semantic models',
+                definition:
+                  'Cortex Analyst semantic models (YAML) available on this account.',
+                source: 'semantic-models stage listing',
+              }}
+            />
+          )}
           <KpiCard
             label="Tasks Failed (7d)"
             value={tasksFailed7d}
@@ -8134,7 +7668,9 @@ const DataObjectsModelsTab = memo(function DataObjectsModelsTab() {
             sub-tabs, KPI grid, AI discovery, object detail; unchanged). */}
         {dobjTab === 'catalog' && (
         <GridCell>
-          <SnowflakeObjectsTab />
+          <Suspense fallback={<LoadingSection />}>
+            <SnowflakeObjectsTab />
+          </Suspense>
         </GridCell>
         )}
       </Board>
@@ -8234,8 +7770,19 @@ const DataQualityTab = memo(function DataQualityTab({ days }: { days: number }) 
   // panel beside the table) — and drop the three redundant zeros.
   const kpiVal = (key: string) =>
     Number(allKpis.find((k) => k.key === key)?.value ?? 0);
+  // AO-004 (2026-09-06): the payload now carries explicit dmf_available /
+  // dmf_configured flags — "not configured" and "not available on this
+  // edition" are different states, and neither means 0% quality. Prefer the
+  // flags when the deployed backend sends them; fall back to inference.
+  const dmfFlags = detail as unknown as {
+    dmf_available?: boolean;
+    dmf_configured?: boolean;
+  };
   const dmfOff =
-    kpiVal('monitored_tables') === 0 && kpiVal('dmf_measurements') === 0;
+    dmfFlags.dmf_configured != null
+      ? !dmfFlags.dmf_configured
+      : kpiVal('monitored_tables') === 0 && kpiVal('dmf_measurements') === 0;
+  const dmfUnavailable = dmfFlags.dmf_available === false;
   const kpis = dmfOff
     ? allKpis.filter(
         (k) =>
@@ -8299,9 +7846,19 @@ const DataQualityTab = memo(function DataQualityTab({ days }: { days: number }) 
                       : (v: unknown) => safeCellValue(v),
                 }))}
               />
-              <p className="mt-1 text-[10px] text-gray-400">
-                Source: {sources.join(' · ') || '—'}
-              </p>
+              <div className="mt-1 flex items-center justify-between">
+                <p className="text-[10px] text-gray-400">
+                  Source: {sources.join(' · ') || '—'}
+                </p>
+                {/* Overview shows a bounded page — the exhaustive dataset
+                    lives in the Data Quality module (mission §9). */}
+                <a
+                  href="/data-quality"
+                  className="text-[11px] font-medium text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  Explore all measurements →
+                </a>
+              </div>
             </>
           ) : (
             <SectionCard title="DMF Measurements">
@@ -8668,9 +8225,9 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
                   dataKey="date"
                   type="category"
                   interval="preserveStartEnd"
-                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  tick={{ fill: '#64748B', fontSize: 11 }}
                 />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#64748B', fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip />} />
                 <Bar
                   dataKey="sessions"
@@ -8726,24 +8283,17 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
           {modulePieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={modulePieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...modulePieData].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {modulePieData.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Events" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
@@ -8770,13 +8320,13 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     type="number"
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
                   <YAxis
                     type="category"
                     dataKey="name"
                     width={110}
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar
@@ -8869,13 +8419,13 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
                     type="number"
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
                   <YAxis
                     type="category"
                     dataKey="user"
                     width={90}
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                    tick={{ fill: '#64748B', fontSize: 10 }}
                   />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar
@@ -8904,24 +8454,17 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
           {clientTypesPie.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height={256}>
-                <PieChart>
-                  <Pie
-                    data={clientTypesPie}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={90}
-                    paddingAngle={2}
+                {/* donut → ordered horizontal bars (2026-08-24 chart standard) */}
+                  <BarChart
+                    data={[...clientTypesPie].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))}
+                    layout="vertical"
+                    margin={{ left: 4, right: 24 }}
                   >
-                    {clientTypesPie.map((_, i) => (
-                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Pie>
+                    <XAxis type="number" tick={{ fill: '#64748B', fontSize: 11 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748B', fontSize: 11 }} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
+                  <Bar dataKey="value" name="Events" fill="#3B82F6" radius={[0, 4, 4, 0]} barSize={18} />
+                  </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (

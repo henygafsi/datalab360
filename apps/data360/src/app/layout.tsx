@@ -34,6 +34,17 @@ export default async function RootLayout({
       // required this one for next-themes, remove it if you are not using next-theme
       suppressHydrationWarning
     >
+      <head>
+        {/* Barlow — the DataLab360 brand typeface (the logo's face). Loaded at
+            RUNTIME so offline builds never fetch at build time; every heading
+            falls back to the system stack when the CDN is unreachable. */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700;800&display=swap"
+        />
+      </head>
       <body
         // to prevent any warning that is caused by third party extensions like Grammarly
         suppressHydrationWarning

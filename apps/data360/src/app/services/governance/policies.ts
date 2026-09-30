@@ -55,17 +55,64 @@ export interface EnrichedPolicy {
   expiration_date: string | null;
 }
 
-type EnrichedPolicyType = 'AGGREGATION' | 'MASKING' | 'PASSWORD' | 'ROW_ACCESS' | 'SESSION';
+export type EnrichedPolicyType = 'AGGREGATION' | 'MASKING' | 'PASSWORD' | 'ROW_ACCESS' | 'SESSION';
 
-export async function listPoliciesEnriched(
-  policyType: EnrichedPolicyType
-): Promise<EnrichedPolicy[]> {
+/** Provenance of the served list (cache-first backend, 2026-09-16):
+ *  policies come from an account-wide snapshot (6 h TTL, invalidated by
+ *  every policy/grant/role write); the warehouse is only queried on a
+ *  miss or on the user's explicit refresh. */
+export interface PoliciesSnapshot {
+  policies_at?: string;
+  ttl_s?: number;
+  sql?: number;
+  method?: string;
+}
+
+export interface EnrichedPoliciesView {
+  policies: EnrichedPolicy[];
+  /** 'partial' = grantee-role resolution still completing in background. */
+  roles_state: 'ready' | 'partial' | null;
+  partial: boolean;
+  /** Policies the snapshot could NOT read — named, never silently absent. */
+  unreadable_policies: string[];
+  snapshot: PoliciesSnapshot | null;
+}
+
+/**
+ * Cache-first read of the enriched policy list. `refresh: true` is the
+ * user's EXPLICIT direct query against the warehouse (5–10 s measured) —
+ * never call it on mount; the plain read is the free snapshot (~ms warm).
+ */
+export async function listPoliciesEnrichedView(
+  policyType: EnrichedPolicyType,
+  opts?: { refresh?: boolean },
+): Promise<EnrichedPoliciesView> {
   const { data } = await apiClient.get<{
     policy_type: string;
     total: number;
     policies: EnrichedPolicy[];
-  }>(`${API_CONFIG.ENDPOINTS.GOVERNANCE}/policies/${policyType}`);
-  return data?.policies ?? [];
+    roles_state?: string;
+    partial?: boolean;
+    unreadable_policies?: string[];
+    snapshot?: PoliciesSnapshot;
+  }>(
+    `${API_CONFIG.ENDPOINTS.GOVERNANCE}/policies/${policyType}${opts?.refresh ? '?refresh=true' : ''}`,
+    opts?.refresh ? { timeout: 60_000 } : undefined,
+  );
+  return {
+    policies: data?.policies ?? [],
+    roles_state:
+      data?.roles_state === 'ready' || data?.roles_state === 'partial' ? data.roles_state : null,
+    partial: data?.partial === true,
+    unreadable_policies: data?.unreadable_policies ?? [],
+    snapshot: data?.snapshot ?? null,
+  };
+}
+
+export async function listPoliciesEnriched(
+  policyType: EnrichedPolicyType
+): Promise<EnrichedPolicy[]> {
+  return (await listPoliciesEnrichedView(policyType)).policies;
 }
 
 // ============= ROLE-SCOPED VIEW (G1 — /policies/my-scope) =============

@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef, Component, type ReactNode } from 'react';
+import { useState, useEffect, useRef, Component, Suspense, type ReactNode } from 'react';
 import { PiWarningCircleBold } from 'react-icons/pi';
 import CommandCenterDashboard from '@/app/shared/command-center';
 import OnboardingTour from '@/app/shared/onboarding-tour';
+import AccessDeniedNotice from '@/app/shared/AccessDeniedNotice';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -164,6 +165,14 @@ export default function AccountOverviewPage() {
           viewport-fit frame — only the frame's inner area scrolls, the page
           itself never does. */}
       <ViewportFitFrame>
+        {/* A module refusal lands here (middleware → `/?denied=…` → forwarded by
+            `/`). It sits INSIDE the frame on purpose: the page is deliberately
+            header-free and viewport-fit, so a banner above the frame would eat
+            the height that directive freed. It scrolls with the content and
+            dismisses itself. */}
+        <Suspense fallback={null}>
+          <AccessDeniedNotice />
+        </Suspense>
         <CommandCenterDashboard />
       </ViewportFitFrame>
       <OnboardingTour />

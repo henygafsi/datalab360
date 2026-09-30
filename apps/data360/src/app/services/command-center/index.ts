@@ -5,6 +5,8 @@
 
 import apiClient from '@/lib/api-client';
 import { dedupGet } from '@/app/services/request-dedup';
+import { isPreparing, resolveWhenReady } from '@/app/shared/command-center/lib/meta';
+import type { PreparingEnvelope } from '@/app/shared/command-center/lib/meta';
 import type {
   SummaryResponse,
   ModuleHealthResponse,
@@ -21,6 +23,12 @@ import type {
 
 const PREFIX = '/command-center';
 
+// B2 — heavy reads may answer HTTP 200 `{ state: 'preparing', ... }` on a cold
+// cache instead of computing inline. Re-exported here so the shell consumes the
+// discriminator through this service instead of importing the lib directly.
+export { isPreparing };
+export type { PreparingEnvelope };
+
 // Client-side GET dedup for the shared command-center reads (summary,
 // module-health, activity-feed, …): several components fetch these
 // independently per page load / tab revisit (the index's own 120s refs only
@@ -29,12 +37,18 @@ const PREFIX = '/command-center';
 // server-signalled mutation. Backend caches most of these 30 min anyway.
 const CC_GET_TTL_MS = 120_000;
 
+// Shorter TTL for the heavy AI-advisor reads (snowflake-insights,
+// object-enrichment, organization intelligence): still collapses the same-load
+// fan-out, but a revisit shortly after an action refetches fresh analysis.
+const CC_ADVISOR_TTL_MS = 30_000;
+
 function ccCachedGet<T>(
   url: string,
   params?: Record<string, unknown>,
+  ttlMs: number = CC_GET_TTL_MS,
 ): Promise<T> {
   const key = `cc:${url}:${params ? JSON.stringify(params) : ''}`;
-  return dedupGet(key, CC_GET_TTL_MS, async () => {
+  return dedupGet(key, ttlMs, async () => {
     const { data } = await apiClient.get<T>(url, { params });
     return data;
   });
@@ -370,19 +384,24 @@ export interface FilterParams {
   end_date?: string;
 }
 
-/** Executive summary — top KPIs from all modules */
+/** Executive summary — top KPIs from all modules.
+ *  B2: may resolve to a PreparingEnvelope on a cold cache (check isPreparing). */
 export async function getSummary(
   params?: FilterParams
-): Promise<SummaryResponse> {
-  return ccCachedGet<SummaryResponse>(`${PREFIX}/summary`, buildParams(params || {}));
+): Promise<SummaryResponse | PreparingEnvelope> {
+  return ccCachedGet<SummaryResponse | PreparingEnvelope>(
+    `${PREFIX}/summary`,
+    buildParams(params || {})
+  );
 }
 
-/** Per-module health status */
+/** Per-module health status.
+ *  B2: may resolve to a PreparingEnvelope on a cold cache (check isPreparing). */
 export async function getModuleHealth(params?: {
   days?: number;
   module?: string;
-}): Promise<ModuleHealthResponse> {
-  return ccCachedGet<ModuleHealthResponse>(
+}): Promise<ModuleHealthResponse | PreparingEnvelope> {
+  return ccCachedGet<ModuleHealthResponse | PreparingEnvelope>(
     `${PREFIX}/module-health`,
     buildParams(params || {})
   );
@@ -399,11 +418,12 @@ export async function getActivityFeed(
   );
 }
 
-/** Snowflake infrastructure snapshot */
+/** Snowflake infrastructure snapshot.
+ *  B2: may resolve to a PreparingEnvelope on a cold cache (check isPreparing). */
 export async function getInfrastructure(params?: {
   days?: number;
-}): Promise<InfrastructureResponse> {
-  return ccCachedGet<InfrastructureResponse>(
+}): Promise<InfrastructureResponse | PreparingEnvelope> {
+  return ccCachedGet<InfrastructureResponse | PreparingEnvelope>(
     `${PREFIX}/infrastructure`,
     buildParams(params || {})
   );
@@ -428,8 +448,8 @@ export async function getCostBreakdown(
     warehouse?: string;
     user?: string;
   }
-): Promise<CostBreakdownResponse> {
-  return ccCachedGet<CostBreakdownResponse>(
+): Promise<CostBreakdownResponse | PreparingEnvelope> {
+  return ccCachedGet<CostBreakdownResponse | PreparingEnvelope>(
     `${PREFIX}/cost-breakdown`,
     buildParams({ days, ...params })
   );
@@ -661,10 +681,17 @@ export interface KpiMetaResponse<T = Record<string, any>> {
 // silently drop the `degraded`/`meta` flags these enrichment endpoints emit.
 async function _kpiTableMeta<T = Record<string, any>>(
   path: string,
-  params?: Record<string, unknown>
+  params?: Record<string, unknown>,
+  ttlMs?: number
 ): Promise<KpiMetaResponse<T>> {
   try {
-    const { data } = await apiClient.get<KpiMetaResponse<T>>(`${PREFIX}${path}`, { params });
+    // With a ttl, collapse same-key calls through the shared dedup cache
+    // (only successful payloads are cached — failures fall through to the
+    // catch below on every call, exactly as before).
+    const data =
+      ttlMs != null
+        ? await ccCachedGet<KpiMetaResponse<T>>(`${PREFIX}${path}`, params, ttlMs)
+        : (await apiClient.get<KpiMetaResponse<T>>(`${PREFIX}${path}`, { params })).data;
     return data && Array.isArray(data.data)
       ? data
       : { data: [], count: 0, degraded: false };
@@ -680,7 +707,11 @@ async function _kpiTableMeta<T = Record<string, any>>(
  * — keep the `degraded` flag to distinguish "unavailable" from "genuinely zero".
  */
 export const getObjectEnrichment = (days = 90, creditRate = 3.0) =>
-  _kpiTableMeta<ObjectEnrichmentRow>('/object-enrichment', { days, credit_rate: creditRate });
+  _kpiTableMeta<ObjectEnrichmentRow>(
+    '/object-enrichment',
+    { days, credit_rate: creditRate },
+    CC_ADVISOR_TTL_MS,
+  );
 
 // =============================================================================
 // Snowflake-features AI Advisor — single guarded payload of actionable insights.
@@ -733,8 +764,12 @@ export interface SnowflakeInsightsPayload {
  */
 export async function getSnowflakeInsights(): Promise<SnowflakeInsightsPayload> {
   try {
-    const { data } = await apiClient.get<SnowflakeInsightsPayload>(
-      `${PREFIX}/snowflake-insights`
+    // Deduped + 30s-cached: failures are never cached (dedupGet only stores
+    // resolved payloads), so the degraded fallback below still fires per call.
+    const data = await ccCachedGet<SnowflakeInsightsPayload>(
+      `${PREFIX}/snowflake-insights`,
+      undefined,
+      CC_ADVISOR_TTL_MS,
     );
     if (data && Array.isArray(data.insights)) {
       return {
@@ -797,10 +832,15 @@ export interface GovIntelParams {
 /** Fetch the governance cockpit payload. Never throws — degraded payload on error. */
 export async function getGovernanceIntelligence(params: GovIntelParams = {}): Promise<GovIntelResponse | null> {
   try {
-    return await ccCachedGet<GovIntelResponse>(
-      '/account-overview/governance/intelligence',
-      params as Record<string, unknown>,
+    // B2 "prepare" mode on the intelligence composites: bounded wait (the
+    // dedup layer never stores preparing envelopes, so retries hit the wire).
+    const res = await resolveWhenReady(() =>
+      ccCachedGet<GovIntelResponse>(
+        '/account-overview/governance/intelligence',
+        params as Record<string, unknown>,
+      ),
     );
+    return isPreparing(res) ? null : res;
   } catch {
     return null;
   }
@@ -912,9 +952,18 @@ export async function getOrganizationIntelligence(
   params: OrgIntelParams = {},
 ): Promise<OrgIntelResponse | null> {
   try {
-    const { data } = await apiClient.get<OrgIntelResponse>(
-      '/account-overview/organization/intelligence', { params });
-    return data;
+    // Deduped + 30s-cached per param set; errors are never cached, so the
+    // null passthrough below still fires on every failing call. B2: bounded
+    // wait through the prepare mode; still-preparing after retries → null
+    // (the cockpit renders its honest degraded state).
+    const res = await resolveWhenReady(() =>
+      ccCachedGet<OrgIntelResponse>(
+        '/account-overview/organization/intelligence',
+        params as Record<string, unknown>,
+        CC_ADVISOR_TTL_MS,
+      ),
+    );
+    return isPreparing(res) ? null : res;
   } catch {
     return null;
   }

@@ -18,6 +18,24 @@ interface GrantsMatrixResponse {
   partial?: boolean;
   skipped_roles?: string[];
   note?: string | null;
+  /** Cache-first backend (2026-09-16): 'preparing' = the per-role SHOW GRANTS
+   *  pass runs in background (once per 6 h, ~3 min); re-read after
+   *  `retry_after_s`. 'ready' = complete snapshot. */
+  state?: 'preparing' | 'ready' | string;
+  retry_after_s?: number;
+  snapshot?: { at?: string; ttl_s?: number; roles?: number };
+}
+
+/** What a caller needs to render the matrix HONESTLY: `rows` is null while
+ *  the snapshot is preparing (an empty grid is not an empty account). */
+export interface GrantsMatrixView {
+  rows: GrantTableDataType[] | null;
+  state: 'ready' | 'preparing' | 'fallback';
+  partial: boolean;
+  skippedRoles: string[];
+  retryAfterS: number | null;
+  snapshotAt: string | null;
+  note: string | null;
 }
 
 /**
@@ -42,7 +60,7 @@ function aggregateGrants(grantsMap: Map<string, Set<string>>): GrantTableDataTyp
  * to the per-role loop so the panel still renders — no redeploy gate.
  * @returns A promise that resolves to an array of GrantTableDataType.
  */
-export async function getPermissions(): Promise<GrantTableDataType[]> {
+export async function getPermissionsView(): Promise<GrantsMatrixView> {
   try {
     const grantsMap = new Map<string, Set<string>>();
     const add = (roleName: string, grants: RoleGrant[]) => {
@@ -66,12 +84,36 @@ export async function getPermissions(): Promise<GrantTableDataType[]> {
       console.warn('grants-matrix unavailable, falling back to per-role:', batchError?.message);
     }
 
+    // Cold snapshot still building in background: rows stay null (NEVER an
+    // empty grid presented as truth) — the caller re-reads after retryAfterS.
+    // Do NOT fall through to the per-role loop here: those reads are exactly
+    // what the backend moved to background (two admin roles alone take ~30 s).
+    if (matrix?.state === 'preparing') {
+      return {
+        rows: null,
+        state: 'preparing',
+        partial: true,
+        skippedRoles: matrix.skipped_roles ?? [],
+        retryAfterS: matrix.retry_after_s ?? 5,
+        snapshotAt: null,
+        note: matrix.note ?? null,
+      };
+    }
+
     if (matrix && matrix.grants && typeof matrix.grants === 'object') {
       for (const [roleName, rawGrants] of Object.entries(matrix.grants)) {
         const roleGrants = (Array.isArray(rawGrants) ? rawGrants : []).map(normalizeGrant);
         add(roleName, roleGrants);
       }
-      return aggregateGrants(grantsMap);
+      return {
+        rows: aggregateGrants(grantsMap),
+        state: 'ready',
+        partial: matrix.partial === true,
+        skippedRoles: matrix.skipped_roles ?? [],
+        retryAfterS: null,
+        snapshotAt: matrix.snapshot?.at ?? null,
+        note: matrix.note ?? null,
+      };
     }
 
     // Fallback: legacy N+1 per-role loop (only when the batch endpoint is absent).
@@ -86,11 +128,26 @@ export async function getPermissions(): Promise<GrantTableDataType[]> {
       }
     }
 
-    return aggregateGrants(grantsMap);
+    return {
+      rows: aggregateGrants(grantsMap),
+      state: 'fallback',
+      partial: false,
+      skippedRoles: [],
+      retryAfterS: null,
+      snapshotAt: null,
+      note: null,
+    };
   } catch (error) {
     console.error('Error fetching aggregated permissions:', error);
     throw error;
   }
+}
+
+/** Legacy signature (api-health probe & scripts): rows only — while the
+ *  snapshot is preparing this returns [], so honest UIs should prefer
+ *  {@link getPermissionsView} and treat rows:null as "warming". */
+export async function getPermissions(): Promise<GrantTableDataType[]> {
+  return (await getPermissionsView()).rows ?? [];
 }
 
 /**
