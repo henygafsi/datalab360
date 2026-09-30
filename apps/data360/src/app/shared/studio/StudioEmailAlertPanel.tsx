@@ -52,8 +52,46 @@ function testSummary(t: {
   status?: string;
   error_code?: string;
   reason?: string;
+  delivery?: string;
+  delivery_evidence?: { found?: boolean; status?: string; error?: string | null; means?: string } | null;
 }): { text: string; ok: boolean; raw?: string } {
-  if (t.status === 'sent') return { text: 'Test sent to the recipients above.', ok: true };
+  /* "sent" OVERCLAIMED, and it cost a real user a wasted wait (2026-09-30).
+   * Four test messages were reported as sent and none arrived.
+   *
+   * WHAT WE FIRST BELIEVED, and it was WRONG: that the warehouse silently drops
+   * an unverified recipient while the call still succeeds. It does not. Tested
+   * by sending to an address on an account user whose domain cannot resolve —
+   * the call was REFUSED, naming the offending index. So an accepted recipient
+   * is necessarily a validated address of an account user, and the notification
+   * history confirmed every message as processed with no error.
+   *
+   * WHAT IS ACTUALLY TRUE: the warehouse can tell us the message was accepted
+   * and processed. It cannot tell us an inbox received it — there is no receipt
+   * to be had, and the most common reason a processed message is not seen is
+   * spam or promotions filtering of a new sender. So the copy states what
+   * happened, offers the warehouse's own record as evidence rather than an
+   * adjective, and points at the likeliest cause instead of inventing one.
+   *
+   * Both status spellings are handled: the backend now answers "accepted", and
+   * an older deployment still answering "sent" must not fall through to the
+   * "Not sent" branch and alarm someone about a message that was fine. */
+  if (t.status === 'accepted' || t.status === 'sent') {
+    const ev = t.delivery_evidence;
+    // the warehouse's OWN record of what became of the message, when it has one
+    const trace =
+      ev?.found && ev.status
+        ? ev.error
+          ? ` The mail service reported: ${ev.error}.`
+          : ` The mail service recorded it as ${ev.status} — which means it processed the message, not that an inbox received it.`
+        : '';
+    return {
+      text:
+        'Handed to the mail integration — the statement succeeded. Delivery to an inbox cannot be confirmed from here, and no receipt exists.' +
+        trace +
+        ' If it does not appear, check the spam and promotions folders first: a new sender is filtered there far more often than it is lost.',
+      ok: true,
+    };
+  }
   if (t.status === 'dry_run')
     return { text: 'Dry run: the call is valid — nothing was sent.', ok: true };
   const raw = neutralize(t.reason);
@@ -713,12 +751,12 @@ export default function StudioEmailAlertPanel({
               return (
                 <p
                   title={s.raw && s.raw !== s.text ? s.raw : undefined}
+                  /* A hand-off is NOT a delivery, so it is not painted green.
+                     Emerald here said "it arrived" about something we cannot
+                     observe; slate says "this happened, the rest is out of our
+                     sight", which is the truth. Only a real failure is red. */
                   className={`text-xs ${
-                    s.ok && test.status === 'sent'
-                      ? 'text-emerald-700 dark:text-emerald-400'
-                      : s.ok
-                        ? 'text-slate-600 dark:text-slate-300'
-                        : 'text-rose-600 dark:text-rose-400'
+                    s.ok ? 'text-slate-600 dark:text-slate-300' : 'text-rose-600 dark:text-rose-400'
                   }`}
                 >
                   {s.text}
