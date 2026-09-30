@@ -36,6 +36,9 @@ export interface DqCheckActionOption {
   reason?: string;
   requires?: string[];
   detail?: string;
+  /** what CHANGES in the data if this is pressed — computed from the warehouse,
+   *  never model-generated, because this is the sentence a user acts on. */
+  impact?: string;
 }
 
 export interface DqCheckResolution {
@@ -206,6 +209,59 @@ export interface DqResolveResult {
   check?: DqGateCheck;
   gate?: { overall?: string; blockers?: unknown[]; handled?: unknown[] };
   next?: { run_job?: unknown; replay_dlq?: unknown };
+}
+
+/** The gate's per-check verdicts WITH the remediation each one offers.
+ *
+ *  This read existed on the backend and was never consumed: every failing check
+ *  already carries `suggested_action`, an `actions[]` list with `available` +
+ *  `reason` + `requires`, an `options_hint`, and a `proposal` whose
+ *  `instruction` is the remediation stated in business words. The Quality page
+ *  was therefore able to diagnose but never to ACT — the last step of the
+ *  product's own spine (understand → quality → model → visualize → act). */
+export interface DqCheckProposal {
+  kind?: string;
+  /** the remediation in business words, e.g. "Handle 302 orphan rows …". */
+  instruction?: string;
+  /** the paragraph that explains the finding with ITS numbers — present when
+   *  the backend could compute (or refine) one. Prose only: every figure in it
+   *  comes from the warehouse, never from a model. */
+  reasoning?: string | null;
+  /** "computed" (deterministic, free) | "model" (refined by the local model). */
+  reasoning_source?: string | null;
+  /** the deterministic floor, kept even when a model refined it. */
+  reasoning_computed?: string | null;
+  action?: { type?: string; relationship_id?: string; options?: string[]; [k: string]: unknown };
+}
+
+export interface DqChecksAdvice {
+  checks?: number;
+  with_impact?: number;
+  with_reasoning?: number;
+  model_calls?: number;
+}
+
+export interface DqChecksView {
+  advice?: DqChecksAdvice;
+  checks?: Array<DqGateCheck & { proposal?: DqCheckProposal | null }>;
+  overall?: string;
+  blockers?: unknown[];
+  evaluated?: boolean;
+  evaluated_at?: string | null;
+  run_id?: string;
+}
+
+/** `explain` opts into the model refinement of the reasoning paragraph. It is
+ *  LAST and optional on purpose: the backend hit a bug adding an equivalent
+ *  flag in second position, which silently rebound five callers' positional
+ *  arguments. Default off — the deterministic reasoning is already useful and
+ *  costs nothing. */
+export async function getDqChecks(draftId: string, explain = false): Promise<DqChecksView> {
+  const { data } = await apiClient.get<DqChecksView>(
+    `/studio/drafts/${encodeURIComponent(draftId)}/dq/checks${explain ? '?explain=true' : ''}`,
+    { timeout: 120_000 },
+  );
+  return data;
 }
 
 export async function resolveDqCheck(

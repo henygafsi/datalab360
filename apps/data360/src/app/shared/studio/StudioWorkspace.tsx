@@ -63,6 +63,8 @@ import StudioKnowledgeHeader from '@/app/shared/studio/StudioKnowledgeHeader';
 import StudioAccessProfilesPanel from '@/app/shared/studio/StudioAccessProfilesPanel';
 import StudioGlossary from '@/app/shared/studio/StudioGlossary';
 import ObjectsPanel from '@/app/shared/studio/sources/ObjectsPanel';
+import ReferenceTableUpload from '@/app/shared/studio/sources/ReferenceTableUpload';
+import StudioDqActions from '@/app/shared/studio/StudioDqActions';
 import {
   LIFECYCLE_CLS,
   LIFECYCLE_WORDS,
@@ -111,7 +113,7 @@ import {
   type StudioTarget,
   type StudioDraftSummary,
   type StudioModelView as ModelPayload,
-} from '@/app/services/studio/studio-api';
+  invalidateSourcesCaches,} from '@/app/services/studio/studio-api';
 import StudioExportMenu from '@/app/shared/studio/StudioExportMenu';
 import StudioReportFilters from '@/app/shared/studio/StudioReportFilters';
 import { getObservedValues } from '@/app/services/studio/access-profiles';
@@ -462,18 +464,21 @@ type TileState =
   | { status: 'done'; result: RunResult }
   /** `error` is ALWAYS a sentence — the batch route declares a string and
    *  sends an object, and rendering that object blanked the application. */
-  | { status: 'error'; error: string; budget?: boolean; raw?: string }
+  | { status: 'error'; error: string; budget?: boolean; governed?: boolean; raw?: string }
   /** The batch ran out of its time budget before reaching this tile. It is
    *  neither a success nor a failure: nothing was asked of the warehouse,
    *  so saying "failed" would be a lie and showing an empty box would be
    *  indistinguishable from a broken widget. */
   | { status: 'not_run'; reason: string; retry?: string };
 
-/** One failing widget must never take the page down with it, and a spent
- *  budget must not read as a broken feature. */
+/** One failing widget must never take the page down with it, a spent budget
+ *  must not read as a broken feature — and neither must GOVERNANCE. A tile
+ *  refused by an aggregation or projection policy is the account's own rules
+ *  being applied; painting it red teaches the reader that protecting data
+ *  breaks the product. */
 function tileFailure(err: unknown): TileState {
   const f = readFailure(err);
-  return { status: 'error', error: f.text, budget: f.budget, raw: f.raw };
+  return { status: 'error', error: f.text, budget: f.budget, governed: f.governed, raw: f.raw };
 }
 
 /** The light model serves report entries as ID STRINGS; only the full
@@ -2114,9 +2119,19 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                               </p>
                             ) : t.status === 'error' ? (
                               <p
-                                className={`text-xs ${t.budget ? 'text-amber-700 dark:text-amber-300' : 'text-red-600 dark:text-red-400'}`}
+                                className={`text-xs ${
+                                  t.governed
+                                    ? 'text-slate-600 dark:text-slate-300'
+                                    : t.budget
+                                      ? 'text-amber-700 dark:text-amber-300'
+                                      : 'text-red-600 dark:text-red-400'
+                                }`}
                                 title={t.raw}
                               >
+                                {/* a policy refusal is stated, not alarmed — it is the
+                                    account's governance doing its job, and red would
+                                    read as "the product is broken" */}
+                                {t.governed ? <span aria-hidden>🔒 </span> : null}
                                 {t.error}
                               </p>
                             ) : (t.result.rows?.length ?? 0) === 0 ? (
@@ -2543,6 +2558,15 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
                   )
                 }
               />
+              {/* INGESTION belongs on the Data page, beside the objects it will
+                  join — not on a separate Sources screen the user has to leave
+                  the application to reach. Reference data (regions, families,
+                  store lists, a mapping table) is usually a spreadsheet, and
+                  the whole point is to land it next to the fact it explains. */}
+              <ReferenceTableUpload
+                defaultDatabase="DATA360_LITE"
+                onCreated={() => invalidateSourcesCaches()}
+              />
             </div>
           )}
 
@@ -2551,6 +2575,10 @@ export default function StudioWorkspace({ appId }: { appId?: string }) {
           {tab === 'quality' && (
             <div className="grid grid-cols-1 gap-3">
               {draftId && <StudioQualitySummary draftId={draftId} />}
+              {/* ACT — the spine's last step, directly under the diagnosis that
+                  produced it. Every option here is deduced from what the gate
+                  measured on this data; it renders nothing when nothing failed. */}
+              {draftId && <StudioDqActions draftId={draftId} />}
               {draftId && (
                 <StudioQualityPanel
                   draftId={draftId}

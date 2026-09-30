@@ -36,6 +36,7 @@ import { useSetAtom } from 'jotai';
 import { stepAskAtom } from '@/app/shared/studio/studioAskAtom';
 import { readFailure } from '@/app/shared/studio/studio-errors';
 import { PlainQuestionHeader, QuietAction } from '@/app/shared/studio/PlainKit';
+import UnderstandingQualityGate from '@/app/shared/studio/onboarding/UnderstandingQualityGate';
 import EmptyState from '@/components/ui/EmptyState';
 import { routes } from '@/config/routes';
 import { useRouter } from 'next/navigation';
@@ -884,6 +885,13 @@ export default function UnderstandingStep({
           {u.ai?.status === 'ok' && u.ai.summary && (
             <p className="text-xs text-slate-600 dark:text-slate-300">{u.ai.summary}</p>
           )}
+
+          {/* QUALITY — the spine's second step, and the one the journey skipped.
+              This step's own copy promises "runs the sample quality checks … in
+              the same pass"; the checks ran and the verdict was never shown, so
+              a reader could walk into Preview past a blocked gate. Reading the
+              stored verdict is free; re-measuring is an explicit button. */}
+          {analysisDraftId && <UnderstandingQualityGate draftId={analysisDraftId} />}
 
           {entities.length > 0 && (
             <div>
