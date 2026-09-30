@@ -289,19 +289,43 @@ export interface StudioRelationship {
  *  ({entity_id, entity_name, fqn, column}); older payloads sent flat ids
  *  (from_entity/from_fqn/from_column). Normalize before rendering — an
  *  un-normalized object stringifies to "[object Object]" and a flat read
- *  of the object shape renders '—' (the em-dash bug of 2026-09-06). */
+ *  of the object shape renders '—' (the em-dash bug of 2026-09-06).
+ *
+ *  A COMPOSITE relationship is the third shape and it bit us the same way
+ *  (measured 2026-09-29 on the two-fact model): a join on more than one column
+ *  sends `columns: ["STORE_CODE","SUPPLIER_CODE"]` and NO `column`, so a reader
+ *  of `column` alone got undefined at both ends and the join rendered with no
+ *  keys at all — the very relationship most in need of explaining, because a
+ *  composite fact-to-fact join is the one that can multiply rows. */
 export interface RelEnd {
   id?: string;
   name?: string;
   fqn?: string;
+  /** the joined column — for a composite key, the parts joined by ", ". */
   column?: string;
+  /** every joined column, when the end is composite (length > 1). */
+  columns?: string[];
 }
 
 function relEnd(v: unknown): RelEnd {
   if (typeof v === 'string') return { id: v, name: v };
   if (v && typeof v === 'object') {
-    const o = v as { entity_id?: string; entity_name?: string; fqn?: string; column?: string };
-    return { id: o.entity_id, name: o.entity_name, fqn: o.fqn, column: o.column };
+    const o = v as {
+      entity_id?: string;
+      entity_name?: string;
+      fqn?: string;
+      column?: string;
+      columns?: string[];
+    };
+    const cols = Array.isArray(o.columns) ? o.columns.filter(Boolean) : undefined;
+    return {
+      id: o.entity_id,
+      name: o.entity_name,
+      fqn: o.fqn,
+      // a composite end is readable as one string; the parts stay available
+      column: o.column ?? (cols && cols.length ? cols.join(', ') : undefined),
+      columns: cols && cols.length ? cols : o.column ? [o.column] : undefined,
+    };
   }
   return {};
 }
@@ -1429,6 +1453,21 @@ export interface CatalogBlock {
   availability?: Record<string, unknown> & { status?: string };
   compute?: Record<string, unknown>;
   editable_in?: { jobs?: string[]; workflows?: string[] };
+  /** WHERE AND HOW THIS BLOCK RUNS (2026-09-29). Every block is addable to a
+   *  workflow now; what differs is which engine executes it and whether a
+   *  sandbox test can run it for real. A transform step DELEGATES — it carries
+   *  the block's identity and config, never its own SQL, so the model keeps one
+   *  definition, one lineage and one quality gate. */
+  execution?: {
+    engine?: 'workflow_engine' | 'job_engine' | 'platform_engine' | 'none' | string;
+    /** true when a sandbox test run really executes it (2 of 115 today). */
+    in_workflow_test_run?: boolean;
+    /** what a TEST run does with it — rendered verbatim. */
+    test_behaviour?: string;
+    /** what a REAL run does with it — rendered verbatim. */
+    how?: string;
+    edit_in?: Record<string, unknown>;
+  };
 }
 
 export async function getBlocksCatalog(
@@ -2565,6 +2604,26 @@ export interface WorkflowTestRun {
     is_test_data?: boolean;
   };
   steps?: unknown[];
+  /** PER-STEP OUTCOME of a test run (2026-09-29). One entry per step, so a run
+   *  report can say what each block actually did instead of one verdict for the
+   *  whole workflow. The four outcomes are deliberately distinct:
+   *    executed       — it really ran in the sandbox
+   *    simulated      — recorded with its planned effect; a sandbox is simply
+   *                     not where this engine runs. NOT a failure.
+   *    skipped        — deliberately not run (the user turned it off)
+   *    not_delivered  — we tried and could not (no connector, refused)
+   *  Merging the last two would hide a real failure behind a deliberate choice. */
+  steps_outcome?: Array<{
+    step_id?: string;
+    label?: string;
+    block_type?: string;
+    family?: string;
+    engine?: string;
+    outcome?: 'executed' | 'simulated' | 'skipped' | 'not_delivered' | string;
+    detail?: string;
+    destination?: string;
+    runs_on?: string;
+  }>;
   query_ids?: string[];
   proofs?: Array<Record<string, unknown>>;
 }

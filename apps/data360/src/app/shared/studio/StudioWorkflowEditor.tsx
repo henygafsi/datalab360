@@ -34,7 +34,9 @@ import {
   BarChart3,
   Bell,
   Check,
+  Brain,
   Database,
+  Filter,
   GitBranch,
   type LucideIcon,
   Mail,
@@ -43,6 +45,7 @@ import {
   Search,
   Send,
   Sparkles,
+  Shuffle,
   Square,
   Ticket,
   Workflow,
@@ -70,6 +73,65 @@ import {
 } from '@/app/services/studio/studio-api';
 import { readFailure } from '@/app/shared/studio/studio-errors';
 import StudioEmailAlertPanel from '@/app/shared/studio/StudioEmailAlertPanel';
+
+/** The BLOCK FAMILY as a glyph. The palette showed a 1.5px coloured dot for
+ *  115 blocks, so a reader scanning for "the join one" or "the ML one" had only
+ *  the label to go on and the eye had nothing to lock onto. The icon carries the
+ *  FAMILY (what kind of thing this is) while its colour keeps carrying
+ *  AVAILABILITY — two facts in the space the dot used for one. */
+const FAMILY_GLYPH: Record<string, typeof Database> = {
+  transform: Shuffle,
+  ingestion: Database,
+  python_ml: Brain,
+  delivery: Send,
+  control: GitBranch,
+};
+
+function familyGlyph(family?: string | null): typeof Database {
+  return FAMILY_GLYPH[String(family ?? '')] ?? Filter;
+}
+
+/** Why a field is present but not writable. A greyed input with no reason is
+ *  the same dead end "n/a" was on the block palette: the reader sees a control,
+ *  cannot use it, and is told nothing. A field is editable only when the served
+ *  definition gives it a PATH — no path means this value is derived elsewhere
+ *  (the model, the job, or a decision on another tab) rather than typed here. */
+function notEditableWhy(hasPath: boolean): string {
+  return hasPath
+    ? 'fixed for this block type'
+    : 'set where it is defined — the model, the job, or a decision on another tab';
+}
+
+/** WHICH ENGINE RUNS THIS BLOCK, in the reader's words.
+ *  Every block is addable to a workflow now, so the palette no longer refuses
+ *  anything — what it must say instead is WHERE the work happens. A transform
+ *  step delegates to the job engine: the workflow says "run this", the model
+ *  keeps the one definition, the one lineage and the one quality gate. */
+const ENGINE_WORDS: Record<string, string> = {
+  workflow_engine: 'in the workflow',
+  job_engine: 'by its job',
+  platform_engine: 'on the platform',
+  none: 'no connector',
+};
+
+function engineWords(engine?: string | null): string {
+  return ENGINE_WORDS[String(engine ?? '')] ?? 'add';
+}
+
+/** A STEP'S OUTCOME, said so the reader draws the right conclusion.
+ *  Two distinctions are load-bearing and must not be flattened:
+ *   • simulated is NOT a failure — the step is fine, a sandbox just is not where
+ *     its engine runs. Painting it red would teach a reader that a correct
+ *     workflow is broken.
+ *   • skipped is NOT not_delivered — "you turned this off" and "we tried and
+ *     could not" are different facts, and merging them hides a real failure
+ *     behind a deliberate choice. */
+const STEP_OUTCOME: Record<string, { word: string; cls: string; glyph: string }> = {
+  executed: { word: 'ran', cls: 'text-emerald-700 dark:text-emerald-400', glyph: '●' },
+  simulated: { word: 'simulated', cls: 'text-sky-700 dark:text-sky-400', glyph: '◐' },
+  skipped: { word: 'skipped', cls: 'text-slate-500 dark:text-slate-400', glyph: '○' },
+  not_delivered: { word: 'not delivered', cls: 'text-amber-700 dark:text-amber-400', glyph: '▲' },
+};
 
 function errText(e: unknown): string {
   const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
@@ -484,6 +546,7 @@ function BlockCategory({
                   };
                   const addable =
                     bb.addable_to_workflows ?? (b.editable_in?.workflows?.length ?? 0) > 0;
+                  const ex = b.execution;
                   const dot =
                     st === 'available'
                       ? 'bg-emerald-500'
@@ -492,6 +555,14 @@ function BlockCategory({
                         : st === 'partial'
                           ? 'bg-sky-500'
                           : 'bg-slate-300 dark:bg-slate-600';
+                  const dotText =
+                    st === 'available'
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : st === 'to_configure'
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : st === 'partial'
+                          ? 'text-sky-600 dark:text-sky-400'
+                          : 'text-slate-400 dark:text-slate-500';
                   const why =
                     bb.reason ??
                     (addable
@@ -500,9 +571,11 @@ function BlockCategory({
                   return (
                     <button
                       type="button"
-                      disabled={!addable}
+                      disabled={!(bb.addable_to_workflows ?? addable)}
                       onClick={() => onPick(b)}
-                      title={`${b.description || b.label || b.block_type} — ${why}${
+                      title={`${b.description || b.label || b.block_type} — ${
+                        ex?.test_behaviour ? `on a test run: ${ex.test_behaviour}` : why
+                      }${ex?.how ? ` · on a real run: ${ex.how}` : ''}${
                         b.availability?.evidence ? ` (${b.availability.evidence})` : ''
                       }`}
                       className={`flex w-full items-center gap-2 rounded-lg border px-2 py-1 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 ${
@@ -511,13 +584,42 @@ function BlockCategory({
                           : 'cursor-not-allowed border-slate-100 opacity-60 dark:border-slate-800'
                       }`}
                     >
-                      <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+                      {(() => {
+                        const Glyph = familyGlyph(b.family);
+                        return <Glyph aria-hidden className={`h-3.5 w-3.5 shrink-0 ${dotText}`} />;
+                      })()}
                       <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-200">
                         {b.label ?? b.block_type}
                       </span>
-                      {!addable ? (
+                      {ex?.engine ? (
+                        /* nothing is refused any more — say which engine runs it,
+                           and let the tooltip carry what a test run will do */
+                        <span
+                          className={`shrink-0 text-[10px] ${
+                            ex.in_workflow_test_run
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-slate-400 dark:text-slate-500'
+                          }`}
+                        >
+                          {engineWords(ex.engine)}
+                        </span>
+                      ) : !addable ? (
                         <span className="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">
-                          {st === 'not_integrated' ? 'not integrated' : st === 'to_configure' ? 'to configure' : 'n/a'}
+                          {/* "n/a" was a dead end on 107 of the 115 blocks. The
+                              catalogue already says WHY each one is not a
+                              workflow step — most are model/job blocks, edited on
+                              the Model or in the job — and that reason was buried
+                              in a tooltip. A reader hunting for Join needs to be
+                              told where Join lives, not that it is unavailable. */}
+                          {st === 'not_integrated'
+                            ? 'not integrated'
+                            : st === 'to_configure'
+                              ? 'to configure'
+                              : /job \/ model block|edit it on the Model/i.test(bb.reason ?? '')
+                                ? 'on the Model'
+                                : /runs as a job|platform engine/i.test(bb.reason ?? '')
+                                  ? 'runs as a job'
+                                  : 'not a step here'}
                         </span>
                       ) : (
                         <span className="shrink-0 text-[10px] text-accent-600 dark:text-accent-400">add</span>
@@ -1403,6 +1505,73 @@ export default function StudioWorkflowEditor({
                   {testRun.evidence?.is_test_data ? ' · test data' : ''}
                 </p>
               )}
+
+              {/* WHAT EACH STEP DID. One verdict for a whole workflow hides the
+                  interesting half: which block ran, which was only recorded, and
+                  which could not be delivered at all. */}
+              {testRun?.steps_outcome?.length ? (
+                <ul className="mt-1 space-y-0.5 rounded-lg border border-slate-200 p-2 dark:border-slate-800">
+                  {/* THE TALLY FIRST. A real workflow reached 8 steps in testing and
+                      will reach more; a reader should not have to count glyphs to
+                      learn "3 ran, 5 were recorded". The headline answers the whole
+                      question, the list answers "which". */}
+                  {(() => {
+                    const by = testRun.steps_outcome!.reduce<Record<string, number>>((m, x) => {
+                      const k = String(x.outcome ?? 'unknown');
+                      m[k] = (m[k] ?? 0) + 1;
+                      return m;
+                    }, {});
+                    const order = ['executed', 'simulated', 'skipped', 'not_delivered'];
+                    const parts = order.filter((k) => by[k]).map((k) => ({ k, n: by[k] }));
+                    return (
+                      <li className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b border-slate-100 pb-1 text-[12px] dark:border-slate-800">
+                        <span className="font-medium text-slate-700 dark:text-slate-200">
+                          {testRun.steps_outcome!.length} step
+                          {testRun.steps_outcome!.length > 1 ? 's' : ''}
+                        </span>
+                        {parts.map(({ k, n }) => {
+                          const o = STEP_OUTCOME[k];
+                          return (
+                            <span key={k} className={o ? o.cls : 'text-slate-500'}>
+                              {o ? `${o.glyph} ` : ''}
+                              {n} {o ? o.word : k}
+                            </span>
+                          );
+                        })}
+                      </li>
+                    );
+                  })()}
+                  {testRun.steps_outcome.map((st, i) => {
+                    const o = STEP_OUTCOME[String(st.outcome ?? '')] ?? {
+                      word: String(st.outcome ?? 'unknown'),
+                      cls: 'text-slate-500 dark:text-slate-400',
+                      glyph: '·',
+                    };
+                    return (
+                      <li key={st.step_id ?? `${st.block_type}-${i}`} className="flex items-start gap-2 text-[12px]">
+                        <span aria-hidden className={`mt-px ${o.cls}`}>{o.glyph}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="font-medium text-slate-700 dark:text-slate-200">
+                            {st.label ?? st.block_type}
+                          </span>
+                          <span className={`ml-1.5 ${o.cls}`}>{o.word}</span>
+                          {st.detail ? (
+                            <span className="text-slate-500 dark:text-slate-400"> — {st.detail}</span>
+                          ) : null}
+                          {st.destination ? (
+                            <span className="ml-1 font-mono text-[11px] text-slate-400 dark:text-slate-500">
+                              {st.destination}
+                            </span>
+                          ) : null}
+                        </span>
+                      </li>
+                    );
+                  })}
+                  <li className="pt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                    Simulated means the step is fine — a sandbox is not where its engine runs.
+                  </li>
+                </ul>
+              ) : null}
               {/* the deduced NEXT step at the success moment — a green test on an
                   inactive schedule would otherwise end in silence, and the chain
                   propose → review → test → activate stalls right where it worked */}
@@ -1551,6 +1720,11 @@ export default function StudioWorkflowEditor({
                                         <option key={o} value={o}>{o}</option>
                                       ))}
                                     </select>
+                                    {!editable && (
+                                      <span className="mt-0.5 block text-[10px] text-slate-400 dark:text-slate-500">
+                                        {notEditableWhy(Boolean(path))}
+                                      </span>
+                                    )}
                                   </label>
                                 );
                               }
@@ -1591,6 +1765,11 @@ export default function StudioWorkflowEditor({
                                     }
                                     className={`h-7 w-full rounded border border-slate-200 bg-white px-1.5 text-xs text-slate-700 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 ${f.mono ? 'font-mono' : ''}`}
                                   />
+                                  {!editable && (
+                                    <span className="mt-0.5 block text-[10px] text-slate-400 dark:text-slate-500">
+                                      {notEditableWhy(Boolean(path))}
+                                    </span>
+                                  )}
                                   {/* the act→access door: an audience is a WHO —
                                       the Access tab answers who that actually is */}
                                   {f.key === 'audience' && onOpenAccess && (
