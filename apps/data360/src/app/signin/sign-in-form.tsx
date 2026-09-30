@@ -10,6 +10,10 @@ import { Checkbox, Password, Button, Input, Text } from 'rizzui';
 import { Form } from '@core/ui/form';
 import { routes } from '@/config/routes';
 import { loginSchema, LoginSchema } from '@/validators/login.schema';
+import { SIGN_IN_TIMEOUT_MS } from '@/app/services/auth/login';
+
+/** Seconds of waiting after which we tell the user the platform is slow. */
+const SLOW_SIGN_IN_HINT_S = 8;
 
 const initialValues: LoginSchema = {
   account_name: '',
@@ -57,6 +61,7 @@ export default function SignInForm() {
   const [reset, setReset] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || routes.accountOverview;
 
@@ -67,9 +72,21 @@ export default function SignInForm() {
     }
   }, [searchParams]);
 
+  // Count the wait. A sign-in that reaches the platform returns in well under a
+  // second; a slow one means the platform is struggling to reach the data
+  // warehouse. Showing the seconds turns a dead spinner into something the user
+  // can reason about (and report), instead of "it just hangs".
+  useEffect(() => {
+    if (!isLoading) return;
+    const started = Date.now();
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [isLoading]);
+
   const onSubmit: SubmitHandler<LoginSchema> = async (data) => {
     setIsLoading(true);
     setError(null);
+    setElapsed(0);
 
     try {
       const result = await signIn('credentials', {
@@ -123,9 +140,30 @@ export default function SignInForm() {
         {({ register, formState: { errors } }) => (
           <div className="space-y-5">
             {error && (
-              <div className="flex items-start gap-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-100 dark:border-red-900/50 p-4">
+              <div
+                role="alert"
+                className="flex items-start gap-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-100 dark:border-red-900/50 p-4"
+              >
                 <PiWarningCircleBold className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+              </div>
+            )}
+
+            {/* A sign-in normally returns in under a second. Past 8s the platform
+                is struggling to reach the data warehouse — say so while the user
+                is still waiting, rather than leaving a silent spinner until the
+                request finally times out. */}
+            {isLoading && elapsed >= SLOW_SIGN_IN_HINT_S && (
+              <div
+                role="status"
+                className="flex items-start gap-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-900/50 p-4"
+              >
+                <PiWarningCircleBold className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  This is taking longer than usual — the platform may be having
+                  trouble reaching the data warehouse. Still trying; it will stop
+                  after {Math.round(SIGN_IN_TIMEOUT_MS / 1000)}s.
+                </p>
               </div>
             )}
 
@@ -193,7 +231,9 @@ export default function SignInForm() {
               {isLoading ? (
                 <div className="flex items-center justify-center gap-2">
                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Signing in...</span>
+                  <span>
+                    Signing in{elapsed >= 3 ? `… ${elapsed}s` : '...'}
+                  </span>
                 </div>
               ) : (
                 <div className="flex items-center justify-center gap-2">

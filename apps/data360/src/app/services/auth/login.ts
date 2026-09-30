@@ -23,6 +23,21 @@ export interface LoginResponse {
 }
 
 /**
+ * How long we wait for the sign-in call before giving up.
+ *
+ * This used to be 180 s, which meant an unreachable data platform left the
+ * sign-in button spinning for three minutes and then reported axios' own
+ * "timeout of 180000ms exceeded" — a message that tells the user nothing and
+ * reads like a credentials failure. A sign-in that has not come back in 45 s is
+ * not going to succeed; failing here lets us say WHY and offer a retry.
+ */
+export const SIGN_IN_TIMEOUT_MS = 45_000;
+
+/** Thrown when the platform never answered — distinct from "bad password". */
+export const SIGN_IN_UNREACHABLE =
+  'The platform did not respond in time. This is a connectivity problem, not a problem with your credentials — please retry, and tell your administrator if it keeps happening.';
+
+/**
  * Login function to authenticate the user.
  *
  * @param loginData - The user credentials (email and password)
@@ -46,8 +61,8 @@ export const login = async (loginData: LoginData): Promise<LoginResponse> => {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        // Add timeout to prevent hanging
-        timeout: 180_000,
+        // Bound the wait so an unreachable platform fails fast and explicably.
+        timeout: SIGN_IN_TIMEOUT_MS,
       }
     );
 
@@ -81,7 +96,20 @@ export const login = async (loginData: LoginData): Promise<LoginResponse> => {
       }
     }
 
-    // Handle network or other errors
+    // No response at all — a timeout or an unreachable host. Neither is a
+    // credentials failure, and axios' own wording ("timeout of 45000ms
+    // exceeded", "Network Error") reads as one. Say what actually happened so
+    // the user retries instead of re-typing a password that was never wrong.
+    if (axiosError.code === 'ECONNABORTED' || /timeout/i.test(axiosError.message ?? '')) {
+      throw new Error(SIGN_IN_UNREACHABLE);
+    }
+    if (!axiosError.response) {
+      throw new Error(
+        'Could not reach the platform. Check your connection, then retry — your credentials were never sent.'
+      );
+    }
+
+    // Handle other errors that DID carry a response
     if (axiosError.message) {
       throw new Error(axiosError.message);
     }
