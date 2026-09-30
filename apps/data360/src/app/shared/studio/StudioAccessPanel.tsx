@@ -424,9 +424,24 @@ export default function StudioAccessPanel({
     .filter((m) => m.apply_supported !== false)
     .map((m) => m.mutation_id ?? '')
     .filter(Boolean);
+  /* A TICK SURVIVES ITS PLAN. `picked` holds mutation ids, and the plan is
+   * recomputed whenever the access question changes — new ids, and the old ones
+   * gone. Nothing pruned the set, so a reader who ticked 20 lines and then
+   * re-planned kept 20 stale ids, the footer said "20 selected" over a plan
+   * holding 2, and Apply came back red:
+   *   unknown mutation ids: ['m14','m9','m10', … 'm20']
+   * Photographed 2026-09-29. Intersecting with the CURRENT plan fixes both
+   * halves: the request can no longer carry an id the backend never issued, and
+   * the count stops describing a plan that no longer exists. Done here rather
+   * than in an effect because this sits after an early return — a hook here
+   * would change hook order between renders. */
+  const supportedSet = new Set(allSupportedIds);
+  const livePicked = [...picked].filter((id) => supportedSet.has(id));
+  const staleTicks = picked.size - livePicked.length;
+
   /** what apply/dry-run acts on: the ticked lines when the reader narrowed,
    *  otherwise every supported operation (the one-click common case) */
-  const applyIds = picked.size > 0 ? [...picked] : allSupportedIds;
+  const applyIds = livePicked.length > 0 ? livePicked : allSupportedIds;
   const roles = view.diff?.roles ?? gov?.roles;
   const candidates = gov?.candidates ?? [];
   /* Resolved by TABLE + column, never by the bare column name: RLS
@@ -821,14 +836,22 @@ export default function StudioAccessPanel({
             })}
           </div>
 
-          {picked.size > 0 && (
+          {livePicked.length > 0 && (
             <button
               type="button"
               onClick={() => setPicked(new Set())}
               className="mt-1 text-xs text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
             >
-              {picked.size} selected — clear to apply all instead
+              {livePicked.length} selected — clear to apply all instead
             </button>
+          )}
+          {/* ticks that belonged to a previous plan: say so once, quietly, so a
+              disappearing count is explained rather than mysterious */}
+          {staleTicks > 0 && (
+            <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+              {staleTicks} earlier tick{staleTicks > 1 ? 's are' : ' is'} no longer part of this plan and
+              {staleTicks > 1 ? ' have' : ' has'} been dropped.
+            </p>
           )}
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -870,8 +893,8 @@ export default function StudioAccessPanel({
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-700 disabled:opacity-50"
             >
               {busy === 'apply' && <RefreshCw aria-hidden className="h-3.5 w-3.5 animate-spin" />}
-              {picked.size > 0
-                ? `Apply ${picked.size} selected`
+              {livePicked.length > 0
+                ? `Apply ${livePicked.length} selected`
                 : `Apply all ${allSupportedIds.length} operation${allSupportedIds.length > 1 ? 's' : ''}`}
             </button>
             <button

@@ -129,6 +129,21 @@ function jobsKpis(j: JobsSummary): Kpi[] {
   const stageTotal = Object.values(byStage).reduce((a, b) => a + (b ?? 0), 0);
   const total = jobs.length > 0 ? jobs.length : stageTotal || null;
   const dlq = jobs.reduce((a, x) => a + (x.dlq_open ?? 0), 0);
+
+  /* An application with NO transformations yet was rendering six tiles that said
+   * "— 0 0 0 — —": half em-dashes, half zeros, for the same fact. Two problems in
+   * one strip. It contradicted itself (Jobs "—" beside Source loads "0" — if there
+   * are no jobs there are not zero loads, there are no loads), and it spent the
+   * whole top of the page saying nothing, pushing the one thing the reader should
+   * do — propose the target model — below six empty boxes.
+   * A measure strip has to earn its space: with nothing to count, it does not
+   * render at all (the caller drops an empty list) and the call to action is the
+   * first thing on the page. Once a single job exists, 0 becomes a real
+   * measurement and every tile returns. */
+  const nothingYet =
+    total == null && stageTotal === 0 && dlq === 0 && j.credits_reconciled_total == null;
+  if (nothingYet) return [];
+
   return [
     { key: 'total', label: 'Jobs', value: total, icon: Boxes },
     { key: 'source', label: 'Source loads', value: byStage.source_loads ?? null, icon: Database },

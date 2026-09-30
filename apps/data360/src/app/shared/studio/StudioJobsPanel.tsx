@@ -295,7 +295,7 @@ export default function StudioJobsPanel({
       <div className="flex flex-wrap items-center gap-2">
         {/* automations moved to the Automation group — one nav, one surface */}
         {/* not all of them are loads — fact builds and event jobs sit here too */}
-        <SectionHead icon={Workflow} label="Processes" count={jobs.length || null} />
+        <SectionHead icon={Workflow} label="Transformations" count={jobs.length || null} />
         {staleView && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" role="status">
             showing the last known state — the refresh failed
@@ -329,6 +329,27 @@ export default function StudioJobsPanel({
           </span>
         )}
       </div>
+
+      {/* WHAT BELONGS HERE — the page used to be the catch-all for anything that
+          moved data, which made it the place people looked for "load my file" and
+          for "tell me when something breaks". Neither lives here any more:
+          bringing data IN is a Sources action (connect a system, or upload a file),
+          and being TOLD about something is an Automation. What is left is the one
+          thing only this page does — the transformations that build the model's
+          tables. Saying so costs three lines and saves a hunt. */}
+      {/* One line, not a paragraph. The first draft of this explained the page in
+          three clauses and then listed what did NOT belong here in a second,
+          lighter sentence — which read as grey filler above the only button that
+          mattered. What the reader needs is the one thing this page does; where
+          the other two things live is a pointer, not prose. */}
+      <p className="mt-1.5 text-[12px] text-slate-500 dark:text-slate-400">
+        The step between the data you connected and the model you report on.
+        <span className="mx-1.5 text-slate-300 dark:text-slate-600">·</span>
+        <span className="text-slate-500 dark:text-slate-400">
+          Loading data lives in <span className="font-medium text-slate-600 dark:text-slate-300">Sources</span>,
+          alerts in <span className="font-medium text-slate-600 dark:text-slate-300">Automation</span>.
+        </span>
+      </p>
 
       {targets.length === 0 ? (
         <div className="mt-3">
