@@ -34,10 +34,11 @@ const ADMIN_ROLES = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'];
  * This one path must never be refused, because refusing it has nowhere left to
  * go. A user who does not hold `account_overview` used to be bounced
  * `/account-overview` → `/?denied=account_overview` → `/account-overview?…` →
- * forever: measured at 6386 navigations in seven seconds, which the browser
- * ends as ERR_TOO_MANY_REDIRECTS. The whole product became unreachable for
- * them — exactly the lockout the FAIL OPEN rule above exists to prevent, and
- * strictly worse than the over-permissive page this gate was added to close.
+ * forever: measured at 6386 main-frame navigations before the probe stopped
+ * counting, which a browser ends as ERR_TOO_MANY_REDIRECTS. The whole product
+ * became unreachable for them — exactly the lockout the FAIL OPEN rule above
+ * exists to prevent, and strictly worse than the over-permissive page this
+ * gate was added to close.
  *
  * Letting it render is consistent with that rule: the API is still the
  * enforcing boundary and still refuses the data, so the page opens empty and
