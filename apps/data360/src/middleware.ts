@@ -28,6 +28,27 @@ import { NextResponse } from 'next/server';
 const ADMIN_ROLES = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'];
 
 /**
+ * Where a refusal lands: `/` forwards here (carrying the reason), and it is
+ * also where NextAuth sends a fresh sign-in.
+ *
+ * This one path must never be refused, because refusing it has nowhere left to
+ * go. A user who does not hold `account_overview` used to be bounced
+ * `/account-overview` → `/?denied=account_overview` → `/account-overview?…` →
+ * forever: measured at 6386 navigations in seven seconds, which the browser
+ * ends as ERR_TOO_MANY_REDIRECTS. The whole product became unreachable for
+ * them — exactly the lockout the FAIL OPEN rule above exists to prevent, and
+ * strictly worse than the over-permissive page this gate was added to close.
+ *
+ * Letting it render is consistent with that rule: the API is still the
+ * enforcing boundary and still refuses the data, so the page opens empty and
+ * explains itself (AccessDeniedNotice) instead of trapping the session.
+ *
+ * Note this is keyed on the PATHNAME, never on the `?denied=` parameter — a
+ * user appending `?denied=…` to a gated URL must not thereby open it.
+ */
+const DENIAL_LANDING_PATH = '/account-overview';
+
+/**
  * First path segment → the `apiName` from src/config/modules.ts that owns it.
  * Longest-prefix wins, so a sub-path inherits its parent's module.
  */
@@ -81,15 +102,22 @@ export default withAuth(
    * Signed in, but this page belongs to a module they do not hold.
    *
    * Sending them to /signin would be wrong and alarming: their session is valid,
-   * and a sign-in screen reads as "you have been logged out". They are sent to a
-   * page they DO hold instead, carrying the reason, so the app can say what
+   * and a sign-in screen reads as "you have been logged out". They are sent to
+   * the landing surface instead, carrying the reason, so the app can say what
    * happened. Only genuine unauthenticated traffic reaches the sign-in page,
    * which the `authorized` callback below still handles.
+   *
+   * That landing surface always renders, held or not (DENIAL_LANDING_PATH), so
+   * a refusal costs exactly one redirect and can never chain into another.
    */
   function middleware(req) {
     const token = (req as unknown as { nextauth?: { token?: Record<string, unknown> } }).nextauth?.token ?? null;
-    const required = moduleForPath(req.nextUrl.pathname);
+    const { pathname } = req.nextUrl;
+    const required = moduleForPath(pathname);
     if (!token || !required || holdsModule(token, required)) return NextResponse.next();
+    // The landing surface is the one page a refusal may not refuse — see
+    // DENIAL_LANDING_PATH. Everything else still redirects, exactly once.
+    if (pathname === DENIAL_LANDING_PATH) return NextResponse.next();
 
     const url = req.nextUrl.clone();
     url.pathname = '/';
